@@ -1,143 +1,178 @@
 # PRD 02c: Typography & Text Layout Engine
 
-> Part of the PRD 02 split. Specifies the text stack (block B8): font discovery and substitution, styled-run layout, paragraph and bullet geometry, autofit behavior, and script/vertical-text handling. Normative interfaces in [PRD 06](./06-component-interface-contracts.md).
+> Part of the PRD 02 split (02a/02b/02c/02d). Specifies font discovery, substitution, rich-run shaping, paragraph geometry, the **cosmic-text $\to$ tiny-skia rasterization bridge**, and bullet handling. Normative interfaces live in [PRD 06](./06-component-interface-contracts.md).
 
-## 1. Purpose & Scope
+## 1. Purpose & Architecture
 
-Text is the highest-fidelity-risk subsystem of the renderer: decks are mostly text, and wrong metrics cascade into wrong wrapping, wrong line counts, and wrong-looking slides. The engine wraps **`cosmic-text`** (which composes `fontdb` font discovery, `rustybuzz` shaping, and `bidi` reordering) and is consumed by the shape/table/chart-placeholder renderers of [PRD 02d](./02d-element-renderers-and-fidelity-policy.md).
+Text accounts for the vast majority of visual information in presentations. Incorrect metrics cascade into reflow bugs, clipped text, and broken slide layouts. The typography stack composes:
+- **`fontdb`**: Font asset discovery (bundled, system, user).
+- **`rustybuzz` & `bidi`**: Complex script shaping and bidirectional reordering.
+- **`cosmic-text`**: Multi-run buffer layout and line breaking.
+- **`swash` / `tiny-skia` Blit Bridge**: Glyph rasterization and alpha mask composition onto the canvas.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ TextLayoutEngine (this spec)                            │
-│  1. FontRegistry: system scan + bundled + custom dirs   │
-│  2. Substitution matrix (metric-compatible first)       │
-│  3. Rich-run shaping: TextBody → cosmic-text Buffer     │
-│  4. Paragraph geometry: margins, indents, spacing       │
-│  5. Bullets & auto-numbering                            │
-│  6. Autofit application                                 │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ TextLayoutEngine (Block B8)                                     │
+│                                                                 │
+│ ┌──────────────────────┐        ┌─────────────────────────────┐ │
+│ │ FontRegistry         │        │ cosmic-text Layout Buffer   │ │
+│ │ - Bundled Carlito    │ ───►   │ - Rich spans (color, weight)│ │
+│ │ - Bundled Caladea    │        │ - Insets, alignment, wrap   │ │
+│ │ - System / User dirs │        │ - Paragraph & line spacing  │ │
+│ └──────────────────────┘        └──────────────┬──────────────┘ │
+│                                                │ layout runs    │
+│                                                ▼                │
+│                                 ┌─────────────────────────────┐ │
+│                                 │ SwashCache Glyph Rasterizer │ │
+│                                 │ - 4 subpixel bins (x axis)  │ │
+│                                 │ - 8-bit alpha mask cache    │ │
+│                                 └──────────────┬──────────────┘ │
+│                                                │ blit alpha     │
+│                                                ▼                │
+│                                 ┌─────────────────────────────┐ │
+│                                 │ tiny-skia Pixmap Blitter    │ │
+│                                 └─────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. Font Registry & Substitution
+---
 
-### 2.1 Registry Sources (in lookup order)
-1. **Bundled static fonts** compiled into the binary via `include_bytes!` and registered as immutable `fontdb` sources:
-   - **Carlito** (regular/bold/italic/bold-italic) — metric-compatible with **Calibri**, the default PowerPoint body font.
-   - **Caladea** (regular/bold/italic/bold-italic) — metric-compatible with **Cambria**.
-   - Both are SIL OFL-licensed; bundling them guarantees readable, metrically-correct text on minimal headless installs.
-2. **System fonts** via `fontdb` scan of standard platform font directories.
-3. **User font directories** from `[typography] custom_font_dirs` ([PRD 05](./05-cli-and-export.md) §3).
+## 2. Font Registry & Substitution Matrix
 
-A per-thread `FontSystem` is cached for the compositor worker pool (fontdb loading is expensive; reuse is mandatory for the §8 latency budgets).
+### 2.1 Registry Hierarchy
+1. **Bundled Static Fonts** (compiled in-binary via `include_bytes!`, zero system dependencies):
+   - **Carlito** (Regular, Bold, Italic, Bold-Italic): Metric-compatible clone of Microsoft **Calibri** (the default PowerPoint body font).
+   - **Caladea** (Regular, Bold, Italic, Bold-Italic): Metric-compatible clone of Microsoft **Cambria**.
+   - Both are SIL Open Font License (OFL) licensed, ensuring faithful wrap boundaries on minimal headless servers.
+2. **System Fonts**: Standard platform directories (`/usr/share/fonts`, `/Library/Fonts`, etc.).
+3. **User Fonts**: Custom paths from `[typography] custom_font_dirs` ([PRD 05](./05-cli-and-export.md) §3).
 
-### 2.2 Substitution Matrix
+### 2.2 Ordered Substitution Table
 
-Requested-but-unavailable families resolve through this ordered table:
+| Requested Font Family | Substitute | Relationship | Diagnostics |
+| :--- | :--- | :--- | :--- |
+| **Calibri** | **Carlito** (bundled) | **Metric-compatible** (wraps identically) | Silent |
+| **Cambria** | **Caladea** (bundled) | **Metric-compatible** (wraps identically) | Silent |
+| **Aptos** / Aptos Display | Carlito | Approximate (similar proportions) | `WarningEvent::FontSubstituted` |
+| **Arial** | Liberation Sans $\to$ Carlito | Metric-compatible if installed; else Carlito | Emits if fallback used |
+| **Times New Roman** | Liberation Serif $\to$ Caladea | Metric-compatible if installed; else Caladea | Emits if fallback used |
+| **Consolas** / Courier New | Liberation Mono $\to$ DejaVu Sans Mono | Fixed-pitch approximate | `WarningEvent::FontSubstituted` |
+| *Unknown / uninstalled* | `fontdb` system default sans | Best-effort fallback | `WarningEvent::FontSubstituted` |
 
-| Requested family | Substitute | Relationship |
-| :--- | :--- | :--- |
-| Calibri | Carlito | **Metric-compatible** (bundled) — wraps identically |
-| Cambria | Caladea | **Metric-compatible** (bundled) |
-| Aptos / Aptos Display | Carlito | Approximate (similar proportions; no free metric clone exists) |
-| Arial | Liberation Sans | Metric-compatible if installed; else Carlito |
-| Times New Roman | Liberation Serif | Metric-compatible if installed; else Caladea |
-| Consolas / Courier New | Liberation Mono → DejaVu Sans Mono | **Approximate** (no metric-compatible free Consolas; mono width still aligns) |
-| Segoe UI | Carlito | Approximate |
-| *anything else* | fontdb generic fallback (system sans) | Best-effort |
+### 2.3 Legacy Bullet Font & Symbol Translation
+Decks authored on Windows frequently use legacy symbol fonts (`Wingdings`, `Webdings`, `Symbol`) for bullet characters (`buChar`). On Linux/macOS systems lacking these fonts, characters render as broken glyphs or letters (`l`, `n`). The engine applies a normative mapping:
 
-Every substitution where the relationship is *approximate* emits `WarningEvent::FontSubstituted { requested, substitute }` (surfaced in diagnostics, [PRD 01](./01-parser-and-data-model.md) §7).
+| Font Family | Char Code | Mapped Unicode Glyph | Description |
+| :--- | :--- | :--- | :--- |
+| `Wingdings` | `0x6C` / `0xF06C` | `●` (U+25CF) | Black Circle |
+| `Wingdings` | `0x6E` / `0xF06E` | `■` (U+25A0) | Black Square |
+| `Wingdings` | `0x75` / `0xF075` | `◆` (U+25C6) | Black Diamond |
+| `Wingdings` | `0xD8` / `0xF0D8` | `➢` (U+27A2) | Three-D Top-Lighted Rightwards Arrowhead |
+| `Wingdings` | `0xFC` / `0xF0FC` | `✔` (U+2714) | Heavy Check Mark |
+| `Symbol` | `0xB7` / `0xF0B7` | `•` (U+2022) | Standard Bullet |
 
-**CJK**: no CJK font is bundled (binary-size budget, [PRD 00](./00-system-overview.md) §5). cosmic-text performs per-glyph fallback through the registry; on hosts without any CJK font, glyphs render as tofu and a warning is emitted at first miss. The docs recommend installing `fonts-noto-cjk` for East-Asian decks. This trade-off is deliberate and stated, not accidental.
+---
 
-## 3. Rich-Run Layout — Corrected API Usage
+## 3. Rich-Run Shaping & Paragraph Geometry
 
-> **Change from the previous revision.** The earlier sketch called `Buffer::set_text` per run. `set_text` *replaces the whole buffer contents*, so per-run calls discard all prior runs and their styling. Multi-run styled paragraphs use `set_rich_text` with span attributes:
-
+### 3.1 Shaping Spans
+A paragraph is shaped using `cosmic-text::Buffer::set_rich_text`:
 ```rust
-let mut buffer = Buffer::new(&mut font_system, metrics);
-
 let spans: Vec<(&str, Attrs)> = paragraph.runs.iter().map(|run| {
     let mut attrs = Attrs::new()
-        .family(Family::Name(&resolve_family(&run.font)))
-        .weight(if run.bold.unwrap_or(false) { Weight::BOLD } else { Weight::NORMAL })
-        .style(if run.italic.unwrap_or(false) { Style::Italic } else { Style::Normal });
-    if let Some(size) = effective_size(run, paragraph, body) {
-        attrs = attrs.metrics(Metrics::new(size, size * default_line_ratio));
-    }
-    if let Some(color) = effective_color(run, body, presentation) {
-        attrs = attrs.color(color);
-    }
+        .family(Family::Name(resolved_family(&run.font)))
+        .weight(if run.bold.unwrap_or(body_defaults.bold) { Weight::BOLD } else { Weight::NORMAL })
+        .style(if run.italic.unwrap_or(body_defaults.italic) { Style::Italic } else { Style::Normal });
+    
+    let font_size = run.size_pt.unwrap_or(body_defaults.size_pt) * scale * autofit_scale;
+    attrs = attrs.metrics(Metrics::new(font_size, font_size * line_spacing_ratio));
+    attrs = attrs.color(run_color(run, body_defaults, presentation_defaults));
     (run.text.as_str(), attrs)
 }).collect();
 
-buffer.set_rich_text(&mut font_system, &spans, Shaping::Advanced,
-                     attrs_list_from_defaults(paragraph, body));
+buffer.set_rich_text(&mut font_system, &spans, Shaping::Advanced, default_attrs);
 ```
 
-Run properties are **three-state** in the model (`bold: Option<bool>` — `None` = inherit): resolution order is run → paragraph defaults → body defaults (`default_bold`, `default_font_size`) → presentation defaults (`major_font`/`minor_font` + `default_text_color`). This mirrors the parser's inheritance resolution and must not be re-implemented ad hoc per renderer.
+### 3.2 Paragraph Spacing Math
+- **Line Spacing**:
+  - Percentage (`spcPct`): Line height $H_{\text{line}} = \text{font\_size} \cdot \frac{\text{spcPct}}{100,000}$.
+  - Absolute points (`spcPts`): $H_{\text{line}} = \frac{\text{spcPts}}{100} \text{ pt} \cdot s$.
+- **Space Before / After**:
+  - Added between paragraph layout boxes: $Y_{\text{space}} = \frac{\text{space}}{100} \text{ pt} \cdot s$.
+- **Hanging Indent & Margins**:
+  - Body left margin $mar_l$, right margin $mar_r$, and indent:
+    - If `indent < 0` (hanging indent): Bullet occupies $[mar_l + indent,\, mar_l)$; text aligns to $mar_l$.
 
-**Decorative run properties** (drawn by this engine over/under shaped glyphs):
-- Underline: `sng` renders as a single rule (cosmic-text native); other `underline_style` values (`dbl`, `dotted`, `dash`, `wavy`, …) render as DEGRADED single rules with style-appropriate color (`underline_color` when carried) + warning.
-- Strikethrough: `strikethrough: bool` draws one rule over the glyph advance; `strike_double: bool` draws two parallel rules (both model-carried).
+### 3.3 Vertical Alignment
+After laying out all paragraphs, the total rendered text height is $H_{\text{text}} = \sum \text{line\_heights}$.
+Available height within shape: $H_{\text{avail}} = h_{\text{px}} - (t_{\text{ins}} + b_{\text{ins}}) \cdot s$.
+- `Top` (`t`): $Y_{\text{start}} = t_{\text{ins}} \cdot s$.
+- `Center` (`ctr`): $Y_{\text{start}} = t_{\text{ins}} \cdot s + \max\left(0.0,\; \frac{H_{\text{avail}} - H_{\text{text}}}{2.0}\right)$.
+- `Bottom` (`b`): $Y_{\text{start}} = t_{\text{ins}} \cdot s + \max\left(0.0,\; H_{\text{avail}} - H_{\text{text}}\right)$.
 
-## 4. Paragraph Geometry
+---
 
-All model values are EMU (margins) or hundredths of a point (spacing); the engine converts once via the [PRD 02a](./02a-composition-core-and-render-pipeline.md) §2.3 scale.
+## 4. The Cosmic-Text $\to$ Tiny-Skia Rasterization Bridge
 
-| Property | Model field | Behavior |
-| :--- | :--- | :--- |
-| Body insets | `l_ins / r_ins / t_ins / b_ins` (defaults 91440 / 91440 / 45720 / 45720 EMU) | Subtracted from shape bbox to yield the layout box. |
-| Paragraph margins | `mar_l / mar_r`, `indent` | `indent < 0` = hanging indent (bullet geometry, §5). |
-| Alignment | `alignment` (`left|center|right|just|dist|...`) | `just` → justified; `dist` treated as `just` (distributed is out of scope, DEGRADED). |
-| Space before/after | `space_before/space_after` (points or %) | Added between paragraphs; % resolves against default font size. |
-| Line spacing | `line_spacing` (percent or points) | Percent multiplies the line height; points set absolute line height. |
-| Wrap | `wrap: none | square` | `none` → no wrapping, may overflow bbox (clipped at shape bounds); `square` → normal wrap. |
-| Vertical anchor | `vertical_anchor` (`t | ctr | b | ...`) | Positions the laid-out block within the layout box. |
+Because `tiny-skia` does not contain a font rendering engine, `kitty-pptx` implements a high-performance rasterization bridge:
 
-Overflow behavior (no autofit): text clips at the shape bbox — matching PowerPoint's default. Nothing is ever silently reflowed or shrunk without an explicit autofit instruction (§6).
+```rust
+pub struct GlyphKey {
+    pub font_id: fontdb::ID,
+    pub glyph_id: u16,
+    pub font_size_bits: u32,
+    pub subpixel_bin: u8, // 0..=3 for x subpixel offsets: 0.0, 0.25, 0.5, 0.75
+}
 
-## 5. Bullets & Auto-Numbering
+pub struct RasterizedGlyph {
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
+    pub mask: Vec<u8>, // 8-bit coverage alpha mask
+}
+```
 
-### 5.1 Bullet Kinds (model `Bullet` enum)
-- **None** (`buNone`) — plain paragraph.
-- **Character** (`buChar`) — prefix glyph with independent **size** (`buSzPct`/`buSzPts`) and **color** (`buClr`) groups. The parser resolves these groups independently of the marker typeface; the layout engine must honor that independence (substituted bullet fonts do not inherit run fonts, and vice versa).
-- **Auto-numbered** (`buAutoNum`) — sequence labels generated across *consecutive* paragraphs sharing the same numbering definition:
+### 4.1 Subpixel Binning & Rasterization
+1. For each glyph in `buffer.layout_runs()`:
+   - Position: $x = \text{run.x} + \text{glyph.x}$, $y = \text{run.y} + \text{glyph.y}$.
+   - Horizontal subpixel bin: $bin = \lfloor (x - \lfloor x \rfloor) \cdot 4.0 \rfloor \pmod 4$.
+2. Lookup glyph in thread-local `SwashCache`:
+   - If missing, rasterize via `swash::scale::Render::render()` in alpha mode to produce an 8-bit coverage mask.
+3. Cache glyph mask in an LRU (bounded at 8 MB per worker thread).
 
-| Format family | Rendering examples |
+### 4.2 Pixel Blit Operation
+The rasterized mask is blitted directly into `tiny_skia::PixmapMut`:
+```rust
+for row in 0..glyph.height {
+    for col in 0..glyph.width {
+        let alpha = glyph.mask[(row * glyph.width + col) as usize];
+        if alpha == 0 { continue; }
+        
+        let dest_x = glyph.left + col as i32;
+        let dest_y = glyph.top + row as i32;
+        if dest_x >= 0 && dest_x < canvas_w && dest_y >= 0 && dest_y < canvas_h {
+            // Premultiplied alpha composition onto tiny_skia Pixmap
+            pixmap.blend_pixel(dest_x as u32, dest_y as u32, color, alpha);
+        }
+    }
+}
+```
+This achieves subpixel precision without color fringing and maintains throughput meeting the $< 5\text{ ms}$ text layout budget.
+
+---
+
+## 5. Autofit Semantics
+
+| Mode | Behavior |
 | :--- | :--- |
-| `arabicPeriod` | `1.` `2.` `3.` |
-| `arabicParenR` / `ParenR` | `1)` `2)` |
-| `alphaLcPeriod` / `alphaUcPeriod` | `a.` / `A.` |
-| `alphaLcParenR` / `alphaUcParenR` | `a)` / `A)` |
-| `romanLcPeriod` / `romanUcPeriod` | `i.` / `I.` |
-| `romanLcParenR` / `romanUcParenR` | `i)` / `I)` |
+| **`noAutofit`** | Fixed font metrics; text clips at the shape bounding box on overflow. |
+| **`normAutofit`** | Apply PowerPoint's precomputed `font_scale` (e.g. 0.82) and `line_spacing_reduction`. Because this scale was converged by PowerPoint at authoring time, applying it directly is correct-by-construction. |
+| **`spAutoFit`** | Shape-grow-to-fit: In a slide viewer, geometry cannot expand without breaking layout; text renders at authored scale and clips at boundary (DEGRADED + warning). |
 
-Sequence state resets when a non-numbered paragraph (or a different definition) intervenes. Start values (`startAt`) honored when carried.
+---
 
-- **Graphic bullet** (`buBlip`) — DEGRADED: renders the image scaled to the bullet size when the asset decodes; falls back to `•`.
+## 6. Underline & Strikethrough Geometry
 
-### 5.2 Hanging Indent Geometry
-Bullet label occupies `[mar_l + indent, mar_l)`; the text block starts at `mar_l`. Label is right-aligned to the text edge (PowerPoint convention). Bullet glyph missing from the substituted font → fallback glyph `•` + warning.
-
-## 6. Autofit
-
-The model carries the authored autofit decision and — critically — **PowerPoint's stored scale**:
-
-| `auto_fit` | Behavior |
-| :--- | :--- |
-| `noAutofit` | Fixed box; clip on overflow. |
-| `normAutofit` | Apply the stored `font_scale` (e.g. 0.85) to all font sizes in the body and `line_spacing_reduction` to line spacing. **No iterative re-fit in v1** — the stored values are PowerPoint's own converged result, so applying them is correct-by-construction for decks last saved by PowerPoint. If both are absent (hand-authored XML), render at authored size and clip. |
-| `spAutoFit` | Shape-size-to-fit is a layout-time (authoring) concept; the renderer keeps the authored bbox and clips overflow (DEGRADED, warning). |
-
-## 7. Scripts, Bidirectionality & Vertical Text
-
-- **Shaping & bidi**: delegated to cosmic-text (`rustybuzz` + `bidi`); RTL paragraphs lay out correctly, including mixed-direction runs.
-- **Line breaking**: Unicode UAX #14 via cosmic-text, which covers CJK behavior (no space required between CJK glyphs).
-- **Vertical text** (`bodyPr @vert`): `horz` FULL; `vert270`/`vert` DEGRADED (rotate the laid-out block ±90° within the bbox — glyphs remain upright-rotated, matching the common case); `eaVert`, `mongolianVert`, `wordArtVert*` PLACEHOLDER (plain horizontal render + warning) per the fidelity matrix in [PRD 02d](./02d-element-renderers-and-fidelity-policy.md) §2.
-- **WordArt text warp** (`TextWarp`, 40 presets carried by the model): **DEGRADED** — text renders fully, unwrapped from its warp envelope ([PRD 02d](./02d-element-renderers-and-fidelity-policy.md) §2.1); warp envelopes are a post-v1 fidelity item.
-
-## 8. Performance & Determinism
-
-- `FontSystem` cached per worker thread; registry never rebuilt mid-session.
-- Layout results are pure functions of `(TextBody, defaults, target scale, font set)` — deterministic for golden testing.
-- Latency budget: full text layout + raster for a 6-bullet body ≤ 5 ms at 1920×1080 (measured per [PRD 07](./07-quality-and-testing.md) §5).
+- **Underline**: Rendered as a horizontal rule at baseline $+ \max(1.0,\, 0.1 \cdot \text{size})$. Thickness $t = \max(1.0,\, 0.05 \cdot \text{size})$.
+- **Strikethrough**: Horizontal rule across glyph advance at baseline $- 0.35 \cdot \text{size}$. Double strike draws two rules separated by $1.5 \cdot t$.

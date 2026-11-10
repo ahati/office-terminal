@@ -1,141 +1,115 @@
 # PRD 02d: Element Renderers & Fidelity Policy
 
-> Part of the PRD 02 split. Specifies the per-element-type renderers (block B9) and — most importantly — the **fidelity policy**: an explicit, testable contract for what renders fully, what renders approximately, what renders as a placeholder, and what is omitted. Interfaces in [PRD 06](./06-component-interface-contracts.md).
+> Part of the PRD 02 split (02a/02b/02c/02d). Specifies the per-element-type renderers (block B9) and the normative **fidelity policy**: an explicit contract governing what renders fully, what degrades, what renders as a placeholder, and what is omitted. Interfaces live in [PRD 06](./06-component-interface-contracts.md).
 
-## 1. Purpose
+## 1. Fidelity Policy Governance
 
-A .pptx renderer that silently drops features destroys trust; one that honestly labels its limits builds it. Every visual capability of `kitty-pptx` v1 is therefore classified in the matrix below. The matrix is **normative**: any deviation in code or tests is a bug in one of them.
+A PowerPoint renderer that silently omits unsupported features produces deceptive output. `kitty-pptx` establishes an honest visual contract:
+1. **Zero Silent Degradation**: Every non-FULL element emission fires a typed `WarningEvent` ([PRD 06](./06-component-interface-contracts.md) §4).
+2. **Determinism**: Same input model $\to$ bit-identical pixels across runs.
+3. **Fail-Soft Isolation**: An element failure draws a labeled placeholder and never invalidates neighboring elements or the slide.
 
-### 1.1 Fidelity Classes
+---
 
-| Class | Definition | User-visible guarantee |
+## 2. Normative Fidelity Matrix (v1)
+
+### 2.1 Shape Features
+
+| Feature | Class | Execution Details |
 | :--- | :--- | :--- |
-| **FULL** | Rendered to spec fidelity; golden-tested against reference renders. | Indistinguishable at presentation distance. |
-| **DEGRADED** | Rendered, with documented simplification. | Recognizable; divergence enumerated here. |
-| **PLACEHOLDER** | Replaced by the deterministic placeholder presentation (§3). | Communicates *what* is there and *why* it isn't rendered. |
-| **OMITTED** | Not rendered at all. | Emits `WarningEvent`; never affects neighboring content. |
+| T1 Preset Geometries | **FULL** | Parametric path generators honoring `adj1..=8` ([PRD 02b App](./02b-appendix-preset-geometries.md) §1). |
+| T2 Preset Geometries | **DEGRADED** | Simplified 2-D stand-ins preserving silhouette ([PRD 02b App](./02b-appendix-preset-geometries.md) §2). |
+| Unknown / T3 Presets | **PLACEHOLDER** | Standard placeholder (§3) with shape preset label + `WarningEvent::UnsupportedPreset`. |
+| Custom Paths (`custGeom`) | **FULL** | Normalized coordinates $[0, 1]$, non-zero winding, `ArcTo` cubic expansion. |
+| Solid & Gradient Fills | **FULL** | Linear (0–360°) and radial gradients with sRGB stop interpolation. |
+| Blip Fills (texture fill) | **DEGRADED** | Source bitmap tiled/stretched inside shape path. |
+| Pattern Fills | **DEGRADED** | Fallback to solid fill in the pattern's primary foreground color. |
+| Stroke Caps, Joins, Dashes | **FULL** | Butt/round/square caps, miter/bevel joins, standard OOXML dash styles. |
+| Inset Stroke (`algn="in"`) | **FULL** | Internal clipping mask with double-width stroke ([PRD 02b](./02b-vector-style-and-geometry-engine.md) §3.2). |
+| Line-end Arrowheads | **DEGRADED** | Fixed-proportion arrowhead markers rendered at endpoints. |
+| Shape Effects (shadow, glow, 3-D) | **OMITTED** | Geometry and fill render normally; effects omitted + warning. |
+| WordArt Text Warp | **DEGRADED** | Text renders fully without warp envelope distortion. |
 
-### 1.2 Governance
-- Matrix changes require matching golden-corpus updates and land in the same change set ([PRD 07](./07-quality-and-testing.md) §4.4).
-- Every non-FULL emission fires a structured `WarningEvent` ([PRD 01](./01-parser-and-data-model.md) §7) — "silent degradation" does not exist in this design.
+### 2.2 Picture & Image Features
 
-## 2. Fidelity Matrix (v1)
-
-### 2.1 Shapes
-
-| Feature | Class | Notes |
+| Feature | Class | Execution Details |
 | :--- | :--- | :--- |
-| T1 preset geometries ([PRD 02b](./02b-vector-style-and-geometry-engine.md) §3.2) | **FULL** | Parametric, adj-honoring. |
-| T2 preset geometries | **DEGRADED** | Simplified stand-ins; recipes in 02b appendix. |
-| Unknown presets (T3) | **PLACEHOLDER** | §3 rendering + warning. |
-| `custGeom` paths (incl. `ArcTo`) | **FULL** | Per-path paint, winding fill, normalized coords. |
-| Solid / gradient fills | **FULL** | Linear & radial (02b §5.1). |
-| Blip fill on shapes (textured fill) | **DEGRADED** | Image tiled/stretched inside path; effects on the fill image follow §2.2. |
-| Pattern fills | **DEGRADED** | Solid fallback in the pattern's foreground color. |
-| Strokes: solid, dashed, gradient-line | **FULL** | Dash styles, caps, joins (02b §5.2). |
-| Line-end arrowheads (T1 markers) | **DEGRADED** | Fixed proportions at decoration bbox. |
-| Shape effects: shadow, glow, reflection, soft edges | **OMITTED** (v1) | Warning; geometry and fill render normally. |
-| 3-D (bevel, extrusion, scene camera) | **OMITTED** (v1) | 2-D projection only. |
-| WordArt text warp (`TextWarp`) | **DEGRADED** | Text renders fully, unwrapped from its warp envelope (warp geometry omitted); 40 preset warps listed for post-v1. |
-
-### 2.2 Pictures & Images
-
-| Feature | Class | Notes |
-| :--- | :--- | :--- |
-| PNG / JPEG / GIF (first frame) / WebP / BMP / TIFF decode | **FULL** | Via `image` crate through the AssetStore ([PRD 06](./06-component-interface-contracts.md) §5). |
-| Crop (`srcRect`), stretch, aspect handling | **FULL** | Crop rect math §4.1. |
-| Alpha channel | **FULL** | 8-bit alpha preserved to the seam (straight alpha). |
-| SVG images | **FULL** | Prefer the PNG fallback relationship when PowerPoint bundled one; else rasterize via `resvg` at target size. |
-| EMF / WMF metafiles | **PLACEHOLDER** | No credible pure-Rust decoder; PNG fallback used when bundled, else §3 placeholder. |
-| Blip effects: `alphaModFix`, `grayscl`, `duotone`, `biLevel` | **DEGRADED** | Applied post-decode per upstream's effect semantics. |
-| Other blip effects (color change, luminance, artistic effects) | **OMITTED** | Warning; base image renders. |
+| PNG / JPEG / WebP / BMP / TIFF | **FULL** | Decoded via `image` crate with `SizeHint::AtMost` downscaling. |
+| Image Crop (`srcRect`) | **FULL** | Sub-rectangle extraction and stretching math (§4.1). |
+| Alpha Transparency | **FULL** | 8-bit straight alpha preserved to the seam. |
+| Vector SVG | **FULL** | Bundled PNG fallback relationship preferred; otherwise rasterized via `resvg`. |
+| EMF / WMF Metafiles | **PLACEHOLDER** | PNG fallback used if present; else metafile placeholder (§3) + warning. |
+| Blip Effect: `alphaModFix` | **DEGRADED** | Modulates alpha by constant factor $A \cdot (\text{amt} / 100,000)$. |
+| Blip Effect: `grayscl` | **DEGRADED** | BT.709 luma transform: $Y = 0.2126 R + 0.7152 G + 0.0722 B$. |
+| Blip Effect: `biLevel` | **DEGRADED** | Thresholding: if $Y > 0.5$, white; else black. |
+| Blip Effect: `duotone` | **DEGRADED** | Linear interpolation between two resolved theme colors based on luma. |
 
 ### 2.3 Tables
 
-| Feature | Class | Notes |
+| Feature | Class | Execution Details |
 | :--- | :--- | :--- |
-| Grid layout (`gridCol` widths, `tr` heights) | **FULL** | §4.2 algorithm. |
-| Cell fills incl. banded styles | **FULL** | — |
-| Cell borders (inner/outer, per-edge) | **FULL** | — |
-| Cell text (rich runs, alignment, insets) | **FULL** | Text engine of [PRD 02c](./02c-typography-and-text-layout.md). |
-| Merged cells (`gridSpan`, `hMerge`, `vMerge`) | **FULL** | — |
-| Row auto-growth beyond authored height | **DEGRADED** | Authored heights respected; overflowing cell text clips (PowerPoint grows rows; we do not re-measure grid growth in v1). |
+| Column / Row Grid | **FULL** | Proportional column distribution from `gridCol` and minimum row heights `tr`. |
+| Cell Borders & Fills | **FULL** | Inner/outer borders, solid fills, and alternating banded row styles. |
+| Cell Text Formatting | **FULL** | Rich text spans, margins, vertical centering (`anchor="ctr"`). |
+| Merged Cells | **FULL** | `gridSpan`, `rowSpan`, `hMerge`, `vMerge` bounds consolidation. |
+| Row Auto-Growth | **DEGRADED** | Authored heights respected; overflowing text clips to cell boundary. |
 
-### 2.4 Charts
+### 2.4 Charts & Miscellaneous
 
-| Feature | Class | Notes |
+| Feature | Class | Execution Details |
 | :--- | :--- | :--- |
-| All chart families (classic + ChartEx) | **PLACEHOLDER** | §4.3 chart placeholder — **data-rich**, using the vendored `ChartModel`. |
+| All Charts (classic + ChartEx) | **PLACEHOLDER** | Data-rich chart placeholder (§4.3) showing title, series names, counts, swatches. |
+| OMML Equations (with fallback) | **FULL** | Renders authoring-time `math_fallback` image preview faithfully. |
+| OMML Equations (no fallback) | **PLACEHOLDER** | Standard placeholder with equation label. |
+| SmartArt (Diagrams) | **PLACEHOLDER** | Standard placeholder showing carried diagram title. |
+| Embedded Video / Audio | **PLACEHOLDER** | Carried poster frame with media glyph; playback triggered via `M` ([PRD 04](./04-interactive-tui-presenter.md) §3). |
+| Hyperlinks | **DEGRADED** | Visual underline and presentation hyperlink color; not interactive. |
 
-Chart *rendering* is v1's largest explicitly-deferred subsystem. The model already carries everything the placeholder shows; full chart rendering is a post-v1 track with its own PRD.
+---
 
-### 2.5 Other Elements
+## 3. Normative Placeholder Visual Language
 
-| Feature | Class | Notes |
-| :--- | :--- | :--- |
-| Equations (OMML) with bundled fallback image | **FULL** | The model retains `math_fallback` preview images; rendering the preview is pixel-faithful for authoring-time equations. |
-| Equations without fallback | **PLACEHOLDER** | — |
-| SmartArt (diagrams) | **PLACEHOLDER** | Frame + title text when carried; data-node diagram otherwise. |
-| Video / audio media | **PLACEHOLDER** | Poster frame when bundled; media glyph otherwise. No playback (non-goal, [PRD 00](./00-system-overview.md) §7). |
-| Hyperlinks | **DEGRADED** | Rendered as colored/underlined text (presentation `hlink` color); not interactive. |
-| Slide background: solid / gradient / image | **FULL** | — |
-| Slide transitions & animations | **OMITTED** | Non-goal; static rendering only. |
-
-## 3. Placeholder Renderer (normative visual language)
-
-All PLACEHOLDER-class content renders through **one** deterministic routine, so users learn to read it instantly:
+All `PLACEHOLDER`-class elements render through a unified, deterministic routine:
 
 ```
-┌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┐
-│                              │
-│         ◇  Chart             │   ← glyph (per kind) + kind label
-│   "Revenue by Region, 2024"  │   ← carried title (may be absent)
-│   ──────────────────────     │
-│   ▮ Series: N. America (6)   │   ← kind-specific summary lines
-│   ▮ Series: EMEA (6)         │      (charts: series + point counts)
-│                              │
-└╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
+┌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┐
+╎                                               ╎
+╎                   ◇  CHART                    ╎  ← Kind icon + uppercase label
+╎             "Q3 Revenue Summary"              ╎  ← Carried title (italic, optional)
+╎         ─────────────────────────────         ╎  ← Separator line
+╎         ▮ North America (8 points)            ╎  ← Series summary with color swatches
+╎         ▮ EMEA (8 points)                     ╎
+╎                                               ╎
+└╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
 ```
 
-1. **Frame**: dashed 1.5 px stroke in the presentation's `default_text_color` at 60% alpha, inset 2 px inside the element bbox. No fill (background shows through).
-2. **Glyph + label**: centered uppercase kind label (`CHART`, `DIAGRAM`, `VIDEO`, `AUDIO`, `EQUATION`, `METAFILE`) in the substituted UI font.
-3. **Detail lines**: up to 3 lines of kind-specific content (§4.3 for charts), truncated with `…`.
-4. **Determinism**: same model input → identical pixels (golden-tested).
-5. Rotation/flip transforms apply to the placeholder like any element.
+1. **Frame Geometry**: Dashed 1.5 px border (`dash=[4.0, 3.0]`) inset 2.0 px inside element bounding box. Stroke color is `presentation.default_text_color` at 60% opacity. No fill (background shows through).
+2. **Header Area**: Centered glyph icon and uppercase kind label (`CHART`, `DIAGRAM`, `EQUATION`, `METAFILE`, `MEDIA`) at $y = 0.35 \cdot H$, rendered in 13 pt bold font.
+3. **Title Area**: If the element carries an authored title, centered at $y = 0.50 \cdot H$ in 11 pt italic font (truncated with `…`).
+4. **Summary Area**: Up to 3 summary detail lines starting at $y = 0.65 \cdot H$ in 10 pt regular font.
 
-## 4. Element Renderer Specifications
+---
 
-### 4.1 Picture Compositing
-1. Resolve the blip relationship through the `AssetStore` with `SizeHint::AtMost` the on-screen pixel size (never decode a 4000 px source for a 300 px frame; saves the LRU budget).
-2. **Crop** (`srcRect`, percentages): source rect `(l, t, r, b)` maps to the destination bbox; cropped region stretches to fill the shape.
-3. **No-crop stretch**: scale to bbox (aspect distortion is authored intent — `a:stretch` stretches).
-4. Alpha-blend with straight-alpha source over the destination (tiny-skia premultiplied path).
-5. Blip effects (§2.2 subset) apply to the decoded bitmap before compositing.
-6. Decode failure → AssetError → placeholder + `WarningEvent::MediaFailed`; never aborts the slide.
+## 4. Element Renderer Implementations
 
-### 4.2 Table Layout
-1. Column widths from `gridCol` EMU values scaled to target; rows minimum `tr` height.
-2. Merge pass: `gridSpan`/`hMerge`/`vMerge` consume cells; merged origin carries content.
-3. Cell paint order: fill → borders (outer edges of the table use the table-level outer border where defined) → text inside insets (`marL/R/T/B`).
-4. Overflowing cell text clips to the cell rect (§2.3 degradation).
+### 4.1 Picture Compositing & Crop Math
+When compositing a picture with source dimensions $(W_{\text{src}}, H_{\text{src}})$ and crop attributes $l, t, r, b$ (in $100,000$ths):
+1. **Crop Rect Extraction**:
+   $$x_0 = W_{\text{src}} \cdot \frac{l}{100,000},\qquad y_0 = H_{\text{src}} \cdot \frac{t}{100,000}$$
+   $$w_{\text{crop}} = W_{\text{src}} \cdot \left(1.0 - \frac{l + r}{100,000}\right),\qquad h_{\text{crop}} = H_{\text{src}} \cdot \left(1.0 - \frac{t + b}{100,000}\right)$$
+2. **Crop Validation**: If $l + r \ge 100,000$ or $t + b \ge 100,000$, crop is invalid; fallback to uncropped source and emit `WarningEvent`.
+3. **Canvas Transform**: Scale cropped sub-image to target bounding box $(w_{\text{px}}, h_{\text{px}})$, apply element rotation and flips, and composite onto pixmap.
 
-### 4.3 Chart Placeholder Composition
-From the vendored `ChartModel` (fields verified: `chart_type`, `title`/`title_rich_runs`, `categories`, `series`, `plot_groups`, `show_data_labels`, `authored_without_series`):
+### 4.2 Table Layout & Rendering
+1. **Grid Resolution**: Column widths are scaled proportionally from `gridCol` EMU values to fill table width. Row heights take the maximum of authored `tr` height and baseline line height.
+2. **Cell Merging**: Cells marked with `hMerge` or `vMerge` expand the master cell's bounds across merged columns/rows.
+3. **Paint Pass**:
+   - Step 1: Cell background fills (honoring alternating banded fills).
+   - Step 2: Inner and outer cell borders (mitered joins).
+   - Step 3: Text body rendered inside cell margins (`marL`, `marR`, `marT`, `marB`) with vertical alignment applied.
 
-1. Frame per §3 with kind label `CHART` + humanized `chart_type` (e.g. `barChart → Bar Chart`).
-2. Title: `title_rich_runs` preferred (styled, line-broken as authored), else plain `title`.
-3. Summary: series names with per-series value counts (`▮ Series: EMEA (6)`); if `series` is empty and `authored_without_series` is true, render "no series (authored)" — matching PowerPoint's empty-chart presentation rather than an error.
-4. Legend colors: series colors from the model when carried (swatch `▮`), else neutral bullets.
-
-## 5. Renderer Interface
-
-```rust
-pub trait ElementRenderer: Send + Sync {
-    /// Renders one element into the canvas under the given transform.
-    /// Failures return a PlaceholderCause and MUST NOT corrupt the canvas.
-    fn render(&self, ctx: &RenderContext<'_>, elem: &SlideElement)
-        -> Result<(), RenderError>;
-}
-```
-
-`RenderContext` bundles: target scale, canvas handle, `GeometryEngine`, `StyleResolver`, `TextLayoutEngine`, `AssetStore`, presentation defaults, and the `WarningEvent` sink. Element renderers are stateless and independently unit-testable — a property the golden corpus (PRD 07 §4.1) depends on.
+### 4.3 Data-Rich Chart Placeholder
+Extracted from `pptx_model::ChartModel`:
+1. Humanized chart type: e.g. `barChart` $\to$ `"Bar Chart"`, `pieChart` $\to$ `"Pie Chart"`.
+2. Title: Preferred from `title_rich_runs` if styled, else plain `title`.
+3. Series summary: Formatted as `▮ <SeriesName> (<N> points)`. Swatch `▮` takes the series theme color if present. If series is empty and `authored_without_series` is true, displays `"Empty chart (authored)"`.

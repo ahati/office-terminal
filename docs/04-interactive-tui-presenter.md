@@ -1,156 +1,153 @@
 # PRD 04: Interactive TUI & Presenter Mode
 
-## 1. Overview
+> Specifies the interactive terminal user interface (block B17) built on **`ratatui`** and **`crossterm`**. Interfaces consumed by the TUI are normative in [PRD 06](./06-component-interface-contracts.md).
 
-The Interactive TUI turns `kitty-pptx` from a static image viewer into a live presentation console. Built on **`ratatui`** and **`crossterm`**, it combines graphics display with terminal widgets, slide navigation, speaker notes, an elapsed timer, and a visual slide sorter.
+## 1. Architectural Role
 
-**Architectural role**: the TUI is a *consumer* of the Render Pipeline ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §5) and the Display Adapter ([PRD 03](./03-terminal-graphics-protocol.md)). It owns layout, input, and presentation state — **it does not schedule rendering, manage image ids, or emit protocol bytes itself**. All interfaces it consumes are specified in [PRD 06](./06-component-interface-contracts.md).
+The TUI Presenter is a pure *consumer* of the Render Pipeline ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §5) and the Display Adapter ([PRD 03a](./03a-kitty-graphics-protocol-driver.md), [PRD 03b](./03b-display-fallbacks-and-probing.md)).
+- It owns UI layouts, user input routing, presentation state machines, and timer states.
+- It **never** schedules worker rendering, manages Image IDs directly, or generates escape sequence bytes.
 
 ---
 
-## 2. Display Modes & Layouts
+## 2. Modal Interaction State Machine
 
-### 2.1 Mode 1: Fullscreen Slide View (Default)
-Optimized for sharing screen or presenting to an audience.
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                                                                        │
-│                                                                        │
-│                     Rendered Slide Canvas                              │
-│                   (terminal-resident image)                            │
-│                                                                        │
-│                                                                        │
-├────────────────────────────────────────────────────────────────────────┤
-│ Slide 4 / 28  │ Next: System Architecture │ 00:08:45 │ [?] Help        │
-└────────────────────────────────────────────────────────────────────────┘
+               ┌──────────────────────────────────────────┐
+               │         Mode 1: Fullscreen Slide         │◄───────┐
+               └──────┬────────────────────────────┬──────┘        │
+       toggle 'p'     │                            │ toggle 'Tab'  │ Esc /
+                      ▼                            ▼               │ Enter
+┌───────────────────────────────┐        ┌────────────────────────┐│
+│ Mode 2: Presenter Console     │        │ Mode 3: Slide Sorter   ││
+│ (Notes, Timer, Next Thumbnail)│        │ (Visual Thumbnail Grid)││
+└──────────────┬────────────────┘        └────────────────────────┘│
+               │                                                   │
+               │ Overlay triggers ('?', 'W', 'c', '/', 'b')        │
+               ▼                                                   │
+┌─────────────────────────────────────────────────────────────────┐│
+│ Overlays: Help ('?') · Warnings ('W') · Comments ('c')          │┘
+│           Fuzzy TOC ('/') · Blackout ('b') / Whiteout ('w')     │
+└─────────────────────────────────────────────────────────────────┘
 ```
-- Slide canvas occupies the upper area; placement is computed as a `CellRect` and handed to the driver (`present`).
-- Status bar: slide position + progress, next-slide title, elapsed timer.
-- `H` toggles the status bar for zero-distraction presenting.
 
-### 2.2 Mode 2: Presenter Console (Split View)
-For dual-monitor setups or rehearsal on a single screen.
+### 2.1 State & Transition Matrix
+
+| Current State | Trigger Key | Next State | Action / Visual Behavior |
+| :--- | :--- | :--- | :--- |
+| **`SlideView`** | `p` | `PresenterConsole` | Switches to split view with notes and next-slide thumbnail. |
+| **`SlideView`** | `Tab` / `t` | `SlideSorter` | Prefetches thumbnail target (`320×180`) and displays grid. |
+| **`SlideView`** | `b` / `w` | `Blackout` / `Whiteout` | Clears slide cells to solid black/white; resident image retained. |
+| **Any Base** | `?` / `F1` | `HelpModal` | Displays centered modal with all keybindings; Esc dismisses. |
+| **Any Base** | `W` (Shift-W) | `WarningDrawer` | Slides out bottom drawer listing all slide `WarningEvent`s. |
+| **Any Base** | `c` | `CommentsDrawer` | Opens right drawer displaying reviewer comments (`Slide.comments`). |
+| **Any Base** | `/` / `Ctrl+F` | `TocSearchModal` | Opens fuzzy slide search popup with interactive input. |
+| **Overlay** | `Esc` / `q` | Previous Base State | Closes active overlay and restores previous focus. |
+
+---
+
+## 3. Ratatui Custom Slide Widget Integration
+
+```rust
+pub struct SlideWidget<'a> {
+    pub slide_index: usize,
+    pub pipeline_entry: PipelineEntry,
+    pub placement_mode: PlacementMode,
+}
+```
+
+### 3.1 Dual-Path Rendering Logic
+1. **Kitty Unicode Placeholder Path (`U=1`, Preferred)**:
+   - When the driver supports Unicode placeholders (`caps.placeholders == true`), `SlideWidget::render` iterates over the allocated `CellRect` in `ratatui::buffer::Buffer`.
+   - It writes `\u{10EEEE}` with FG/BG colors encoding `(ImageId, col, row)` per [PRD 03a](./03a-kitty-graphics-protocol-driver.md) §4.
+   - **Benefit**: Any active overlay (e.g. `HelpModal` or `TocSearchModal`) drawn after the slide automatically overwrites placeholder cells in Ratatui's buffer, rendering completely glitch-free over the graphics.
+2. **Direct Placement Path (`a=p` / Fallback Drivers)**:
+   - For Sixel, iTerm2, or direct placement Kitty, `SlideWidget` clears the cell rect in Ratatui's buffer to blank cells.
+   - Immediately following `terminal.draw()`, the TUI triggers `driver.present(id, Placement::Cells(rect))` to position the graphic over the blank terminal region.
+
+---
+
+## 4. Presenter Console Mode (Split View)
+
+The split layout reserves $\approx 70\%$ of screen width for the main slide canvas and $30\%$ for presenter assistance widgets:
+
 ```
 ┌───────────────────────────────────────────────┬────────────────────────┐
-│                                               │ Next Slide             │
+│                                               │ Next Slide (Thumbnail) │
 │                                               │ ┌────────────────────┐ │
-│                                               │ │ [Thumbnail Mini]   │ │
+│                                               │ │ [ 320x180 Image ]  │ │
 │                                               │ └────────────────────┘ │
 │             Current Slide Canvas              ├────────────────────────┤
-│           (terminal-resident image)           │ Speaker Notes          │
+│           (1920x1080 Native Render)           │ Speaker Notes          │
 │                                               │                        │
-│                                               │ • Emphasize 15ms flip  │
-│                                               │ • Mention determinism  │
-│                                               │ • Ask audience for Q&A │
+│                                               │ 1. Highlight Q3 margin │
+│                                               │ 2. Address supply chain│
+│                                               │ 3. Open for questions  │
 ├───────────────────────────────────────────────┴────────────────────────┤
-│ Slide 4 / 28  │ 00:08:45 Elapsed │ Local Time: 14:32:05 │ Tab: Sorter  │
+│ Slide 5 / 24  │ 00:14:22 Elapsed (Target 20m) │ 15:30:12 │ [?] Help    │
 └────────────────────────────────────────────────────────────────────────┘
 ```
-- Left pane (~70%): current slide at full render target.
-- Top right: next-slide thumbnail — a **separate render target** (`320×180` spec) with its own pipeline cache key space (PRD 02a §5.1).
-- Middle right: scrollable speaker notes.
-- Bottom bar: stopwatch, target-duration warning badge (config `[presenter] target_duration_mins`), local clock.
 
-### 2.3 Mode 3: Visual Slide Sorter (Thumbnail Grid)
-`Tab` / `t` for a visual overview and quick jumps.
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ Slide Sorter (Arrow keys: select · Enter: jump · Esc: exit)           │
-├──────────────┬──────────────┬──────────────┬──────────────┬────────────┤
-│  ┌────────┐  │  ┌────────┐  │  ┌────────┐  │  ┌────────┐  │            │
-│  │ 1.Title│  │  │ 2.Intro│  │  │ 3.Arch │  │ │*4.Perf* │  │            │
-│  └────────┘  │  └────────┘  │  └────────┘  │  └────────┘  │            │
-├──────────────┼──────────────┼──────────────┼──────────────┼────────────┤
-│  ┌────────┐  │  ┌────────┐  │  ┌────────┐  │  ┌────────┐  │            │
-│  │ 5.Demo │  │  │ 6.Code │  │  │ 7.Road │  │  │ 8.Q&A  │  │            │
-│  └────────┘  │  └────────┘  │  └────────┘  │  └────────┘  │            │
-└──────────────┴──────────────┴──────────────┴──────────────┴────────────┘
-```
-- Grid adapts columns/rows to terminal size; selected slide gets a distinct border.
-- Opening the sorter issues a thumbnail-target `prefetch` for the visible grid window plus one row of look-ahead; the full-resolution cache is untouched (separate key space).
-- `Enter` jumps; `Esc` returns.
+### 4.1 Speaker Notes Component
+- Notes text extracted from `Slide.notes` is wrapped using Ratatui's `Paragraph` widget with word wrapping.
+- Navigation: `Up` / `Down` arrows or mouse scroll wheel adjusts `notes_scroll_offset` when the notes pane is focused.
+
+### 4.2 Presentation Stopwatch & Overtime Warning
+- Measures elapsed wall-clock presentation time.
+- Compares elapsed time against `[presenter] target_duration_mins`:
+  - **Normal** ($< 90\%$): Stopwatch text is rendered in green.
+  - **Warning** ($90\dots100\%$): Stopwatch text renders in bold yellow.
+  - **Overtime** ($> 100\%$): Stopwatch text renders in flashing bold red with an `[OVERTIME]` badge.
+- Controls: `r` resets timer to `00:00:00`; `s` pauses / resumes the stopwatch.
 
 ---
 
-## 3. Navigation & Keybindings
+## 5. Visual Slide Sorter & Fuzzy TOC Search
 
-| Action | Primary | Vim / Secondary |
-| :--- | :--- | :--- |
-| **Next slide** | `Space`, `Enter`, `Right`, `PageDown` | `j`, `l` (skips hidden slides) |
-| **Previous slide** | `Backspace`, `Left`, `PageUp` | `k`, `h` (skips hidden slides) |
-| **First slide** | `gg` (prefix: `g` waits for second key) | `Home` |
-| **Last slide** | `G` | `End` |
-| **Direct jump** | number prefix + `Enter` (e.g. `1` `2` `Enter`) | number prefix + `G` (can jump to hidden slides) |
-| **Toggle presenter view** | `p` | `n` (notes) |
-| **Toggle sorter** | `Tab` | `t` |
-| **Toggle status bar** | `H` | — |
-| **Fuzzy find / TOC** | `/` | `Ctrl+F` |
-| **Screen blackout / whiteout** | `b` / `w` | `.` / `,` |
-| **Warning drawer** | `W` (Shift-W) | — |
-| **Reviewer comments drawer** | `c` | — |
-| **Play embedded media** | `M` (Shift-M) | Launch external player (e.g. `mpv`) |
-| **Timer: reset / pause** | `r` / `s` | — |
-| **Help overlay** | `?` | `F1` |
-| **Quit** | `q`, `Esc` | `Ctrl+C` |
+### 5.1 Slide Sorter Grid
+- Activated via `Tab` or `t`.
+- Dynamically computes thumbnail cell grid based on terminal dimensions (e.g. $4\times 3$ or $5\times 4$).
+- Requests thumbnail-target prefetch (`320×180` spec) for visible slides.
+- Displays slide numbers, titles, and dimmed borders for `hidden` slides.
+- Arrow keys navigate the grid cursor; `Enter` jumps to selected slide; `Esc` cancels.
 
-*(Note on keybinding hygiene: `w` is PowerPoint's canonical screen-whiteout key; the warning drawer is bound to `W`. `h` is strictly previous slide while `H` toggles the status bar.)*
-
-### 3.1 Hidden Slide Semantics
-PowerPoint decks often contain hidden slides (`<p:sld show="0">`, carried as `Slide.hidden: bool` in the model):
-- **Linear Navigation (`Space`, `j`, `k`, `Enter`)**: Hidden slides are **automatically skipped**, matching PowerPoint presentation behavior.
-- **Visual Slide Sorter (`Tab`)**: Hidden slides are displayed with a dimmed border and a `[#N (hidden)]` badge so the presenter can see their position.
-- **Direct Jump (`<N>G`)**: Explicit jumps directly target the requested slide, even if hidden.
-
-All bindings are rebindable via `[keybindings]` in the config ([PRD 05](./05-cli-and-export.md) §3).
+### 5.2 Fuzzy TOC Search (`/`)
+- Centered popup window with search text input.
+- Real-time substring and fuzzy matching across slide titles, numbers, and notes.
+- Matched slide list updates on each keystroke. Pressing `Enter` navigates directly to the matched slide.
 
 ---
 
-## 4. Pipeline Consumption
+## 6. External Media Playback (`M`)
 
-The TUI holds `Arc<dyn RenderPipeline>` and a driver handle ([PRD 06](./06-component-interface-contracts.md) §7). Its total interaction with rendering:
-
-| UI event | Pipeline / driver call |
-| :--- | :--- |
-| Slide change to `n` | `prefetch(PrefetchPlan { center: n, behind: 2, ahead: 2, stage: true }, full_spec)` |
-| Sorter opened | `prefetch({ center: visible_window, stage: true }, thumb_spec)` |
-| Flip requested (next/prev) | check `entry(n)` is `Ready { staged: true }` → `driver.present(id, Cells(rect))`; if `Rendering`, show current slide until ready (never a blank frame; PRD 03 §5.3) |
-| Presenter view on | thumbnail `entry(n+1)` → small placement in right pane |
-| Blackout `b` | present nothing; clear slide cells + fill black (image stays staged for instant restore) |
-
-No other component behavior lives here: cache sizing, eviction, worker counts, staging policy, and invalidation are owned by the pipeline (PRD 02a §5).
+While audio/video playback inside terminal cells is a non-goal ([PRD 00](./00-system-overview.md) §7), presentations frequently include crucial demo clips:
+1. When the current slide contains a `SlideElement::Media` item, a `[M: Play Media]` badge appears in the status bar.
+2. Pressing `M` triggers the loader to extract the embedded media archive part (`ppt/media/mediaN.mp4`) into a secure temporary file.
+3. Spawns the configured external player process (`[media] player = "mpv"`, [PRD 05](./05-cli-and-export.md) §3) in a detached subprocess.
+4. The temporary file is tracked and cleaned up on application exit.
 
 ---
 
-## 5. Event Loop, Resize & Terminal Lifecycle
+## 7. Event Loop & Terminal Lifecycle
 
 ```rust
 loop {
-    terminal.draw(|frame| render_ui_layout(frame, &app_state))?;
-    if event::poll(Duration::from_millis(50))? {   // 50 ms tick drives the timer
-        match event::read()? {
-            Event::Key(key)     => handle_key_input(key, &mut app_state)?,
+    terminal.draw(|frame| render_ui(frame, &mut app_state))?;
+    
+    // 50 ms timeout drives clock and stopwatch updates
+    if crossterm::event::poll(Duration::from_millis(50))? {
+        match crossterm::event::read()? {
+            Event::Key(key)     => handle_key(key, &mut app_state)?,
             Event::Resize(..)   => handle_resize(&mut app_state)?,
-            Event::Mouse(m)     => handle_mouse(m, &mut app_state)?,
+            Event::Mouse(mouse) => handle_mouse(mouse, &mut app_state)?,
         }
     }
 }
 ```
 
-**Resize handling — simplified.** Because the terminal scales resident images client-side (PRD 03 §4.2), a resize is a *placement* event, not a *rendering* event:
-
-1. Recompute layout; recompute the slide `CellRect`.
-2. `driver.reposition(id, Cells(new_rect))` — one escape sequence, no re-raster, no re-transmit.
-3. Raster caches remain valid; nothing is invalidated unless the render **target spec itself** changes (`ActualPixels` toggle → `InvalidateCause::TargetChanged`, PRD 02a §5.3).
-
-*(The previous revision's 80 ms debounced re-rasterization pipeline is removed — see PRD 02a §5.3.)*
-
-**Lifecycle**: raw mode + alternate screen on entry; on exit (any path, incl. `SIGINT` and panic) the TUI restores modes and the driver runs its cleanup contract (PRD 03 §9).
-
----
-
-## 6. Status, Warnings & Failure Surfaces
-
-- **Warning badges**: `WarningEvent`s ([PRD 06](./06-component-interface-contracts.md) §4) from the current slide surface as a `⚠ n` badge in the status bar; `W` opens the warning drawer (element, feature, fidelity class).
-- **Reviewer comments**: slides containing reviewer comments (`Slide.comments`) display a `💬` badge; `c` toggles the slide comments drawer.
-- **Pipeline failure** (`entry(n) == Failed`): the slide area shows the placeholder presentation (PRD 02d §3) with the `RenderError` summary; navigation remains functional.
-- **Display degradation**: on `DisplayError::Io` mid-session, the TUI attempts the half-block driver (PRD 03 §10) and posts a status message; if unavailable, it exits with code 3.
+### 7.1 Resize Handling (Zero Re-Rasterization)
+Because terminal resident graphics scale client-side ([PRD 03a](./03a-kitty-graphics-protocol-driver.md) §4):
+1. Terminal resize event triggers layout recomputation.
+2. Recomputed `CellRect` is updated in the Ratatui buffer.
+3. In direct placement mode, calls `driver.reposition(id, Cells(new_rect))`.
+4. **No raster caches are invalidated**; no slide re-rendering occurs.

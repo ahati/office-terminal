@@ -1,160 +1,166 @@
 # PRD 02a: Composition Core & Render Pipeline
 
-> This document is part of the PRD 02 split (02a/02b/02c/02d). It specifies the **composition orchestrator** and the **render pipeline/scheduler**. Normative interface signatures for every type and trait referenced here are defined in [PRD 06](./06-component-interface-contracts.md).
+> Part of the PRD 02 split (02a/02b/02c/02d). Specifies the **slide compositor** (block B10) and the **render pipeline/scheduler** (block B11). Normative interface signatures are defined in [PRD 06](./06-component-interface-contracts.md).
 
 ## 1. Purpose & Scope
 
-The Composition Core answers one question: *given a parsed slide, its assets, and a render target, produce the final composited RGBA frame* — and do so deterministically, off the UI thread, with neighbors ready before the user needs them.
-
-Components specified here:
+The Composition Core transforms parsed slide models, asset resources, and render target specifications into composited RGBA pixel buffers deterministically, off the UI thread, ensuring neighboring slides are ready before user navigation occurs.
 
 | Block | Component | Responsibility |
 | :--- | :--- | :--- |
-| B10 | **Slide Compositor** | Element traversal, transform pipeline, z-order, dispatch to element renderers, canvas epilogue. Produces `RgbaSlide`. |
-| B11 | **Render Pipeline / Scheduler** | Cache window, prefetch plans, worker pool, terminal staging coordination, invalidation, eviction. |
-| B12* | *(producer side)* | Constructs `RgbaSlide` values and honors `RenderTargetSpec` as an opaque input. |
+| **B10** | **Slide Compositor** | Viewport aspect fitting, background rendering, element traversal, z-ordering, renderer dispatch, canvas epilogue. Emits `RgbaSlide`. |
+| **B11** | **Render Pipeline / Scheduler** | Multithreaded worker coordination, cache budgeting, prefetch priority queue, cancellation, terminal staging orchestration. |
+| **B12\*** | *(Producer seam)* | Constructs `RgbaSlide` and consumes `RenderTargetSpec` as an opaque contract. |
 
-The Composition Core **never** touches the terminal: no ioctls, no escape sequences, no cell geometry. It receives a `RenderTargetSpec` and returns pixels. The Display Adapter ([PRD 03](./03-terminal-graphics-protocol.md)) is the only component that talks to the terminal.
+The Composition Core **never** accesses the terminal: no ioctls, no escape sequences, no terminal cell math. It accepts `RenderTargetSpec` and returns `RgbaSlide`. The Display Adapter ([PRD 03a](./03a-kitty-graphics-protocol-driver.md)) alone interacts with the terminal.
 
-Consumers of the pipeline:
-
-- **TUI Presenter** ([PRD 04](./04-interactive-tui-presenter.md)) — interactive navigation, prefetch ahead of the user.
-- **Export Pipeline** ([PRD 05](./05-cli-and-export.md)) — headless batch rendering, terminal staged display entirely absent.
+---
 
 ## 2. Coordinate System & Canvas Setup
 
-### 2.1 Units
-PPTX geometry is in EMU ($1\text{ pt} = 12700\text{ EMU}$, $1\text{ in} = 914400\text{ EMU}$). The vendored parser emits element transforms in EMU (`x, y, width, height: i64`) and rotation in degrees (`f64`, converted by the parser from 60,000ths of a degree).
+### 2.1 Units & Math
+PPTX coordinates are defined in English Metric Units (EMU):
+- $1\text{ inch} = 914,400\text{ EMU}$
+- $1\text{ point} = 12,700\text{ EMU}$
+- $1\text{ pixel (at 96 DPI)} = 9,525\text{ EMU}$
 
-### 2.2 Slide Dimensions — Corrected Math
-A standard 16:9 widescreen deck is $9144000 \times 5143500\text{ EMU}$:
+A standard 16:9 widescreen presentation measures $9,144,000 \times 5,143,500\text{ EMU}$ ($10.0 \times 5.625\text{ inches}$, or $720 \times 405\text{ pt}$):
 
-| Unit | Width | Height |
+| Base Metric | Widescreen (16:9) | Standard (4:3) |
 | :--- | :--- | :--- |
-| Inches | 10 | 5.625 |
-| Points | 720 | 405 |
-| Pixels @ 96 DPI | **960** | **540** |
+| Dimensions in EMU | $9,144,000 \times 5,143,500$ | $9,144,000 \times 6,858,000$ |
+| Dimensions in Points | $720 \times 405\text{ pt}$ | $720 \times 540\text{ pt}$ |
+| Logical Pixels @ 96 DPI | **$960 \times 540\text{ px}$** | **$960 \times 720\text{ px}$** |
 
-*(The previous revision of this spec stated "1280×720 px at 96 DPI", which is incorrect.)*
+### 2.2 Aspect Fitting & Viewport Mapping
+When rendering a slide of dimension $(W_{\text{emu}}, H_{\text{emu}})$ into a target $(W_{\text{target}}, H_{\text{target}})$:
+1. **Uniform Scale Factor**:
+   $$s = \min\left(\frac{W_{\text{target}}}{W_{\text{emu}}},\; \frac{H_{\text{target}}}{H_{\text{emu}}}\right)$$
+2. **Centered Offsets (Letterbox / Pillarbox)**:
+   $$dx = \frac{W_{\text{target}} - (W_{\text{emu}} \cdot s)}{2.0},\qquad dy = \frac{H_{\text{target}} - (H_{\text{emu}} \cdot s)}{2.0}$$
+3. **Default Interactive Target**: `1920×1080` ($2.0\times$ supersampling of the 96 DPI base). Export targets derive from `--dpi` ([PRD 05](./05-cli-and-export.md) §2.3).
 
-### 2.3 EMU → Pixel Mapping
-The compositor computes a single scale factor per render and applies it uniformly:
-
-$$s = \frac{\text{target.width\_px}}{\text{slide\_width\_emu}},\qquad \text{px} = \text{emu} \cdot s$$
-
-- Computed once per render as `f64`; sub-pixel accumulation is acceptable (differences are invisible at ≥ 2× supersampling of the 960×540 base).
-- The **default interactive render target** is `1920×1080` (2× the 96-DPI base). Export targets derive from `--dpi` ([PRD 05](./05-cli-and-export.md) §2.3).
-
-### 2.4 Canvas Epilogue
-The compositor rasterizes into a `tiny-skia::Pixmap` (premultiplied RGBA internally) and converts to the contract frame type in a final pass:
-
+### 2.3 Canvas Epilogue & Alpha Conversion
+`tiny-skia` maintains an internal premultiplied RGBA8 buffer. The compositor converts this buffer into straight (non-premultiplied) RGBA8 at the seam:
 ```rust
-fn finish(pixmap: Pixmap, target: &RenderTargetSpec) -> RgbaSlide {
-    // Premultiplied → straight alpha (see PRD 06 §2.1: the seam is straight-alpha).
-    // Arc'd into RgbaSlide so cache, drivers, and exporter share one buffer.
+fn finish_canvas(pixmap: tiny_skia::Pixmap, target: &RenderTargetSpec) -> RgbaSlide {
+    let mut pixels = pixmap.take(); // Vec<u8>, len = width * height * 4
+    // In-place un-premultiply: RGB = (RGB * 255 + Alpha/2) / Alpha
+    unpremultiply_rgba8(&mut pixels);
+    RgbaSlide {
+        width: target.width_px,
+        height: target.height_px,
+        pixels: Arc::from(pixels.into_boxed_slice()),
+    }
 }
 ```
+*Why straight alpha is mandatory*: PNG encoders (`f=100`) and terminal raw drivers (`f=32`) require straight alpha. Performing this conversion exactly once in the canvas epilogue eliminates color distortion and driver blending bugs.
 
-## 3. Element Traversal & Transform Pipeline
+---
 
-### 3.1 Input
-The parser resolves inheritance (Master → Layout → Slide) and emits a flat, z-ordered `Vec<SlideElement>` per slide (`Shape | Picture | Table | Chart | Media`). **Groups are flattened by the parser**: nested `<p:grpSp>` elements are re-emitted with composed child transforms, under a fail-closed nesting-depth budget (upstream limit). The compositor therefore handles exactly one transform level — no nested group stacks.
+## 3. Composition Traversal & Background Rendering
 
-### 3.2 Per-Element Transform
-PowerPoint rotates around the shape's bounding-box center; flips are applied in the shape's local frame:
+### 3.1 Background Layer Painting
+Before traversing slide elements, the compositor paints the resolved slide background:
+1. **Solid Fill**: Fills the slide rectangle with solid sRGB color.
+2. **Gradient Fill**: Computes gradient angle and stop interpolations, rendering across the slide bounds.
+3. **Blip Fill**: Scales or tiles the background image to fill the slide rectangle.
+4. **Fallback**: If no background is defined in slide, layout, or master, the slide canvas is cleared to white (`#FFFFFF`) or the presentation default `lt1`.
 
+### 3.2 Element Traversal & Transform Pipeline
+The parser resolves element hierarchies into a flat, z-ordered `Vec<SlideElement>`. Group shapes are already flattened ([PRD 01](./01-parser-and-data-model.md) §4.5).
+For each element, the compositor constructs the affine transform:
 ```rust
-// 1. Position
-let mut t = Transform::identity().post_translate(x_px, y_px);
-// 2. Rotate about bbox center
-let (cx, cy) = (w_px / 2.0, h_px / 2.0);
-t = t.post_translate(cx, cy).post_rotate(rotation_deg)
-       .post_translate(-cx, -cy);
-// 3. Mirror in local frame
-if flip_h { t = t.post_scale(-1.0, 1.0); }
-if flip_v { t = t.post_scale(1.0, -1.0); }
+// 1. Convert EMU origin and extent to pixel coordinates
+let x_px = dx + (element.x as f64 * s);
+let y_px = dy + (element.y as f64 * s);
+let w_px = element.width as f64 * s;
+let h_px = element.height as f64 * s;
+
+// 2. Center-pivot rotation and local mirroring
+let cx = w_px / 2.0;
+let cy = h_px / 2.0;
+let mut transform = tiny_skia::Transform::identity()
+    .post_translate(x_px, y_px)
+    .post_translate(cx, cy)
+    .post_rotate(element.rotation as f32)
+    .post_translate(-cx, -cy);
+
+if element.flip_h { transform = transform.post_scale(-1.0, 1.0); }
+if element.flip_v { transform = transform.post_scale(1.0, -1.0); }
+```
+Element rendering executes in strict document order. Renderer failures emit a `WarningEvent` and paint the placeholder representation ([PRD 02d](./02d-element-renderers-and-fidelity-policy.md) §3) — a single element error **never** aborts the slide render.
+
+---
+
+## 4. Render Pipeline & Scheduler Architecture
+
+```
+┌────────────────────────────────────────────────────────┐
+│ RenderPipeline Scheduler                               │
+│ - Generation counter (cancellation tracking)           │
+│ - Priority Prefetch Queue                              │
+│ - Frame Cache (Byte-bounded LRU)                       │
+└───────────────────────────┬────────────────────────────┘
+                            │ dispatches tasks
+       ┌────────────────────┼────────────────────┐
+       ▼                    ▼                    ▼
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ Worker 1     │     │ Worker 2     │     │ Worker N     │
+│ SlideCompositor    SlideCompositor    SlideCompositor  │
+└──────┬───────┘     └──────┬───────┘     └──────┬───────┘
+       │                    │                    │
+       └────────────────────┼────────────────────┘
+                            ▼
+             RgbaSlide (Straight RGBA8)
+                            │
+               [ If StageSink present ]
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│ Terminal Staging Thread (off UI thread)                │
+│ - Encodes PNG / raw payload                            │
+│ - Writes escape sequences via TtyWriter                │
+└────────────────────────────────────────────────────────┘
 ```
 
-Element-local geometry (paths in normalized $[0,1]$ coordinates) is scaled to the bbox in the element's local frame before `t` is applied.
+### 4.1 Cache Hierarchy & Byte Budgeting
+Pipeline frames are cached using the compound key `(slide_index: usize, target: RenderTargetSpec)`:
+- Different specs (e.g. `1920×1080` presentation view vs `320×180` sorter thumbnail) coexist without mutual eviction.
+- **Budgeting**: Default frame cache memory budget is 64 MB (configured via `[presenter] cache_mb`).
+  - One 1920×1080 frame: $1920 \times 1080 \times 4 \approx 8.3\text{ MB}$.
+  - A 5-frame window $[N-2 \dots N+2]$ occupies $\approx 41.5\text{ MB}$, well within budget.
+  - In 4K mode (`3840×2160`), one frame is $\approx 33.2\text{ MB}$; the cache automatically scales its retention window down to 2 frames to honor the memory budget.
 
-### 3.3 Dispatch
-Traversal is strictly in model order (document order = paint order). Each element dispatches to its renderer per [PRD 02d](./02d-element-renderers-and-fidelity-policy.md), using the geometry/style services of [PRD 02b](./02b-vector-style-and-geometry-engine.md) and the text engine of [PRD 02c](./02c-typography-and-text-layout.md). A renderer failure **never aborts the slide** — it is recorded as a `WarningEvent` and the element renders its placeholder per the fidelity policy.
+### 4.2 Priority Prefetch & Cooperative Cancellation
+When slide $N$ becomes active, the pipeline schedules prefetch in strict order:
+$$\text{Priority: } N \;\longrightarrow\; N+1 \;\longrightarrow\; N-1 \;\longrightarrow\; N+2 \;\longrightarrow\; N-2$$
+1. **Generation Counter**: Any invalidation event (`TargetChanged`, `DeckReload`, or fast jump) increments an atomic `pipeline_generation: AtomicU64`.
+2. **Cooperative Cancellation**: Worker tasks verify `task.generation == pipeline.current_generation()` before allocating resources. If stale, the task drops immediately without rendering.
 
-## 4. Determinism & Purity
+### 4.3 Staging Lifecycle Coordination
+When `plan.stage == true` (interactive presentation mode):
+1. Upon rasterization completion, the worker passes `RgbaSlide` to the pipeline staging worker.
+2. The staging worker claims an available `ImageId` from the 8-slot driver pool and calls `stage_sink.stage(id, &bitmap)`.
+3. Staging sequence encoding (PNG compression) and transmission occur in idle time off the UI thread.
+4. When the user initiates a flip, presentation is instantaneous ($O(1)$) because the image is already resident in terminal memory.
 
-The compositor is a pure function of `(Slide, Presentation defaults, AssetStore view, RenderTargetSpec)`:
+---
 
-1. **No hidden state.** Same inputs → bit-identical `RgbaSlide` output (conditional on identical font set and crate versions — the property PRD 07 golden tests rely on).
-2. **Thread safety.** `SlideCompositor: Send + Sync`; renderable concurrently from any number of workers.
-3. **No I/O.** Asset access goes through the `AssetStore` handle; no file system or terminal access.
+## 5. Invalidation Rules
 
-## 5. Render Pipeline / Scheduler
+| Cause | Trigger Event | Pipeline Action | Staging Action |
+| :--- | :--- | :--- | :--- |
+| **`Resize`** | Terminal window resized | **No re-render.** Cached frames remain valid. | Recompute `CellRect`; issue driver `reposition(id, new_cells)`. |
+| **`TargetChanged`** | Scale mode altered (`ActualPixels`), DPI switch | Increment generation. Old cache keys evicted; prefetch window rasterized for new spec. | Existing staged images released (`release`); new frames staged. |
+| **`DeckReload`** | Deck reloaded from disk | Clear all caches. Increment generation. Rebuild pipeline. | Driver issues `release_all()`; pool reset. |
 
-### 5.1 Cache Model
-The pipeline caches composited frames keyed by **(slide index, RenderTargetSpec)**. Two distinct targets may coexist — e.g. full-resolution presentation frames (`1920×1080`) and sorter thumbnails (`320×180`, [PRD 04](./04-interactive-tui-presenter.md) §2.3) — without evicting each other beyond LRU pressure.
+---
 
-Eviction policy: LRU by distance from the active navigation point, per target-spec key space, bounded by a configurable memory budget (`[presenter] cache_window` config, default window `[N-2 … N+2]` for the full-res key space). Approximate cost model: each 1920×1080 frame = 8.3 MB; 5-frame window ≈ 41.5 MB; thumbnail space budgeted separately (≤ 8 MB).
+## 6. Performance Guarantees
 
-### 5.2 Prefetch & Terminal Staging
-Rendering a frame is necessary but not sufficient for an instant flip — the frame must also **already be resident in the terminal** (see [PRD 03](./03-terminal-graphics-protocol.md) §5). The pipeline therefore coordinates two asynchronous steps:
-
-```rust
-pub struct PrefetchPlan {
-    pub center: usize,       // active slide index
-    pub behind: usize,       // slides behind center to keep (default 2)
-    pub ahead: usize,        // slides ahead to keep (default 2)
-    pub stage: bool,         // also stage into the terminal via StageSink
-}
-```
-
-1. **Rasterize** the window on the worker pool (priority: `N`, `N+1`, `N-1`, `N+2`, `N-2`; then ahead-biased look-ahead).
-2. **Stage** completed frames into the terminal through the `StageSink` trait (PRD 06 §6) using an `ImageId` from the driver's pool. Staging runs off the UI thread; encode cost (PNG) is paid here, in idle time — never at flip time.
-3. **Present** at flip time is then O(1): the TUI calls `driver.present(id, placement)`, which emits only a display action (PRD 03 §5.3).
-
-Contract consequences:
-
-- `present()` on an unstaged id returns `DisplayError::NotStaged` — the pipeline must guarantee staged residency for the window.
-- The terminal holds at most K images (driver pool size, default 8); the scheduler releases ids evicted from the window.
-
-### 5.3 Invalidation
-
-| Cause | Effect |
-| :--- | :--- |
-| `Resize` | **No re-rasterization.** The terminal scales a staged image to its placement cells client-side (PRD 03 §4.2); only the placement rect is recomputed. Raster cache stays valid. |
-| `TargetChanged` (e.g. `ActualPixels` mode, sorter thumbnails, DPI change) | New `RenderTargetSpec` → new cache key space; old keys evicted lazily; window re-rasterized and re-staged. |
-| `DeckReload` | All caches and staged images released; pipeline rebuilt. |
-
-*(The previous revision specified an 80 ms debounced re-raster on resize. This is removed by design: client-side scaling makes it redundant, and it re-opened the latency bug of paying transmission at interaction time.)*
-
-### 5.4 Worker Model
-- Worker pool sized `min(cpu_count - 1, 4)` by default (configurable `[render] workers`).
-- One frame per worker at a time; intra-frame parallelism is **not** attempted in v1 (element lists are short; cross-frame parallelism is the better axis).
-- Cancellation: a `TargetChanged` or `DeckReload` invalidation sets a generation counter; workers discard results from stale generations.
-
-### 5.5 Pipeline Entries
-
-```rust
-pub enum PipelineEntry {
-    Ready    { bitmap: RgbaSlide, staged: bool },
-    Rendering,
-    NotLoaded,
-    Failed   { error: RenderError },
-}
-```
-
-- `entry(i)` is non-blocking; it reports current state only.
-- `Failed` retains the error for UI surfacing ([PRD 04](./04-interactive-tui-presenter.md) §6); the pipeline does **not** retry automatically (a deterministic failure would fail again); a `DeckReload` clears it.
-
-## 6. Performance Budgets
-
-| Scenario | Budget (99th percentile on reference hardware, measured per [PRD 07](./07-quality-and-testing.md) §5) |
-| :--- | :--- |
-| Simple slide (title + bullets + logo) | < 15 ms |
-| Complex slide (10+ shapes, images, table) | < 40 ms |
-| Flip latency, staged frame (keypress → present written) | < 16 ms |
-| Sorter thumbnail (grid of 20, parallel) | < 400 ms total |
-
-## 7. Consumer Contracts
-
-- **TUI (PRD 04)**: calls `prefetch` on slide change and sorter open/close; reads `entry`; calls `present` via its driver handle. It does not schedule rendering itself.
-- **Export (PRD 05)**: constructs the pipeline with `stage: false` and no driver; consumes `Ready` frames sequentially or in parallel; encodes to PNG on its own workers.
+| Metric | Target (Reference 4-core Hardware) | Measurement Protocol |
+| :--- | :--- | :--- |
+| Simple slide render (title, bullets, logo) | $< 15\text{ ms}$ (p95) | [PRD 07](./07-quality-and-testing.md) §5 |
+| Complex slide render (tables, shapes, images) | $< 40\text{ ms}$ (p95) | PRD 07 §5 |
+| Staged slide flip latency (keypress $\to$ present) | $< 16\text{ ms}$ (p99) | PRD 07 §5 |
+| Sorter thumbnail generation (20 slides, parallel) | $< 400\text{ ms}$ total | PRD 07 §5 |
