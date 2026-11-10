@@ -1,6 +1,10 @@
 pub mod effects;
+pub mod filters;
+mod bevel;
 mod image;
+mod mask;
 mod path;
+mod shape_effect;
 mod text;
 
 use std::sync::Arc;
@@ -128,17 +132,19 @@ impl SlideRasterizer for TinySkiaRasterizer {
                     fill,
                     stroke,
                     transform,
-                    ..
+                    effects,
                 } => {
-                    path::render_path(
+                    shape_effect::render_path_with_effects(
                         &mut pixmap,
                         v_path,
                         fill.as_ref(),
                         stroke.as_ref(),
                         transform,
+                        effects,
                         s_f32,
                         dx,
                         dy,
+                        scene.width_emu,
                     );
                 }
                 VectorCommand::DrawImage {

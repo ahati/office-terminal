@@ -3,6 +3,7 @@ pub mod charts;
 pub mod hyperlinks;
 pub mod placeholders;
 pub mod pictures;
+pub mod shape_effects;
 pub mod shapes;
 pub mod style;
 pub mod tables;
@@ -89,19 +90,13 @@ impl SlideCompiler for DefaultSlideCompiler {
         for elem in &slide.elements {
             match elem {
                 pptx_model::SlideElement::Shape(shape) => {
-                    // Inspect shape effects per PRD 02d §2.1
-                    if shape.shadow.is_some()
-                        || shape.inner_shadow.is_some()
-                        || shape.glow.is_some()
-                        || shape.soft_edge.is_some()
-                        || shape.reflection.is_some()
-                        || shape.scene3d.is_some()
-                        || shape.sp3d.is_some()
-                    {
+                    // PRD 08: 2D effects are fully supported; 3D bevel and
+                    // extrusion surfaces are approximated as planar contours.
+                    if shape.sp3d.is_some() {
                         let _ = warning_sink.send(WarningEvent::FidelityDegraded {
                             element_id: shape.geometry.clone(),
-                            feature: "shape_effect_omitted",
-                            class: FidelityClass::Omitted,
+                            feature: "shape_3d_approximated",
+                            class: FidelityClass::Degraded,
                         });
                     }
 
@@ -137,7 +132,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                         fill,
                         stroke,
                         transform,
-                        effects: Box::default(),
+                        effects: Box::new(shape_effects::extract_shape_effects(shape)),
                     });
 
                     // Compile text body if present (supporting SmartArt explicit text_rect)

@@ -237,3 +237,55 @@ fn update_bounds(x: f32, y: f32, min_x: &mut f32, min_y: &mut f32, max_x: &mut f
     if y < *min_y { *min_y = y; }
     if y > *max_y { *max_y = y; }
 }
+
+/// Bounds of the path in its own local coordinate space.
+pub fn local_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
+    bounds_with(path, |x, y| (x, y))
+}
+
+/// Bounds of the path after applying an affine transform (control points
+/// included, matching the rasterizer's conservative bounds).
+pub fn transformed_bounds(
+    path: &VectorPath,
+    transform: &AffineTransform,
+) -> Option<(f32, f32, f32, f32)> {
+    bounds_with(path, |x, y| transform.transform_point(x, y))
+}
+
+fn bounds_with(
+    path: &VectorPath,
+    map: impl Fn(f32, f32) -> (f32, f32),
+) -> Option<(f32, f32, f32, f32)> {
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    let mut any = false;
+    let mut add = |x: f32, y: f32| {
+        let (tx, ty) = map(x, y);
+        update_bounds(tx, ty, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
+    };
+
+    for seg in &path.segments {
+        match seg {
+            PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => {
+                add(*x, *y);
+                any = true;
+            }
+            PathSegment::QuadTo { x1, y1, x, y } => {
+                add(*x1, *y1);
+                add(*x, *y);
+                any = true;
+            }
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
+                add(*x1, *y1);
+                add(*x2, *y2);
+                add(*x, *y);
+                any = true;
+            }
+            PathSegment::Close => {}
+        }
+    }
+
+    any.then_some((min_x, min_y, max_x, max_y))
+}
