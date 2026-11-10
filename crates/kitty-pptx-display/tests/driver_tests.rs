@@ -93,7 +93,7 @@ fn test_kitty_compat_present_sequence_has_no_placeholders() {
         &[],
     );
     assert_eq!(sequences.len(), 1);
-    assert!(sequences[0].starts_with("\x1b[3;4H\x1b_Ga=p,i=7,p=1,c=5,r=4,q=2\x1b\\"));
+    assert!(sequences[0].starts_with("\x1b[3;4H\x1b_Ga=p,i=7,p=1,c=5,r=4,z=-1,q=2\x1b\\"));
     assert!(!sequences[0].contains('\u{10EEEE}'));
 }
 
@@ -104,7 +104,7 @@ fn test_kitty_full_placeholder_present_creates_virtual_placement() {
     let sequences = driver.present_sequences(ImageId(4), Placement::Cells(rect), &[]);
     assert_eq!(sequences.len(), 2);
     // Virtual placement first, placeholders afterwards.
-    assert!(sequences[0].contains("a=p,U=1,i=4,p=1,c=2,r=2"));
+    assert!(sequences[0].contains("a=p,U=1,i=4,p=1,c=2,r=2,z=-1"));
     assert!(sequences[1].contains('\u{10EEEE}'));
 }
 

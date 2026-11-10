@@ -343,14 +343,18 @@ impl KittyDriver {
                 if self.placeholders_active() {
                     vec![
                         format!(
-                            "\x1b_Ga=p,U=1,i={},p=1,c={},r={},q=2\x1b\\",
+                            "\x1b_Ga=p,U=1,i={},p=1,c={},r={},z=-1,q=2\x1b\\",
                             id.0, rect.cols, rect.rows
                         ),
                         Self::generate_placeholder_string_with_links(id, rect, links),
                     ]
                 } else {
+                    // z=-1 keeps the image behind text so TUI overlays
+                    // (help modal, drawers) composite above it. Cells in the
+                    // slide area carry the default background, letting the
+                    // image show through; opaque overlay cells mask it.
                     vec![format!(
-                        "\x1b[{};{}H\x1b_Ga=p,i={},p=1,c={},r={},q=2\x1b\\",
+                        "\x1b[{};{}H\x1b_Ga=p,i={},p=1,c={},r={},z=-1,q=2\x1b\\",
                         rect.row + 1,
                         rect.col + 1,
                         id.0,
