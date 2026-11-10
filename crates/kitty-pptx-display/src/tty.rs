@@ -14,6 +14,19 @@ impl TtyWriter {
             stdout: Mutex::new(io::stdout()),
         }
     }
+}
+
+impl Default for TtyWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TtyWriter {
+
+    pub fn is_tmux(&self) -> bool {
+        self.is_tmux
+    }
 
     /// Atomically writes an escape sequence, applying tmux DCS pass-through if needed.
     pub fn write_seq(&self, seq: &str) -> io::Result<()> {

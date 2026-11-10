@@ -1,0 +1,62 @@
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use kitty_pptx_display::PlacementMode;
+
+use crate::app::state::PresentationState;
+use crate::widget::SlideWidget;
+
+/// Render the standard fullscreen presentation mode.
+pub fn render_normal(state: &PresentationState, f: &mut Frame, area: Rect) {
+    if !state.status_line_visible() {
+        // True fullscreen without any status line overlay
+        let slide_widget = SlideWidget::new(state.current_image_id(), PlacementMode::Interactive)
+            .with_aspect_ratio(state.aspect_ratio());
+        f.render_widget(slide_widget, area);
+        return;
+    }
+
+    // Fullscreen with minimal non-intrusive status line
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
+        .split(area);
+
+    // Slide canvas
+    let slide_widget = SlideWidget::new(state.current_image_id(), PlacementMode::Interactive)
+        .with_aspect_ratio(state.aspect_ratio());
+    f.render_widget(slide_widget, chunks[0]);
+
+    // Status line
+    let status_line = if !state.digit_buffer().is_empty() {
+        Line::from(vec![
+            Span::styled(
+                format!(" Jump to slide: {}_ ", state.digit_buffer()),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[Enter] Jump | [Esc] Cancel",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])
+    } else {
+        let status_text = format!(
+            " Slide {} / {} | Elapsed: {} | [?] Help | [p] Presenter | [t] Hide Bar | [q] Quit ",
+            state.current_slide() + 1,
+            state.total_slides(),
+            state.elapsed_formatted()
+        );
+        Line::from(vec![
+            Span::styled(
+                status_text,
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ])
+    };
+
+    let status = Paragraph::new(status_line)
+        .block(Block::default().borders(Borders::NONE));
+    f.render_widget(status, chunks[1]);
+}

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub display: DisplayConfig,
@@ -39,15 +39,6 @@ impl Default for ExportConfig {
             default_format: "png".to_string(),
             default_dpi: 150,
             svg_text_mode: "paths".to_string(),
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            display: DisplayConfig::default(),
-            export: ExportConfig::default(),
         }
     }
 }

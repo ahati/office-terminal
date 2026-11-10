@@ -65,9 +65,9 @@ impl RenderPipeline for DefaultRenderPipeline {
 
             // Check raster cache
             let mut rcache = self.raster_cache.lock().unwrap();
-            if !rcache.contains_key(&(idx, *target)) {
+            if let std::collections::hash_map::Entry::Vacant(e) = rcache.entry((idx, *target)) {
                 if let Ok(bmp) = self.rasterizer.rasterize(&vector_slide, target, self.asset_store.as_ref()) {
-                    rcache.insert((idx, *target), bmp);
+                    e.insert(bmp);
                 }
             }
         }

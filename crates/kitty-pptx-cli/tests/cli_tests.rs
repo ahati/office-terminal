@@ -3,7 +3,7 @@ use kitty_pptx_cli::cli::{Cli, Commands, ExportFormat, parse_slide_range};
 
 #[test]
 fn test_cli_parse_export_subcommand() {
-    let args = Cli::try_parse_from(&[
+    let args = Cli::try_parse_from([
         "kitty-pptx",
         "export",
         "test.pptx",

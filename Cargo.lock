@@ -802,6 +802,7 @@ dependencies = [
 name = "kitty-pptx-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cosmic-text",
  "crossbeam-channel",
  "fontdb 0.16.2",

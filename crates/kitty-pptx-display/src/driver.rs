@@ -1,5 +1,8 @@
 use kitty_pptx_core::{RgbaSlide, DisplayError};
 
+pub use crate::geometry::*;
+pub use crate::drivers::{KittyDriver, HalfBlockDriver, SixelDriver, Iterm2Driver};
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ImageId(pub u32);
 
@@ -11,10 +14,11 @@ pub struct CellRect {
     pub cols: u16,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Placement {
     Cells(CellRect),
     ScrollbackBlock,
+    VirtualPlaceholder(CellRect),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

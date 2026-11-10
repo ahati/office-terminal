@@ -1,15 +1,22 @@
+use std::sync::Arc;
+use kitty_pptx_core::RgbaSlide;
 use kitty_pptx_display::*;
 
-#[test]
-fn test_capability_probe_env_detection() {
-    std::env::set_var("KITTY_WINDOW_ID", "1");
-    let detected = CapabilityProbe::probe().expect("probe failed");
-    match detected {
-        DetectedProtocol::Kitty => {},
-        _ => panic!("Expected Kitty protocol detection from KITTY_WINDOW_ID"),
+fn create_test_slide(w: u32, h: u32, color: [u8; 4]) -> RgbaSlide {
+    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
+    for _ in 0..(w * h) {
+        pixels.extend_from_slice(&color);
     }
-    std::env::remove_var("KITTY_WINDOW_ID");
+    RgbaSlide {
+        width: w,
+        height: h,
+        pixels: Arc::from(pixels.into_boxed_slice()),
+    }
 }
+
+// -----------------------------------------------------------------------------
+// Kitty Driver Tests
+// -----------------------------------------------------------------------------
 
 #[test]
 fn test_kitty_driver_caps() {
@@ -20,4 +27,274 @@ fn test_kitty_driver_caps() {
     assert!(caps.terminal_side_scaling);
     assert_eq!(caps.resident_ids, 8);
     assert_eq!(driver.placement_mode(), PlacementMode::Interactive);
+}
+
+#[test]
+fn test_kitty_transmission_chunking_single() {
+    let payload = "ABCD1234EFGH5678";
+    let chunks = KittyDriver::format_transmission_chunks(ImageId(42), 100, 100, payload);
+    assert_eq!(chunks.len(), 1);
+    assert!(chunks[0].starts_with("\x1b_Ga=t,f=100,i=42,s=100,v=100,q=2,m=0;ABCD1234EFGH5678\x1b\\"));
+}
+
+#[test]
+fn test_kitty_transmission_chunking_multi() {
+    // 4096 * 2 + 10 bytes payload
+    let payload = "A".repeat(4096 * 2 + 10);
+    let chunks = KittyDriver::format_transmission_chunks(ImageId(7), 800, 600, &payload);
+    assert_eq!(chunks.len(), 3);
+
+    // First chunk has a=t, f=100, i=7, s=800, v=600, q=2, m=1
+    assert!(chunks[0].starts_with("\x1b_Ga=t,f=100,i=7,s=800,v=600,q=2,m=1;"));
+    assert!(chunks[0].ends_with("\x1b\\"));
+
+    // Second chunk has m=1
+    assert!(chunks[1].starts_with("\x1b_Gm=1;"));
+    assert!(chunks[1].ends_with("\x1b\\"));
+
+    // Third chunk has m=0 (terminal chunk)
+    assert!(chunks[2].starts_with("\x1b_Gm=0;"));
+    assert!(chunks[2].ends_with("\x1b\\"));
+}
+
+#[test]
+fn test_kitty_unicode_placeholder_generation() {
+    let id = ImageId(0x010203); // fg: (3, 2, 1)
+    let rect = CellRect { row: 2, col: 4, rows: 2, cols: 3 };
+    let placeholders = KittyDriver::generate_placeholder_string(id, rect);
+
+    // Check row 1 positioning: \x1b[3;5H
+    assert!(placeholders.contains("\x1b[3;5H"));
+    // Check FG encoding ImageId: 0x010203 -> R=3, G=2, B=1
+    assert!(placeholders.contains("\x1b[38;2;3;2;1m"));
+    // Check BG encoding (col 0, row 0): R=0, G=0, B=0
+    assert!(placeholders.contains("\x1b[48;2;0;0;0m\u{10EEEE}"));
+    // Check BG encoding (col 1, row 0): R=1, G=0, B=0
+    assert!(placeholders.contains("\x1b[48;2;1;0;0m\u{10EEEE}"));
+    // Check row 2 positioning: \x1b[4;5H
+    assert!(placeholders.contains("\x1b[4;5H"));
+    // Check BG encoding (col 0, row 1): R=0, G=0, B=1
+    assert!(placeholders.contains("\x1b[48;2;0;0;1m\u{10EEEE}"));
+}
+
+#[test]
+fn test_kitty_stage_and_sink() {
+    let slide = create_test_slide(16, 16, [255, 0, 0, 255]);
+    let driver = KittyDriver::new(PlacementMode::Interactive);
+    assert_eq!(driver.resident_capacity(), 8);
+    // StageSink::stage
+    let stage_res = driver.stage(ImageId(10), &slide);
+    assert!(stage_res.is_ok());
+    // StageSink::release
+    let rel_res = driver.release(ImageId(10));
+    assert!(rel_res.is_ok());
+}
+
+// -----------------------------------------------------------------------------
+// HalfBlock Driver Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_halfblock_driver_caps() {
+    let driver = HalfBlockDriver::new(PlacementMode::Interactive);
+    let caps = driver.caps();
+    assert!(caps.alpha);
+    assert!(!caps.placeholders);
+    assert!(!caps.terminal_side_scaling);
+    assert_eq!(caps.resident_ids, 16);
+    assert_eq!(driver.name(), "halfblock");
+}
+
+#[test]
+fn test_halfblock_ansi_rendering() {
+    // 2x2 slide: top row red, bottom row blue
+    let mut pixels = Vec::new();
+    // Top-left: red, Top-right: red
+    pixels.extend_from_slice(&[255, 0, 0, 255]);
+    pixels.extend_from_slice(&[255, 0, 0, 255]);
+    // Bottom-left: blue, Bottom-right: blue
+    pixels.extend_from_slice(&[0, 0, 255, 255]);
+    pixels.extend_from_slice(&[0, 0, 255, 255]);
+
+    let slide = RgbaSlide {
+        width: 2,
+        height: 2,
+        pixels: Arc::from(pixels.into_boxed_slice()),
+    };
+
+    // Render to 2 cols x 1 row (2 vertical pixels per cell)
+    let ansi = HalfBlockDriver::render_halfblock_to_ansi(&slide, 2, 1);
+
+    // Foreground should be red
+    assert!(ansi.contains("\x1b[38;2;255;0;0m"));
+    // Background should be blue
+    assert!(ansi.contains("\x1b[48;2;0;0;255m"));
+    // Character should be half block
+    assert!(ansi.contains('▀'));
+}
+
+#[test]
+fn test_halfblock_staging_lifecycle() {
+    let mut driver = HalfBlockDriver::new(PlacementMode::Interactive);
+    let slide = create_test_slide(10, 10, [100, 150, 200, 255]);
+
+    // Present before staging should fail
+    let err = driver.present(ImageId(5), Placement::ScrollbackBlock);
+    assert!(err.is_err());
+
+    // Stage then present
+    assert!(TerminalGraphicsDriver::stage(&mut driver, &slide, ImageId(5)).is_ok());
+    assert!(driver.present(ImageId(5), Placement::ScrollbackBlock).is_ok());
+
+    // Release
+    assert!(driver.release(ImageId(5)).is_ok());
+    assert!(driver.present(ImageId(5), Placement::ScrollbackBlock).is_err());
+}
+
+// -----------------------------------------------------------------------------
+// Sixel Driver Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_sixel_driver_caps() {
+    let driver = SixelDriver::new(PlacementMode::Interactive);
+    let caps = driver.caps();
+    assert!(!caps.alpha);
+    assert!(!caps.placeholders);
+    assert_eq!(caps.resident_ids, 16);
+    assert_eq!(driver.name(), "sixel");
+}
+
+#[test]
+fn test_sixel_encoding_format() {
+    let slide = create_test_slide(8, 6, [0, 255, 0, 255]);
+    let sixel = SixelDriver::encode_sixel(&slide.pixels, slide.width, slide.height);
+
+    // DCS Introducer
+    assert!(sixel.starts_with("\x1bPq"));
+    // Palette definition (green 100% -> #0;2;0;100;0)
+    assert!(sixel.contains(";2;0;100;0"));
+    // Terminator
+    assert!(sixel.ends_with("\x1b\\"));
+    // Band terminator '-'
+    assert!(sixel.contains('-'));
+}
+
+#[test]
+fn test_sixel_staging_lifecycle() {
+    let mut driver = SixelDriver::new(PlacementMode::Interactive);
+    let slide = create_test_slide(8, 8, [20, 40, 60, 255]);
+
+    assert!(driver.present(ImageId(1), Placement::ScrollbackBlock).is_err());
+    assert!(TerminalGraphicsDriver::stage(&mut driver, &slide, ImageId(1)).is_ok());
+    assert!(driver.present(ImageId(1), Placement::ScrollbackBlock).is_ok());
+    assert!(driver.release_all().is_ok());
+    assert!(driver.present(ImageId(1), Placement::ScrollbackBlock).is_err());
+}
+
+// -----------------------------------------------------------------------------
+// iTerm2 Driver Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_iterm2_formatting() {
+    let b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
+    let seq = Iterm2Driver::format_iterm2_sequence(b64, Some(80), Some(24));
+    assert_eq!(
+        seq,
+        format!("\x1b]1337;File=inline=1;width=80;height=24:{b64}\x07")
+    );
+}
+
+// -----------------------------------------------------------------------------
+// Capability Probe Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_capability_probe_env_detection() {
+    // 1. Kitty
+    std::env::set_var("KITTY_WINDOW_ID", "1");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
+    std::env::remove_var("KITTY_WINDOW_ID");
+
+    // 2. Ghostty
+    std::env::set_var("TERM_PROGRAM", "ghostty");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
+    std::env::remove_var("TERM_PROGRAM");
+
+    // 3. WezTerm
+    std::env::set_var("TERM_PROGRAM", "WezTerm");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
+    std::env::remove_var("TERM_PROGRAM");
+
+    // 4. iTerm2
+    std::env::set_var("TERM_PROGRAM", "iTerm.app");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Iterm2));
+    std::env::remove_var("TERM_PROGRAM");
+
+    // 5. Foot
+    std::env::set_var("FOOT_TERMINAL", "1");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Sixel));
+    std::env::remove_var("FOOT_TERMINAL");
+
+    // 6. mintty
+    std::env::set_var("MINTTY_SHORTCUT", "1");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Sixel));
+    std::env::remove_var("MINTTY_SHORTCUT");
+
+    // 7. Contour
+    std::env::set_var("CONTOUR_VERSION", "0.3");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
+    std::env::remove_var("CONTOUR_VERSION");
+
+    // 8. Alacritty
+    std::env::set_var("ALACRITTY_WINDOW_ID", "1");
+    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::HalfBlock));
+    std::env::remove_var("ALACRITTY_WINDOW_ID");
+}
+
+#[test]
+fn test_da1_has_sixel() {
+    assert!(parse_da1_has_sixel("\x1b[?62;1;4;6;7;8;9c"));
+    assert!(parse_da1_has_sixel("\x1b[?63;4c"));
+    assert!(!parse_da1_has_sixel("\x1b[?62;1;2;6;7;8;9c"));
+    assert!(!parse_da1_has_sixel("\x1b[?1;2c"));
+}
+
+#[test]
+fn test_instantiate_drivers() {
+    let k_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::Kitty, PlacementMode::Interactive);
+    assert_eq!(k_driver.name(), "kitty");
+
+    let s_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::Sixel, PlacementMode::Interactive);
+    assert_eq!(s_driver.name(), "sixel");
+
+    let h_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::HalfBlock, PlacementMode::Interactive);
+    assert_eq!(h_driver.name(), "halfblock");
+
+    let i_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::Iterm2, PlacementMode::Interactive);
+    assert_eq!(i_driver.name(), "iterm2");
+}
+
+// -----------------------------------------------------------------------------
+// Aspect Ratio & Geometry Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_aspect_ratio_fitting() {
+    // 16:9 image (1920x1080)
+    // cell aspect ratio = 0.5 (1:2 cell width:height)
+    // container: 80 cols x 40 rows
+    let (cols, rows) = fit_aspect_ratio(1920, 1080, 80, 40, DEFAULT_CELL_ASPECT_RATIO);
+    // With K = 0.5, char AR = 16/9 / 0.5 = 32/9 ≈ 3.555
+    // For 80 cols: rows = round(80 / 3.555) = 23
+    assert_eq!(cols, 80);
+    assert_eq!(rows, 23);
+
+    let container = CellRect { row: 0, col: 0, rows: 40, cols: 80 };
+    let centered = calculate_centered_placement(1920, 1080, container, DEFAULT_CELL_ASPECT_RATIO);
+    assert_eq!(centered.cols, 80);
+    assert_eq!(centered.rows, 23);
+    assert_eq!(centered.col, 0);
+    assert_eq!(centered.row, (40 - 23) / 2);
 }

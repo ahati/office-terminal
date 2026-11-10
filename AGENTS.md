@@ -1,0 +1,185 @@
+# AGENTS.md
+
+Welcome to the **kitty-pptx** codebase! This document serves as the primary orientation guide, architectural reference, and engineering handbook for autonomous agents, pair programmers, and human contributors working on this repository.
+
+---
+
+## 1. Project Introduction & Vision
+
+**kitty-pptx** is a high-fidelity, high-performance terminal slide deck presenter and vector export engine for Microsoft PowerPoint (`.pptx`) presentations. It brings modern presentation rendering directly to the terminal while supporting native vector exports (such as SVG and PNG).
+
+### Key Capabilities
+- **Kitty Graphics Protocol Native**: Utilizes the modern Kitty graphics protocol (RGB/RGBA transfer, z-indexing, direct placement, and virtual placement) for crisp, GPU-accelerated terminal graphics.
+- **Universal Terminal Fallbacks**: Graceful fallback ladder for other terminal environments:
+  1. Kitty Graphics Protocol
+  2. Sixel Graphics
+  3. iTerm2 Inline Images
+  4. Unicode Halfblock Characters (24-bit ANSI truecolor)
+- **Vector-First Two-Stage Architecture**: Converts OOXML / PowerPoint shapes, text runs, and styling into an intermediate, resolution-independent vector display list (`VectorSlide`). This enables infinite scalability, native SVG export with selectable text, and pixel-perfect rasterization at arbitrary DPI/cell dimensions.
+- **Dual-Mode Interactive TUI**: Built with [Ratatui](https://ratatui.rs), featuring:
+  - **Normal View**: Full-bleed slide rendering centered to terminal dimensions.
+  - **Presenter View**: Split console with current slide, next slide preview, timer / elapsed clock, speaker notes, and interactive thumbnail navigator.
+
+---
+
+## 2. Workspace & Crate Architecture
+
+The repository is organized as a Cargo workspace with clean separation of concerns:
+
+```
+kitty-pptx/
+├── Cargo.toml                      # Workspace manifest & shared dependencies
+├── AGENTS.md                       # This guide
+├── docs/                           # Detailed PRDs and architectural specifications
+│   ├── 00-system-overview.md
+│   ├── 01-parser-and-data-model.md
+│   ├── 02a-composition-core-and-render-pipeline.md
+│   ├── 02b-vector-style-and-geometry-engine.md
+│   ├── 02b-appendix-preset-geometries.md
+│   ├── 02c-typography-and-text-layout.md
+│   ├── 02d-element-renderers-and-fidelity-policy.md
+│   ├── 03a-kitty-graphics-protocol-driver.md
+│   ├── 03b-display-fallbacks-and-probing.md
+│   ├── 04-interactive-tui-presenter.md
+│   ├── 05-cli-and-export.md
+│   ├── 06-component-interface-contracts.md
+│   └── 07-quality-and-testing.md
+└── crates/
+    ├── kitty-pptx-core/            # Vector IR, compiler, rasterizer, SVG exporter
+    ├── kitty-pptx-display/         # Terminal graphics drivers, probe, cell mapper
+    ├── kitty-pptx-tui/             # Interactive Ratatui presenter application
+    ├── kitty-pptx-cli/             # Command-line interface & subcommands
+    ├── pptx-parser/                # (Vendored) Low-level OOXML PPTX parser
+    ├── pptx-model/                 # (Vendored) Abstract PowerPoint DOM model
+    ├── ooxml-common/               # (Vendored) OOXML package, relationship & XML utilities
+    └── patches/                    # Reproducible patches for vendored crates
+```
+
+### Crate Responsibilities
+
+| Crate | Role & Key Components |
+| :--- | :--- |
+| **`kitty-pptx-core`** | **Display List & Render Core**: Defines `VectorSlide`, `DrawCommand`, `GeometryPath`, `Paint`, and `TextRun`. Compiles `pptx-model` slides into vector display lists. Rasterizes via `tiny-skia` into RGBA framebuffers. Exports native standalone SVG. Manages embedded media asset extraction (`AssetStore`). |
+| **`kitty-pptx-display`** | **Terminal Graphics Drivers**: Implements `TerminalDriver` trait for Kitty, Sixel, iTerm2, and Halfblock protocols. Detects terminal capabilities via DA1/DA2/Kitty queries and environment variables. Computes terminal cell-to-pixel aspect ratios. Handles cleanups. |
+| **`kitty-pptx-tui`** | **Interactive Presenter**: Ratatui-based TUI state machine (`PresenterApp`, `PresenterMode`). Handles keyboard navigation (Space/Enter/Arrows, 'p' presenter toggle, 't' thumbnail grid, 'b' blank screen). Manages slide timer, notes, and responsive layout widgets. |
+| **`kitty-pptx-cli`** | **CLI Entrypoint**: Implements commands via `clap`: `view`, `present`, `export` (SVG/PNG), `dump` (JSON/AST), and `info`. Loads configuration and coordinates pipeline execution. |
+| **Vendored Crates** | **Upstream Parser Stack**: `pptx-parser`, `pptx-model`, `ooxml-common`. Kept pristine in `crates/` to provide robust, spec-compliant PPTX parsing without network dependencies. Any essential fixes must be tracked in `crates/patches/` and recorded in `crates/VENDORED.md`. |
+
+---
+
+## 3. Strict Coding Conventions & Quality Rules
+
+All agents and contributors must strictly follow these engineering conventions:
+
+### A. Strict File Size Limit (< 600 Lines)
+- **Hard Limit**: **NO source file may exceed 600 lines**.
+- **Proactive Modularization**: When a file approaches 400–500 lines, split it into logically coherent submodules.
+  - *Example*: Large shape preset tables are split into `compiler/shapes/presets_t1.rs`, `presets_t2.rs`, etc.
+  - *Example*: CLI commands are partitioned into `commands/view.rs`, `commands/export.rs`, `commands/present.rs`, etc.
+  - *Example*: TUI views are split into `app/ui/normal.rs`, `app/ui/presenter.rs`, `app/ui/thumbnails.rs`.
+
+### B. Two-Stage Vector Pipeline Discipline
+- **Vector-First Rule**: Never render directly from `pptx-model` to pixels.
+- All presentation elements must compile to the intermediate representation (`VectorSlide` and `DrawCommand`):
+  1. **Stage 1 (Compile)**: `pptx-model::Slide` + `AssetStore` $\rightarrow$ `VectorSlide`.
+  2. **Stage 2 (Render/Export)**:
+     - For Terminal/PNG: `VectorSlide` $\rightarrow$ `tiny-skia` $\rightarrow$ `RgbaImage`.
+     - For SVG: `VectorSlide` $\rightarrow$ standalone `<svg>` XML with CSS styles and selectable text runs.
+- This ensures feature parity, testability, and resolution independence across all target outputs.
+
+### C. Terminal Protocol Hygiene & Clean Restoration
+- Terminal applications must leave the user's terminal clean and functional under all circumstances (normal exit, error exit, panic, SIGINT/Ctrl-C, SIGTERM).
+- Always install panic hooks and signal handlers that:
+  - Disable raw mode (`crossterm::terminal::disable_raw_mode()`).
+  - Show the cursor (`crossterm::cursor::Show`).
+  - Leave alternate screen buffer (`crossterm::terminal::LeaveAlternateScreen`).
+  - Send graphics cleanup sequences (e.g. Kitty clear: `\x1b_Ga=d,d=a,q=2\x1b\\`).
+
+### D. Safety and Robustness
+- **Forbid Unsafe**: Library code should adhere to `#![forbid(unsafe_code)]` unless interacting with low-level termios/ioctl for cell dimension probing, which must be strictly encapsulated, audited, and isolated in `kitty-pptx-display`.
+- **Robust Error Handling**:
+  - Library crates use typed errors with `thiserror` (e.g. `RenderError`, `DriverError`).
+  - Avoid `.unwrap()` and `.expect()` in non-test production code. Bubble errors using `?` or provide graceful fallback defaults.
+  - Handle malformed or partially corrupt PPTX files gracefully (e.g. render placeholders for missing shapes/images instead of crashing the presenter).
+
+### E. Vendored Crates Policy & Licensing
+- The crates `pptx-parser`, `pptx-model`, and `ooxml-common` are vendored from upstream.
+- **Do not make ad-hoc edits** to files in these directories unless creating a documented patch in `crates/patches/`.
+- Pinned dependency note: `zip = "=9.0.4"` is required in workspace `Cargo.toml` to guarantee compatibility with `ooxml-common` NTFS extra-field parsing tests.
+- **Licensing Notice**: This project is licensed under the **MIT License**. All upstream and vendored components carry their own respective licenses and copyright notices from their upstream authors, as tracked in `crates/VENDORED.md`.
+
+### F. Strict Zero-Warning Policy (Compiler & Clippy)
+- **Zero Warnings Enforcement**: The entire workspace must compile cleanly with **zero compiler warnings and zero Clippy warnings**.
+- Always verify with:
+  ```bash
+  cargo clippy --workspace --all-targets -- -D warnings
+  ```
+- No commit or PR should ever introduce dead code warnings, unused import warnings, or clippy lints. Address lints proactively or use narrow, documented `#[allow(...)]` attributes only when technically justified.
+
+---
+
+## 4. Coordinate Systems & Mathematical Conventions
+
+When implementing compilers, geometry calculations, or drivers, adhere to these domain constants:
+
+- **English Metric Units (EMU)**:
+  - PowerPoint coordinates and dimensions are expressed in integer EMUs.
+  - $1 \text{ inch} = 914,400 \text{ EMUs}$.
+  - $1 \text{ cm} = 360,000 \text{ EMUs}$.
+  - $1 \text{ pt} = 12,700 \text{ EMUs}$.
+  - Standard 96 DPI pixel: $1 \text{ px} = 9,525 \text{ EMUs}$.
+- **Angles in OOXML**:
+  - Expressed in $60,000\text{ths}$ of a degree ($360^\circ = 21,600,000\text{ units}$).
+- **Terminal Cell Aspect Ratio**:
+  - Monospace terminal character cells are rectangular, typically having a 1:2 width-to-height ratio (aspect factor $\approx 0.5$).
+  - Layout algorithms must compensate using cell aspect ratios when mapping slide bounding boxes (`EmuRect`) to terminal character cells (`CellRect`).
+- **Kitty Unicode Placeholder Encoding**:
+  - Primary character: `\u{10EEEE}`.
+  - Foreground 24-bit color encodes `ImageId`: `RGB(id >> 16, (id >> 8) & 0xFF, id & 0xFF)`.
+  - Background 24-bit color encodes cell offset: `RGB(col, row, 0)`.
+
+---
+
+## 5. Development & Testing Workflow
+
+### Essential Commands
+
+```bash
+# Check compilation across all crates
+cargo check --workspace
+
+# Lint entire workspace with zero warnings permitted
+cargo clippy --workspace --all-targets -- -D warnings
+
+# Run complete test suite (must pass 100%)
+cargo test --workspace
+
+# Check line counts to enforce the < 600 line limit
+find crates/kitty-pptx-* -name "*.rs" | xargs wc -l | sort -nr
+
+# Run the CLI
+cargo run -p kitty-pptx-cli -- view presentation.pptx
+cargo run -p kitty-pptx-cli -- export presentation.pptx --format svg -o out/
+```
+
+### Git Commit Guidelines
+- Use clear, conventional commit prefixes:
+  - `feat:` New features or subcommands.
+  - `fix:` Bug fixes or correction of rendering artifacts.
+  - `refactor:` Modular domain splits or non-breaking architectural restructuring.
+  - `test:` Additional tests or test fixtures.
+  - `docs:` Updates to documentation or specs.
+- Always run `cargo check --workspace` and `cargo test --workspace` before pushing or staging commits.
+
+---
+
+## 6. Subagent Collaboration Guidelines
+
+When working in multi-agent swarms or subagent delegations:
+1. **Assign Clear Domain Ownership**:
+   - Agent 1: Vector Pipeline & Shape Compilers (`kitty-pptx-core`)
+   - Agent 2: Terminal Display Drivers & Probing (`kitty-pptx-display`)
+   - Agent 3: Presenter TUI State & Layout (`kitty-pptx-tui`)
+   - Agent 4: CLI Interface & Subcommands (`kitty-pptx-cli`)
+2. **Respect Component Contracts**: Contracts in `crates/kitty-pptx-core/src/contracts/` are shared ground. If modifying a contract data structure, coordinate with all dependent crates.
+3. **Verify Line Counts Proactively**: After adding or expanding features, verify line counts with `wc -l` and split files before marking assignments complete.
