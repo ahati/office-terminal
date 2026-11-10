@@ -5,15 +5,84 @@
 This document is the **normative contract layer** of the architecture. It defines the core types, traits, error taxonomies, and cross-cutting rules that govern every component boundary.
 Where another PRD shows an interface sketch, this document's version is authoritative.
 
-> **The Architectural Seam Invariant**:
-> The Composition Engine ([PRD 02a](./02a-composition-core-and-render-pipeline.md)) and the Display Adapter ([PRD 03a](./03a-kitty-graphics-protocol-driver.md), [PRD 03b](./03b-display-fallbacks-and-probing.md)) share **exactly two types — `RgbaSlide` and `RenderTargetSpec` — and nothing else.**
-> Composition never touches the terminal; Display never interprets slide data. `export` links the composition half without display code in the build ([PRD 05](./05-cli-and-export.md) §2.3).
+> **The Two-Stage Pipeline & Seam Invariant**:
+> 1. **Vector Scene Seam (`VectorSlide`)**: The layout compiler translates DrawingML slide models into a pure, resolution-independent 2D display list (`VectorSlide`). Both the `tiny-skia` rasterizer and the SVG vector exporter consume this single intermediate representation.
+> 2. **Display Seam (`RgbaSlide`, `RenderTargetSpec`)**: The Composition Engine and the Display Adapter share **exactly two types — `RgbaSlide` and `RenderTargetSpec` — and nothing else.**
+> Composition never touches the terminal; Display never interprets slide data or vector commands. `export` links without display driver code in the build ([PRD 05](./05-cli-and-export.md) §2.3).
 
 ---
 
 ## 2. Core Value Types
 
-### 2.1 `RgbaSlide` (The Frame Contract)
+### 2.1 `VectorSlide` (Resolution-Independent Display List)
+```rust
+#[derive(Clone, Debug)]
+pub struct VectorSlide {
+    pub width_emu: i64,
+    pub height_emu: i64,
+    pub background: Option<VectorBackground>,
+    pub commands: Vec<VectorCommand>,
+}
+
+#[derive(Clone, Debug)]
+pub enum VectorCommand {
+    DrawPath {
+        path: VectorPath,
+        fill: Option<VectorPaint>,
+        stroke: Option<VectorStroke>,
+        transform: AffineTransform,
+    },
+    DrawText {
+        runs: Vec<PositionedGlyphRun>,
+        transform: AffineTransform,
+    },
+    DrawImage {
+        rel_id: String,
+        src_rect: Rect<f32>,     // Normalized [0, 1] crop rectangle
+        dest_rect: Rect<f32>,    // EMU bounding box
+        opacity: f32,
+        transform: AffineTransform,
+    },
+    PushClip(VectorPath),
+    PopClip,
+}
+
+#[derive(Clone, Debug)]
+pub struct VectorPath {
+    pub segments: Vec<PathSegment>,
+    pub fill_rule: FillRule, // NonZero | EvenOdd
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PathSegment {
+    MoveTo { x: f32, y: f32 },
+    LineTo { x: f32, y: f32 },
+    QuadTo { x1: f32, y1: f32, x: f32, y: f32 },
+    CubicTo { x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32 },
+    Close,
+}
+
+#[derive(Clone, Debug)]
+pub struct PositionedGlyphRun {
+    pub font_id: fontdb::ID,
+    pub font_family: String,
+    pub font_size_pt: f32,
+    pub color: [u8; 4], // Straight RGBA8
+    pub glyphs: Vec<PositionedGlyph>,
+    pub underline: Option<UnderlineStyle>,
+    pub strikethrough: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PositionedGlyph {
+    pub glyph_id: u16,
+    pub x: f32, // EMU offset from run origin
+    pub y: f32,
+    pub advance: f32,
+}
+```
+
+### 2.2 `RgbaSlide` (The Terminal Frame Contract)
 ```rust
 #[derive(Clone)]
 pub struct RgbaSlide {
@@ -26,10 +95,10 @@ pub struct RgbaSlide {
 - **Color Space**: **Straight (non-premultiplied) RGBA8** everywhere across this seam.
 - **Sharing**: Backed by `Arc`: cloning is an $O(1)$ pointer copy.
 - **Thread Safety**: Implements `Send + Sync`.
-- **Producer**: Composition Engine only ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §2.3). Converts from premultiplied internal pixmap in the canvas epilogue.
+- **Producer**: `tiny-skia` Rasterizer backend only ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §2.3).
 - **Consumers**: Terminal graphics drivers, PNG export encoders, golden image testers.
 
-### 2.2 `RenderTargetSpec`
+### 2.3 `RenderTargetSpec`
 ```rust
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct RenderTargetSpec {
@@ -38,10 +107,10 @@ pub struct RenderTargetSpec {
 }
 ```
 - Produced by Display Adapter geometry negotiation or CLI export `--dpi`.
-- Opaque to composition: carries no terminal, cell, or DPI concepts.
-- Serves as the pipeline cache key component: `(slide_index, RenderTargetSpec)`.
+- Opaque to layout compilation: carries no terminal, cell, or DPI concepts.
+- Serves as the raster cache key component: `(slide_index, RenderTargetSpec)`.
 
-### 2.3 Geometry & Driver Primitives
+### 2.4 Geometry & Driver Primitives
 ```rust
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ImageId(pub u32); // Valid driver pool range: 1..=8
@@ -129,10 +198,12 @@ pub enum AssetError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
-    #[error("Slide composition failed: {0}")]
-    CompositionFailed(String),
+    #[error("Slide layout compilation failed: {0}")]
+    CompilationFailed(String),
     #[error("Rasterization error: {0}")]
     RasterizationError(String),
+    #[error("Vector serialization error: {0}")]
+    SerializationError(String),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -207,19 +278,47 @@ pub trait AssetStore: Send + Sync {
 }
 ```
 
-### 5.2 Slide Compositor & Pipeline
+### 5.2 Slide Compiler & Pluggable Backends
 ```rust
-pub trait SlideCompositor: Send + Sync {
-    fn render_slide(
+pub trait SlideCompiler: Send + Sync {
+    /// Compiles a DrawingML slide into a resolution-independent VectorSlide display list
+    fn compile(
         &self,
         slide: &Slide,
-        presentation_defaults: &PresentationDefaults,
-        assets: &dyn AssetStore,
-        target: &RenderTargetSpec,
+        defaults: &PresentationDefaults,
         warning_sink: &crossbeam_channel::Sender<WarningEvent>,
+    ) -> Result<VectorSlide, RenderError>;
+}
+
+pub trait SlideRasterizer: Send + Sync {
+    /// Rasterizes a VectorSlide display list to straight RGBA8 pixels at target resolution
+    fn rasterize(
+        &self,
+        scene: &VectorSlide,
+        target: &RenderTargetSpec,
+        assets: &dyn AssetStore,
     ) -> Result<RgbaSlide, RenderError>;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SvgTextMode {
+    SelectableText, // Emits SVG <text> elements
+    VectorGlyphs,   // Emits exact SVG <path> glyph outlines for 100% font-independent fidelity
+}
+
+pub trait SlideSvgSerializer: Send + Sync {
+    /// Serializes a VectorSlide display list into a clean standalone SVG XML string
+    fn serialize_svg(
+        &self,
+        scene: &VectorSlide,
+        assets: &dyn AssetStore,
+        text_mode: SvgTextMode,
+    ) -> Result<String, RenderError>;
+}
+```
+
+### 5.3 Render Pipeline & Display Driver
+```rust
 pub struct PrefetchPlan {
     pub center: usize,
     pub behind: usize,
@@ -241,10 +340,7 @@ pub trait RenderPipeline: Send + Sync {
     fn entry(&self, index: usize) -> PipelineEntry;
     fn invalidate(&self, cause: InvalidateCause);
 }
-```
 
-### 5.3 Display Adapter & Stage Sink
-```rust
 pub trait TerminalGraphicsDriver: Send {
     fn name(&self) -> &'static str;
     fn caps(&self) -> DriverCaps;

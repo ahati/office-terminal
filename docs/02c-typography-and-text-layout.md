@@ -1,14 +1,15 @@
 # PRD 02c: Typography & Text Layout Engine
 
-> Part of the PRD 02 split (02a/02b/02c/02d). Specifies font discovery, substitution, rich-run shaping, paragraph geometry, the **cosmic-text $\to$ tiny-skia rasterization bridge**, and bullet handling. Normative interfaces live in [PRD 06](./06-component-interface-contracts.md).
+> Part of the PRD 02 split (02a/02b/02c/02d). Specifies font discovery, substitution, rich-run shaping into `PositionedGlyphRun`s, paragraph geometry, the **cosmic-text $\to$ tiny-skia rasterization bridge**, and SVG text export modes. Normative interfaces live in [PRD 06](./06-component-interface-contracts.md).
 
 ## 1. Purpose & Architecture
 
-Text accounts for the vast majority of visual information in presentations. Incorrect metrics cascade into reflow bugs, clipped text, and broken slide layouts. The typography stack composes:
+The typography stack composes:
 - **`fontdb`**: Font asset discovery (bundled, system, user).
 - **`rustybuzz` & `bidi`**: Complex script shaping and bidirectional reordering.
-- **`cosmic-text`**: Multi-run buffer layout and line breaking.
-- **`swash` / `tiny-skia` Blit Bridge**: Glyph rasterization and alpha mask composition onto the canvas.
+- **`cosmic-text`**: Multi-run buffer layout, line breaking, and autofit scaling.
+- **`VectorSlide` Text Seam**: Emits resolution-independent `PositionedGlyphRun` commands.
+- **Pluggable Backends**: Swash alpha blitter for `tiny-skia` rasterization, and SVG `<text>` / `<path>` serializer for vector export.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -20,18 +21,21 @@ Text accounts for the vast majority of visual information in presentations. Inco
 │ │ - Bundled Caladea    │        │ - Insets, alignment, wrap   │ │
 │ │ - System / User dirs │        │ - Paragraph & line spacing  │ │
 │ └──────────────────────┘        └──────────────┬──────────────┘ │
-│                                                │ layout runs    │
+│                                                │ shapes         │
 │                                                ▼                │
 │                                 ┌─────────────────────────────┐ │
-│                                 │ SwashCache Glyph Rasterizer │ │
-│                                 │ - 4 subpixel bins (x axis)  │ │
-│                                 │ - 8-bit alpha mask cache    │ │
+│                                 │ PositionedGlyphRun (Vector) │ │
+│                                 │ - Font ID, family, size     │ │
+│                                 │ - Baseline (x, y) & glyph IDs││
 │                                 └──────────────┬──────────────┘ │
-│                                                │ blit alpha     │
-│                                                ▼                │
-│                                 ┌─────────────────────────────┐ │
-│                                 │ tiny-skia Pixmap Blitter    │ │
-│                                 └─────────────────────────────┘ │
+│                                                │                │
+│                 ┌──────────────────────────────┴──────────────┐ │
+│                 ▼                                             ▼ │
+│  ┌─────────────────────────────┐               ┌──────────────┴┐│
+│  │ SwashCache (Rasterizer)     │               │ SVG Serializer││
+│  │ - 4 subpixel bins (x axis)  │               │ - <text> spans││
+│  │ - Blit to tiny-skia Pixmap  │               │ - <path> glyph││
+│  └─────────────────────────────┘               └───────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -84,7 +88,7 @@ let spans: Vec<(&str, Attrs)> = paragraph.runs.iter().map(|run| {
         .weight(if run.bold.unwrap_or(body_defaults.bold) { Weight::BOLD } else { Weight::NORMAL })
         .style(if run.italic.unwrap_or(body_defaults.italic) { Style::Italic } else { Style::Normal });
     
-    let font_size = run.size_pt.unwrap_or(body_defaults.size_pt) * scale * autofit_scale;
+    let font_size = run.size_pt.unwrap_or(body_defaults.size_pt) * autofit_scale;
     attrs = attrs.metrics(Metrics::new(font_size, font_size * line_spacing_ratio));
     attrs = attrs.color(run_color(run, body_defaults, presentation_defaults));
     (run.text.as_str(), attrs)
@@ -93,86 +97,33 @@ let spans: Vec<(&str, Attrs)> = paragraph.runs.iter().map(|run| {
 buffer.set_rich_text(&mut font_system, &spans, Shaping::Advanced, default_attrs);
 ```
 
-### 3.2 Paragraph Spacing Math
-- **Line Spacing**:
-  - Percentage (`spcPct`): Line height $H_{\text{line}} = \text{font\_size} \cdot \frac{\text{spcPct}}{100,000}$.
-  - Absolute points (`spcPts`): $H_{\text{line}} = \frac{\text{spcPts}}{100} \text{ pt} \cdot s$.
-- **Space Before / After**:
-  - Added between paragraph layout boxes: $Y_{\text{space}} = \frac{\text{space}}{100} \text{ pt} \cdot s$.
-- **Hanging Indent & Margins**:
-  - Body left margin $mar_l$, right margin $mar_r$, and indent:
-    - If `indent < 0` (hanging indent): Bullet occupies $[mar_l + indent,\, mar_l)$; text aligns to $mar_l$.
-
-### 3.3 Vertical Alignment
-After laying out all paragraphs, the total rendered text height is $H_{\text{text}} = \sum \text{line\_heights}$.
-Available height within shape: $H_{\text{avail}} = h_{\text{px}} - (t_{\text{ins}} + b_{\text{ins}}) \cdot s$.
-- `Top` (`t`): $Y_{\text{start}} = t_{\text{ins}} \cdot s$.
-- `Center` (`ctr`): $Y_{\text{start}} = t_{\text{ins}} \cdot s + \max\left(0.0,\; \frac{H_{\text{avail}} - H_{\text{text}}}{2.0}\right)$.
-- `Bottom` (`b`): $Y_{\text{start}} = t_{\text{ins}} \cdot s + \max\left(0.0,\; H_{\text{avail}} - H_{\text{text}}\right)$.
+### 3.2 Spacing & Vertical Alignment
+- **Line Spacing**: Percentage ($H_{\text{line}} = \text{font\_size} \cdot \frac{\text{spcPct}}{100,000}$) or absolute points ($H_{\text{line}} = \frac{\text{spcPts}}{100} \text{ pt}$).
+- **Hanging Indent**: When `indent < 0`, bullet glyph occupies $[mar_l + indent,\, mar_l)$; text aligns to $mar_l$.
+- **Vertical Alignment**: Total height $H_{\text{text}} = \sum \text{line\_heights}$. Offset inside shape box:
+  - `Top`: $Y_{\text{start}} = t_{\text{ins}}$.
+  - `Center`: $Y_{\text{start}} = t_{\text{ins}} + \max\left(0.0,\; \frac{H_{\text{avail}} - H_{\text{text}}}{2.0}\right)$.
+  - `Bottom`: $Y_{\text{start}} = t_{\text{ins}} + \max\left(0.0,\; H_{\text{avail}} - H_{\text{text}}\right)$.
 
 ---
 
-## 4. The Cosmic-Text $\to$ Tiny-Skia Rasterization Bridge
+## 4. Backend Execution
 
-Because `tiny-skia` does not contain a font rendering engine, `kitty-pptx` implements a high-performance rasterization bridge:
+### 4.1 Rasterization Bridge (`tiny-skia` + `swash`)
+1. **Subpixel Binning**: Quantize horizontal glyph offset:
+   $$bin = \lfloor (x - \lfloor x \rfloor) \cdot 4.0 \rfloor \pmod 4 \quad (0.0,\, 0.25,\, 0.5,\, 0.75)$$
+2. **Coverage Mask LRU**: Rasterize via `SwashCache` into an 8-bit alpha mask (LRU cache budgeted at 8 MB per thread).
+3. **Alpha Blit**: Blits glyph mask directly onto `tiny_skia::PixmapMut` with run color.
 
-```rust
-pub struct GlyphKey {
-    pub font_id: fontdb::ID,
-    pub glyph_id: u16,
-    pub font_size_bits: u32,
-    pub subpixel_bin: u8, // 0..=3 for x subpixel offsets: 0.0, 0.25, 0.5, 0.75
-}
-
-pub struct RasterizedGlyph {
-    pub left: i32,
-    pub top: i32,
-    pub width: u32,
-    pub height: u32,
-    pub mask: Vec<u8>, // 8-bit coverage alpha mask
-}
-```
-
-### 4.1 Subpixel Binning & Rasterization
-1. For each glyph in `buffer.layout_runs()`:
-   - Position: $x = \text{run.x} + \text{glyph.x}$, $y = \text{run.y} + \text{glyph.y}$.
-   - Horizontal subpixel bin: $bin = \lfloor (x - \lfloor x \rfloor) \cdot 4.0 \rfloor \pmod 4$.
-2. Lookup glyph in thread-local `SwashCache`:
-   - If missing, rasterize via `swash::scale::Render::render()` in alpha mode to produce an 8-bit coverage mask.
-3. Cache glyph mask in an LRU (bounded at 8 MB per worker thread).
-
-### 4.2 Pixel Blit Operation
-The rasterized mask is blitted directly into `tiny_skia::PixmapMut`:
-```rust
-for row in 0..glyph.height {
-    for col in 0..glyph.width {
-        let alpha = glyph.mask[(row * glyph.width + col) as usize];
-        if alpha == 0 { continue; }
-        
-        let dest_x = glyph.left + col as i32;
-        let dest_y = glyph.top + row as i32;
-        if dest_x >= 0 && dest_x < canvas_w && dest_y >= 0 && dest_y < canvas_h {
-            // Premultiplied alpha composition onto tiny_skia Pixmap
-            pixmap.blend_pixel(dest_x as u32, dest_y as u32, color, alpha);
-        }
-    }
-}
-```
-This achieves subpixel precision without color fringing and maintains throughput meeting the $< 5\text{ ms}$ text layout budget.
+### 4.2 SVG Vector Text Serialization
+The SVG backend supports two modes (`--svg-text <mode>`):
+- **`SelectableText`**: Emits standard SVG `<text>` elements with `font-family`, `font-size`, and `<tspan>` nodes. Retains selectable/searchable text in web browsers.
+- **`VectorGlyphs` (Default)**: Converts glyph outlines into exact SVG `<path d="...">` elements via `fontdue`/`swash`. Guarantees 100% pixel-faithful vector display even on machines lacking the original fonts.
 
 ---
 
-## 5. Autofit Semantics
+## 5. Autofit & Underlines
 
-| Mode | Behavior |
-| :--- | :--- |
-| **`noAutofit`** | Fixed font metrics; text clips at the shape bounding box on overflow. |
-| **`normAutofit`** | Apply PowerPoint's precomputed `font_scale` (e.g. 0.82) and `line_spacing_reduction`. Because this scale was converged by PowerPoint at authoring time, applying it directly is correct-by-construction. |
-| **`spAutoFit`** | Shape-grow-to-fit: In a slide viewer, geometry cannot expand without breaking layout; text renders at authored scale and clips at boundary (DEGRADED + warning). |
-
----
-
-## 6. Underline & Strikethrough Geometry
-
-- **Underline**: Rendered as a horizontal rule at baseline $+ \max(1.0,\, 0.1 \cdot \text{size})$. Thickness $t = \max(1.0,\, 0.05 \cdot \text{size})$.
+- **Autofit**: Applies PowerPoint's precomputed `font_scale` (e.g. 0.85) and `line_spacing_reduction`. Because this scale was converged by PowerPoint at authoring time, applying it directly is correct-by-construction.
+- **Underline**: Rendered as a rule at baseline $+ \max(1.0,\, 0.1 \cdot \text{size})$. Thickness $t = \max(1.0,\, 0.05 \cdot \text{size})$.
 - **Strikethrough**: Horizontal rule across glyph advance at baseline $- 0.35 \cdot \text{size}$. Double strike draws two rules separated by $1.5 \cdot t$.

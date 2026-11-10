@@ -9,7 +9,7 @@ Built using [`clap`](https://crates.io/crates/clap) with derive macros:
 ```bash
 kitty-pptx [OPTIONS] <FILE>              # Interactive TUI presenter (default)
 kitty-pptx view <FILE> [OPTIONS]         # One-shot inline terminal scrollback preview
-kitty-pptx export <FILE> --out <DIR>     # Headless batch PNG rasterization
+kitty-pptx export <FILE> --out <DIR>     # Headless batch PNG / vector SVG export
 kitty-pptx dump <FILE> [OPTIONS]         # Plaintext / markdown / AST extraction
 kitty-pptx info <FILE>                   # Deck structure & metadata summary
 ```
@@ -44,23 +44,27 @@ kitty-pptx view presentation.pptx --all       # Renders all slides sequentially
 2. **Scrollback Preservation**: Emits images using Unicode Placeholders (`U=1`, [PRD 03a](./03a-kitty-graphics-protocol-driver.md) §4) on Kitty protocol terminals, allowing images to scroll naturally with shell output.
 
 ### 2.3 Subcommand: `export` (Headless Batch Exporter)
-Renders slides directly to PNG files in a headless environment (CI/CD, web preview generation, LLM indexing).
+Renders slides directly into PNG raster images or clean vector SVG files without any display dependencies (CI/CD, web documentation, thumbnails, LLM indexing).
 
 ```bash
-kitty-pptx export deck.pptx --out ./dist/ --dpi 200 --slides 1-5,8,12-
+kitty-pptx export deck.pptx --out ./dist/ --format png --dpi 200
+kitty-pptx export deck.pptx --out ./vector/ --format svg --svg-text paths
+kitty-pptx export deck.pptx --out ./all/ --format all --slides 1-5,8
 ```
 
-| Flag | Type | Description |
-| :--- | :--- | :--- |
-| `-o, --out <DIR>` | `PathBuf` | Destination directory (created recursively if absent) |
-| `--dpi <DPI>` | `u32` | Render DPI (default: 150; range: 50–600). Computes `RenderTargetSpec` |
-| `-s, --slides <RANGE>` | `String` | Slide range expression (§2.4; default: all) |
-| `-j, --concurrency <N>`| `usize` | Number of worker threads (default: CPU cores) |
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `-o, --out <DIR>` | `PathBuf` | *(Required)* | Destination directory (created recursively if absent) |
+| `-f, --format <FORMAT>` | `enum` | `png` | Export format: `png`, `svg`, or `all` (both) |
+| `--dpi <DPI>` | `u32` | `150` | Render DPI for PNG (range: 50–600; sets `RenderTargetSpec`) |
+| `--svg-text <MODE>` | `enum` | `paths` | SVG text mode: `paths` (glyph curves) or `text` (DOM `<text>`) |
+| `-s, --slides <RANGE>` | `String` | all | Slide range expression (§2.4) |
+| `-j, --concurrency <N>`| `usize` | CPU count | Parallel export worker threads |
 
-**Streaming Memory Invariant**:
-- Workers execute in a streaming pipeline: render slide $\to$ encode to PNG $\to$ write to disk $\to$ drop `RgbaSlide` before rasterizing the next slide.
-- Peak resident memory (RSS) remains bounded strictly below the 150 MB budget, even when exporting 100+ slides at 300 DPI.
-- **Display-Free Build**: `export` links and runs without any display driver code compiled or loaded ([PRD 06](./06-component-interface-contracts.md) §6.2).
+**Dual-Backend Execution Model**:
+- **PNG Export**: The worker compiles the slide into [`VectorSlide`](./06-component-interface-contracts.md) and passes it to `SlideRasterizer` (`tiny-skia`). The resulting `RgbaSlide` encodes to PNG and writes to disk, bounding peak memory below the 150 MB RSS limit.
+- **SVG Export**: The worker compiles the slide into `VectorSlide` and passes it to `SlideSvgSerializer`. The vector display list serializes directly to clean XML (`<path>`, `<linearGradient>`, `<text>`) with zero rasterization overhead.
+- **Display-Free Build**: `export` links and executes without any display driver code compiled or loaded ([PRD 06](./06-component-interface-contracts.md) §5.2).
 
 ### 2.4 Slide Range Expression Syntax (`RangeSet`)
 The `--slides` flag accepts a flexible grammar:
@@ -109,6 +113,11 @@ fit = "contain"               # contain | width
 payload = "png"               # png | raw
 render_scale = 2.0            # default 2.0x supersampling (1920x1080)
 
+[export]
+default_format = "png"        # png | svg | all
+default_dpi = 150
+svg_text_mode = "paths"       # paths | text
+
 [render]
 workers = 0                   # 0 = auto (min(cores-1, 4))
 
@@ -139,25 +148,11 @@ play_media = ["M"]
 quit = ["q", "Esc"]
 ```
 
-**Precedence Hierarchy**:
-$$\text{CLI Flags} \;>\; \text{Environment Variables} \;>\; \text{config.toml} \;>\; \text{Compiled Defaults}$$
-
 ---
 
-## 4. Unix Piping & Stdin Spooling
+## 4. Exit Code Projections
 
-```bash
-cat deck.pptx | kitty-pptx dump - --markdown | grep "Quarterly Goals"
-curl -sL "https://example.com/slides.pptx" | kitty-pptx export - --out ./out/
-```
-- `-` specifies `Source::Stdin`.
-- Bounded spooling buffers up to 32 MB in RAM; spills to a secure `NamedTempFile` up to 256 MB ([PRD 01](./01-parser-and-data-model.md) §3).
-
----
-
-## 5. Exit Code Projections
-
-| Exit Code | Meaning | Mapped Error Variant ([PRD 06](./06-component-interface-contracts.md) §8) |
+| Exit Code | Meaning | Mapped Error Variant ([PRD 06](./06-component-interface-contracts.md) §3) |
 | :--- | :--- | :--- |
 | `0` | Clean execution / success | — |
 | `1` | Configuration or file I/O error | `KittyPptxError::Io`, `KittyPptxError::Config` |
