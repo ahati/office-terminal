@@ -190,7 +190,7 @@ fn test_warning_events_blip_effects() {
 }
 
 #[test]
-fn test_warning_events_shape_effects_omitted() {
+fn test_warning_events_shape_effects_supported() {
     let (tx, rx) = unbounded();
     let compiler = DefaultSlideCompiler::new();
 
@@ -237,16 +237,9 @@ fn test_warning_events_shape_effects_omitted() {
 
     let warnings: Vec<WarningEvent> = rx.try_iter().collect();
 
-    // Only the first shape has a shadow, the second shape has no effects
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(
-        warnings[0],
-        WarningEvent::FidelityDegraded {
-            element_id: "roundRect".to_string(),
-            feature: "shape_effect_omitted",
-            class: FidelityClass::Omitted,
-        }
-    );
+    // Both shapes are fully supported: 2D effects must not fire a fidelity
+    // warning anymore (PRD 08 §7.1).
+    assert!(warnings.is_empty());
 }
 
 struct SinglePixelAssetStore {

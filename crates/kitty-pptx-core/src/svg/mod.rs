@@ -1,3 +1,4 @@
+mod filters;
 mod image;
 mod path;
 mod text;
@@ -66,9 +67,29 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
             _ => None,
         };
 
-        // Command gradients
+        // Command gradients and shape-effect filter graphs
+        let mut effect_refs: Vec<Option<filters::EffectRefs>> = Vec::new();
+        let mut draw_path_index = 0usize;
         for cmd in &scene.commands {
-            if let VectorCommand::DrawPath { fill, .. } = cmd {
+            if let VectorCommand::DrawPath {
+                path: v_path,
+                fill,
+                transform,
+                effects,
+                ..
+            } = cmd
+            {
+                let refs = filters::emit_effect_defs(
+                    draw_path_index,
+                    v_path,
+                    transform,
+                    effects,
+                    scene.width_emu,
+                    &mut defs,
+                );
+                effect_refs.push(refs);
+                draw_path_index += 1;
+
                 match fill {
                     Some(VectorPaint::LinearGradient(ref grad)) => {
                         grad_id_counter += 1;
@@ -85,6 +106,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     _ => path_grad_ids.push(None),
                 }
             } else {
+                effect_refs.push(None);
                 path_grad_ids.push(None);
             }
         }
@@ -151,21 +173,42 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     fill,
                     stroke,
                     transform,
-                    ..
+                    effects,
                 } => {
                     let d = path::path_to_svg_d(v_path);
                     let grad_id = path_grad_ids.get(cmd_idx).and_then(|id| id.as_deref());
                     let fill_attr = path::format_fill_attr(fill.as_ref(), grad_id);
                     let stroke_attr = path::format_stroke_attr(stroke.as_ref());
-                    let transform_attr = path::format_transform_attr(transform);
+                    let transform_attr = filters::format_path_transform(
+                        v_path,
+                        transform,
+                        effects,
+                        scene.width_emu,
+                    );
                     let fill_rule_attr = path::format_fill_rule_attr(v_path.fill_rule);
+
+                    let effect_ref = effect_refs.get(cmd_idx).and_then(|r| r.as_ref());
+                    let id_attr = match effect_ref {
+                        Some(r) if r.needs_path_id => format!(r#" id="{}""#, r.path_id),
+                        _ => String::new(),
+                    };
+                    let filter_attr = match effect_ref.and_then(|r| r.filter_id.as_deref()) {
+                        Some(id) => format!(r#" filter="url(#{})""#, id),
+                        None => String::new(),
+                    };
 
                     writeln!(
                         &mut svg,
-                        r#"  <path d="{}" {} {}{}{}/>"#,
-                        d, fill_attr, stroke_attr, fill_rule_attr, transform_attr
+                        r#"  <path d="{}" {} {}{}{}{}{}/>"#,
+                        d, fill_attr, stroke_attr, fill_rule_attr, transform_attr, id_attr, filter_attr
                     )
                     .unwrap();
+
+                    if let Some(reflection_use) =
+                        effect_ref.and_then(|r| r.reflection_use.as_deref())
+                    {
+                        writeln!(&mut svg, "  {}", reflection_use).unwrap();
+                    }
                 }
                 VectorCommand::DrawImage {
                     rel_id,
