@@ -4,66 +4,71 @@ Welcome to the design documentation and Product Requirements Documents (PRDs) fo
 
 ---
 
-## Document Index
+## Reading Order
 
-| Document | Title | Description |
-| :--- | :--- | :--- |
-| **[00-system-overview.md](./00-system-overview.md)** | **System Overview & Architecture** | Executive summary, target personas, non-functional requirements, component diagram, and high-level architecture. |
-| **[01-parser-and-data-model.md](./01-parser-and-data-model.md)** | **Core Parser & Data Model** | Upstream integration with `yukiyokotani/office-open-xml-viewer`, OPC/ZIP container handling, AST data structures, and media caching. |
-| **[02-slide-rendering-engine.md](./02-slide-rendering-engine.md)** | **Slide Rendering Engine** | Pure-Rust 2D rasterizer using `tiny-skia`, DrawingML shapes, theme color math, typography with `cosmic-text`, and image compositing. |
-| **[03-terminal-graphics-protocol.md](./03-terminal-graphics-protocol.md)** | **Terminal Graphics Protocol & Display Adapter** | Kitty Graphics Protocol escape sequences, base64 chunking, terminal geometry negotiation, and fallback drivers (Sixel, iTerm2, half-blocks). |
-| **[04-interactive-tui-presenter.md](./04-interactive-tui-presenter.md)** | **Interactive TUI & Presenter Mode** | Presenter interface built on `ratatui`, speaker notes drawer, elapsed timer, visual slide sorter grid, speculative pre-rendering, and keybindings. |
-| **[05-cli-and-export.md](./05-cli-and-export.md)** | **CLI Interface, Export & Integration** | `clap` CLI flags, one-shot inline pager (`view`), headless batch exporter (`export`), Markdown/notes dump (`dump`), config file, and Unix piping. |
+1. **[00-system-overview.md](./00-system-overview.md)** — vision, personas, component architecture, NFRs, non-goals.
+2. **[06-component-interface-contracts.md](./06-component-interface-contracts.md)** — *foundational*: the seam contracts (`RgbaSlide`, `RenderTargetSpec`), trait definitions, error taxonomy, threading model. Read before the engine PRDs.
+3. **[01-parser-and-data-model.md](./01-parser-and-data-model.md)** — upstream integration, verified data model, asset store, diagnostics.
+4. **PRD 02 split** — the composition engine:
+   - **[02a](./02a-composition-core-and-render-pipeline.md)** — Composition Core & Render Pipeline (orchestration, caching, prefetch/staging)
+   - **[02b](./02b-vector-style-and-geometry-engine.md)** — Vector Style & Geometry (colors, preset shapes, custom paths)
+   - **[02c](./02c-typography-and-text-layout.md)** — Typography & Text Layout (fonts, substitution, bullets, autofit)
+   - **[02d](./02d-element-renderers-and-fidelity-policy.md)** — Element Renderers & Fidelity Policy (the normative FULL/DEGRADED/PLACEHOLDER/OMITTED matrix)
+5. **[03-terminal-graphics-protocol.md](./03-terminal-graphics-protocol.md)** — Display Adapter: Kitty protocol, stage/present lifecycle, scrollback placement, fallback drivers.
+6. **[04-interactive-tui-presenter.md](./04-interactive-tui-presenter.md)** — Presenter TUI as a pipeline consumer.
+7. **[05-cli-and-export.md](./05-cli-and-export.md)** — CLI subcommands, headless export, config.
+8. **[07-quality-and-testing.md](./07-quality-and-testing.md)** — test levels, golden corpus, NFR measurement protocols.
 
----
+## Architecture at a Glance
 
-## Core Technology Stack
+Two engines — **Composition** (slides → pixels) and **Display** (pixels → terminal) — joined by exactly two shared types. Composition never touches the terminal; Display never interprets slides; `export` builds without display code at all. All contracts are normative in [PRD 06](./06-component-interface-contracts.md).
 
 ```
                         ┌───────────────────────────────┐
                         │      kitty-pptx Binary        │
+                        │  clap · ratatui · crossterm   │
                         └───────────────┬───────────────┘
                                         │
-        ┌──────────────────────┬────────┴──────────────┬──────────────────────┐
-        ▼                      ▼                       ▼                      ▼
-┌───────────────┐      ┌───────────────┐       ┌───────────────┐      ┌───────────────┐
-│     clap      │      │    ratatui    │       │   pptx-model  │      │   tiny-skia   │
-│ CLI Arguments │      │ TUI Presenter │       │  pptx-parser  │      │ 2D Rasterizer │
-│ Configuration │      │   crossterm   │       │ (from silurus)│      │  cosmic-text  │
-└───────────────┘      └───────┬───────┘       └───────────────┘      └───────┬───────┘
-                               │                                              │
-                               ▼                                              ▼
-                        ┌───────────────┐                             ┌───────────────┐
-                        │ Terminal Keys │                             │  RGBA Pixmap  │
-                        │ & Event Loop  │                             │ 1920x1080 RAM │
-                        └───────────────┘                             └───────┬───────┘
-                                                                              │
-                                                                              ▼
-                                                                      ┌───────────────┐
-                                                                      │ Kitty Protocol│
-                                                                      │ Base64 Escapes│
-                                                                      └───────────────┘
+        ┌──────────────────────┬────────┴─────────────┬─────────────────────┐
+        ▼                      ▼                      ▼                     ▼
+┌───────────────┐      ┌───────────────┐      ┌───────────────┐    ┌───────────────┐
+│  Parser &     │      │  Composition  │      │  Render       │    │   Display     │
+│  Data Model   │      │  Engine       │      │  Pipeline     │    │   Adapter     │
+│  pptx-parser  │      │  tiny-skia    │      │  cache·prefetch│   │  kitty·sixel· │
+│  pptx-model   │      │  cosmic-text  │      │  stage/present │   │  iterm2·half- │
+│  (vendored)   │      │  resvg        │      │  scheduler     │   │  block        │
+└───────────────┘      └───────┬───────┘      └───────┬───────┘    └───────┬───────┘
+                               │  RgbaSlide ◄─────────┼───────────────────┘
+                               │  RenderTargetSpec ►──┘   (the only seam types)
+                               ▼
+                        ┌───────────────┐
+                        │  RGBA frames  │
+                        │  1920×1080    │
+                        └───────────────┘
 ```
 
----
+## Core Technology Stack
 
-## Implementation Roadmap (Milestones)
+| Concern | Choice |
+| :--- | :--- |
+| PPTX parsing | vendored `pptx-parser` / `pptx-model` (from `yukiyokotani/office-open-xml-viewer`, MIT) |
+| Rasterization | `tiny-skia` (pure Rust, thread-safe) |
+| Typography | `cosmic-text` (`fontdb` + `rustybuzz` + `bidi`), bundled Carlito/Caladea |
+| Vector media | `resvg` (SVG rasterization) |
+| Raster media | `image` crate |
+| TUI | `ratatui` + `crossterm` |
+| CLI | `clap` |
+| Concurrency | worker pool (pipeline scheduler), stage/present terminal lifecycle |
 
-1. **Milestone 1 — Parser Harness & Image Display (Week 1)**:
-   - Vendor `pptx-parser` and `pptx-model` as native Rust dependencies.
-   - Implement basic Kitty protocol escape writer (`\x1b_G...`).
-   - Extract slide background images and verify display in Kitty / Ghostty / WezTerm.
-2. **Milestone 2 — Vector & Shape Rasterizer (Week 2)**:
-   - Implement `tiny-skia` canvas pipeline.
-   - Add preset geometries (`rect`, `roundRect`, `ellipse`, arrows) and custom `PathCmd` paths.
-   - Implement DrawingML theme color math (tint, shade, luminance modulations).
-3. **Milestone 3 — Typography & Text Body (Week 3)**:
-   - Integrate `cosmic-text` and `fontdb`.
-   - Implement multi-run styled paragraphs, word wrapping, alignment, and bullet points.
-4. **Milestone 4 — TUI Presenter & Navigation (Week 4)**:
-   - Build `ratatui` presenter layout: slide viewport, speaker notes drawer, elapsed timer.
-   - Implement keyboard navigation and background sliding-window pre-rendering.
-5. **Milestone 5 — CLI Tools, Sorter & Fallbacks (Week 5)**:
-   - Add `view` (inline), `export` (PNG batch), `dump` (Markdown/notes) subcommands.
-   - Implement visual thumbnail slide sorter.
-   - Implement Sixel and Unicode half-block fallbacks for non-Kitty terminals.
+## Implementation Roadmap (dependency-ordered, not calendar-ordered)
+
+The milestones below are sequenced strictly by dependency and risk retirement. No calendar duration is implied.
+
+1. **M0 — Contract spike**: vendor crates; parse a real deck; dump AST; compose background + title; stage/present via the Kitty driver; verify scrollback placement survives scrolling. *Retires the highest-risk assumptions (parser integration, protocol lifecycle) before breadth is built.*
+2. **M1 — Seam contracts landed**: `RgbaSlide`, `RenderTargetSpec`, driver and pipeline traits with L3 protocol golden tests ([PRD 07](./07-quality-and-testing.md) §2). *Everything after this point implements against frozen interfaces.*
+3. **M2 — Composition core**: compositor, transform pipeline, T1 geometry, solid/gradient fills, text layout with substitution, pictures; composition golden harness running on the synthetic corpus.
+4. **M3 — Fidelity breadth & honesty**: T2 stand-ins, tables, bullets/autonumbering, autofit, fidelity matrix fully wired with placeholders and warning events; export subcommand (display-free build invariant enforced).
+5. **M4 — Presenter TUI**: layouts, navigation, notes, timer, sorter with thumbnail target; stage/present prefetch pipeline meeting the < 16 ms flip contract.
+6. **M5 — Fallback drivers**: Sixel, iTerm2, half-block, capability probing with timeouts, failure semantics, degraded-mode UX.
+7. **M6 — Quality regime complete**: fidelity corpus + perceptual scoring, fuzz integration, NFR measurement harnesses, live-terminal matrix; release readiness per PRD 07 §6.
+8. **Post-v1 tracks** (each with its own PRD when started): full chart rendering; shape effects; OMML equation layout; WordArt warps; vector export.

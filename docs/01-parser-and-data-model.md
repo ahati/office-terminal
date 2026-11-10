@@ -1,34 +1,32 @@
 # PRD 01: Core Parser & Data Model Integration
 
 ## 1. Purpose & Scope
-This document specifies the integration of the pure-Rust parsing engine from [`yukiyokotani/office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer) into `kitty-pptx`. It covers how `.pptx` archives are opened, how PresentationML parts and inheritance trees are resolved, and how the internal data structures are managed in memory.
+This document specifies the integration of the pure-Rust parsing engine from [`yukiyokotani/office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer) into `kitty-pptx`: how `.pptx` archives are opened, how PresentationML parts and inheritance trees are resolved, what the internal data structures carry (verified against the vendored source), and how media assets are managed. The access interfaces (`PresentationLoader`, `AssetStore`) are specified normatively in [PRD 06](./06-component-interface-contracts.md) §3, §5.
 
 ---
 
 ## 2. Upstream Parser Architecture & Integration
 
 The upstream project structures its PPTX implementation into two core Rust crates:
-- `packages/pptx/model` (`pptx-model`): Intermediate Abstract Syntax Tree (AST) representing presentations, slides, shapes, text, fills, and themes.
-- `packages/pptx/parser` (`pptx-parser`): OPC (Open Packaging Conventions) archive reader and XML deserializer using `roxmltree` and `ooxml-common`.
+- `packages/pptx/model` (`pptx-model`): Intermediate AST representing presentations, slides, shapes, text, fills, and charts.
+- `packages/pptx/parser` (`pptx-parser`): OPC (Open Packaging Conventions) archive reader and XML deserializer using `roxmltree`, `zip`, and `ooxml-common`.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                   deck.pptx (ZIP File)                   │
 └────────────────────────────┬─────────────────────────────┘
-                             │
                              ▼
 ┌──────────────────────────────────────────────────────────┐
 │             pptx-parser (Native Rust Mode)               │
 │  - zip crate: stream uncompressed parts                  │
 │  - roxmltree: fast, memory-safe DOM XML parsing          │
-│  - ooxml-common: OPC relationship and namespace lookup    │
+│  - ooxml-common: OPC relationship and namespace lookup   │
 └────────────────────────────┬─────────────────────────────┘
-                             │
                              ▼
 ┌──────────────────────────────────────────────────────────┐
 │                 pptx-model::Presentation                 │
-│  - dimensions: width, height (in EMU or points)          │
-│  - theme: color schemes, font schemes, format schemes    │
+│  - slide_width/slide_height (EMU)                        │
+│  - theme-baked defaults (colors, major/minor fonts)      │
 │  - slides: Vec<Slide> (resolved shapes, text, images)    │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -40,112 +38,120 @@ The upstream project structures its PPTX implementation into two core Rust crate
 pptx-model = { path = "./crates/pptx-model", default-features = false }
 pptx-parser = { path = "./crates/pptx-parser", default-features = false }
 ```
-*Note*: The `wasm-entry` feature in `pptx-parser` must be disabled so that WebAssembly bindings (`wasm-bindgen`) are excluded, compiling the parser as a lean native library.
+*Note*: The `wasm-entry` feature in `pptx-parser` (the default) gates the `wasm-bindgen` exports; disabling it compiles the parser as a lean native library. The native entry points `parse_pptx_model_native` and `to_markdown_native` are unconditional and used by this project. *(Verified against the upstream `Cargo.toml` and `parser/src/lib.rs`.)*
+
+### 2.2 Upstream Synchronization Policy
+The upstream repository moves quickly (AI-authored, spec-first, fuzz-tested; migration docs for multiple minor versions in-tree). Policy:
+1. **Pin**: the vendored copy records the upstream commit hash in `crates/VENDORED.md`.
+2. **Sync**: re-vendor deliberately, not opportunistically; a sync PR runs the full golden corpus ([PRD 07](./07-quality-and-testing.md) §4) — model changes that alter rendered output re-baseline in the same PR.
+3. **Patch-carrying**: local changes to vendored crates are kept as a numbered patch series in `crates/patches/`, never in-place edits, so future syncs are mechanical.
 
 ---
 
 ## 3. The OOXML PresentationML Pipeline
 
-A PowerPoint file is a ZIP archive containing interconnected XML parts. The parser resolves them in the following order:
-
 ### 3.1 Bootstrap Phase
-1. **`[Content_Types].xml` & Root Relationships (`_rels/.rels`)**:
-   Locates the primary presentation part, typically `ppt/presentation.xml`.
+1. **`[Content_Types].xml` & Root Relationships (`_rels/.rels`)**: locates the primary presentation part (`ppt/presentation.xml`).
 2. **`ppt/presentation.xml`**:
-   - Reads presentation dimensions: `p:sldSz @cx`, `@cy` (default is 9144000x5143500 EMUs for 16:9 widescreen, or 10x7.5 inches for 4:3).
-   - Reads slide identifiers and presentation ordering (`p:sldIdLst`).
-3. **Themes & Master Inheritance (`ppt/slideMasters/`, `ppt/slideLayouts/`, `ppt/theme/`)**:
-   - Builds the master theme palette (12 base color slots: `dk1`, `lt1`, `dk2`, `lt2`, `accent1`–`accent6`, `hlink`, `folHlink`).
-   - Resolves layout placeholder hierarchies (Slide Layout inherits from Slide Master; Slide inherits from Slide Layout).
+   - Slide dimensions (`p:sldSz @cx/@cy`; 16:9 default 9144000×5143500 EMU, i.e. 10×5.625 in — see the corrected math table in [PRD 02a](./02a-composition-core-and-render-pipeline.md) §2.2).
+   - Slide ordering (`p:sldIdLst`).
+3. **Themes & Master Inheritance** (`ppt/slideMasters/`, `ppt/slideLayouts/`, `ppt/theme/`):
+   - The parser resolves the theme palette and the full ECMA-376 modifier chain (`lumMod`, `lumOff`, `tint`, `shade`, `satMod`, hue rotation) and **bakes the results into concrete sRGB hex strings** in the model. Renderers never re-derive theme colors ([PRD 02b](./02b-vector-style-and-geometry-engine.md) §2).
+   - Layout placeholder hierarchies resolve Master → Layout → Slide; the model emits a flat, inheritance-resolved element list per slide, each element tagged with its `SlideElementOrigin` (Master | Layout | Slide).
 
 ### 3.2 Slide Materialization (`ppt/slides/slideN.xml`)
-For each slide in the presentation, the parser emits a `pptx_model::Slide` struct:
-- **Slide Dimensions**: Inherited from presentation level or customized per slide.
-- **Background**: Solid color, gradient, or background image (`p:bg`).
-- **Elements (`Vec<SlideElement>`)**: Ordered Z-index list of visual objects.
-- **Presenter Notes**: Text extracted from `ppt/notesSlides/notesSlideN.xml`.
+Each slide carries resolved dimensions/transforms (EMU), background (solid / gradient / image), a z-ordered `Vec<SlideElement>`, and notes text from `ppt/notesSlides/`.
+
+**Group flattening**: `<p:grpSp>` groups are flattened by the parser into child elements with composed transforms, under a fail-closed nesting-depth budget. The model has **no group variant**; the renderer handles exactly one transform level per element ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §3.1).
 
 ---
 
-## 4. In-Memory Data Model (`pptx-model`)
+## 4. In-Memory Data Model (`pptx-model`) — verified shape
 
-The parser produces the following high-level data types:
-
-### 4.1 Slide Element Types (`SlideElement`)
+### 4.1 Slide Element Types
 ```rust
 pub enum SlideElement {
     Shape(ShapeElement),
     Picture(PictureElement),
     Table(TableElement),
-    Chart(ChartElement),
+    Chart(ChartElement),   // carries a full ChartModel (classic + ChartEx data)
     Media(MediaElement),
 }
 ```
 
 ### 4.2 Shapes & Transforms (`ShapeElement`)
-- **Transform (`Transform`)**:
-  - `x`, `y`, `width`, `height` (in points / pixels).
-  - `rotation` (in 60,000ths of a degree, converted to floating-point degrees).
-  - `flip_h`, `flip_v` (boolean mirror flags).
+- **Transform**: `x, y, width, height: i64` (EMU); `rotation: f64` (degrees, parser-converted from 60,000ths); `flip_h`, `flip_v`.
 - **Geometry**:
-  - Preset geometries: `rect`, `roundRect`, `ellipse`, `triangle`, `arrowRight`, etc.
-  - Custom geometries: Vector paths expressed as `Vec<PathCmd>` (`MoveTo`, `LineTo`, `QuadTo`, `CubicTo`, `Close`).
+  - `geometry: String` — preset name (e.g. `rect`, `roundRect`) or `"custGeom"`.
+  - `cust_geom: Vec<Vec<PathCmd>>` — custom paths, coordinates **normalized to [0,1]**; `cust_geom_paint: Option<Vec<PathPaint>>` — per-path fill/stroke policy.
+  - Adjustment values `adj`…`adj8` (OOXML units 0–100000) for preset parametrization.
+- **`PathCmd` variants** (exact, verified):
+  ```rust
+  enum PathCmd {
+      MoveTo { x, y },  LineTo { x, y },
+      CubicBezTo { x1, y1, x2, y2, x, y },
+      QuadBezTo { x1, y1, x, y },
+      ArcTo { wr, hr, st_ang, sw_ang },   // degrees
+      Close,
+  }
+  ```
+  *(The earlier revision of this document listed `QuadTo`/`CubicTo` and omitted `ArcTo`.)*
 - **Styling**:
-  - `fill`: `Solid`, `Gradient`, `BlipFill` (textured), or `None`.
-  - `stroke`: Color, width, dash segments (`dash`, `dot`, `dashDot`), line joins, start/end arrowheads.
+  - `fill: Fill` — `Solid { color: hex }`, `Gradient { stops, angle_deg, kind }`, `None` (plus further fill kinds as carried; classified in the [fidelity matrix](./02d-element-renderers-and-fidelity-policy.md) §2).
+  - `stroke: Stroke` — `color` (hex), `width` (EMU), `dash_style` (`prstDash` name) or explicit dash segments (lengths as stroke-width multipliers), optional gradient line fill.
+  - Text bodies per §4.3.
 
 ### 4.3 Typography & Text Bodies (`TextBody`)
-- Paragraphs (`Vec<Paragraph>`):
-  - Alignment: Left, Center, Right, Justified.
-  - Line spacing and margin settings.
-  - Bullet style: None, Character (e.g. `•`), Auto-numbered (e.g. `1.`, `a.`, `(i)`), or Graphic Blip.
-- Text Runs (`Vec<TextRunData>`):
-  - String content.
-  - Font family (Latin, East Asian, Complex Script).
-  - Font size (in points).
-  - Weight and style: Bold, Italic, Underline, Strikethrough.
-  - Text color and opacity.
+- `vertical_anchor`, `wrap`, `alignment` (paragraph-level), EMU insets (`l_ins`/`r_ins` 91440, `t_ins`/`b_ins` 45720 defaults).
+- `auto_fit` (`noAutofit` | `normAutofit` | `spAutoFit`) **plus PowerPoint's stored `font_scale` and line-spacing reduction** — applying the stored values is correct-by-construction for PowerPoint-saved decks ([PRD 02c](./02c-typography-and-text-layout.md) §6).
+- Paragraphs: margins/indent (EMU, negative indent = hanging bullet), `space_before/after` (hundredths of a point or %), line spacing; bullets `None | Char | AutoNum{format, startAt} | Blip` with **independent size/color/typeface groups** (the parser resolves marker, size, and color groups independently — renderers must preserve that).
+- Runs (`TextRunData`): text, family, size (pt), **three-state** `bold/italic` (`Option<bool>` — `None` = inherit), underline + style + color, strikethrough, color/opacity.
+- WordArt warp (`TextWarp { preset, adj }`, 40 presets) and equation fallback previews (`math_fallback`) are carried when authored.
 
 ### 4.4 Media & Pictures (`PictureElement`)
-- Contains a relationship ID (`rId`) pointing to an asset inside `ppt/media/`.
-- Crop boundaries (`srcRect`: left, top, right, bottom percentages).
+Relationship id → `ppt/media/` asset; crop boundaries (`srcRect` percentages); blip effect stack (subset renderable — see fidelity matrix §2.2).
+
+### 4.5 Presentation-Level Defaults
+`default_text_color`, `major_font`/`minor_font`, hyperlink color — theme-baked, consumed by the style and text engines.
 
 ---
 
 ## 5. Media & Asset Management
 
-To prevent unnecessary memory inflation while ensuring smooth slide transitions, media assets are managed through a dedicated `AssetStore`:
+The `AssetStore` interface, `DecodedImage`, `SizeHint`, and behavioral rules are **normative in [PRD 06](./06-component-interface-contracts.md) §5**. This section records the integration decisions:
 
-```rust
-pub struct AssetStore {
-    archive_data: Vec<u8>,
-    decoded_images: HashMap<String, DynamicImage>,
-    max_cache_bytes: usize,
-}
-```
-
-### Lifecycle Rules:
-1. **Lazy Decoding**: Images inside `ppt/media/*` (PNG, JPEG, WebP) are extracted on-demand when the slide referencing them is first rendered.
-2. **Decoded LRU Cache**: Decoded bitmap rasters (`DynamicImage`) are stored in an LRU cache with a default limit of 64 MB.
-3. **SVG Fallback**: If an image is stored as an embedded `.svg` or `.emf`/`.wmf` vector:
-   - Modern PPTX files bundle a PNG fallback for vector formats. The parser checks for fallback PNG relationships first.
-   - For standalone SVGs, `resvg` is invoked to rasterize directly to pixels.
+1. **Lazy decode**: `ppt/media/*` parts decode on first use (PNG, JPEG, GIF first-frame, WebP, BMP, TIFF via the `image` crate).
+2. **Decoded LRU cache**: default 64 MB (`[assets] cache_mb`); `SizeHint::AtMost` prevents oversized decodes for small on-screen targets.
+3. **Vector media**:
+   - **SVG**: rasterized via `resvg` at the hinted size. Where PowerPoint bundled a PNG fallback relationship for the SVG, the fallback PNG takes precedence (it is the author's own rasterization).
+   - **EMF/WMF**: **no credible pure-Rust decoder exists**; `resvg` does not handle metafile formats. The store returns `AssetError::UnsupportedFormat`, and the renderer draws the [placeholder](./02d-element-renderers-and-fidelity-policy.md) §3 (using the bundled PNG fallback when one exists). *(Corrects the earlier revision's claim that resvg covers these formats.)*
+4. **Ownership**: the store retains the archive bytes; parsed media references stay valid for the session.
 
 ---
 
 ## 6. Resource Limits & Error Handling
 
-OOXML files can be malformed, zip-bombed, or excessively complex. `kitty-pptx` inherits upstream's safety limits:
+OOXML files can be malformed, zip-bombed, or excessively complex. Upstream's guards are inherited:
 
 | Risk | Guard Mechanism | Default Limit |
 | :--- | :--- | :--- |
-| **Zip Bomb / Decompression Inflation** | Maximum uncompressed part size | 64 MB per XML part, 256 MB total |
-| **Deep XML Nesting** | Max recursion depth in `roxmltree` | 256 levels |
-| **DOM Complexity** | Total element node threshold | 200,000 nodes |
-| **Corrupted Media** | Fail-soft placeholder | Render an error icon / placeholder box; do not crash the slide |
-| **Unsupported Shapes** | Fallback to bounding box | Log warning and render placeholder stroke |
+| **Zip bomb / decompression inflation** | Max uncompressed part size | 64 MB per XML part, 256 MB total |
+| **Deep XML nesting** | Max recursion depth | 256 levels |
+| **Deep group nesting** | Fail-closed depth budget at the native package boundary | upstream limit |
+| **DOM complexity** | Total element node threshold | 200,000 nodes |
+| **Corrupted media** | Fail-soft placeholder ([PRD 02d](./02d-element-renderers-and-fidelity-policy.md) §3) | — |
+| **Unsupported shapes** | Tier-3 placeholder + warning | — |
 
-### Diagnostic Mode
-When `--debug-parser` is passed via CLI:
-- Dumps the resolved `Slide` AST as pretty-printed JSON.
-- Prints relationship graph resolution logs and missing font warnings to `stderr`.
+All limit breaches surface as typed `ParseError`/`ResourceLimitHit` values ([PRD 06](./06-component-interface-contracts.md) §3–§4) — never panics.
+
+---
+
+## 7. Diagnostics
+
+Two channels, both fed from the same session-scoped event sink ([PRD 06](./06-component-interface-contracts.md) §4):
+
+1. **Structured warnings** (`WarningEvent` stream): font substitutions, unsupported presets, media failures, fidelity degradations, resource-limit hits. Consumed live by the TUI status area ([PRD 04](./04-interactive-tui-presenter.md) §6), appended by `dump --json`, counted in `info` output.
+2. **`--debug-parser` mode**:
+   - Dumps the resolved `Presentation` AST as pretty-printed JSON (`schemaVersion`-stamped).
+   - Logs relationship-graph resolution and asset-cache statistics to stderr.
+   - Timing breakdown: parse, first-render, first-present (feeds the startup NFR harness, [PRD 07](./07-quality-and-testing.md) §5).
