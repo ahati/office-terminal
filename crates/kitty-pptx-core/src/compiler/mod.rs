@@ -1,6 +1,7 @@
 pub mod background;
 pub mod charts;
 pub mod hyperlinks;
+pub mod math;
 pub mod placeholders;
 pub mod pictures;
 pub mod shape_effects;

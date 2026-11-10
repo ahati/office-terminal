@@ -2,6 +2,7 @@ use crossbeam_channel::Sender;
 use crate::contracts::{
     AffineTransform, PositionedGlyph, PositionedGlyphRun, VectorCommand, WarningEvent,
 };
+use super::math::{self, MathParams};
 use super::style::parse_hex_color;
 
 pub fn compile_text_body(
@@ -25,6 +26,10 @@ pub fn compile_text_body(
     // First pass: lay out paragraphs into lines to calculate total block height
     struct LineLayout {
         runs: Vec<PositionedGlyphRun>,
+        /// Math runs whose glyph offsets are already line-relative.
+        math_runs: Vec<PositionedGlyphRun>,
+        /// Math rules/brackets in line-relative (y-down) coordinates.
+        paths: Vec<math::MathPath>,
         line_w: f32,
         line_h: f32,
         alignment: String,
@@ -57,6 +62,8 @@ pub fn compile_text_body(
             .unwrap_or("000000");
 
         let mut current_line_runs: Vec<PositionedGlyphRun> = Vec::new();
+        let mut current_line_math_runs: Vec<PositionedGlyphRun> = Vec::new();
+        let mut current_line_paths: Vec<math::MathPath> = Vec::new();
         let mut cur_line_w = 0.0f32;
         let mut cur_line_h = def_sz * 12700.0 * 1.2 * font_scale;
 
@@ -80,7 +87,7 @@ pub fn compile_text_body(
             let b_color = parse_hex_color(def_color);
 
             let mut glyphs = Vec::new();
-            let mut gx = 0.0f32;
+            let mut gx = cur_line_w;
             for (idx, ch) in b_text.chars().enumerate() {
                 let gw = estimate_char_width(ch, b_sz_emu);
                 glyphs.push(PositionedGlyph {
@@ -133,7 +140,7 @@ pub fn compile_text_body(
                     let run_w = estimate_text_width(&data.text, sz_emu);
 
                     let mut glyphs = Vec::new();
-                    let mut gx = 0.0f32;
+                    let mut gx = cur_line_w;
                     for (idx, ch) in data.text.chars().enumerate() {
                         let gw = estimate_char_width(ch, sz_emu);
                         glyphs.push(PositionedGlyph {
@@ -160,6 +167,8 @@ pub fn compile_text_body(
                     // Flush line
                     lines.push(LineLayout {
                         runs: std::mem::take(&mut current_line_runs),
+                        math_runs: std::mem::take(&mut current_line_math_runs),
+                        paths: std::mem::take(&mut current_line_paths),
                         line_w: cur_line_w,
                         line_h: cur_line_h,
                         alignment: p.alignment.clone(),
@@ -168,13 +177,89 @@ pub fn compile_text_body(
                     });
                     cur_line_w = 0.0;
                 }
-                _ => {}
+                pptx_model::TextRun::Math {
+                    nodes,
+                    display,
+                    font_size,
+                    color: math_color,
+                    fallback_text,
+                } => {
+                    let sz_pt = font_size.map(|s| s as f32).unwrap_or(def_sz) * font_scale;
+                    let color_hex = math_color
+                        .as_deref()
+                        .or(p.def_color.as_deref())
+                        .or(default_shape_text_color)
+                        .unwrap_or(def_color);
+                    let params = MathParams {
+                        display: *display,
+                        font_size_pt: sz_pt,
+                        color: parse_hex_color(color_hex),
+                        fallback: fallback_text.as_deref(),
+                    };
+                    let piece = math::layout_math(nodes, params, warning_sink);
+                    if piece.is_empty() {
+                        continue;
+                    }
+                    let piece_h = (piece.ascent + piece.descent) * 1.4;
+                    if *display {
+                        // Display math is its own centred block (PRD 09 §1.2).
+                        if !current_line_runs.is_empty()
+                            || !current_line_math_runs.is_empty()
+                            || !current_line_paths.is_empty()
+                        {
+                            lines.push(LineLayout {
+                                runs: std::mem::take(&mut current_line_runs),
+                                math_runs: std::mem::take(&mut current_line_math_runs),
+                                paths: std::mem::take(&mut current_line_paths),
+                                line_w: cur_line_w,
+                                line_h: cur_line_h,
+                                alignment: p.alignment.clone(),
+                                mar_l: p.mar_l as f32,
+                                avail_w,
+                            });
+                            cur_line_h = def_sz * 12700.0 * 1.2 * font_scale;
+                        }
+                        // `m:oMathParaPr/m:jc` is not surfaced by the parser, so
+                        // display math uses the PRD default: centred (only an
+                        // explicit right paragraph alignment is honoured).
+                        let alignment = if p.alignment == "r" {
+                            "r".to_string()
+                        } else {
+                            "ctr".to_string()
+                        };
+                        let display_h = piece_h + sz_pt * 12700.0 * 0.6;
+                        lines.push(LineLayout {
+                            runs: Vec::new(),
+                            math_runs: piece.runs,
+                            paths: piece.paths,
+                            line_w: piece.width,
+                            line_h: display_h.max(cur_line_h),
+                            alignment,
+                            mar_l: 0.0,
+                            avail_w,
+                        });
+                        cur_line_w = 0.0;
+                        cur_line_h = def_sz * 12700.0 * 1.2 * font_scale;
+                    } else {
+                        let base_x = cur_line_w;
+                        current_line_math_runs.extend(math::offset_runs(piece.runs, base_x, 0.0));
+                        current_line_paths.extend(math::offset_math_paths(piece.paths, base_x));
+                        cur_line_w += piece.width;
+                        cur_line_h = cur_line_h.max(piece_h);
+                    }
+                }
             }
         }
 
-        if !current_line_runs.is_empty() || lines.is_empty() {
+        if !current_line_runs.is_empty()
+            || !current_line_math_runs.is_empty()
+            || !current_line_paths.is_empty()
+            || lines.is_empty()
+        {
             lines.push(LineLayout {
                 runs: current_line_runs,
+                math_runs: current_line_math_runs,
+                paths: current_line_paths,
                 line_w: cur_line_w,
                 line_h: cur_line_h + space_before_emu,
                 alignment: p.alignment.clone(),
@@ -198,8 +283,9 @@ pub fn compile_text_body(
         _ => t_ins as f32,
     };
 
-    // Second pass: position lines according to alignment
+    // Second pass: translate every line-relative item by its line origin.
     let mut final_runs = Vec::new();
+    let mut final_paths: Vec<VectorCommand> = Vec::new();
 
     for line in lines {
         let align_offset = match line.alignment.as_str() {
@@ -208,30 +294,39 @@ pub fn compile_text_body(
             _ => 0.0,
         };
 
-        let mut cur_x = l_ins as f32 + line.mar_l + align_offset;
+        let line_x = l_ins as f32 + line.mar_l + align_offset;
         let baseline_y = cur_y + line.line_h * 0.75;
 
         for mut run in line.runs {
             for g in &mut run.glyphs {
-                g.x += cur_x;
-                g.y = baseline_y;
+                g.x += line_x;
+                g.y += baseline_y;
             }
-            let run_w = estimate_text_width(&run.text, run.font_size_pt * 12700.0);
-            cur_x += run_w;
             final_runs.push(run);
+        }
+        for mut run in line.math_runs {
+            for g in &mut run.glyphs {
+                g.x += line_x;
+                g.y += baseline_y;
+            }
+            final_runs.push(run);
+        }
+        for path in &line.paths {
+            let shifted = math::translate_math_path(path, line_x, baseline_y);
+            final_paths.push(math::math_path_command(&shifted, base_transform));
         }
 
         cur_y += line.line_h;
     }
 
-    if final_runs.is_empty() {
-        Vec::new()
-    } else {
-        vec![VectorCommand::DrawText {
+    let mut commands = final_paths;
+    if !final_runs.is_empty() {
+        commands.push(VectorCommand::DrawText {
             runs: final_runs,
             transform: *base_transform,
-        }]
+        });
     }
+    commands
 }
 
 pub fn resolve_font_family(name: &str, warning_sink: &Sender<WarningEvent>) -> String {
