@@ -77,8 +77,9 @@ impl SixelDriver {
 
         let mut out = String::with_capacity((width * height) as usize + 512);
 
-        // Sixel DCS Introducer: \x1bPq (device control string for sixel)
-        out.push_str("\x1bPq");
+        // Sixel DCS Introducer: \x1bPq followed by raster attributes
+        // ("Pan;Pad;Width;Height) per DEC sixel / PRD 03b.
+        out.push_str(&format!("\x1bPq\"1;1;{width};{height}"));
 
         // Define palette: #P;2;R;G;B where R, G, B are percentages 0..100
         for (i, &(r, g, b)) in palette.iter().enumerate() {

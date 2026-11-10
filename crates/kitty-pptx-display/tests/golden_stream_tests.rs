@@ -328,16 +328,14 @@ fn sixel_present_emits_a_valid_dcs_stream() {
     }
 }
 
-/// PRD 03b requires raster attributes in the Sixel DCS. The current display
-/// crate encoder does not emit them; enable this test once that lands.
+/// PRD 03b requires raster attributes in the Sixel DCS.
 #[test]
-#[ignore = "display crate Sixel encoder does not emit raster attributes yet"]
 fn sixel_stream_includes_raster_attributes() {
     let slide = synthetic_slide();
     let sixel = SixelDriver::encode_sixel(&slide.pixels, slide.width, slide.height);
     let body = dcs_body(&sixel);
     assert!(
-        body.starts_with(&format!("\"1;1;{};{}", slide.width, slide.height)),
+        body.starts_with(&format!("q\"1;1;{};{}", slide.width, slide.height)),
         "expected sixel raster attribute \"1;1;{};{}\", got {:?}",
         slide.width,
         slide.height,
