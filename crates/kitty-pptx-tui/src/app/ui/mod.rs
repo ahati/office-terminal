@@ -6,6 +6,7 @@ pub mod sorter;
 pub mod comments;
 pub mod warnings;
 pub mod search;
+pub mod link_picker;
 
 use ratatui::Frame;
 use crate::app::mode::AppMode;
@@ -19,6 +20,7 @@ pub use presenter::render_presenter;
 pub use search::render_search_modal;
 pub use sorter::render_sorter;
 pub use warnings::render_warning_drawer;
+pub use link_picker::render_link_picker;
 
 /// Render the presentation UI based on the current state.
 pub fn render_app(state: &PresentationState, f: &mut Frame) {
@@ -52,6 +54,7 @@ pub fn render_app(state: &PresentationState, f: &mut Frame) {
         AppMode::CommentsDrawer => render_comments_drawer(state, f, area),
         AppMode::WarningDrawer => render_warning_drawer(state, f, area),
         AppMode::TocSearchModal => render_search_modal(state, f, area),
+        AppMode::LinkPickerModal => render_link_picker(state, f, area),
         _ => {}
     }
 }

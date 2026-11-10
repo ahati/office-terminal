@@ -1,7 +1,7 @@
 use std::io::Cursor;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use kitty_pptx_core::{RgbaSlide, DisplayError};
+use kitty_pptx_core::{sanitize_hyperlink_url, RgbaSlide, DisplayError};
 use crate::driver::*;
 use crate::tty::global_tty;
 
@@ -73,6 +73,75 @@ impl KittyDriver {
         out
     }
 
+    /// Like [`Self::generate_placeholder_string`], but wraps placeholder cells
+    /// covered by a hyperlink in OSC 8 sequences (PRD 10 §4.2).
+    ///
+    /// With no valid links the output is byte-identical to the plain generator.
+    pub fn generate_placeholder_string_with_links(
+        id: ImageId,
+        rect: CellRect,
+        links: &[TerminalHyperlink],
+    ) -> String {
+        let valid: Vec<(&TerminalHyperlink, String)> = links
+            .iter()
+            .filter_map(|link| {
+                sanitize_hyperlink_url(&link.url)
+                    .ok()
+                    .map(|url| (link, url))
+            })
+            .collect();
+        if valid.is_empty() {
+            return Self::generate_placeholder_string(id, rect);
+        }
+
+        let mut out = String::with_capacity((rect.rows as usize) * (rect.cols as usize) * 64);
+        let fg_r = (id.0 & 0xFF) as u8;
+        let fg_g = ((id.0 >> 8) & 0xFF) as u8;
+        let fg_b = ((id.0 >> 16) & 0xFF) as u8;
+
+        for r in 0..rect.rows {
+            out.push_str(&format!("\x1b[{};{}H", rect.row + 1 + r, rect.col + 1));
+            out.push_str(&format!("\x1b[38;2;{};{};{}m", fg_r, fg_g, fg_b));
+
+            let mut active: Option<(&TerminalHyperlink, &str)> = None;
+            for c in 0..rect.cols {
+                let absolute_col = rect.col.saturating_add(c);
+                let absolute_row = rect.row.saturating_add(r);
+                let cell_link = valid
+                    .iter()
+                    .rev()
+                    .find(|(link, _)| link.rect.contains(absolute_col, absolute_row));
+
+                let next = cell_link.map(|(link, url)| (*link, url.as_str()));
+                let changed = match (active, next) {
+                    (None, None) => false,
+                    (Some((a, a_url)), Some((b, b_url))) => a.id != b.id || a_url != b_url,
+                    _ => true,
+                };
+                if changed {
+                    if active.is_some() {
+                        out.push_str("\x1b]8;;\x1b\\");
+                    }
+                    if let Some((link, url)) = next {
+                        out.push_str(&format!("\x1b]8;id=link_{};{}\x1b\\", link.id, url));
+                    }
+                    active = next;
+                }
+
+                let bg_r = (c & 0xFF) as u8;
+                let bg_g = ((c >> 8) & 0xFF) as u8;
+                let bg_b = (r & 0xFF) as u8;
+                out.push_str(&format!("\x1b[48;2;{};{};{}m\u{10EEEE}", bg_r, bg_g, bg_b));
+            }
+            if active.is_some() {
+                out.push_str("\x1b]8;;\x1b\\");
+            }
+            out.push_str("\x1b[0m");
+        }
+
+        out
+    }
+
     /// Formats Kitty transmission chunk sequences for image transmission.
     pub fn format_transmission_chunks(id: ImageId, width: u32, height: u32, b64_payload: &str) -> Vec<String> {
         let chunk_size = 4096;
@@ -106,6 +175,38 @@ impl KittyDriver {
         }
 
         chunks
+    }
+
+    fn present_impl(
+        &mut self,
+        id: ImageId,
+        p: Placement,
+        links: &[TerminalHyperlink],
+    ) -> Result<(), DisplayError> {
+        let tty = global_tty();
+        match p {
+            Placement::Cells(rect) => {
+                if self.use_placeholders {
+                    let seq = Self::generate_placeholder_string_with_links(id, rect, links);
+                    tty.write_seq(&seq).map_err(DisplayError::Io)?;
+                } else {
+                    let seq = format!(
+                        "\x1b[{};{}H\x1b_Ga=p,i={},c={},r={},q=2\x1b\\",
+                        rect.row + 1, rect.col + 1, id.0, rect.cols, rect.rows
+                    );
+                    tty.write_seq(&seq).map_err(DisplayError::Io)?;
+                }
+            }
+            Placement::VirtualPlaceholder(rect) => {
+                let seq = Self::generate_placeholder_string_with_links(id, rect, links);
+                tty.write_seq(&seq).map_err(DisplayError::Io)?;
+            }
+            Placement::ScrollbackBlock => {
+                let seq = format!("\x1b_Ga=p,i={},q=2\x1b\\\n", id.0);
+                tty.write_seq(&seq).map_err(DisplayError::Io)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -155,30 +256,16 @@ impl TerminalGraphicsDriver for KittyDriver {
     }
 
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {
-        let tty = global_tty();
-        match p {
-            Placement::Cells(rect) => {
-                if self.use_placeholders {
-                    let seq = Self::generate_placeholder_string(id, rect);
-                    tty.write_seq(&seq).map_err(DisplayError::Io)?;
-                } else {
-                    let seq = format!(
-                        "\x1b[{};{}H\x1b_Ga=p,i={},c={},r={},q=2\x1b\\",
-                        rect.row + 1, rect.col + 1, id.0, rect.cols, rect.rows
-                    );
-                    tty.write_seq(&seq).map_err(DisplayError::Io)?;
-                }
-            }
-            Placement::VirtualPlaceholder(rect) => {
-                let seq = Self::generate_placeholder_string(id, rect);
-                tty.write_seq(&seq).map_err(DisplayError::Io)?;
-            }
-            Placement::ScrollbackBlock => {
-                let seq = format!("\x1b_Ga=p,i={},q=2\x1b\\\n", id.0);
-                tty.write_seq(&seq).map_err(DisplayError::Io)?;
-            }
-        }
-        Ok(())
+        self.present_impl(id, p, &[])
+    }
+
+    fn present_with_hyperlinks(
+        &mut self,
+        id: ImageId,
+        p: Placement,
+        links: &[TerminalHyperlink],
+    ) -> Result<(), DisplayError> {
+        self.present_impl(id, p, links)
     }
 
     fn reposition(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {

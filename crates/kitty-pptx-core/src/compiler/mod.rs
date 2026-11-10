@@ -1,5 +1,6 @@
 pub mod background;
 pub mod charts;
+pub mod hyperlinks;
 pub mod placeholders;
 pub mod pictures;
 pub mod shapes;
@@ -9,6 +10,9 @@ pub mod text;
 pub mod transform;
 
 pub use style::parse_hex_color;
+pub use hyperlinks::{
+    extract_deck_hyperlinks, extract_slide_hyperlinks, resolve_hyperlink, resolve_internal_slide,
+};
 
 use crossbeam_channel::Sender;
 use crate::contracts::{
@@ -24,6 +28,20 @@ pub trait SlideCompiler: Send + Sync {
         slide_height: i64,
         warning_sink: &Sender<WarningEvent>,
     ) -> Result<VectorSlide, RenderError>;
+
+    /// Compile with deck context so internal slide-jump hyperlinks can be
+    /// resolved to 0-based presentation indices. Defaults to `compile`.
+    fn compile_in_deck(
+        &self,
+        slide: &pptx_model::Slide,
+        deck: &[pptx_model::Slide],
+        slide_width: i64,
+        slide_height: i64,
+        warning_sink: &Sender<WarningEvent>,
+    ) -> Result<VectorSlide, RenderError> {
+        let _ = deck;
+        self.compile(slide, slide_width, slide_height, warning_sink)
+    }
 }
 
 pub struct DefaultSlideCompiler;
@@ -41,6 +59,20 @@ impl Default for DefaultSlideCompiler {
 }
 
 impl SlideCompiler for DefaultSlideCompiler {
+    fn compile_in_deck(
+        &self,
+        slide: &pptx_model::Slide,
+        deck: &[pptx_model::Slide],
+        slide_width: i64,
+        slide_height: i64,
+        warning_sink: &Sender<WarningEvent>,
+    ) -> Result<VectorSlide, RenderError> {
+        let mut vector_slide = self.compile(slide, slide_width, slide_height, warning_sink)?;
+        vector_slide.hyperlinks =
+            hyperlinks::extract_slide_hyperlinks(slide, deck, warning_sink);
+        Ok(vector_slide)
+    }
+
     fn compile(
         &self,
         slide: &pptx_model::Slide,
@@ -164,7 +196,7 @@ impl SlideCompiler for DefaultSlideCompiler {
             height_emu,
             background,
             commands,
-            hyperlinks: Vec::new(),
+            hyperlinks: hyperlinks::extract_slide_hyperlinks(slide, &[], warning_sink),
         })
     }
 }

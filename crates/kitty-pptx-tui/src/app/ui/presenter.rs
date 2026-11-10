@@ -107,6 +107,13 @@ pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
             spans.push(Span::styled("[m] Media | ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
         }
 
+        if state.current_slide_link_count() > 0 {
+            spans.push(Span::styled(
+                format!("[o: {} Links] | ", state.current_slide_link_count()),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ));
+        }
+
         if let Some(toast) = state.toast() {
             spans.push(Span::styled(format!("📢 {} | ", toast), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
         }

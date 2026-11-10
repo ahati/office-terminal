@@ -75,8 +75,9 @@ pub fn run_view(
         if all {
             println!("--- Slide {} / {} ---", idx + 1, total);
         }
-        let vector_slide = match compiler.compile(
+        let vector_slide = match compiler.compile_in_deck(
             &presentation.slides[idx],
+            &presentation.slides,
             presentation.slide_width,
             presentation.slide_height,
             &tx,

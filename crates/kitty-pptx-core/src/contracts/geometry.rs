@@ -161,4 +161,37 @@ impl RectF32 {
     pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
         Self { x, y, w, h }
     }
+
+    pub fn right(&self) -> f32 {
+        self.x + self.w
+    }
+
+    pub fn bottom(&self) -> f32 {
+        self.y + self.h
+    }
+
+    pub fn center(&self) -> (f32, f32) {
+        (self.x + self.w / 2.0, self.y + self.h / 2.0)
+    }
+
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.x && x <= self.right() && y >= self.y && y <= self.bottom()
+    }
+
+    pub fn intersects(&self, other: &RectF32) -> bool {
+        self.x <= other.right()
+            && self.right() >= other.x
+            && self.y <= other.bottom()
+            && self.bottom() >= other.y
+    }
+
+    pub fn intersection_area(&self, other: &RectF32) -> f32 {
+        let w = self.right().min(other.right()) - self.x.max(other.x);
+        let h = self.bottom().min(other.bottom()) - self.y.max(other.y);
+        if w > 0.0 && h > 0.0 {
+            w * h
+        } else {
+            0.0
+        }
+    }
 }

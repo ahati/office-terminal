@@ -15,6 +15,8 @@ pub enum AppMode {
     WarningDrawer,
     /// Fuzzy TOC search modal popup.
     TocSearchModal,
+    /// Active-slide hyperlink picker modal (`o` / Ctrl+O).
+    LinkPickerModal,
 }
 
 /// Backwards-compatible alias for `AppMode`.
@@ -33,6 +35,7 @@ impl AppMode {
                 | AppMode::CommentsDrawer
                 | AppMode::WarningDrawer
                 | AppMode::TocSearchModal
+                | AppMode::LinkPickerModal
         )
     }
 

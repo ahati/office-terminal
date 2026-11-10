@@ -91,6 +91,10 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
             Span::styled(": Play Current Slide Media", desc_style),
         ]),
         Line::from(vec![
+            Span::styled("  o / Ctrl+O                     ", key_style),
+            Span::styled(": Open Slide Hyperlink Picker", desc_style),
+        ]),
+        Line::from(vec![
             Span::styled("  t                              ", key_style),
             Span::styled(": Toggle Minimal Status Bar", desc_style),
         ]),

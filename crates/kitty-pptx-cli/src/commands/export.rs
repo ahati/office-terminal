@@ -43,7 +43,7 @@ pub fn run_export(
 
     for idx in slide_indices {
         let slide = &presentation.slides[idx];
-        let vector_slide = match compiler.compile(slide, presentation.slide_width, presentation.slide_height, &tx) {
+        let vector_slide = match compiler.compile_in_deck(slide, &presentation.slides, presentation.slide_width, presentation.slide_height, &tx) {
             Ok(vs) => vs,
             Err(e) => {
                 eprintln!("Render compilation failed on slide {}: {}", idx + 1, e);
