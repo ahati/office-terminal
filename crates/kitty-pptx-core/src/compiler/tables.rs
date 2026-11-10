@@ -62,12 +62,12 @@ pub fn compile_table_element(
                 ],
                 FillRule::NonZero,
             );
-            commands.push(VectorCommand::DrawPath {
-                path: bg_path,
-                fill: Some(paint),
-                stroke: None,
-                transform: table_transform,
-            });
+            commands.push(VectorCommand::draw_path(
+                bg_path,
+                Some(paint),
+                None,
+                table_transform,
+            ));
         }
     }
 
@@ -108,12 +108,12 @@ pub fn compile_table_element(
                         ],
                         FillRule::NonZero,
                     );
-                    commands.push(VectorCommand::DrawPath {
-                        path: cell_rect,
-                        fill: Some(paint),
-                        stroke: None,
-                        transform: table_transform,
-                    });
+                    commands.push(VectorCommand::draw_path(
+                        cell_rect,
+                        Some(paint),
+                        None,
+                        table_transform,
+                    ));
                 }
             }
 
@@ -127,12 +127,12 @@ pub fn compile_table_element(
                         ],
                         FillRule::NonZero,
                     );
-                    commands.push(VectorCommand::DrawPath {
-                        path: border_path,
-                        fill: None,
-                        stroke: Some(v_stroke),
-                        transform: table_transform,
-                    });
+                    commands.push(VectorCommand::draw_path(
+                        border_path,
+                        None,
+                        Some(v_stroke),
+                        table_transform,
+                    ));
                 }
             }
             if let Some(ref stroke) = cell.border_b {
@@ -144,12 +144,12 @@ pub fn compile_table_element(
                         ],
                         FillRule::NonZero,
                     );
-                    commands.push(VectorCommand::DrawPath {
-                        path: border_path,
-                        fill: None,
-                        stroke: Some(v_stroke),
-                        transform: table_transform,
-                    });
+                    commands.push(VectorCommand::draw_path(
+                        border_path,
+                        None,
+                        Some(v_stroke),
+                        table_transform,
+                    ));
                 }
             }
             if let Some(ref stroke) = cell.border_l {
@@ -161,12 +161,12 @@ pub fn compile_table_element(
                         ],
                         FillRule::NonZero,
                     );
-                    commands.push(VectorCommand::DrawPath {
-                        path: border_path,
-                        fill: None,
-                        stroke: Some(v_stroke),
-                        transform: table_transform,
-                    });
+                    commands.push(VectorCommand::draw_path(
+                        border_path,
+                        None,
+                        Some(v_stroke),
+                        table_transform,
+                    ));
                 }
             }
             if let Some(ref stroke) = cell.border_r {
@@ -178,12 +178,12 @@ pub fn compile_table_element(
                         ],
                         FillRule::NonZero,
                     );
-                    commands.push(VectorCommand::DrawPath {
-                        path: border_path,
-                        fill: None,
-                        stroke: Some(v_stroke),
-                        transform: table_transform,
-                    });
+                    commands.push(VectorCommand::draw_path(
+                        border_path,
+                        None,
+                        Some(v_stroke),
+                        table_transform,
+                    ));
                 }
             }
             if let Some(ref stroke) = cell.diagonal_tl {
@@ -195,12 +195,12 @@ pub fn compile_table_element(
                         ],
                         FillRule::NonZero,
                     );
-                    commands.push(VectorCommand::DrawPath {
-                        path: border_path,
-                        fill: None,
-                        stroke: Some(v_stroke),
-                        transform: table_transform,
-                    });
+                    commands.push(VectorCommand::draw_path(
+                        border_path,
+                        None,
+                        Some(v_stroke),
+                        table_transform,
+                    ));
                 }
             }
             if let Some(ref stroke) = cell.diagonal_tr {
@@ -212,12 +212,12 @@ pub fn compile_table_element(
                         ],
                         FillRule::NonZero,
                     );
-                    commands.push(VectorCommand::DrawPath {
-                        path: border_path,
-                        fill: None,
-                        stroke: Some(v_stroke),
-                        transform: table_transform,
-                    });
+                    commands.push(VectorCommand::draw_path(
+                        border_path,
+                        None,
+                        Some(v_stroke),
+                        table_transform,
+                    ));
                 }
             }
 

@@ -74,12 +74,12 @@ fn compile_vertical_columns(
                 let path = rect_path(cat_x, bar_y, bar_w, bar_h);
                 let color = resolve_series_color(s_idx, s);
 
-                commands.push(VectorCommand::DrawPath {
+                commands.push(VectorCommand::draw_path(
                     path,
-                    fill: Some(VectorPaint::Solid(color)),
-                    stroke: None,
+                    Some(VectorPaint::Solid(color)),
+                    None,
                     transform,
-                });
+                ));
 
                 if chart.show_data_labels {
                     let lbl_text = if is_pct {
@@ -121,12 +121,12 @@ fn compile_vertical_columns(
                 let path = rect_path(bar_x, bar_y, bar_w, norm_h);
                 let color = resolve_series_color(s_idx, s);
 
-                commands.push(VectorCommand::DrawPath {
+                commands.push(VectorCommand::draw_path(
                     path,
-                    fill: Some(VectorPaint::Solid(color)),
-                    stroke: None,
+                    Some(VectorPaint::Solid(color)),
+                    None,
                     transform,
-                });
+                ));
 
                 if chart.show_data_labels {
                     let lbl_text = format_val(val);
@@ -199,12 +199,12 @@ fn compile_horizontal_bars(
                 let path = rect_path(cum_x, cat_y, bar_w, bar_h);
                 let color = resolve_series_color(s_idx, s);
 
-                commands.push(VectorCommand::DrawPath {
+                commands.push(VectorCommand::draw_path(
                     path,
-                    fill: Some(VectorPaint::Solid(color)),
-                    stroke: None,
+                    Some(VectorPaint::Solid(color)),
+                    None,
                     transform,
-                });
+                ));
 
                 if chart.show_data_labels {
                     let lbl_text = if is_pct {
@@ -246,12 +246,12 @@ fn compile_horizontal_bars(
                 let path = rect_path(bar_x, bar_y, norm_w, bar_h);
                 let color = resolve_series_color(s_idx, s);
 
-                commands.push(VectorCommand::DrawPath {
+                commands.push(VectorCommand::draw_path(
                     path,
-                    fill: Some(VectorPaint::Solid(color)),
-                    stroke: None,
+                    Some(VectorPaint::Solid(color)),
+                    None,
                     transform,
-                });
+                ));
 
                 if chart.show_data_labels {
                     let lbl_text = format_val(val);

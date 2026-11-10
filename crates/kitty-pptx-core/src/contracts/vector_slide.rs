@@ -1,6 +1,8 @@
 use super::geometry::{AffineTransform, NormalizedRect, RectF32, VectorPath};
 use super::paint::{VectorGradient, VectorPaint, VectorStroke};
 use super::text::PositionedGlyphRun;
+use super::shape_effects::ShapeEffects;
+use super::hyperlink::SlideLink;
 pub use ooxml_common::blip::BlipEffect;
 
 /// Resolution-independent 2D vector display list for a PowerPoint slide.
@@ -10,6 +12,7 @@ pub struct VectorSlide {
     pub height_emu: i64,
     pub background: Option<VectorBackground>,
     pub commands: Vec<VectorCommand>,
+    pub hyperlinks: Vec<SlideLink>,
 }
 
 impl VectorSlide {
@@ -19,6 +22,7 @@ impl VectorSlide {
             height_emu,
             background: None,
             commands: Vec::new(),
+            hyperlinks: Vec::new(),
         }
     }
 }
@@ -39,6 +43,7 @@ pub enum VectorCommand {
         fill: Option<VectorPaint>,
         stroke: Option<VectorStroke>,
         transform: AffineTransform,
+        effects: Box<ShapeEffects>,
     },
     DrawText {
         runs: Vec<PositionedGlyphRun>,
@@ -57,6 +62,39 @@ pub enum VectorCommand {
 }
 
 impl VectorCommand {
+    /// Helper to construct a DrawPath command with default effects.
+    pub fn draw_path(
+        path: VectorPath,
+        fill: Option<VectorPaint>,
+        stroke: Option<VectorStroke>,
+        transform: AffineTransform,
+    ) -> Self {
+        Self::DrawPath {
+            path,
+            fill,
+            stroke,
+            transform,
+            effects: Box::new(ShapeEffects::default()),
+        }
+    }
+
+    /// Helper to construct a DrawPath command with explicit shape effects.
+    pub fn draw_path_with_effects(
+        path: VectorPath,
+        fill: Option<VectorPaint>,
+        stroke: Option<VectorStroke>,
+        transform: AffineTransform,
+        effects: ShapeEffects,
+    ) -> Self {
+        Self::DrawPath {
+            path,
+            fill,
+            stroke,
+            transform,
+            effects: Box::new(effects),
+        }
+    }
+
     /// Helper to construct a DrawImage command without blip effects.
     pub fn draw_image(
         rel_id: String,

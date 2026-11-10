@@ -19,6 +19,7 @@ fn test_vector_slide_rasterization_and_svg_export() {
         height_emu: 685800,
         background: Some(VectorBackground::Solid([240, 240, 240, 255])),
         commands: Vec::new(),
+        hyperlinks: Vec::new(),
     };
 
     slide.commands.push(VectorCommand::DrawPath {
@@ -41,6 +42,7 @@ fn test_vector_slide_rasterization_and_svg_export() {
             line_join: LineJoin::Round,
         }),
         transform: AffineTransform::default(),
+        effects: Box::default(),
     });
 
     // Test Rasterization

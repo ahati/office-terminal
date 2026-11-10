@@ -57,12 +57,12 @@ pub fn compile_lines(
             line_join: LineJoin::Round,
         };
 
-        commands.push(VectorCommand::DrawPath {
-            path: line_path,
-            fill: None,
-            stroke: Some(stroke),
+        commands.push(VectorCommand::draw_path(
+            line_path,
+            None,
+            Some(stroke),
             transform,
-        });
+        ));
 
         // 2. Draw point markers
         let show_markers = s.show_marker.unwrap_or(true);
@@ -88,12 +88,12 @@ pub fn compile_lines(
                 marker_segs.push(PathSegment::Close);
 
                 let marker_path = VectorPath::new(marker_segs, FillRule::NonZero);
-                commands.push(VectorCommand::DrawPath {
-                    path: marker_path,
-                    fill: Some(crate::contracts::VectorPaint::Solid(marker_color)),
-                    stroke: Some(marker_stroke.clone()),
+                commands.push(VectorCommand::draw_path(
+                    marker_path,
+                    Some(crate::contracts::VectorPaint::Solid(marker_color)),
+                    Some(marker_stroke.clone()),
                     transform,
-                });
+                ));
             }
         }
 

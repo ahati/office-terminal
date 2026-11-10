@@ -105,6 +105,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                         fill,
                         stroke,
                         transform,
+                        effects: Box::default(),
                     });
 
                     // Compile text body if present (supporting SmartArt explicit text_rect)
@@ -163,6 +164,7 @@ impl SlideCompiler for DefaultSlideCompiler {
             height_emu,
             background,
             commands,
+            hyperlinks: Vec::new(),
         })
     }
 }

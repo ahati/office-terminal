@@ -128,6 +128,7 @@ impl SlideRasterizer for TinySkiaRasterizer {
                     fill,
                     stroke,
                     transform,
+                    ..
                 } => {
                     path::render_path(
                         &mut pixmap,

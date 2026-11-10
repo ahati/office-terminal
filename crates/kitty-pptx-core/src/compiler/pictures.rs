@@ -76,6 +76,7 @@ pub fn compile_picture_element(
                 fill: Some(paint),
                 stroke: None,
                 transform,
+                effects: Default::default(),
             });
         }
     }
@@ -149,6 +150,7 @@ pub fn compile_picture_element(
                 fill: None,
                 stroke: Some(v_stroke),
                 transform,
+                effects: Default::default(),
             });
         }
     }

@@ -86,12 +86,12 @@ pub fn compile_area(
         segs.push(PathSegment::Close);
 
         let area_path = VectorPath::new(segs, FillRule::NonZero);
-        commands.push(VectorCommand::DrawPath {
-            path: area_path,
-            fill: Some(VectorPaint::Solid(fill_color)),
-            stroke: None,
+        commands.push(VectorCommand::draw_path(
+            area_path,
+            Some(VectorPaint::Solid(fill_color)),
+            None,
             transform,
-        });
+        ));
 
         // 2. Outline stroke along top edge
         let mut top_segs = Vec::new();
@@ -114,12 +114,12 @@ pub fn compile_area(
             line_join: LineJoin::Round,
         };
 
-        commands.push(VectorCommand::DrawPath {
-            path: VectorPath::new(top_segs, FillRule::NonZero),
-            fill: None,
-            stroke: Some(top_stroke),
+        commands.push(VectorCommand::draw_path(
+            VectorPath::new(top_segs, FillRule::NonZero),
+            None,
+            Some(top_stroke),
             transform,
-        });
+        ));
 
         prev_cum_y = curr_y;
     }

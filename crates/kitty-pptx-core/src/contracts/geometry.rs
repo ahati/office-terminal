@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 /// 2D Fill rule for vector paths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FillRule {
@@ -127,7 +129,7 @@ impl AffineTransform {
 }
 
 /// Normalized sub-rectangle in [0.0, 1.0] coordinates.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NormalizedRect {
     pub x: f32,
     pub y: f32,
@@ -147,7 +149,7 @@ impl Default for NormalizedRect {
 }
 
 /// 2D rectangle with f32 dimensions (often in EMU coordinates).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectF32 {
     pub x: f32,
     pub y: f32,

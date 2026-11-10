@@ -104,12 +104,12 @@ pub fn compile_pie(
         let slice_path = VectorPath::new(segs, FillRule::NonZero);
         let slice_color = resolve_slice_color(idx, Some(first_series));
 
-        commands.push(VectorCommand::DrawPath {
-            path: slice_path,
-            fill: Some(VectorPaint::Solid(slice_color)),
-            stroke: Some(slice_stroke.clone()),
+        commands.push(VectorCommand::draw_path(
+            slice_path,
+            Some(VectorPaint::Solid(slice_color)),
+            Some(slice_stroke.clone()),
             transform,
-        });
+        ));
 
         // Slice label (only if slice is large enough)
         if sweep_deg >= 12.0 {

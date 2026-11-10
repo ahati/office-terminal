@@ -43,6 +43,7 @@ pub fn compile_chart_placeholder(chart_elem: &pptx_model::ChartElement) -> Vec<V
         fill: None,
         stroke: Some(frame_stroke),
         transform,
+        effects: Default::default(),
     });
 
     // 2. Kind Label + Title Text
@@ -143,6 +144,7 @@ pub fn compile_media_placeholder(media_elem: &pptx_model::MediaElement) -> Vec<V
         fill: None,
         stroke: Some(frame_stroke),
         transform,
+        effects: Default::default(),
     });
 
     let header_text = format!("▶ MEDIA ({})", media_elem.media_kind);

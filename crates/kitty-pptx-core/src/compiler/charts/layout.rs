@@ -146,12 +146,12 @@ pub fn compile_chart_background(
     // Chart-area background
     if let Some(ref bg) = chart.chart_bg {
         let path = rect_path(0.0, 0.0, layout.w, layout.h);
-        commands.push(VectorCommand::DrawPath {
+        commands.push(VectorCommand::draw_path(
             path,
-            fill: Some(VectorPaint::Solid(parse_hex_color(bg))),
-            stroke: None,
+            Some(VectorPaint::Solid(parse_hex_color(bg))),
+            None,
             transform,
-        });
+        ));
     }
 
     // Chart-area border
@@ -164,23 +164,23 @@ pub fn compile_chart_background(
             line_cap: LineCap::Square,
             line_join: LineJoin::Miter,
         };
-        commands.push(VectorCommand::DrawPath {
+        commands.push(VectorCommand::draw_path(
             path,
-            fill: None,
-            stroke: Some(stroke),
+            None,
+            Some(stroke),
             transform,
-        });
+        ));
     }
 
     // Plot-area background
     if let Some(ref bg) = chart.plot_area_bg {
         let path = rect_path(layout.plot_x, layout.plot_y, layout.plot_w, layout.plot_h);
-        commands.push(VectorCommand::DrawPath {
+        commands.push(VectorCommand::draw_path(
             path,
-            fill: Some(VectorPaint::Solid(parse_hex_color(bg))),
-            stroke: None,
+            Some(VectorPaint::Solid(parse_hex_color(bg))),
+            None,
             transform,
-        });
+        ));
     }
 
     commands
@@ -280,12 +280,12 @@ pub fn compile_chart_legend(
 
             // Swatch rect
             let swatch_path = rect_path(item_x, item_y, swatch_size, swatch_size);
-            commands.push(VectorCommand::DrawPath {
-                path: swatch_path,
-                fill: Some(VectorPaint::Solid(color)),
-                stroke: None,
+            commands.push(VectorCommand::draw_path(
+                swatch_path,
+                Some(VectorPaint::Solid(color)),
+                None,
                 transform,
-            });
+            ));
 
             // Swatch label
             let tx = item_x + swatch_size * 1.4;
@@ -323,12 +323,12 @@ pub fn compile_chart_legend(
 
             // Swatch
             let swatch_path = rect_path(item_x, item_y, swatch_size, swatch_size);
-            commands.push(VectorCommand::DrawPath {
-                path: swatch_path,
-                fill: Some(VectorPaint::Solid(color)),
-                stroke: None,
+            commands.push(VectorCommand::draw_path(
+                swatch_path,
+                Some(VectorPaint::Solid(color)),
+                None,
                 transform,
-            });
+            ));
 
             // Text
             let tx = item_x + swatch_size * 1.4;

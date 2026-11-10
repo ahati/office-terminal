@@ -71,12 +71,12 @@ pub fn compile_axes(
                     ],
                     FillRule::NonZero,
                 );
-                commands.push(VectorCommand::DrawPath {
-                    path: grid_path,
-                    fill: None,
-                    stroke: Some(grid_stroke.clone()),
+                commands.push(VectorCommand::draw_path(
+                    grid_path,
+                    None,
+                    Some(grid_stroke.clone()),
                     transform,
-                });
+                ));
             }
 
             if !chart.val_axis_hidden {
@@ -122,12 +122,12 @@ pub fn compile_axes(
                 ],
                 FillRule::NonZero,
             );
-            commands.push(VectorCommand::DrawPath {
-                path: axis_path,
-                fill: None,
-                stroke: Some(axis_stroke.clone()),
+            commands.push(VectorCommand::draw_path(
+                axis_path,
+                None,
+                Some(axis_stroke.clone()),
                 transform,
-            });
+            ));
         }
 
         // 4. Value axis line (X axis)
@@ -145,12 +145,12 @@ pub fn compile_axes(
                 ],
                 FillRule::NonZero,
             );
-            commands.push(VectorCommand::DrawPath {
-                path: axis_path,
-                fill: None,
-                stroke: Some(axis_stroke),
+            commands.push(VectorCommand::draw_path(
+                axis_path,
+                None,
+                Some(axis_stroke),
                 transform,
-            });
+            ));
         }
     } else {
         // Vertical Chart (Column, Line, Area): Value on Y (left), Category on X (bottom)
@@ -176,12 +176,12 @@ pub fn compile_axes(
                     ],
                     FillRule::NonZero,
                 );
-                commands.push(VectorCommand::DrawPath {
-                    path: grid_path,
-                    fill: None,
-                    stroke: Some(grid_stroke.clone()),
+                commands.push(VectorCommand::draw_path(
+                    grid_path,
+                    None,
+                    Some(grid_stroke.clone()),
                     transform,
-                });
+                ));
             }
 
             if !chart.val_axis_hidden {
@@ -227,12 +227,12 @@ pub fn compile_axes(
                 ],
                 FillRule::NonZero,
             );
-            commands.push(VectorCommand::DrawPath {
-                path: axis_path,
-                fill: None,
-                stroke: Some(axis_stroke.clone()),
+            commands.push(VectorCommand::draw_path(
+                axis_path,
+                None,
+                Some(axis_stroke.clone()),
                 transform,
-            });
+            ));
         }
 
         // 4. Value axis baseline (Y axis)
@@ -250,12 +250,12 @@ pub fn compile_axes(
                 ],
                 FillRule::NonZero,
             );
-            commands.push(VectorCommand::DrawPath {
-                path: axis_path,
-                fill: None,
-                stroke: Some(axis_stroke),
+            commands.push(VectorCommand::draw_path(
+                axis_path,
+                None,
+                Some(axis_stroke),
                 transform,
-            });
+            ));
         }
     }
 

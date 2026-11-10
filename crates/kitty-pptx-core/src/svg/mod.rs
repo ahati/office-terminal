@@ -151,6 +151,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     fill,
                     stroke,
                     transform,
+                    ..
                 } => {
                     let d = path::path_to_svg_d(v_path);
                     let grad_id = path_grad_ids.get(cmd_idx).and_then(|id| id.as_deref());
