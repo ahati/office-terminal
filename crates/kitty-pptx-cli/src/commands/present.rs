@@ -44,7 +44,7 @@ pub fn run_interactive(
         driver,
         pres_arc.slides.len(),
         notes,
-    );
+    ).with_slides(pres_arc.slides.clone());
 
     if let Err(e) = app.run() {
         eprintln!("TUI Presentation Error: {}", e);

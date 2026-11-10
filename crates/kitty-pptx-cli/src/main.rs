@@ -8,6 +8,11 @@ use kitty_pptx_core::{DefaultPresentationLoader, DefaultSlideCompiler, TinySkiaR
 
 fn main() -> ExitCode {
     let args = Cli::parse();
+
+    if let Some(shell) = args.generate_completions {
+        return run_completions(shell);
+    }
+
     let _config = Config::load();
 
     let loader = DefaultPresentationLoader;
@@ -16,6 +21,9 @@ fn main() -> ExitCode {
     let svg_serializer = Arc::new(DefaultSlideSvgSerializer::new());
 
     match args.command {
+        Some(Commands::Completions { shell }) => {
+            run_completions(shell)
+        }
         Some(Commands::Export { file, out, format, dpi, slides }) => {
             run_export(file, out, format, dpi, slides, &loader, &compiler, &rasterizer, &svg_serializer)
         }

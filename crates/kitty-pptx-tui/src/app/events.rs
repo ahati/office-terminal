@@ -32,7 +32,69 @@ pub fn handle_key_event(key: KeyEvent, state: &mut PresentationState) -> AppActi
         }
     }
 
-    // 3. If in Blank Screen mode
+    // 3. If in Sorter Grid Mode
+    if state.mode() == crate::app::state::AppMode::Sorter {
+        match key.code {
+            KeyCode::Char('q') => return AppAction::Quit,
+            KeyCode::Esc | KeyCode::Tab | KeyCode::Char('s') => {
+                state.exit_sorter(false);
+                return AppAction::Redraw;
+            }
+            KeyCode::Enter => {
+                state.exit_sorter(true);
+                return AppAction::SlideChanged;
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                state.sorter_left();
+                return AppAction::Redraw;
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                state.sorter_right();
+                return AppAction::Redraw;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                state.sorter_up();
+                return AppAction::Redraw;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                state.sorter_down();
+                return AppAction::Redraw;
+            }
+            KeyCode::PageUp => {
+                state.sorter_page_up();
+                return AppAction::Redraw;
+            }
+            KeyCode::PageDown => {
+                state.sorter_page_down();
+                return AppAction::Redraw;
+            }
+            KeyCode::Home => {
+                state.sorter_home();
+                return AppAction::Redraw;
+            }
+            KeyCode::End => {
+                state.sorter_end();
+                return AppAction::Redraw;
+            }
+            KeyCode::Char('m') => {
+                let msg = if let Some(slide) = state.current_slide_model() {
+                    crate::app::media::try_play_current_slide_media(slide)
+                        .unwrap_or_else(|| "No media found on current slide".to_string())
+                } else {
+                    "No media found on current slide".to_string()
+                };
+                state.set_toast(msg);
+                return AppAction::Redraw;
+            }
+            KeyCode::Char('?') => {
+                state.toggle_help();
+                return AppAction::Redraw;
+            }
+            _ => return AppAction::None,
+        }
+    }
+
+    // 4. If in Blank Screen mode
     if state.is_blank() {
         match key.code {
             KeyCode::Char('b') => {
@@ -55,7 +117,7 @@ pub fn handle_key_event(key: KeyEvent, state: &mut PresentationState) -> AppActi
         }
     }
 
-    // 4. Normal / Presenter mode key handling
+    // 5. Normal / Presenter mode key handling
     match key.code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => AppAction::Quit,
@@ -69,6 +131,25 @@ pub fn handle_key_event(key: KeyEvent, state: &mut PresentationState) -> AppActi
         // Toggle Presenter Mode
         KeyCode::Char('p') => {
             state.toggle_presenter_mode();
+            AppAction::Redraw
+        }
+
+        // Toggle Sorter Grid Mode
+        KeyCode::Tab | KeyCode::Char('s') => {
+            state.clear_digits();
+            state.toggle_sorter();
+            AppAction::Redraw
+        }
+
+        // Play Media on current slide
+        KeyCode::Char('m') => {
+            let msg = if let Some(slide) = state.current_slide_model() {
+                crate::app::media::try_play_current_slide_media(slide)
+                    .unwrap_or_else(|| "No media found on current slide".to_string())
+            } else {
+                "No media found on current slide".to_string()
+            };
+            state.set_toast(msg);
             AppAction::Redraw
         }
 

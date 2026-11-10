@@ -94,15 +94,25 @@ pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
             Span::styled("[Enter] Go | [Esc] Cancel", Style::default().fg(Color::DarkGray)),
         ])
     } else {
-        Line::from(vec![
+        let mut spans = vec![
             Span::styled(" PRESENTER ", Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)),
             Span::raw(format!(" Slide {} / {} | ", state.current_slide() + 1, state.total_slides())),
             Span::styled(format!("Elapsed: {} ", state.elapsed_formatted()), Style::default().fg(Color::Green)),
             Span::raw("| "),
             Span::styled(format!("Clock: {} ", state.wall_clock_formatted()), Style::default().fg(Color::Cyan)),
             Span::raw("| "),
-            Span::styled("[p] Fullscreen | [?] Help | [b/w] Blank | [q] Quit", Style::default().fg(Color::DarkGray)),
-        ])
+        ];
+
+        if state.current_slide_has_media() {
+            spans.push(Span::styled("[m] Media | ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
+        }
+
+        if let Some(toast) = state.toast() {
+            spans.push(Span::styled(format!("📢 {} | ", toast), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        }
+
+        spans.push(Span::styled("[p] Fullscreen | [Tab/s] Sorter | [?] Help | [b/w] Blank | [q] Quit", Style::default().fg(Color::DarkGray)));
+        Line::from(spans)
     };
     f.render_widget(Paragraph::new(timer_line), bottom_split[0]);
 

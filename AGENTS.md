@@ -116,6 +116,14 @@ All agents and contributors must strictly follow these engineering conventions:
   ```
 - No commit or PR should ever introduce dead code warnings, unused import warnings, or clippy lints. Address lints proactively or use narrow, documented `#[allow(...)]` attributes only when technically justified.
 
+### G. SOLID Principles for Design
+- **Follow SOLID principles for design**:
+  - **Single Responsibility**: Each module, struct, and function must have a single, well-defined responsibility (e.g. separate geometry calculation from styling from rasterization).
+  - **Open/Closed**: Code should be open for extension but closed for modification through clear traits (`TerminalGraphicsDriver`, `SlideRasterizer`, `SlideCompiler`).
+  - **Liskov Substitution**: Driver and renderer implementations must be interchangeable through their traits without violating contract invariants.
+  - **Interface Segregation**: Keep interfaces small, cohesive, and targeted (e.g. `StageSink`, `AssetStore`).
+  - **Dependency Inversion**: High-level modules must depend on abstractions and traits rather than low-level concrete implementations.
+
 ---
 
 ## 4. Coordinate Systems & Mathematical Conventions
@@ -162,14 +170,15 @@ cargo run -p kitty-pptx-cli -- view presentation.pptx
 cargo run -p kitty-pptx-cli -- export presentation.pptx --format svg -o out/
 ```
 
-### Git Commit Guidelines
+### Git Commit Guidelines & User Approval
+- **Mandatory User Approval**: **Always request and receive explicit approval from the user before committing changes**, presenting the exact proposed commit message and changed files for review.
 - Use clear, conventional commit prefixes:
   - `feat:` New features or subcommands.
   - `fix:` Bug fixes or correction of rendering artifacts.
   - `refactor:` Modular domain splits or non-breaking architectural restructuring.
   - `test:` Additional tests or test fixtures.
   - `docs:` Updates to documentation or specs.
-- Always run `cargo check --workspace` and `cargo test --workspace` before pushing or staging commits.
+- Always run `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before proposing a commit.
 
 ---
 

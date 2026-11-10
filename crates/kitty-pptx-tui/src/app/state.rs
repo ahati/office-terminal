@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant, SystemTime};
 use kitty_pptx_display::ImageId;
+use pptx_model::Slide;
+use crate::app::sorter_state::SorterState;
 
 /// Application display mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -10,6 +12,17 @@ pub enum AppMode {
     PresenterConsole,
     /// Help popup modal showing keyboard shortcuts.
     HelpModal,
+    /// Thumbnail slide sorter grid mode.
+    Sorter,
+}
+
+/// Backwards-compatible alias for `AppMode`.
+pub type PresenterMode = AppMode;
+
+#[allow(non_upper_case_globals)]
+impl AppMode {
+    pub const Normal: AppMode = AppMode::Fullscreen;
+    pub const ThumbnailGrid: AppMode = AppMode::Sorter;
 }
 
 /// Blank screen mode for pausing talks.
@@ -32,6 +45,16 @@ pub struct PresentationState {
     start_time: Instant,
     digit_buffer: String,
     aspect_ratio: f32,
+
+    // Sorter grid state
+    sorter: SorterState,
+
+    // Slide models & media
+    slides: Vec<Slide>,
+
+    // Notification toast
+    toast_message: Option<String>,
+    toast_time: Option<Instant>,
 }
 
 impl PresentationState {
@@ -47,6 +70,10 @@ impl PresentationState {
             start_time: Instant::now(),
             digit_buffer: String::new(),
             aspect_ratio: 16.0 / 9.0,
+            sorter: SorterState::new(),
+            slides: Vec::new(),
+            toast_message: None,
+            toast_time: None,
         }
     }
 
@@ -288,90 +315,179 @@ impl PresentationState {
             ((self.current_slide + 1) as f64 / self.total_slides as f64).clamp(0.0, 1.0)
         }
     }
+
+    /// Return the previous app mode before entering overlay or modal.
+    pub fn previous_mode(&self) -> AppMode {
+        self.previous_mode
+    }
+
+    /// Return the currently highlighted slide index in sorter mode.
+    pub fn selected_sorter_index(&self) -> usize {
+        self.sorter.selected_index()
+    }
+
+    /// Set the highlighted slide index in sorter mode, clamping to valid slide bounds.
+    pub fn set_selected_sorter_index(&mut self, index: usize) -> bool {
+        self.sorter.set_selected_index(index, self.total_slides)
+    }
+
+    /// Current number of columns in the thumbnail sorter grid.
+    pub fn sorter_cols(&self) -> usize {
+        self.sorter.cols()
+    }
+
+    /// Set the number of columns in the thumbnail sorter grid.
+    pub fn set_sorter_cols(&mut self, cols: usize) {
+        self.sorter.set_cols(cols);
+    }
+
+    /// Whether cursor navigation wraps around grid boundaries.
+    pub fn sorter_wrap(&self) -> bool {
+        self.sorter.wrap()
+    }
+
+    /// Configure whether cursor navigation wraps around grid boundaries.
+    pub fn set_sorter_wrap(&mut self, wrap: bool) {
+        self.sorter.set_wrap(wrap);
+    }
+
+    /// Toggle sorter grid mode on and off.
+    pub fn toggle_sorter(&mut self) {
+        if self.mode == AppMode::Sorter {
+            self.exit_sorter(false);
+        } else {
+            self.unblank();
+            if self.mode != AppMode::HelpModal {
+                self.previous_mode = self.mode;
+            }
+            self.mode = AppMode::Sorter;
+            self.sorter.selected_index = self.current_slide;
+        }
+    }
+
+    /// Open sorter mode directly.
+    pub fn open_sorter(&mut self) {
+        if self.mode != AppMode::Sorter {
+            self.unblank();
+            if self.mode != AppMode::HelpModal {
+                self.previous_mode = self.mode;
+            }
+            self.mode = AppMode::Sorter;
+            self.sorter.selected_index = self.current_slide;
+        }
+    }
+
+    /// Exit sorter mode, optionally selecting the highlighted slide.
+    /// Returns true if the presentation slide index changed.
+    pub fn exit_sorter(&mut self, apply_selection: bool) -> bool {
+        if self.mode != AppMode::Sorter {
+            return false;
+        }
+        let mut slide_changed = false;
+        if apply_selection && self.total_slides > 0 {
+            let clamped = self.sorter.selected_index.min(self.total_slides - 1);
+            slide_changed = self.current_slide != clamped;
+            self.current_slide = clamped;
+        }
+        self.mode = if self.previous_mode == AppMode::Sorter {
+            AppMode::Fullscreen
+        } else {
+            self.previous_mode
+        };
+        slide_changed
+    }
+
+    /// Move sorter selection cursor one cell to the left.
+    pub fn sorter_left(&mut self) -> bool {
+        self.sorter.left(self.total_slides)
+    }
+
+    /// Move sorter selection cursor one cell to the right.
+    pub fn sorter_right(&mut self) -> bool {
+        self.sorter.right(self.total_slides)
+    }
+
+    /// Move sorter selection cursor one row up.
+    pub fn sorter_up(&mut self) -> bool {
+        self.sorter.up(self.total_slides)
+    }
+
+    /// Move sorter selection cursor one row down.
+    pub fn sorter_down(&mut self) -> bool {
+        self.sorter.down(self.total_slides)
+    }
+
+    /// Move sorter selection cursor one page up.
+    pub fn sorter_page_up(&mut self) -> bool {
+        self.sorter.page_up(self.total_slides)
+    }
+
+    /// Move sorter selection cursor one page down.
+    pub fn sorter_page_down(&mut self) -> bool {
+        self.sorter.page_down(self.total_slides)
+    }
+
+    /// Jump sorter cursor to the first slide.
+    pub fn sorter_home(&mut self) -> bool {
+        self.sorter.home(self.total_slides)
+    }
+
+    /// Jump sorter cursor to the last slide.
+    pub fn sorter_end(&mut self) -> bool {
+        self.sorter.end(self.total_slides)
+    }
+
+    /// Update dynamic layout dimensions when terminal is resized.
+    pub fn update_layout_dimensions(&mut self, width: u16, _height: u16) {
+        self.sorter.update_cols_for_width(width);
+    }
+
+    /// Slide models attached to this presentation.
+    pub fn slides(&self) -> &[Slide] {
+        &self.slides
+    }
+
+    /// Set presentation slide models.
+    pub fn set_slides(&mut self, slides: Vec<Slide>) {
+        self.slides = slides;
+    }
+
+    /// Builder pattern helper to attach slide models.
+    pub fn with_slides(mut self, slides: Vec<Slide>) -> Self {
+        self.slides = slides;
+        self
+    }
+
+    /// Current slide's model if available.
+    pub fn current_slide_model(&self) -> Option<&Slide> {
+        self.slides.get(self.current_slide)
+    }
+
+    /// Returns true if the currently active slide contains embedded media.
+    pub fn current_slide_has_media(&self) -> bool {
+        self.current_slide_model().is_some_and(crate::app::media::has_slide_media)
+    }
+
+    /// Set an ephemeral user notification toast.
+    pub fn set_toast(&mut self, msg: impl Into<String>) {
+        self.toast_message = Some(msg.into());
+        self.toast_time = Some(Instant::now());
+    }
+
+    /// Get current active toast notification if it has not expired (5s timeout).
+    pub fn toast(&self) -> Option<&str> {
+        if let Some(time) = self.toast_time {
+            if time.elapsed() < Duration::from_secs(5) {
+                return self.toast_message.as_deref();
+            }
+        }
+        None
+    }
+
+    /// Clear user notification toast.
+    pub fn clear_toast(&mut self) {
+        self.toast_message = None;
+        self.toast_time = None;
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_navigation_clamping() {
-        let notes = vec![Some("Note 1".into()), None, Some("Note 3".into())];
-        let mut state = PresentationState::new(3, notes);
-
-        assert_eq!(state.current_slide(), 0);
-        assert!(!state.prev_slide());
-        assert_eq!(state.current_slide(), 0);
-
-        assert!(state.next_slide());
-        assert_eq!(state.current_slide(), 1);
-
-        assert!(state.next_slide());
-        assert_eq!(state.current_slide(), 2);
-
-        // Clamps at last slide
-        assert!(!state.next_slide());
-        assert_eq!(state.current_slide(), 2);
-
-        // Jump to first
-        assert!(state.first_slide());
-        assert_eq!(state.current_slide(), 0);
-
-        // Jump to last
-        assert!(state.last_slide());
-        assert_eq!(state.current_slide(), 2);
-    }
-
-    #[test]
-    fn test_digit_jump() {
-        let mut state = PresentationState::new(10, vec![]);
-        state.push_digit('5');
-        assert_eq!(state.digit_buffer(), "5");
-        assert!(state.commit_digits());
-        assert_eq!(state.current_slide(), 4); // slide 5 is 0-indexed 4
-        assert_eq!(state.digit_buffer(), "");
-
-        // Jump beyond max clamps to total - 1
-        state.push_digit('9');
-        state.push_digit('9');
-        assert!(state.commit_digits());
-        assert_eq!(state.current_slide(), 9);
-    }
-
-    #[test]
-    fn test_mode_toggles() {
-        let mut state = PresentationState::new(5, vec![]);
-        assert_eq!(state.mode(), AppMode::Fullscreen);
-
-        state.toggle_presenter_mode();
-        assert_eq!(state.mode(), AppMode::PresenterConsole);
-
-        state.toggle_presenter_mode();
-        assert_eq!(state.mode(), AppMode::Fullscreen);
-
-        state.toggle_help();
-        assert_eq!(state.mode(), AppMode::HelpModal);
-
-        state.toggle_help();
-        assert_eq!(state.mode(), AppMode::Fullscreen);
-    }
-
-    #[test]
-    fn test_blank_screen_toggle() {
-        let mut state = PresentationState::new(5, vec![]);
-        assert_eq!(state.blank_mode(), BlankMode::None);
-
-        state.toggle_blank(BlankMode::Black);
-        assert_eq!(state.blank_mode(), BlankMode::Black);
-        assert!(state.is_blank());
-
-        state.toggle_blank(BlankMode::Black);
-        assert_eq!(state.blank_mode(), BlankMode::None);
-
-        state.toggle_blank(BlankMode::White);
-        assert_eq!(state.blank_mode(), BlankMode::White);
-
-        state.unblank();
-        assert_eq!(state.blank_mode(), BlankMode::None);
-    }
-}

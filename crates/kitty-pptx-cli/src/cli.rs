@@ -16,6 +16,9 @@ pub struct Cli {
     #[arg(long, help = "Force specific graphics protocol")]
     pub protocol: Option<String>,
 
+    #[arg(long = "generate-completions", value_name = "SHELL", help = "Generate shell completions script directly to stdout (bash, zsh, fish, elvish, powershell)")]
+    pub generate_completions: Option<clap_complete::Shell>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -57,6 +60,11 @@ pub enum Commands {
     #[command(about = "Deck structure and diagnostic summary")]
     Info {
         file: PathBuf,
+    },
+    #[command(about = "Generate shell completion scripts directly to stdout")]
+    Completions {
+        #[arg(value_name = "SHELL", help = "Target shell (bash, zsh, fish, elvish, powershell)")]
+        shell: clap_complete::Shell,
     },
 }
 

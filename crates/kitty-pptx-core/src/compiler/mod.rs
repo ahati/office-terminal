@@ -1,4 +1,5 @@
 pub mod background;
+pub mod charts;
 pub mod placeholders;
 pub mod pictures;
 pub mod shapes;
@@ -90,13 +91,28 @@ impl SlideCompiler for DefaultSlideCompiler {
                         transform,
                     });
 
-                    // Compile text body if present
+                    // Compile text body if present (supporting SmartArt explicit text_rect)
                     if let Some(ref text_body) = shape.text_body {
+                        let (text_w, text_h, text_transform) = if let Some(ref tr) = shape.text_rect {
+                            let tr_transform = transform::compute_shape_transform(
+                                tr.x,
+                                tr.y,
+                                tr.width,
+                                tr.height,
+                                0.0,
+                                false,
+                                false,
+                            );
+                            (tr.width, tr.height, tr_transform)
+                        } else {
+                            (shape.width, shape.height, transform)
+                        };
+
                         let text_cmds = text::compile_text_body(
                             text_body,
-                            shape.width,
-                            shape.height,
-                            &transform,
+                            text_w,
+                            text_h,
+                            &text_transform,
                             shape.default_text_color.as_deref(),
                             warning_sink,
                         );
@@ -115,7 +131,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                 }
 
                 pptx_model::SlideElement::Chart(chart) => {
-                    let chart_cmds = placeholders::compile_chart_placeholder(chart);
+                    let chart_cmds = charts::compile_chart(chart, warning_sink);
                     commands.extend(chart_cmds);
                 }
 

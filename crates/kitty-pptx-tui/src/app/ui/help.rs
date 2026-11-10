@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 /// Render a centered help popup modal displaying all keybindings.
 pub fn render_help_modal(f: &mut Frame, area: Rect) {
     let popup_width = 68.min(area.width.saturating_sub(4));
-    let popup_height = 20.min(area.height.saturating_sub(2));
+    let popup_height = 23.min(area.height.saturating_sub(2));
 
     let horiz = Layout::default()
         .direction(Direction::Horizontal)
@@ -69,6 +69,14 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  p                              ", key_style),
             Span::styled(": Toggle Presenter Mode", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Tab, s                         ", key_style),
+            Span::styled(": Toggle Slide Sorter Grid", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  m                              ", key_style),
+            Span::styled(": Play Current Slide Media", desc_style),
         ]),
         Line::from(vec![
             Span::styled("  t                              ", key_style),

@@ -42,18 +42,32 @@ pub fn render_normal(state: &PresentationState, f: &mut Frame, area: Rect) {
             ),
         ])
     } else {
+        let mut spans = Vec::new();
+        if let Some(toast) = state.toast() {
+            spans.push(Span::styled(
+                format!(" 📢 {} | ", toast),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        let media_badge = if state.current_slide_has_media() {
+            " | [m] Play Media"
+        } else {
+            ""
+        };
+
         let status_text = format!(
-            " Slide {} / {} | Elapsed: {} | [?] Help | [p] Presenter | [t] Hide Bar | [q] Quit ",
+            " Slide {} / {}{} | Elapsed: {} | [?] Help | [p] Presenter | [Tab/s] Sorter | [t] Hide Bar | [q] Quit ",
             state.current_slide() + 1,
             state.total_slides(),
+            media_badge,
             state.elapsed_formatted()
         );
-        Line::from(vec![
-            Span::styled(
-                status_text,
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-        ])
+        spans.push(Span::styled(
+            status_text,
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ));
+        Line::from(spans)
     };
 
     let status = Paragraph::new(status_line)

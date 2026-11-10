@@ -50,7 +50,7 @@ pub enum AssetError {
     DecodeFailed(String),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error, PartialEq)]
 pub enum RenderError {
     #[error("Slide layout compilation failed: {0}")]
     CompilationFailed(String),

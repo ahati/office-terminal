@@ -1,6 +1,8 @@
 pub mod state;
+pub mod sorter_state;
 pub mod events;
 pub mod ui;
+pub mod media;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,9 +13,11 @@ use ratatui::Terminal;
 use kitty_pptx_core::{InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::TerminalGraphicsDriver;
 
-pub use state::{AppMode, BlankMode, PresentationState};
+pub use state::{AppMode, BlankMode, PresentationState, PresenterMode};
+pub use sorter_state::SorterState;
 pub use events::{handle_key_event, handle_resize_event, AppAction};
 pub use ui::render_app;
+pub use media::{find_slide_media, has_slide_media, try_play_current_slide_media};
 
 /// Full interactive slide presentation runner.
 pub struct PresentationApp {
@@ -55,6 +59,12 @@ impl PresentationApp {
         if presenter {
             self.state.set_mode(AppMode::PresenterConsole);
         }
+        self
+    }
+
+    /// Attach presentation slide models for media inspection and rich display.
+    pub fn with_slides(mut self, slides: Vec<pptx_model::Slide>) -> Self {
+        self.state.set_slides(slides);
         self
     }
 
@@ -118,6 +128,7 @@ impl PresentationApp {
         let height_px = (rows as u32 * 20).max(360);
         self.current_target = RenderTargetSpec { width_px, height_px };
 
+        self.state.update_layout_dimensions(cols, rows);
         self.pipeline.invalidate(InvalidateCause::Resize);
         self.trigger_prefetch();
     }
