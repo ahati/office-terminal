@@ -5,20 +5,98 @@ use kitty_pptx_core::{sanitize_hyperlink_url, RgbaSlide, DisplayError};
 use crate::driver::*;
 use crate::tty::global_tty;
 
+/// Graphics-protocol flavor implemented by the host terminal.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyFlavor {
+    /// Genuine kitty: PNG transmission (`f=100`) and Unicode placeholders.
+    Full,
+    /// Partial implementations (WezTerm, Ghostty, Konsole, ...) that speak the
+    /// Kitty graphics protocol but cannot be trusted with PNG payloads and/or
+    /// Unicode placeholders. Raw RGBA (`f=32`) is universally supported.
+    Compat,
+}
+
+/// Wire format used to transmit image data over the Kitty graphics protocol.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TransmissionFormat {
+    /// Uncompressed 32-bit RGBA (`f=32`), base64 encoded.
+    RawRgba,
+    /// PNG payload (`f=100`), base64 encoded.
+    Png,
+}
+
+impl TransmissionFormat {
+    /// Kitty `f=` key value for this format.
+    pub fn kitty_code(self) -> u32 {
+        match self {
+            Self::RawRgba => 32,
+            Self::Png => 100,
+        }
+    }
+}
+
+impl KittyFlavor {
+    /// Transmission format used for this flavor.
+    pub fn transmission_format(self) -> TransmissionFormat {
+        match self {
+            // Genuine kitty decodes PNG, which hugely reduces the payload size.
+            Self::Full => TransmissionFormat::Png,
+            // Raw RGBA avoids depending on PNG support in partial implementations.
+            Self::Compat => TransmissionFormat::RawRgba,
+        }
+    }
+
+    /// Whether the terminal can be trusted with U+10EEEE placeholder cells.
+    pub fn supports_placeholders(self) -> bool {
+        matches!(self, Self::Full)
+    }
+}
+
 /// Driver for Kitty Graphics Protocol.
 pub struct KittyDriver {
     placement_mode: PlacementMode,
     cell_aspect_ratio: f64,
     use_placeholders: bool,
+    flavor: KittyFlavor,
 }
 
 impl KittyDriver {
+    /// Creates a driver with the conservative `Compat` flavor: raw RGBA
+    /// transmission and placeholders disabled. Safe for every terminal that
+    /// answers the Kitty graphics query.
     pub fn new(placement_mode: PlacementMode) -> Self {
         Self {
             placement_mode,
             cell_aspect_ratio: DEFAULT_CELL_ASPECT_RATIO,
             use_placeholders: false,
+            flavor: KittyFlavor::Compat,
         }
+    }
+
+    /// Creates a driver for genuine kitty: PNG transmission and optional
+    /// Unicode placeholders (still opt-in via [`Self::with_placeholder_mode`]).
+    pub fn new_full(placement_mode: PlacementMode) -> Self {
+        Self::new(placement_mode).with_flavor(KittyFlavor::Full)
+    }
+
+    /// Creates a driver for a terminal that only partially implements the
+    /// protocol (raw RGBA transmission, placeholders disabled).
+    pub fn new_compat(placement_mode: PlacementMode) -> Self {
+        Self::new(placement_mode)
+    }
+
+    pub fn with_flavor(mut self, flavor: KittyFlavor) -> Self {
+        self.flavor = flavor;
+        self
+    }
+
+    pub fn flavor(&self) -> KittyFlavor {
+        self.flavor
+    }
+
+    /// Transmission format that [`TerminalGraphicsDriver::stage`] will use.
+    pub fn transmission_format(&self) -> TransmissionFormat {
+        self.flavor.transmission_format()
     }
 
     pub fn with_cell_aspect_ratio(mut self, ratio: f64) -> Self {
@@ -37,6 +115,12 @@ impl KittyDriver {
 
     pub fn is_placeholder_mode(&self) -> bool {
         self.use_placeholders
+    }
+
+    /// Placeholder rendering is only active on genuine kitty with the mode
+    /// explicitly enabled; every other terminal gets direct placement.
+    pub fn placeholders_active(&self) -> bool {
+        self.use_placeholders && self.flavor.supports_placeholders()
     }
 
     /// Fits dimensions (cols, rows) preserving slide aspect ratio within the given cell limits.
@@ -142,16 +226,32 @@ impl KittyDriver {
         out
     }
 
-    /// Formats Kitty transmission chunk sequences for image transmission.
+    /// Formats Kitty transmission chunk sequences for PNG (`f=100`) payloads.
     pub fn format_transmission_chunks(id: ImageId, width: u32, height: u32, b64_payload: &str) -> Vec<String> {
+        Self::format_chunks(id, width, height, b64_payload, TransmissionFormat::Png)
+    }
+
+    /// Formats Kitty transmission chunk sequences for raw RGBA (`f=32`) payloads.
+    pub fn format_transmission_chunks_raw(id: ImageId, width: u32, height: u32, b64_payload: &str) -> Vec<String> {
+        Self::format_chunks(id, width, height, b64_payload, TransmissionFormat::RawRgba)
+    }
+
+    fn format_chunks(
+        id: ImageId,
+        width: u32,
+        height: u32,
+        b64_payload: &str,
+        format: TransmissionFormat,
+    ) -> Vec<String> {
         let chunk_size = 4096;
         let total_len = b64_payload.len();
+        let f = format.kitty_code();
         let mut chunks = Vec::new();
         let mut offset = 0;
         let mut is_first = true;
 
         if total_len == 0 {
-            chunks.push(format!("\x1b_Ga=t,f=100,i={},s={},v={},q=2,m=0;\x1b\\", id.0, width, height));
+            chunks.push(format!("\x1b_Ga=t,f={},i={},s={},v={},q=2,m=0;\x1b\\", f, id.0, width, height));
             return chunks;
         }
 
@@ -163,8 +263,8 @@ impl KittyDriver {
             let seq = if is_first {
                 is_first = false;
                 format!(
-                    "\x1b_Ga=t,f=100,i={},s={},v={},q=2,m={};{}\x1b\\",
-                    id.0, width, height, more, chunk
+                    "\x1b_Ga=t,f={},i={},s={},v={},q=2,m={};{}\x1b\\",
+                    f, id.0, width, height, more, chunk
                 )
             } else {
                 format!("\x1b_Gm={};{}\x1b\\", more, chunk)
@@ -177,6 +277,94 @@ impl KittyDriver {
         chunks
     }
 
+    /// Encodes an RGBA slide as PNG bytes.
+    fn encode_png(bmp: &RgbaSlide) -> Result<Vec<u8>, DisplayError> {
+        let mut png_bytes = Vec::new();
+        let mut cursor = Cursor::new(&mut png_bytes);
+
+        image::write_buffer_with_format(
+            &mut cursor,
+            &bmp.pixels,
+            bmp.width,
+            bmp.height,
+            image::ColorType::Rgba8,
+            image::ImageFormat::Png,
+        )
+        .map_err(|e| DisplayError::Io(std::io::Error::other(e.to_string())))?;
+
+        Ok(png_bytes)
+    }
+
+    /// Transmits `bmp` to the terminal using the flavor's wire format.
+    fn transmit(&self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError> {
+        let tty = global_tty();
+        let format = self.transmission_format();
+        let chunks = match format {
+            TransmissionFormat::RawRgba => {
+                let expected = (bmp.width as usize)
+                    .saturating_mul(bmp.height as usize)
+                    .saturating_mul(4);
+                if bmp.pixels.len() != expected {
+                    return Err(DisplayError::Io(std::io::Error::other(
+                        "RGBA slide buffer does not match its dimensions",
+                    )));
+                }
+                let b64 = BASE64.encode(&bmp.pixels);
+                Self::format_transmission_chunks_raw(id, bmp.width, bmp.height, &b64)
+            }
+            TransmissionFormat::Png => {
+                let png = Self::encode_png(bmp)?;
+                let b64 = BASE64.encode(&png);
+                Self::format_transmission_chunks(id, bmp.width, bmp.height, &b64)
+            }
+        };
+
+        for seq in chunks {
+            tty.write_seq(&seq).map_err(DisplayError::Io)?;
+        }
+        Ok(())
+    }
+
+    /// Escape sequences that present `id` for the given [`Placement`].
+    ///
+    /// A fixed placement id (`p=1`) is used so re-placing the same image with
+    /// a new rect replaces the previous placement instead of accumulating
+    /// copies on resize or mode switches.
+    ///
+    /// Kept pure so the flavor-dependent wire format can be asserted in tests.
+    pub fn present_sequences(
+        &self,
+        id: ImageId,
+        placement: Placement,
+        links: &[TerminalHyperlink],
+    ) -> Vec<String> {
+        match placement {
+            Placement::Cells(rect) | Placement::VirtualPlaceholder(rect) => {
+                if self.placeholders_active() {
+                    vec![
+                        format!(
+                            "\x1b_Ga=p,U=1,i={},p=1,c={},r={},q=2\x1b\\",
+                            id.0, rect.cols, rect.rows
+                        ),
+                        Self::generate_placeholder_string_with_links(id, rect, links),
+                    ]
+                } else {
+                    vec![format!(
+                        "\x1b[{};{}H\x1b_Ga=p,i={},p=1,c={},r={},q=2\x1b\\",
+                        rect.row + 1,
+                        rect.col + 1,
+                        id.0,
+                        rect.cols,
+                        rect.rows
+                    )]
+                }
+            }
+            Placement::ScrollbackBlock => {
+                vec![format!("\x1b_Ga=p,i={},q=2\x1b\\\n", id.0)]
+            }
+        }
+    }
+
     fn present_impl(
         &mut self,
         id: ImageId,
@@ -184,27 +372,8 @@ impl KittyDriver {
         links: &[TerminalHyperlink],
     ) -> Result<(), DisplayError> {
         let tty = global_tty();
-        match p {
-            Placement::Cells(rect) => {
-                if self.use_placeholders {
-                    let seq = Self::generate_placeholder_string_with_links(id, rect, links);
-                    tty.write_seq(&seq).map_err(DisplayError::Io)?;
-                } else {
-                    let seq = format!(
-                        "\x1b[{};{}H\x1b_Ga=p,i={},c={},r={},q=2\x1b\\",
-                        rect.row + 1, rect.col + 1, id.0, rect.cols, rect.rows
-                    );
-                    tty.write_seq(&seq).map_err(DisplayError::Io)?;
-                }
-            }
-            Placement::VirtualPlaceholder(rect) => {
-                let seq = Self::generate_placeholder_string_with_links(id, rect, links);
-                tty.write_seq(&seq).map_err(DisplayError::Io)?;
-            }
-            Placement::ScrollbackBlock => {
-                let seq = format!("\x1b_Ga=p,i={},q=2\x1b\\\n", id.0);
-                tty.write_seq(&seq).map_err(DisplayError::Io)?;
-            }
+        for seq in self.present_sequences(id, p, links) {
+            tty.write_seq(&seq).map_err(DisplayError::Io)?;
         }
         Ok(())
     }
@@ -218,7 +387,7 @@ impl TerminalGraphicsDriver for KittyDriver {
     fn caps(&self) -> DriverCaps {
         DriverCaps {
             alpha: true,
-            placeholders: true,
+            placeholders: self.placeholders_active(),
             terminal_side_scaling: true,
             resident_ids: 8,
         }
@@ -229,30 +398,7 @@ impl TerminalGraphicsDriver for KittyDriver {
     }
 
     fn stage(&mut self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError> {
-        // 1. Encode PNG
-        let mut png_bytes = Vec::new();
-        let mut cursor = Cursor::new(&mut png_bytes);
-
-        image::write_buffer_with_format(
-            &mut cursor,
-            &bmp.pixels,
-            bmp.width,
-            bmp.height,
-            image::ColorType::Rgba8,
-            image::ImageFormat::Png,
-        ).map_err(|e| DisplayError::Io(std::io::Error::other(e.to_string())))?;
-
-        // 2. Base64 encode
-        let b64 = BASE64.encode(&png_bytes);
-
-        // 3. Slice into 4096-byte chunks and transmit to TTY
-        let tty = global_tty();
-        let chunks = Self::format_transmission_chunks(id, bmp.width, bmp.height, &b64);
-        for seq in chunks {
-            tty.write_seq(&seq).map_err(DisplayError::Io)?;
-        }
-
-        Ok(())
+        self.transmit(bmp, id)
     }
 
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {
@@ -266,6 +412,10 @@ impl TerminalGraphicsDriver for KittyDriver {
         links: &[TerminalHyperlink],
     ) -> Result<(), DisplayError> {
         self.present_impl(id, p, links)
+    }
+
+    fn supports_placeholders(&self) -> bool {
+        self.placeholders_active()
     }
 
     fn reposition(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {
@@ -287,25 +437,7 @@ impl TerminalGraphicsDriver for KittyDriver {
 
 impl StageSink for KittyDriver {
     fn stage(&self, id: ImageId, bmp: &RgbaSlide) -> Result<(), DisplayError> {
-        let mut png_bytes = Vec::new();
-        let mut cursor = Cursor::new(&mut png_bytes);
-
-        image::write_buffer_with_format(
-            &mut cursor,
-            &bmp.pixels,
-            bmp.width,
-            bmp.height,
-            image::ColorType::Rgba8,
-            image::ImageFormat::Png,
-        ).map_err(|e| DisplayError::Io(std::io::Error::other(e.to_string())))?;
-
-        let b64 = BASE64.encode(&png_bytes);
-        let tty = global_tty();
-        let chunks = Self::format_transmission_chunks(id, bmp.width, bmp.height, &b64);
-        for seq in chunks {
-            tty.write_seq(&seq).map_err(DisplayError::Io)?;
-        }
-        Ok(())
+        self.transmit(bmp, id)
     }
 
     fn release(&self, id: ImageId) -> Result<(), DisplayError> {

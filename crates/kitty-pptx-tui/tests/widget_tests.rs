@@ -64,6 +64,22 @@ fn test_widget_direct_positioning_mode() {
 }
 
 #[test]
+fn test_widget_placeholder_mode_records_placement_rect() {
+    // The graphics driver needs the rect even in placeholder mode so it can
+    // emit the virtual placement that backs the U+10EEEE cells.
+    let sink = Arc::new(Mutex::new(None));
+    let widget = SlideWidget::placeholder(ImageId(3)).with_direct_sink(sink.clone());
+
+    let area = Rect::new(0, 0, 100, 40);
+    let mut buf = Buffer::empty(area);
+    widget.render(area, &mut buf);
+
+    let recorded = sink.lock().unwrap().expect("CellRect must be recorded");
+    let fitted = compute_slide_rect(area, ASPECT_16_9, DEFAULT_CELL_ASPECT_RATIO);
+    assert_eq!(recorded, rect_to_cell_rect(fitted));
+}
+
+#[test]
 fn test_widget_zero_dimensions() {
     let mut buf = Buffer::empty(Rect::new(0, 0, 10, 10));
     let widget = SlideWidget::placeholder(ImageId(1));

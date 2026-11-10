@@ -121,16 +121,20 @@ impl Widget for &SlideWidget {
         // Letterbox / pillarbox regions outside fitted area
         clear_letterbox(buf, area, fitted, self.letterbox_bg);
 
+        // Record the placement rect regardless of render mode: the terminal
+        // graphics driver needs it both for direct placement and for the
+        // virtual placement backing Kitty placeholder cells.
+        if let Some(sink) = &self.direct_rect {
+            if let Ok(mut lock) = sink.lock() {
+                *lock = Some(rect_to_cell_rect(fitted));
+            }
+        }
+
         match self.render_mode {
             SlideRenderMode::Placeholder => {
                 emit_placeholder_grid(buf, fitted, self.image_id);
             }
             SlideRenderMode::DirectPositioning => {
-                if let Some(sink) = &self.direct_rect {
-                    if let Ok(mut lock) = sink.lock() {
-                        *lock = Some(rect_to_cell_rect(fitted));
-                    }
-                }
                 emit_direct_canvas(buf, fitted, Color::Reset);
             }
         }

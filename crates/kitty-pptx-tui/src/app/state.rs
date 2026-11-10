@@ -1,5 +1,6 @@
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
-use kitty_pptx_display::ImageId;
+use kitty_pptx_display::{CellRect, ImageId};
 use pptx_model::{PptxComment, Slide};
 
 pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
@@ -7,6 +8,7 @@ use crate::app::search_state::SearchState;
 use crate::app::sorter_state::SorterState;
 use crate::app::warnings_state::WarningsState;
 use crate::app::link_state::LinkPickerState;
+use crate::widget::SlideRenderMode;
 use kitty_pptx_core::SlideLink;
 
 /// Presentation navigation and UI state machine.
@@ -37,6 +39,11 @@ pub struct PresentationState {
     pub(crate) layout_cols: u16,
     pub(crate) layout_rows: u16,
 
+    // Terminal graphics placement
+    pub(crate) slide_render_mode: SlideRenderMode,
+    pub(crate) placement_rect: Arc<Mutex<Option<CellRect>>>,
+    pub(crate) preview_placement_rect: Arc<Mutex<Option<CellRect>>>,
+
     // Notification toast
     pub(crate) toast_message: Option<String>,
     pub(crate) toast_time: Option<Instant>,
@@ -66,6 +73,9 @@ impl PresentationState {
             slide_height_emu: 6_858_000,
             layout_cols: 80,
             layout_rows: 24,
+            slide_render_mode: SlideRenderMode::Placeholder,
+            placement_rect: Arc::new(Mutex::new(None)),
+            preview_placement_rect: Arc::new(Mutex::new(None)),
             toast_message: None,
             toast_time: None,
         }
@@ -423,6 +433,11 @@ impl PresentationState {
     pub fn set_layout_dimensions(&mut self, cols: u16, rows: u16) {
         self.layout_cols = cols;
         self.layout_rows = rows;
+    }
+
+    /// Physical slide dimensions in EMUs (`width`, `height`).
+    pub fn slide_dimensions(&self) -> (i64, i64) {
+        (self.slide_width_emu, self.slide_height_emu)
     }
 
     pub fn current_slide_model(&self) -> Option<&Slide> {

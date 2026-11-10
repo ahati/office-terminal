@@ -20,13 +20,92 @@ fn create_test_slide(w: u32, h: u32, color: [u8; 4]) -> RgbaSlide {
 
 #[test]
 fn test_kitty_driver_caps() {
+    // `new` is the conservative Compat default: raw RGBA, no placeholders.
     let driver = KittyDriver::new(PlacementMode::Interactive);
     let caps = driver.caps();
     assert!(caps.alpha);
-    assert!(caps.placeholders);
+    assert!(!caps.placeholders);
+    assert!(!driver.supports_placeholders());
     assert!(caps.terminal_side_scaling);
     assert_eq!(caps.resident_ids, 8);
     assert_eq!(driver.placement_mode(), PlacementMode::Interactive);
+    assert_eq!(driver.flavor(), KittyFlavor::Compat);
+    assert_eq!(driver.transmission_format(), TransmissionFormat::RawRgba);
+}
+
+#[test]
+fn test_kitty_full_driver_caps() {
+    let driver = KittyDriver::new_full(PlacementMode::Interactive);
+    let caps = driver.caps();
+    assert!(caps.alpha);
+    // Placeholder mode is opt-in even on genuine kitty.
+    assert!(!caps.placeholders);
+    assert!(!driver.supports_placeholders());
+    assert_eq!(driver.flavor(), KittyFlavor::Full);
+    assert_eq!(driver.transmission_format(), TransmissionFormat::Png);
+}
+
+#[test]
+fn test_kitty_compat_flavor_never_uses_placeholders() {
+    let compat = KittyDriver::new_compat(PlacementMode::Interactive);
+    assert_eq!(compat.flavor(), KittyFlavor::Compat);
+    assert_eq!(compat.transmission_format(), TransmissionFormat::RawRgba);
+    assert!(!compat.caps().placeholders);
+    assert!(!compat.supports_placeholders());
+
+    // Even when explicitly requested, a Compat terminal must not emit
+    // U+10EEEE placeholder cells.
+    let forced = KittyDriver::new_compat(PlacementMode::Interactive)
+        .with_placeholder_mode(true);
+    assert!(forced.is_placeholder_mode());
+    assert!(!forced.placeholders_active());
+    assert!(!forced.caps().placeholders);
+    assert!(!forced.supports_placeholders());
+}
+
+#[test]
+fn test_kitty_placeholder_mode_requires_full_flavor() {
+    let full = KittyDriver::new_full(PlacementMode::Interactive).with_placeholder_mode(true);
+    assert!(full.placeholders_active());
+    assert!(full.caps().placeholders);
+    assert!(full.supports_placeholders());
+}
+
+#[test]
+fn test_kitty_transmission_uses_raw_rgba_for_compat() {
+    let payload = "ABCD1234EFGH5678";
+    let chunks = KittyDriver::format_transmission_chunks_raw(ImageId(42), 100, 100, payload);
+    assert_eq!(chunks.len(), 1);
+    assert!(chunks[0].starts_with(
+        "\x1b_Ga=t,f=32,i=42,s=100,v=100,q=2,m=0;ABCD1234EFGH5678\x1b\\"
+    ));
+    assert!(!chunks[0].contains("f=100"));
+}
+
+#[test]
+fn test_kitty_compat_present_sequence_has_no_placeholders() {
+    let driver = KittyDriver::new_compat(PlacementMode::Interactive)
+        .with_placeholder_mode(true);
+    let rect = CellRect { row: 2, col: 3, rows: 4, cols: 5 };
+    let sequences = driver.present_sequences(
+        ImageId(7),
+        Placement::Cells(rect),
+        &[],
+    );
+    assert_eq!(sequences.len(), 1);
+    assert!(sequences[0].starts_with("\x1b[3;4H\x1b_Ga=p,i=7,p=1,c=5,r=4,q=2\x1b\\"));
+    assert!(!sequences[0].contains('\u{10EEEE}'));
+}
+
+#[test]
+fn test_kitty_full_placeholder_present_creates_virtual_placement() {
+    let driver = KittyDriver::new_full(PlacementMode::Interactive).with_placeholder_mode(true);
+    let rect = CellRect { row: 0, col: 0, rows: 2, cols: 2 };
+    let sequences = driver.present_sequences(ImageId(4), Placement::Cells(rect), &[]);
+    assert_eq!(sequences.len(), 2);
+    // Virtual placement first, placeholders afterwards.
+    assert!(sequences[0].contains("a=p,U=1,i=4,p=1,c=2,r=2"));
+    assert!(sequences[1].contains('\u{10EEEE}'));
 }
 
 #[test]
@@ -212,45 +291,48 @@ fn test_iterm2_formatting() {
 
 #[test]
 fn test_capability_probe_env_detection() {
+    use std::collections::HashMap;
+
+    let detect = |pairs: &[(&str, &str)]| {
+        let vars: HashMap<&str, &str> = pairs.iter().copied().collect();
+        detect_protocol_with(|key| vars.get(key).map(|v| (*v).to_string()))
+    };
+
     // 1. Kitty
-    std::env::set_var("KITTY_WINDOW_ID", "1");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
-    std::env::remove_var("KITTY_WINDOW_ID");
+    assert_eq!(detect(&[("KITTY_WINDOW_ID", "1")]), Some(DetectedProtocol::Kitty));
 
-    // 2. Ghostty
-    std::env::set_var("TERM_PROGRAM", "ghostty");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
-    std::env::remove_var("TERM_PROGRAM");
+    // 2. Ghostty (kitty graphics, no placeholders)
+    assert_eq!(
+        detect(&[("TERM_PROGRAM", "ghostty")]),
+        Some(DetectedProtocol::KittyCompat)
+    );
 
-    // 3. WezTerm
-    std::env::set_var("TERM_PROGRAM", "WezTerm");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
-    std::env::remove_var("TERM_PROGRAM");
+    // 3. WezTerm (kitty graphics, no placeholders)
+    assert_eq!(
+        detect(&[("TERM_PROGRAM", "WezTerm")]),
+        Some(DetectedProtocol::KittyCompat)
+    );
 
     // 4. iTerm2
-    std::env::set_var("TERM_PROGRAM", "iTerm.app");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Iterm2));
-    std::env::remove_var("TERM_PROGRAM");
+    assert_eq!(
+        detect(&[("TERM_PROGRAM", "iTerm.app")]),
+        Some(DetectedProtocol::Iterm2)
+    );
 
     // 5. Foot
-    std::env::set_var("FOOT_TERMINAL", "1");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Sixel));
-    std::env::remove_var("FOOT_TERMINAL");
+    assert_eq!(detect(&[("FOOT_TERMINAL", "1")]), Some(DetectedProtocol::Sixel));
 
     // 6. mintty
-    std::env::set_var("MINTTY_SHORTCUT", "1");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Sixel));
-    std::env::remove_var("MINTTY_SHORTCUT");
+    assert_eq!(detect(&[("MINTTY_SHORTCUT", "1")]), Some(DetectedProtocol::Sixel));
 
-    // 7. Contour
-    std::env::set_var("CONTOUR_VERSION", "0.3");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::Kitty));
-    std::env::remove_var("CONTOUR_VERSION");
+    // 7. Contour supports sixel, not kitty graphics
+    assert_eq!(detect(&[("CONTOUR_VERSION", "0.3")]), Some(DetectedProtocol::Sixel));
 
     // 8. Alacritty
-    std::env::set_var("ALACRITTY_WINDOW_ID", "1");
-    assert_eq!(CapabilityProbe::probe_from_env(), Some(DetectedProtocol::HalfBlock));
-    std::env::remove_var("ALACRITTY_WINDOW_ID");
+    assert_eq!(
+        detect(&[("ALACRITTY_WINDOW_ID", "1")]),
+        Some(DetectedProtocol::HalfBlock)
+    );
 }
 
 #[test]
@@ -265,15 +347,27 @@ fn test_da1_has_sixel() {
 fn test_instantiate_drivers() {
     let k_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::Kitty, PlacementMode::Interactive);
     assert_eq!(k_driver.name(), "kitty");
+    assert!(k_driver.supports_placeholders());
+
+    let k_compat = CapabilityProbe::instantiate_driver(DetectedProtocol::KittyCompat, PlacementMode::Interactive);
+    assert_eq!(k_compat.name(), "kitty");
+    assert!(!k_compat.supports_placeholders());
+
+    // Scrollback placement never needs placeholders.
+    let k_scroll = CapabilityProbe::instantiate_driver(DetectedProtocol::Kitty, PlacementMode::Scrollback);
+    assert!(!k_scroll.supports_placeholders());
 
     let s_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::Sixel, PlacementMode::Interactive);
     assert_eq!(s_driver.name(), "sixel");
+    assert!(!s_driver.supports_placeholders());
 
     let h_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::HalfBlock, PlacementMode::Interactive);
     assert_eq!(h_driver.name(), "halfblock");
+    assert!(!h_driver.supports_placeholders());
 
     let i_driver = CapabilityProbe::instantiate_driver(DetectedProtocol::Iterm2, PlacementMode::Interactive);
     assert_eq!(i_driver.name(), "iterm2");
+    assert!(!i_driver.supports_placeholders());
 }
 
 // -----------------------------------------------------------------------------

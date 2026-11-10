@@ -3,10 +3,9 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Wrap};
-use kitty_pptx_display::PlacementMode;
 
 use crate::app::state::PresentationState;
-use crate::widget::SlideWidget;
+use crate::app::ui::{current_slide_widget, preview_slide_widget};
 
 /// Render the split-pane presenter mode console.
 pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -29,8 +28,7 @@ pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
     let inner_slide_area = slide_block.inner(current_slide_area);
     f.render_widget(slide_block, current_slide_area);
 
-    let slide_widget = SlideWidget::new(state.current_image_id(), PlacementMode::Interactive)
-        .with_aspect_ratio(state.aspect_ratio());
+    let slide_widget = current_slide_widget(state);
     f.render_widget(slide_widget, inner_slide_area);
 
     // 2. Right pane: Next slide preview + Speaker notes
@@ -53,8 +51,7 @@ pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
     f.render_widget(preview_block, next_preview_area);
 
     if let Some(next_id) = state.next_image_id() {
-        let next_widget = SlideWidget::new(next_id, PlacementMode::Interactive)
-            .with_aspect_ratio(state.aspect_ratio());
+        let next_widget = preview_slide_widget(state, next_id);
         f.render_widget(next_widget, inner_preview_area);
     } else {
         let end_msg = Paragraph::new("End of presentation")
