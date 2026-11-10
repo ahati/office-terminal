@@ -1,0 +1,11 @@
+[package]
+name = "kitty-pptx-display"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kitty-pptx-core = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+crossterm = { workspace = true }
+image = { workspace = true }

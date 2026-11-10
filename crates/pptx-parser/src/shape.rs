@@ -1,0 +1,6710 @@
+//! Shape / tree / picture / media / table / connector / SmartArt assembly:
+//! turns a `<p:spTree>` and its children into `SlideElement`s. Extracted
+//! verbatim from `lib.rs`. Pulls fill/stroke/effect/geometry parsing from
+//! `fill`, text-body parsing from `text`, chart parsing from `chart`, and the
+//! shared XML/zip helpers + `TableStyleDef` from the crate root.
+
+use crate::chart::{parse_chartex_with_images, parse_legacy_chart_with_style_parts_and_images};
+use crate::fill::{
+    line_properties_to_stroke, parse_color_node, parse_cust_geom, parse_effect_lst, parse_fill,
+    parse_scene3d, parse_sp3d, parse_stroke, parse_style_matrix_effects,
+    parse_style_matrix_fill_from_source, parse_table_style_fill, parse_xfrm, EffectLst,
+};
+use crate::master::{
+    DefaultTextLevels, InheritedShapeGeometry, LayoutPlaceholders, TableTextLevels,
+};
+use crate::text::{
+    complete_level_faces, complete_level_sizes, empty_level_bullets, parse_text_body,
+    resolve_latin_face, InheritedBodyPr, LevelBullets, LevelFaces, LevelFontSizes, LevelIndents,
+    LevelRunProperties, RunProperties, HARD_DEFAULT_LATIN_FACE,
+};
+use crate::theme::{PptxRawSchemeResolver, PptxSchemeResolver, PptxThemeSource};
+use crate::types::*;
+use crate::{
+    attr, attr_f64, attr_i64, attr_r, child, read_zip_head, read_zip_str, resolve_path,
+    table_style_presets, PptxZip, ResolvedTableCellStyle, TableCellBorderStyle, TableLineStyle,
+    TablePartStyle, TableStyleDef, TableStyleFlags, TableStyleFont, TableTextStyle,
+};
+use ooxml_common::blip::{mime_from_ext, parse_blip_duotone, parse_src_rect, svg_blip_rid};
+use ooxml_common::depth::DepthGuard;
+use ooxml_common::line::{
+    parse_line_properties, LineDash, LineEnd, LineJoin, LinePaint, LineProperties,
+};
+use ooxml_common::ns::{is_diagram_uri, is_pml_ole_uri};
+use ooxml_common::units::EMU_PER_PX_96DPI;
+use std::collections::HashMap;
+
+/// ECMA-376 Part 3 §9.3 "given application configuration" for the pptx parser:
+/// the extension namespaces whose `<mc:Choice>` content the parser actually
+/// renders. chartEx (any dated version — the chart path renders them via the
+/// existing `uri.contains("chartex")` gate) and the Microsoft 2010 drawing
+/// extensions (a14) that wrap ordinary `<p:sp>`/`<p:pic>`. Deliberately EXCLUDES
+/// PowerPoint-2010 (`p14`, ink `<p:contentPart>`) and VML (`v`), which we cannot
+/// render, so a Choice requiring them yields the Fallback preview.
+pub(crate) fn pptx_understands_ns(ns: &str) -> bool {
+    ns.contains("chartex") || ns == "http://schemas.microsoft.com/office/drawing/2010/main"
+}
+
+#[cfg(test)]
+mod chartex_sidecar_package_tests {
+    use std::io::{Cursor, Write};
+
+    #[test]
+    fn pptx_package_loads_chartex_style_and_color_sidecars() {
+        let content_types = r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>"#;
+        let root_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdOffice" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>"#;
+        let presentation_xml = r#"<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rIdSlide"/></p:sldIdLst><p:sldSz cx="9144000" cy="6858000"/></p:presentation>"#;
+        let presentation_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSlide" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rIdTheme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/></Relationships>"#;
+        let slide_xml = r#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex"><p:cSld><p:spTree><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Chart 1"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="4000000" cy="3000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/drawing/2014/chartex"><cx:chart r:id="rIdChart"/></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>"#;
+        let slide_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdChart" Type="http://schemas.microsoft.com/office/2014/relationships/chartEx" Target="../charts/chartEx1.xml"/></Relationships>"#;
+        let chart_xml = r#"<cx:chartSpace xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex"><cx:chartData><cx:data id="0"><cx:numDim type="val"><cx:lvl ptCount="1"><cx:pt idx="0">1</cx:pt></cx:lvl></cx:numDim></cx:data></cx:chartData><cx:chart><cx:plotArea><cx:plotAreaRegion><cx:series layoutId="boxWhisker"/></cx:plotAreaRegion></cx:plotArea></cx:chart></cx:chartSpace>"#;
+        let rels_xml = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdExternalStyle" Type="http://schemas.microsoft.com/office/2011/relationships/chartStyle" Target="https://example.invalid/style.xml" TargetMode="External"/><Relationship Id="rIdStyle" Type="http://schemas.microsoft.com/office/2011/relationships/chartStyle" Target="style1.xml"/><Relationship Id="rIdColors" Type="http://schemas.microsoft.com/office/2011/relationships/chartColorStyle" Target="colors1.xml"/><Relationship Id="override" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/themeOverride" Target="../theme/chartOverride.xml"/></Relationships>"#;
+        let style_xml = r#"<cs:chartStyle xmlns:cs="http://schemas.microsoft.com/office/drawing/2012/chartStyle" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><cs:dataPoint><cs:fillRef idx="1"><cs:styleClr val="auto"/></cs:fillRef><cs:spPr><a:pattFill prst="diagCross"><a:fgClr><a:schemeClr val="phClr"/></a:fgClr><a:bgClr><a:srgbClr val="FFFFFF"/></a:bgClr></a:pattFill></cs:spPr></cs:dataPoint><cs:dataPointMarker><cs:fillRef idx="1"><cs:styleClr val="auto"/></cs:fillRef></cs:dataPointMarker><cs:dataLabelCallout><cs:defRPr><a:noFill/></cs:defRPr><cs:bodyPr/></cs:dataLabelCallout><cs:trendlineLabel><cs:defRPr><a:solidFill><a:srgbClr val="112233"/></a:solidFill></cs:defRPr></cs:trendlineLabel></cs:chartStyle>"#;
+        let colors_xml = r#"<cs:colorStyle xmlns:cs="http://schemas.microsoft.com/office/drawing/2012/chartStyle" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" meth="cycle"><a:schemeClr val="accent1"/></cs:colorStyle>"#;
+        let theme_xml = r#"<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" name="Theme"><a:themeElements><a:fmtScheme name="Theme"><a:fillStyleLst><a:blipFill><a:blip r:embed="rIdThemeMarker"/><a:stretch/></a:blipFill></a:fillStyleLst><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>"#;
+
+        let mut bytes = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut bytes));
+            let options = zip::write::SimpleFileOptions::default();
+            for (path, xml) in [
+                ("[Content_Types].xml", content_types),
+                ("_rels/.rels", root_rels),
+                ("ppt/presentation.xml", presentation_xml),
+                ("ppt/_rels/presentation.xml.rels", presentation_rels),
+                ("ppt/slides/slide1.xml", slide_xml),
+                ("ppt/slides/_rels/slide1.xml.rels", slide_rels),
+                ("ppt/charts/chartEx1.xml", chart_xml),
+                ("ppt/charts/_rels/chartEx1.xml.rels", rels_xml),
+                ("ppt/charts/style1.xml", style_xml),
+                (
+                    "ppt/charts/_rels/style1.xml.rels",
+                    r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdMarker" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/style-marker.png"/></Relationships>"#,
+                ),
+                ("ppt/charts/colors1.xml", colors_xml),
+                ("ppt/theme/theme1.xml", theme_xml),
+                (
+                    "ppt/theme/chartOverride.xml",
+                    r#"<a:themeOverride xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:clrScheme name="Chart"><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme></a:themeOverride>"#,
+                ),
+                (
+                    "ppt/theme/_rels/theme1.xml.rels",
+                    r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdThemeMarker" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/theme-marker.png"/></Relationships>"#,
+                ),
+                ("ppt/media/theme-marker.png", "png"),
+                ("ppt/media/style-marker.png", "png"),
+            ] {
+                writer.start_file(path, options).unwrap();
+                writer.write_all(xml.as_bytes()).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let json = crate::parse_pptx_native(&bytes).expect("full PPTX package parses");
+        let presentation: serde_json::Value =
+            serde_json::from_str(&json).expect("presentation JSON");
+        let element = &presentation["slides"][0]["elements"][0];
+        assert_eq!(element["id"], serde_json::Value::String("2".to_string()));
+        let chart = &element["chart"];
+        assert_eq!(
+            chart["chartexColorPalette"][0],
+            serde_json::Value::String("336699".to_string()),
+        );
+        assert_eq!(
+            chart["chartStyleRoles"]["dataLabelCallout"]["fontHidden"],
+            serde_json::Value::Bool(true),
+        );
+        assert_eq!(
+            chart["chartStyleRoles"]["dataLabelCallout"]["textBodyAuthored"],
+            serde_json::Value::Bool(true),
+        );
+        assert_eq!(
+            chart["chartStyleRoles"]["trendlineLabel"]["fontColor"],
+            serde_json::Value::String("112233".to_string()),
+        );
+        assert_eq!(
+            chart["chartexDataPointStyle"]["fillPaints"][0],
+            serde_json::json!({
+                "fillType": "pattern",
+                "fg": "336699",
+                "bg": "FFFFFF",
+                "preset": "diagCross",
+            }),
+        );
+        assert_eq!(
+            chart["chartStyleRoles"]["dataPointMarker"]["fillPaints"][0],
+            serde_json::json!({
+                "fillType": "image",
+                "imagePath": "ppt/media/theme-marker.png",
+                "mimeType": "image/png",
+                "stretch": true,
+            }),
+        );
+    }
+
+    #[test]
+    fn pptx_package_loads_classic_chart_style_roles() {
+        let content_types = r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>"#;
+        let root_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdOffice" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>"#;
+        let presentation_xml = r#"<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rIdSlide"/></p:sldIdLst><p:sldSz cx="9144000" cy="6858000"/></p:presentation>"#;
+        let presentation_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSlide" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>"#;
+        let slide_xml = r#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><p:cSld><p:spTree><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Chart 1"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="4000000" cy="3000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdChart"/></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>"#;
+        let slide_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/></Relationships>"#;
+        let chart_xml = r#"<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:lineChart><c:grouping val="standard"/><c:ser><c:idx val="0"/><c:order val="0"/><c:cat><c:strLit><c:ptCount val="2"/><c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="1"><c:v>B</c:v></c:pt></c:strLit></c:cat><c:val><c:numLit><c:ptCount val="2"/><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="1"><c:v>2</c:v></c:pt></c:numLit></c:val></c:ser><c:dropLines/></c:lineChart></c:plotArea></c:chart></c:chartSpace>"#;
+        let rels_xml = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdStyle" Type="http://schemas.microsoft.com/office/2012/relationships/chartStyle" Target="style1.xml"/><Relationship Id="rIdColors" Type="http://schemas.microsoft.com/office/2011/relationships/chartColorStyle" Target="colors1.xml"/></Relationships>"#;
+        let style_xml = r#"<cs:chartStyle xmlns:cs="http://schemas.microsoft.com/office/drawing/2012/chartStyle" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><cs:dropLine><cs:spPr><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></cs:spPr></cs:dropLine></cs:chartStyle>"#;
+        let colors_xml = r#"<cs:colorStyle xmlns:cs="http://schemas.microsoft.com/office/drawing/2012/chartStyle" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" meth="cycle"><a:srgbClr val="336699"/></cs:colorStyle>"#;
+
+        let mut bytes = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut bytes));
+            let options = zip::write::SimpleFileOptions::default();
+            for (path, xml) in [
+                ("[Content_Types].xml", content_types),
+                ("_rels/.rels", root_rels),
+                ("ppt/presentation.xml", presentation_xml),
+                ("ppt/_rels/presentation.xml.rels", presentation_rels),
+                ("ppt/slides/slide1.xml", slide_xml),
+                ("ppt/slides/_rels/slide1.xml.rels", slide_rels),
+                ("ppt/charts/chart1.xml", chart_xml),
+                ("ppt/charts/_rels/chart1.xml.rels", rels_xml),
+                ("ppt/charts/style1.xml", style_xml),
+                ("ppt/charts/colors1.xml", colors_xml),
+            ] {
+                writer.start_file(path, options).unwrap();
+                writer.write_all(xml.as_bytes()).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let json = crate::parse_pptx_native(&bytes).expect("full PPTX package parses");
+        let presentation: serde_json::Value =
+            serde_json::from_str(&json).expect("presentation JSON");
+        let chart = &presentation["slides"][0]["elements"][0]["chart"];
+        assert_eq!(
+            chart["chartStyleRoles"]["dropLine"]["lineColors"][0],
+            serde_json::Value::String("336699".to_string()),
+        );
+    }
+
+    #[test]
+    fn pptx_package_resolves_picture_marker_relationships() {
+        let content_types = r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>"#;
+        let root_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdOffice" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>"#;
+        let presentation_xml = r#"<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rIdSlide"/></p:sldIdLst><p:sldSz cx="9144000" cy="6858000"/></p:presentation>"#;
+        let presentation_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSlide" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>"#;
+        let slide_xml = r#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><p:cSld><p:spTree><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Chart 1"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="4000000" cy="3000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdChart"/></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>"#;
+        let slide_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/></Relationships>"#;
+        let chart_xml = r#"<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:chart><c:plotArea><c:lineChart><c:ser><c:idx val="0"/><c:order val="0"/><c:marker><c:symbol val="picture"/><c:spPr><a:blipFill><a:blip r:embed="rIdMarker"/><a:stretch/></a:blipFill></c:spPr></c:marker><c:cat><c:strLit><c:ptCount val="1"/><c:pt idx="0"><c:v>A</c:v></c:pt></c:strLit></c:cat><c:val><c:numLit><c:ptCount val="1"/><c:pt idx="0"><c:v>1</c:v></c:pt></c:numLit></c:val></c:ser></c:lineChart></c:plotArea></c:chart></c:chartSpace>"#;
+        let chart_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdMarker" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/marker.png"/></Relationships>"#;
+
+        let mut bytes = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut bytes));
+            let options = zip::write::SimpleFileOptions::default();
+            for (path, content) in [
+                ("[Content_Types].xml", content_types.as_bytes()),
+                ("_rels/.rels", root_rels.as_bytes()),
+                ("ppt/presentation.xml", presentation_xml.as_bytes()),
+                (
+                    "ppt/_rels/presentation.xml.rels",
+                    presentation_rels.as_bytes(),
+                ),
+                ("ppt/slides/slide1.xml", slide_xml.as_bytes()),
+                ("ppt/slides/_rels/slide1.xml.rels", slide_rels.as_bytes()),
+                ("ppt/charts/chart1.xml", chart_xml.as_bytes()),
+                ("ppt/charts/_rels/chart1.xml.rels", chart_rels.as_bytes()),
+                ("ppt/media/marker.png", b"png".as_slice()),
+            ] {
+                writer.start_file(path, options).unwrap();
+                writer.write_all(content).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let json = crate::parse_pptx_native(&bytes).expect("full PPTX package parses");
+        let presentation: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            presentation["slides"][0]["elements"][0]["chart"]["series"][0]["markerFillPaint"],
+            serde_json::json!({
+                "fillType": "image",
+                "imagePath": "ppt/media/marker.png",
+                "mimeType": "image/png",
+                "stretch": true,
+            }),
+        );
+    }
+}
+
+/// OOXML spec default positions for common placeholder types.
+/// Values are in EMU, assuming a 9144000×6858000 slide (10"×7.5").
+pub(crate) fn default_placeholder_transform(ph_type: &str) -> Transform {
+    match ph_type {
+        "title" | "ctrTitle" => Transform {
+            x: 457200,
+            y: 274638,
+            cx: 8229600,
+            cy: 1143000,
+            rot: 0.0,
+            flip_h: false,
+            flip_v: false,
+        },
+        "subTitle" => Transform {
+            x: 457200,
+            y: 1600200,
+            cx: 8229600,
+            cy: 899160,
+            rot: 0.0,
+            flip_h: false,
+            flip_v: false,
+        },
+        "dt" => Transform {
+            x: 0,
+            y: 6261600,
+            cx: 2286000,
+            cy: 596900,
+            rot: 0.0,
+            flip_h: false,
+            flip_v: false,
+        },
+        "ftr" => Transform {
+            x: 2972400,
+            y: 6261600,
+            cx: 3086100,
+            cy: 596900,
+            rot: 0.0,
+            flip_h: false,
+            flip_v: false,
+        },
+        "sldNum" => Transform {
+            x: 6629400,
+            y: 6261600,
+            cx: 2057400,
+            cy: 596900,
+            rot: 0.0,
+            flip_h: false,
+            flip_v: false,
+        },
+        // "body" and everything else: full-width content area below title
+        _ => Transform {
+            x: 457200,
+            y: 1600200,
+            cx: 8229600,
+            cy: 4525963,
+            rot: 0.0,
+            flip_h: false,
+            flip_v: false,
+        },
+    }
+}
+
+/// Returns true if the node contains a `p:ph` descendant.
+pub(crate) fn is_placeholder(node: roxmltree::Node<'_, '_>) -> bool {
+    node.descendants()
+        .any(|n| n.is_element() && n.tag_name().name() == "ph")
+}
+
+/// Non-visual drawing props pulled from a shape's own `<p:cNvPr>`.
+#[derive(Default)]
+pub(crate) struct CNvPrInfo {
+    pub(crate) id: Option<String>,
+    pub(crate) name: Option<String>,
+    /// Shape-level hyperlink target resolved via `rels` (URL for external,
+    /// internal part name for a slide jump). ECMA-376 §21.1.2.3.5.
+    pub(crate) hyperlink: Option<String>,
+    /// Raw `<a:hlinkClick @action>` (e.g. "ppaction://hlinksldjump").
+    pub(crate) hyperlink_action: Option<String>,
+}
+
+/// Pull `id` / `name` / shape-level `hlinkClick` from a node's own
+/// `<p:nvSpPr><p:cNvPr>` (or `nvCxnSpPr` etc.). Returns defaults when the
+/// wrapper is missing — every field is optional in the JSON output.
+///
+/// ECMA-376 §21.1.2.3.5: a `<p:cNvPr>` may carry an `<a:hlinkClick @r:id
+/// [@action]>`, making the whole shape a click target. `@r:id` resolves via the
+/// slide `rels`; `@action` (when a "ppaction://..." verb) marks an internal
+/// navigation, mirroring the text-run hyperlink parse in `parse_run`.
+pub(crate) fn read_cnv_pr(
+    sp_node: roxmltree::Node<'_, '_>,
+    rels: &HashMap<String, String>,
+) -> CNvPrInfo {
+    if let Some(cnv) = own_cnv_pr(sp_node) {
+        let hlink_click = child(cnv, "hlinkClick");
+        return CNvPrInfo {
+            id: attr(&cnv, "id"),
+            name: attr(&cnv, "name").filter(|s| !s.is_empty()),
+            hyperlink: hlink_click
+                .and_then(|h| attr_r(&h, "id"))
+                .and_then(|rid| rels.get(&rid).cloned())
+                .filter(|s| !s.is_empty()),
+            hyperlink_action: hlink_click
+                .and_then(|h| attr(&h, "action"))
+                .filter(|s| !s.is_empty()),
+        };
+    }
+    CNvPrInfo::default()
+}
+
+/// Locate the shape/tree node's OWN `<p:cNvPr>` — the `cNvPr` inside this
+/// node's direct non-visual-properties wrapper (`nvSpPr` / `nvCxnSpPr` /
+/// `nvPicPr` / `nvGraphicFramePr` / `nvGrpSpPr`). Only a *direct* wrapper child
+/// is inspected, never a descendant, so a group's own props are not confused
+/// with a nested shape's props.
+pub(crate) fn own_cnv_pr<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+) -> Option<roxmltree::Node<'a, 'input>> {
+    for wrapper_name in &[
+        "nvSpPr",
+        "nvCxnSpPr",
+        "nvPicPr",
+        "nvGraphicFramePr",
+        "nvGrpSpPr",
+    ] {
+        if let Some(nv) = child(node, wrapper_name) {
+            if let Some(cnv) = child(nv, "cNvPr") {
+                return Some(cnv);
+            }
+        }
+    }
+    None
+}
+
+/// True when a tree node's own `<p:cNvPr hidden="1">` marks it hidden
+/// (ECMA-376 §20.1.2.2.8 `CT_NonVisualDrawingProps@hidden`, `xsd:boolean`,
+/// default `false`). A hidden shape/picture/frame/connector/group is not
+/// rendered — skipped at parse time. A hidden `<p:grpSp>` hides its whole
+/// subtree (the early return elides all descendants).
+pub(crate) fn node_is_hidden(node: roxmltree::Node<'_, '_>) -> bool {
+    own_cnv_pr(node)
+        .map(ooxml_common::drawing::nv_props_hidden)
+        .unwrap_or(false)
+}
+
+/// Merge an optional local `<a:ln>` over the inherited line style.
+///
+/// CT_LineProperties is field-wise: PowerPoint commonly writes a local line
+/// containing only head/tail-end defaults while the paint and width remain in
+/// `p:style/a:lnRef`. Treating the mere presence of that partial node as a
+/// replacement drops the visible theme outline.
+fn merge_local_stroke(
+    ln_node: Option<roxmltree::Node<'_, '_>>,
+    inherited: Option<Stroke>,
+    theme: &HashMap<String, String>,
+) -> Option<Stroke> {
+    let Some(ln) = ln_node else {
+        return inherited;
+    };
+    let properties = parse_line_properties(
+        ln,
+        &PptxSchemeResolver { theme },
+        ooxml_common::color::TintMode::PowerPointLinear,
+    );
+    if matches!(properties.paint, Some(LinePaint::NoFill)) {
+        return None;
+    }
+
+    let parsed = line_properties_to_stroke(&properties, None);
+    let ln_width = properties.width;
+    let has_dash = properties.dash.is_some();
+    let ln_dash = preset_dash(&properties);
+    let ln_custom_dash = custom_dash(&properties);
+    let has_cap = properties.cap.is_some();
+    let ln_cap = properties.cap.as_deref().and_then(canvas_line_cap);
+    let has_head = properties.head_end.is_some();
+    let ln_head = properties.head_end.as_ref().and_then(to_arrow_end);
+    let has_tail = properties.tail_end.is_some();
+    let ln_tail = properties.tail_end.as_ref().and_then(to_arrow_end);
+    let has_cmpd = properties.compound.is_some();
+    let ln_cmpd = properties.compound.clone().filter(|value| value != "sng");
+    let has_join = properties.join.is_some();
+    let (ln_join, ln_miter_limit) = line_join(&properties);
+    let has_alignment = properties.alignment.is_some();
+    let ln_alignment = properties
+        .alignment
+        .clone()
+        .filter(|value| matches!(value.as_str(), "ctr" | "in"));
+
+    match (parsed, inherited) {
+        (Some(authored), base) => Some(Stroke {
+            color: authored.color,
+            width: ln_width.unwrap_or_else(|| base.as_ref().map(|s| s.width).unwrap_or(9525)),
+            fill: authored.fill,
+            dash_style: if has_dash {
+                ln_dash
+            } else {
+                authored
+                    .dash_style
+                    .or_else(|| base.as_ref().and_then(|s| s.dash_style.clone()))
+            },
+            custom_dash: if has_dash {
+                ln_custom_dash
+            } else {
+                base.as_ref()
+                    .map(|stroke| stroke.custom_dash.clone())
+                    .unwrap_or_default()
+            },
+            line_cap: if has_cap {
+                ln_cap
+            } else {
+                authored
+                    .line_cap
+                    .or_else(|| base.as_ref().and_then(|s| s.line_cap.clone()))
+            },
+            line_join: if has_join {
+                ln_join
+            } else {
+                base.as_ref().and_then(|stroke| stroke.line_join.clone())
+            },
+            miter_limit: if has_join {
+                ln_miter_limit
+            } else {
+                base.as_ref().and_then(|stroke| stroke.miter_limit)
+            },
+            alignment: if has_alignment {
+                ln_alignment
+            } else {
+                base.as_ref().and_then(|stroke| stroke.alignment.clone())
+            },
+            head_end: if has_head {
+                ln_head
+            } else {
+                authored
+                    .head_end
+                    .or_else(|| base.as_ref().and_then(|s| s.head_end.clone()))
+            },
+            tail_end: if has_tail {
+                ln_tail
+            } else {
+                authored
+                    .tail_end
+                    .or_else(|| base.as_ref().and_then(|s| s.tail_end.clone()))
+            },
+            cmpd: if has_cmpd {
+                ln_cmpd
+            } else {
+                authored
+                    .cmpd
+                    .or_else(|| base.as_ref().and_then(|s| s.cmpd.clone()))
+            },
+        }),
+        (None, Some(base)) => Some(Stroke {
+            color: base.color,
+            width: ln_width.unwrap_or(base.width),
+            fill: base.fill,
+            dash_style: if has_dash { ln_dash } else { base.dash_style },
+            custom_dash: if has_dash {
+                ln_custom_dash
+            } else {
+                base.custom_dash
+            },
+            line_cap: if has_cap { ln_cap } else { base.line_cap },
+            line_join: if has_join { ln_join } else { base.line_join },
+            miter_limit: if has_join {
+                ln_miter_limit
+            } else {
+                base.miter_limit
+            },
+            alignment: if has_alignment {
+                ln_alignment
+            } else {
+                base.alignment
+            },
+            head_end: if has_head { ln_head } else { base.head_end },
+            tail_end: if has_tail { ln_tail } else { base.tail_end },
+            cmpd: if has_cmpd { ln_cmpd } else { base.cmpd },
+        }),
+        (None, None) => None,
+    }
+}
+
+/// Resolve `p:style/a:lnRef` into the inherited line component. The complete
+/// theme line recipe will move to the shared format-scheme model; until then,
+/// keeping this fallback in one place prevents shapes, connectors and pictures
+/// from disagreeing about the same CT_ShapeStyle component.
+fn parse_style_stroke(
+    style_node: Option<roxmltree::Node<'_, '_>>,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+) -> Option<Stroke> {
+    let line_ref = style_node.and_then(|style| child(style, "lnRef"))?;
+    resolve_style_line_ref(line_ref, theme_source)
+}
+
+fn resolve_style_line_ref(
+    line_ref: roxmltree::Node<'_, '_>,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+) -> Option<Stroke> {
+    let theme = theme_source.colors();
+    let index = attr(&line_ref, "idx")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1);
+    let reference_color = parse_color_node(line_ref, theme);
+    let reference_stroke = |color: String| Stroke {
+        color,
+        width: 9525,
+        fill: None,
+        dash_style: None,
+        custom_dash: Vec::new(),
+        line_cap: None,
+        line_join: None,
+        miter_limit: None,
+        alignment: None,
+        head_end: None,
+        tail_end: None,
+        cmpd: None,
+    };
+    let Some(format_scheme) = theme_source.format_scheme() else {
+        return reference_color.map(reference_stroke);
+    };
+    let entry = match format_scheme.lookup_line_ref(index) {
+        ooxml_common::theme::StyleMatrixLookup::NoStyle => return None,
+        ooxml_common::theme::StyleMatrixLookup::Missing => {
+            return reference_color.map(reference_stroke);
+        }
+        ooxml_common::theme::StyleMatrixLookup::Entry(entry) => entry,
+    };
+    let entry_xml = entry.to_xml().ok()?;
+    let document = roxmltree::Document::parse(&entry_xml).ok()?;
+    let line = document.root_element().children().find(|node| {
+        node.is_element()
+            && node.tag_name().name() == "ln"
+            && ooxml_common::ns::is_a_ns(node.tag_name().namespace())
+    })?;
+    let base_resolver = PptxRawSchemeResolver { theme };
+    let resolver = ooxml_common::color::StyleMatrixColorResolver::new(
+        &base_resolver,
+        reference_color.as_deref(),
+    );
+    let mut properties = parse_line_properties(
+        line,
+        &resolver,
+        ooxml_common::color::TintMode::PowerPointLinear,
+    );
+    if properties.paint.is_none() {
+        properties.paint = reference_color.map(|color| LinePaint::Solid { color: Some(color) });
+    }
+    line_properties_to_stroke(&properties, None)
+}
+
+fn style_line_ref_is_explicit_no_line(
+    line_ref: roxmltree::Node<'_, '_>,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+) -> bool {
+    use ooxml_common::theme::StyleMatrixLookup;
+
+    let index = attr(&line_ref, "idx")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    if index == 0 {
+        return true;
+    }
+    let Some(format_scheme) = theme_source.format_scheme() else {
+        return false;
+    };
+    let StyleMatrixLookup::Entry(entry) = format_scheme.lookup_line_ref(index) else {
+        return false;
+    };
+    let Ok(entry_xml) = entry.to_xml() else {
+        return false;
+    };
+    let Ok(document) = roxmltree::Document::parse(&entry_xml) else {
+        return false;
+    };
+    let Some(line) = document.root_element().children().find(|node| {
+        node.is_element()
+            && node.tag_name().name() == "ln"
+            && ooxml_common::ns::is_a_ns(node.tag_name().namespace())
+    }) else {
+        return false;
+    };
+    let reference_color = parse_color_node(line_ref, theme_source.colors());
+    let raw_resolver = PptxRawSchemeResolver {
+        theme: theme_source.colors(),
+    };
+    let resolver = ooxml_common::color::StyleMatrixColorResolver::new(
+        &raw_resolver,
+        reference_color.as_deref(),
+    );
+    matches!(
+        parse_line_properties(
+            line,
+            &resolver,
+            ooxml_common::color::TintMode::PowerPointLinear,
+        )
+        .paint,
+        Some(LinePaint::NoFill)
+    )
+}
+
+fn canvas_line_cap(cap: &str) -> Option<String> {
+    match cap {
+        "rnd" => Some("round".to_owned()),
+        "sq" => Some("square".to_owned()),
+        "flat" => Some("butt".to_owned()),
+        _ => None,
+    }
+}
+
+fn preset_dash(line: &LineProperties) -> Option<String> {
+    match line.dash.as_ref() {
+        Some(LineDash::Preset(Some(value))) if value != "solid" => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn custom_dash(line: &LineProperties) -> Vec<StrokeDashSegment> {
+    match line.dash.as_ref() {
+        Some(LineDash::Custom(stops)) => stops
+            .iter()
+            .map(|stop| StrokeDashSegment {
+                dash: stop.dash / 100_000.0,
+                space: stop.space / 100_000.0,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn line_join(line: &LineProperties) -> (Option<String>, Option<f64>) {
+    match line.join.as_ref() {
+        Some(LineJoin::Round) => (Some("round".to_owned()), None),
+        Some(LineJoin::Bevel) => (Some("bevel".to_owned()), None),
+        Some(LineJoin::Miter { limit }) => (
+            Some("miter".to_owned()),
+            limit.map(|value| value as f64 / 100_000.0),
+        ),
+        None => (None, None),
+    }
+}
+
+fn to_arrow_end(end: &LineEnd) -> Option<ArrowEnd> {
+    let kind = end.kind.clone().unwrap_or_else(|| "none".to_owned());
+    (kind != "none").then(|| ArrowEnd {
+        kind,
+        w: end.width.clone().unwrap_or_else(|| "med".to_owned()),
+        len: end.length.clone().unwrap_or_else(|| "med".to_owned()),
+    })
+}
+
+/// The DrawingML shape-property components that affect a picture's composed
+/// bitmap/border silhouette. `p:pic` and a `p:sp` painted by `a:blipFill` both
+/// use `CT_ShapeProperties`; keeping their component cascade in one resolver
+/// prevents the alternate picture construction paths from silently dropping
+/// style-matrix or placeholder-inherited effects.
+#[derive(Default, Clone, serde::Serialize)]
+pub(crate) struct PictureShapeProperties {
+    pub(crate) stroke: Option<Stroke>,
+    pub(crate) shadow: Option<Shadow>,
+    pub(crate) inner_shadow: Option<Shadow>,
+    pub(crate) glow: Option<Glow>,
+    pub(crate) soft_edge: Option<SoftEdge>,
+    pub(crate) reflection: Option<Reflection>,
+    pub(crate) scene3d: Option<Scene3d>,
+    pub(crate) sp3d: Option<Sp3d>,
+}
+
+impl PictureShapeProperties {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.stroke.is_none()
+            && self.shadow.is_none()
+            && self.inner_shadow.is_none()
+            && self.glow.is_none()
+            && self.soft_edge.is_none()
+            && self.reflection.is_none()
+            && self.scene3d.is_none()
+            && self.sp3d.is_none()
+    }
+}
+
+/// Resolve the component cascade for a picture-like shape.
+///
+/// ECMA-376 Part 1, Annex L.3.2.3 defines the slide/layout placeholder
+/// inheritance tier. CT_ShapeStyle's `lnRef`/`effectRef` supplies the next
+/// tier, and local CT_ShapeProperties components override it. In particular,
+/// MS-OI29500 §20.1.2.2.37(b) specifies that an authored local effect component
+/// replaces the referenced style component rather than merging its children.
+pub(crate) fn resolve_picture_shape_properties(
+    sp_pr: Option<roxmltree::Node<'_, '_>>,
+    style_node: Option<roxmltree::Node<'_, '_>>,
+    inherited: Option<PictureShapeProperties>,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+) -> PictureShapeProperties {
+    let theme = theme_source.colors();
+    let inherited = inherited.unwrap_or_default();
+
+    // An explicit lnRef (including idx=0) replaces the placeholder tier.
+    // Without an lnRef, the layout placeholder remains the inherited base.
+    let style_stroke = if style_node.and_then(|style| child(style, "lnRef")).is_some() {
+        parse_style_stroke(style_node, theme_source)
+    } else {
+        inherited.stroke
+    };
+    let stroke = merge_local_stroke(
+        sp_pr.and_then(|node| child(node, "ln")),
+        style_stroke,
+        theme,
+    );
+
+    let effect_ref = style_node.and_then(|style| child(style, "effectRef"));
+    let style_effects = effect_ref
+        .map(|node| parse_style_matrix_effects(node, theme))
+        .unwrap_or_default();
+    let local_effect_node =
+        sp_pr.and_then(|node| child(node, "effectLst").or_else(|| child(node, "effectDag")));
+    let effects = if local_effect_node.is_some() {
+        parse_effect_lst(local_effect_node, theme)
+    } else if effect_ref.is_some() {
+        style_effects.effects
+    } else {
+        EffectLst {
+            shadow: inherited.shadow,
+            inner_shadow: inherited.inner_shadow,
+            glow: inherited.glow,
+            soft_edge: inherited.soft_edge,
+            reflection: inherited.reflection,
+            ..EffectLst::default()
+        }
+    };
+
+    // An explicit effectRef replaces the inherited CT_EffectStyleItem as a
+    // whole.  Its absence may inherit layout 3-D; its presence with idx=0 or
+    // an item without scene3d/sp3d must clear the older layout components just
+    // as it clears/replaces the raster effects above.
+    let inherited_scene3d = if effect_ref.is_some() {
+        None
+    } else {
+        inherited.scene3d
+    };
+    let inherited_sp3d = if effect_ref.is_some() {
+        None
+    } else {
+        inherited.sp3d
+    };
+
+    PictureShapeProperties {
+        stroke,
+        shadow: effects.shadow,
+        inner_shadow: effects.inner_shadow,
+        glow: effects.glow,
+        soft_edge: effects.soft_edge,
+        reflection: effects.reflection,
+        scene3d: sp_pr
+            .and_then(parse_scene3d)
+            .or(style_effects.scene3d)
+            .or(inherited_scene3d),
+        sp3d: sp_pr
+            .and_then(|node| parse_sp3d(node, theme))
+            .or(style_effects.sp3d)
+            .or(inherited_sp3d),
+    }
+}
+
+pub(crate) fn parse_shape(
+    sp_node: roxmltree::Node<'_, '_>,
+    lph: &LayoutPlaceholders,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    rels: &HashMap<String, String>,
+    source_part: &str,
+    group_fill: Option<&Fill>,
+    zip: &mut PptxZip,
+) -> Option<ShapeElement> {
+    let theme = theme_source.colors();
+    // --- Placeholder info (for layout fallback) ---
+    let ph_node = sp_node
+        .descendants()
+        .find(|n| n.is_element() && n.tag_name().name() == "ph");
+    let explicit_ph_type = ph_node.as_ref().and_then(|n| attr(n, "type"));
+    let ph_idx: Option<u32> = ph_node
+        .as_ref()
+        .and_then(|n| attr(n, "idx"))
+        .and_then(|v| v.parse().ok())
+        // PowerPoint uses the unsigned maximum as an unbound-placeholder
+        // sentinel. It is not a real layout slot; treating it as an authored
+        // idx suppresses the normal type/bodyStyle fallback.
+        .filter(|idx| *idx != u32::MAX);
+    let ph_type = explicit_ph_type
+        .clone()
+        .or_else(|| ph_idx.and_then(|idx| lph.by_idx_placeholder_type.get(&idx).cloned()))
+        // CT_Placeholder @type defaults to "obj" (ECMA-376 pml.xsd), after
+        // inheritance from the matching layout slot has been considered.
+        .unwrap_or_else(|| "obj".into());
+    // Surface the explicit ph @type / @idx (when present) on the ShapeElement
+    // JSON. We keep `ph_type` defaulted to the schema's "obj" for lookup
+    // path, but only emit the `placeholder_type` field when a real `<p:ph>`
+    // node was found.
+    let placeholder_type_out: Option<String> = ph_node.as_ref().map(|_| ph_type.clone());
+    let cnv = read_cnv_pr(sp_node, rels);
+
+    // --- Transform: slide xfrm OR layout fallback ---
+    let sp_pr = child(sp_node, "spPr");
+    let slide_xfrm = sp_pr.and_then(|p| child(p, "xfrm"));
+
+    let t: Transform = if let Some(xfrm) = slide_xfrm {
+        parse_xfrm(xfrm)
+    } else if ph_node.is_some() {
+        match lph.lookup(&ph_type, ph_idx) {
+            Some(lt) => lt.clone(),
+            None => default_placeholder_transform(&ph_type),
+        }
+    } else {
+        return None; // non-placeholder with no xfrm — skip
+    };
+
+    // cx=0 AND cy=0 → skip (zero-area invisible shape).
+    // cx=0 alone (vertical line/annotation) is permitted when cy > 0.
+    // cy=0 means "auto-height": keep 0 when anchor="b" (renderer grows shape upward from off_y),
+    // otherwise use a generous fallback so text has room to render.
+    if t.cx == 0 && t.cy == 0 {
+        return None;
+    }
+    let inherited_anchor: Option<String> = if ph_node.is_some() {
+        lph.lookup_anchor(&ph_type, ph_idx)
+    } else {
+        None
+    };
+    let is_bottom_anchor = inherited_anchor.as_deref() == Some("b")
+        || child(sp_node, "txBody")
+            .and_then(|tb| child(tb, "bodyPr"))
+            .and_then(|bp| attr(&bp, "anchor"))
+            .map(|a| a == "b")
+            .unwrap_or(false);
+    // Presentation slides inherit layout information unless they provide a
+    // local override (ECMA-376 Part 1, Annex L.3.2.3). Geometry is part of the
+    // shape properties: a placeholder with only a local xfrm can still inherit
+    // an ellipse/custom geometry from the matching layout placeholder.
+    let shape_geometry = sp_pr
+        .and_then(|properties| {
+            InheritedShapeGeometry::from_sp_pr(properties, t.cx as f64, t.cy as f64)
+        })
+        .or_else(|| {
+            if ph_node.is_some() {
+                lph.lookup_geometry(&ph_type, ph_idx)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| InheritedShapeGeometry {
+            geometry: "rect".to_owned(),
+            cust_geom: None,
+            cust_geom_paint: None,
+            adjustments: [None; 8],
+        });
+    let geometry = shape_geometry.geometry;
+    let cust_geom = shape_geometry.cust_geom;
+    let cust_geom_paint = shape_geometry.cust_geom_paint;
+    let [adj, adj2, adj3, adj4, adj5, adj6, adj7, adj8] = shape_geometry.adjustments;
+
+    // cy=0 means "auto-height" for body-text shapes, but connector-type
+    // geometries (line, *Connector*) legitimately use cy=0 to represent
+    // a perfectly horizontal segment — don't inflate their height.
+    // A shape without text has nothing to grow for either: PowerPoint draws
+    // a zero-height rectangle as a horizontal rule (its top and bottom edges
+    // coincide), so inflating it would paint a tall outlined box instead.
+    let has_text = child(sp_node, "txBody").is_some_and(|text_body| {
+        text_body.descendants().any(|node| {
+            node.is_element()
+                && match node.tag_name().name() {
+                    "t" => node.text().is_some_and(|text| !text.is_empty()),
+                    "fld" => true,
+                    _ => false,
+                }
+        })
+    });
+    let is_connector_geom = matches!(
+        geometry.as_str(),
+        "line"
+            | "straightConnector1"
+            | "bentConnector2"
+            | "bentConnector3"
+            | "bentConnector4"
+            | "bentConnector5"
+            | "curvedConnector2"
+            | "curvedConnector3"
+            | "curvedConnector4"
+            | "curvedConnector5"
+    );
+    let cy = if t.cy == 0 && has_text && !is_connector_geom {
+        if is_bottom_anchor {
+            0_i64
+        } else {
+            2_000_000_i64
+        }
+    } else {
+        t.cy
+    };
+    // --- Shape style (p:style) provides fill/stroke/text-color fallbacks ---
+    let style_node = child(sp_node, "style");
+
+    // fillRef idx=0 → explicit no-fill; idx>0 → resolve the referenced
+    // theme fill style, substituting this ref's colour for phClr. Retain the
+    // former solid-colour fallback for incomplete/malformed themes.
+    let style_fill: Option<Fill> = style_node.and_then(|s| child(s, "fillRef")).and_then(|fr| {
+        let idx: u32 = attr(&fr, "idx").and_then(|v| v.parse().ok()).unwrap_or(1);
+        if idx == 0 {
+            Some(Fill::None)
+        } else {
+            parse_style_matrix_fill_from_source(fr, theme_source)
+                .or_else(|| parse_color_node(fr, theme).map(|c| Fill::Solid { color: c }))
+        }
+    });
+
+    // lnRef idx=0 → no line; idx>0 → resolve the complete theme fmtScheme >
+    // lnStyleLst recipe, substituting the ref color only for `phClr`.
+    let style_stroke = parse_style_stroke(style_node, theme_source);
+
+    // fontRef → default text color for this shape.
+    // Fall back to layout/master placeholder inherited color (lstStyle > lvl1pPr > defRPr
+    // > solidFill) when the shape is a placeholder and has no explicit p:style > fontRef.
+    let default_text_color: Option<String> = style_node
+        .and_then(|s| child(s, "fontRef"))
+        .and_then(|fr| parse_color_node(fr, theme))
+        .or_else(|| {
+            if ph_node.is_some() && !lph.is_list_style_cut(&ph_type, ph_idx) {
+                lph.lookup_color(&ph_type, ph_idx)
+            } else {
+                None
+            }
+        });
+
+    // spPr fill resolution order (ECMA-376 §19.3.1.36 / §20.1.4.2):
+    //   1. spPr `<a:grpFill>` → inherit from parent group
+    //   2. spPr explicit fill (`<a:solidFill>`, `<a:noFill>`, gradient, pattern, blip)
+    //   3. the slide shape's `<p:style><a:fillRef>`
+    //   4. layout/master placeholder fill only when this shape did not author
+    //      a style component
+    // Some(Fill::None) (noFill in spPr) is treated as an explicit choice and
+    // must NOT be overridden by step 3 or 4.
+    let sp_pr_has_grp_fill = sp_pr.and_then(|p| child(p, "grpFill")).is_some();
+    let fill = if sp_pr_has_grp_fill {
+        group_fill.cloned()
+    } else {
+        // A resolvable p:sp blipFill is emitted as PictureElement by the tree
+        // walker before parse_shape. Reaching this branch with an authored
+        // blipFill means that its image relationship is unavailable. The direct
+        // fill component is still authoritative: leave the interior unpainted
+        // instead of replacing the missing image with fillRef or placeholder
+        // paint (which commonly produces a black rectangle).
+        let own = if sp_pr.and_then(|p| child(p, "blipFill")).is_some() {
+            Some(Fill::None)
+        } else {
+            sp_pr.and_then(|p| parse_fill(p, theme))
+        };
+        let inherited = if own.is_none() && style_fill.is_none() && ph_node.is_some() {
+            lph.lookup_fill(&ph_type, ph_idx)
+        } else {
+            None
+        };
+        own.or(style_fill).or(inherited)
+    };
+
+    // A local line is a field-wise override over layout/style inheritance;
+    // explicit noFill still suppresses the inherited line entirely.
+    let has_style_line_ref = style_node.and_then(|style| child(style, "lnRef")).is_some();
+    let inherited_stroke = if has_style_line_ref {
+        // Presence is authoritative even when idx=0 or the selected theme
+        // recipe is noFill. Do not resurrect a layout/master outline.
+        style_stroke
+    } else if ph_node.is_some() {
+        lph.lookup_stroke(&ph_type, ph_idx)
+    } else {
+        None
+    };
+    let stroke = merge_local_stroke(sp_pr.and_then(|p| child(p, "ln")), inherited_stroke, theme);
+
+    // A placeholder bound to a layout slot without a txBody is cut off from
+    // the master list styles (`LayoutPlaceholders::is_list_style_cut`): its
+    // text takes only its own formatting and the hard defaults.
+    let placeholder_inherits = ph_node.is_some() && !lph.is_list_style_cut(&ph_type, ph_idx);
+
+    // Inherited defaults from layout/master for this placeholder type/idx
+    let (
+        inherited_bold,
+        inherited_italic,
+        inherited_caps,
+        inherited_reflection,
+        inherited_alignment,
+        inherited_ea_ln_brk,
+        inherited_font_algn,
+        inherited_spacing,
+    ) = if placeholder_inherits {
+        (
+            lph.lookup_bold(&ph_type, ph_idx),
+            lph.lookup_italic(&ph_type, ph_idx),
+            lph.lookup_caps(&ph_type, ph_idx),
+            lph.lookup_reflection(&ph_type, ph_idx),
+            lph.lookup_alignment(&ph_type, ph_idx),
+            lph.lookup_ea_ln_brk(&ph_type, ph_idx),
+            lph.lookup_font_algn(&ph_type, ph_idx),
+            lph.lookup_spacing(&ph_type, ph_idx),
+        )
+    } else {
+        (None, None, None, None, None, None, None, Default::default())
+    };
+    // Shape-level bodyPr values are not list-style properties; a placeholder
+    // keeps them even when its layout slot has no txBody.
+    let (inherited_anchor, inherited_body_pr) = if ph_node.is_some() {
+        (
+            lph.lookup_anchor(&ph_type, ph_idx),
+            lph.lookup_body_pr(&ph_type, ph_idx),
+        )
+    } else {
+        (None, None)
+    };
+    // Latin face and size per list level, each ending at the hard default
+    // (Arial 18 pt) so no level falls back to the level-1 value or to a
+    // renderer-side theme font (issue #1620):
+    //   placeholder: layout slot → master placeholder → class style
+    //                (titleStyle / bodyStyle / defaultTextStyle);
+    //   ordinary shape: p:style fontRef (face only) → defaultTextStyle.
+    // The shape's own lstStyle, the paragraph defRPr and the run are applied
+    // over these in parse_text_body.
+    // DrawingML §20.1.4.2.10: a shape style's fontRef names the theme
+    // major/minor collection (idx none names none).
+    let style_font_set = style_node
+        .and_then(|s| child(s, "fontRef"))
+        .and_then(|fr| attr(&fr, "idx"))
+        .and_then(|idx| match idx.as_str() {
+            "major" => Some("+mj"),
+            "minor" => Some("+mn"),
+            _ => None,
+        });
+    let (chain_faces, chain_sizes): (LevelFaces, LevelFontSizes) = if ph_node.is_some() {
+        if placeholder_inherits {
+            (
+                lph.lookup_level_faces(&ph_type, ph_idx),
+                lph.lookup_level_font_sizes(&ph_type, ph_idx),
+            )
+        } else {
+            (LevelFaces::default(), [None; 9])
+        }
+    } else {
+        // DrawingML §20.1.4.2.10: a shape style's fontRef names the theme
+        // major/minor collection (idx none names none). Observed (#1620): a
+        // text box's defaultTextStyle face yields to fontRef minor/major, and
+        // fontRef none leaves the defaultTextStyle face; sizes still come from
+        // defaultTextStyle. A fontRef naming a collection whose Latin face is
+        // empty draws in Arial, not the defaultTextStyle face (#1627
+        // table-lang controls XE*).
+        let style_face = style_font_set.map(|set| {
+            resolve_latin_face(&format!("{set}-lt"), theme)
+                .unwrap_or_else(|| HARD_DEFAULT_LATIN_FACE.to_owned())
+        });
+        let faces = match style_face {
+            Some(face) => std::array::from_fn(|_| Some(face.clone())),
+            None => lph.default_text.faces.clone(),
+        };
+        (faces, lph.default_text.sizes)
+    };
+    let inherited_level_faces = complete_level_faces(&chain_faces);
+    let inherited_level_font_sizes = complete_level_sizes(&chain_sizes);
+    let inherited_font_size = inherited_level_font_sizes[0];
+    // Per-level paragraph indents (marL/marR/indent) a paragraph inherits when it
+    // omits them (ECMA-376 §21.1.2.4.13): the layout/master placeholder cascade.
+    let inherited_level_indents: LevelIndents = if placeholder_inherits {
+        lph.lookup_level_indents(&ph_type, ph_idx)
+    } else {
+        Default::default()
+    };
+
+    // Per-level bullets a paragraph inherits when it declares no explicit one
+    // (ECMA-376 §19.7.10): the layout/master placeholder cascade for this slot.
+    let inherited_level_bullets: LevelBullets = if placeholder_inherits {
+        lph.lookup_level_bullets(&ph_type, ph_idx)
+    } else {
+        empty_level_bullets()
+    };
+    let inherited_level_colors = if placeholder_inherits
+        && style_node
+            .and_then(|style| child(style, "fontRef"))
+            .is_none()
+    {
+        lph.lookup_level_colors(&ph_type, ph_idx)
+    } else if ph_node.is_none() && default_text_color.is_none() {
+        // Ordinary text takes its defaultTextStyle level colour (resolved
+        // against the slide's effective colour map) below its own lstStyle
+        // and paragraph defRPr. A p:style fontRef colour replaces it at every
+        // level; a fontRef without a colour leaves it (issue #1989 controls).
+        lph.default_text.colors.clone()
+    } else {
+        std::array::from_fn(|_| None)
+    };
+    let chain_run_properties: LevelRunProperties = if placeholder_inherits {
+        let levels = lph.lookup_level_run_properties(&ph_type, ph_idx);
+        if style_node
+            .and_then(|style| child(style, "fontRef"))
+            .is_some()
+        {
+            levels.map(|props| props.without_fill())
+        } else {
+            levels
+        }
+    } else if ph_node.is_none() {
+        // Ordinary text inherits the defaultTextStyle level's ea/cs faces and
+        // language; a fontRef major/minor replaces the ea/cs faces with its
+        // collection's tokens at every level, below the shape's own lstStyle
+        // (issue #1627: N10, N13, N20, I26, P31-P36).
+        let dts = &lph.default_text;
+        std::array::from_fn(|level| {
+            let (ea, cs) = match style_font_set {
+                Some(set) => (Some(format!("{set}-ea")), Some(format!("{set}-cs"))),
+                None => (
+                    dts.east_asian[level].clone(),
+                    dts.complex_script[level].clone(),
+                ),
+            };
+            RunProperties::script_base(ea, cs, dts.lang[level].clone(), dts.alt_lang[level].clone())
+        })
+    } else {
+        std::array::from_fn(|_| Default::default())
+    };
+    // The resolved chain is authoritative for the Latin face and size of every
+    // level; the other character properties keep their own cascade.
+    let inherited_level_run_properties: LevelRunProperties = {
+        let mut level = 0;
+        chain_run_properties.map(|props| {
+            let resolved = props.with_chain_face_and_size(
+                inherited_level_faces[level].clone(),
+                inherited_level_font_sizes[level],
+            );
+            level += 1;
+            resolved
+        })
+    };
+    let text_body = child(sp_node, "txBody").map(|n| {
+        parse_text_body(
+            n,
+            theme,
+            rels,
+            source_part,
+            inherited_font_size,
+            inherited_level_font_sizes,
+            inherited_level_colors,
+            inherited_level_run_properties,
+            inherited_level_indents,
+            &inherited_level_bullets,
+            inherited_bold,
+            inherited_italic,
+            inherited_caps.clone(),
+            inherited_reflection.clone(),
+            inherited_anchor,
+            inherited_body_pr,
+            inherited_alignment,
+            &Default::default(),
+            inherited_ea_ln_brk,
+            inherited_font_algn,
+            inherited_spacing,
+            // A placeholder paragraph that no list style indents starts at the
+            // inset (#1630: title levels 2-5); ordinary text takes its
+            // defaultTextStyle level.
+            if ph_node.is_some() {
+                [0; 9]
+            } else {
+                lph.default_text.mar_l
+            },
+            zip,
+        )
+    });
+
+    // Effects from spPr > effectLst (outerShdw / innerShdw / glow / softEdge /
+    // reflection are independent siblings — ECMA-376 §20.1.8.16). Pull each.
+    let style_effects = style_node
+        .and_then(|style| child(style, "effectRef"))
+        .map(|effect_ref| parse_style_matrix_effects(effect_ref, theme))
+        .unwrap_or_default();
+    let style_scene3d = style_effects.scene3d;
+    let style_sp3d = style_effects.sp3d;
+    let local_effect_node =
+        sp_pr.and_then(|p| child(p, "effectLst").or_else(|| child(p, "effectDag")));
+    let EffectLst {
+        shadow,
+        inner_shadow,
+        glow,
+        soft_edge,
+        reflection,
+        ..
+    } = if local_effect_node.is_some() {
+        // MS-OI29500 §20.1.2.2.37(b): a local effect component replaces the
+        // style component rather than merging missing fields from effectRef.
+        parse_effect_lst(local_effect_node, theme)
+    } else {
+        style_effects.effects
+    };
+
+    Some(ShapeElement {
+        math_fallback: None,
+        x: t.x,
+        y: t.y,
+        width: t.cx,
+        height: cy,
+        rotation: t.rot,
+        flip_h: t.flip_h,
+        flip_v: t.flip_v,
+        geometry,
+        fill,
+        stroke,
+        text_body,
+        default_text_color,
+        cust_geom,
+        cust_geom_paint,
+        adj,
+        adj2,
+        adj3,
+        adj4,
+        adj5,
+        adj6,
+        adj7,
+        adj8,
+        shadow,
+        inner_shadow,
+        glow,
+        soft_edge,
+        reflection,
+        id: cnv.id,
+        name: cnv.name,
+        hyperlink: cnv.hyperlink,
+        hyperlink_action: cnv.hyperlink_action,
+        placeholder_type: placeholder_type_out,
+        placeholder_idx: ph_idx,
+        text_rect: None,
+        scene3d: sp_pr.and_then(parse_scene3d).or(style_scene3d),
+        sp3d: sp_pr
+            .and_then(|node| parse_sp3d(node, theme))
+            .or(style_sp3d),
+    })
+}
+
+/// Preset clip geometry for a picture body (§20.1.9.18 — the preset geometry of
+/// a `<p:pic>` acts as its clip silhouette and the path its border / contour
+/// hug). Returns the prstGeom `prst` name plus every `<a:avLst><a:gd>` adjust
+/// value in declaration order (1/1000-of-a-percent OOXML units), so any of the
+/// 186 presets — roundRect, ellipse, and the rest — can be reconstructed by the
+/// shared preset-geometry engine on the TS side. The preset's own declared
+/// defaults fill in any omitted guide, so the `adj` Vec may be shorter than the
+/// preset's adjust count (the engine substitutes defaults per index).
+///
+/// `prst="rect"` returns None: a plain rectangle needs no clip path (the bitmap
+/// already fills the bbox), matching the previous behaviour.
+pub(crate) fn parse_pic_prst_geom(
+    sp_pr: roxmltree::Node<'_, '_>,
+) -> (Option<String>, Option<Vec<i64>>) {
+    let pg = match child(sp_pr, "prstGeom") {
+        Some(n) => n,
+        None => return (None, None),
+    };
+    let prst = match attr(&pg, "prst") {
+        Some(p) if p != "rect" => p,
+        _ => return (None, None),
+    };
+    let adjust: Vec<i64> = child(pg, "avLst")
+        .map(|av| {
+            av.children()
+                .filter(|n| n.is_element() && n.tag_name().name() == "gd")
+                .filter_map(|gd| {
+                    attr(&gd, "fmla")
+                        .and_then(|f| f.strip_prefix("val ").and_then(|v| v.parse::<i64>().ok()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let adjust = if adjust.is_empty() {
+        None
+    } else {
+        Some(adjust)
+    };
+    (Some(prst), adjust)
+}
+
+/// Microsoft 2016 SVG extension on an `<a:blip>` (ECMA-376 §20.1.8.14 carries
+/// the core blip fill; the SVG body is a Microsoft extension). When a `<a:blip>`
+/// has `<a:extLst><a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}">` with an
+/// `<asvg:svgBlip r:embed="…">`, resolve that rId to the `.svg` part and return
+/// it as a `data:image/svg+xml;base64,…` URL. Returns None when there is no
+/// svgBlip, the rId is unresolvable, or the part is missing.
+///
+/// Matching is by namespace-local element name (`svgBlip`), so the `asvg:`
+/// prefix (or any other) is irrelevant.
+/// Resolve the Microsoft 2016 `asvg:svgBlip` extension on a `<a:blip>` to the
+/// embedded **zip path** of the `.svg` part (e.g. "ppt/media/image2.svg"). The
+/// renderer fetches the bytes lazily by path. The part's existence is verified
+/// so a dangling rId yields None (no SVG twin), matching the prior behaviour.
+pub(crate) fn svg_blip_path(
+    blip: roxmltree::Node<'_, '_>,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    zip: &mut PptxZip,
+) -> Option<String> {
+    let svg_rid = svg_blip_rid(blip)?;
+    let svg_target = rels.get(&svg_rid)?;
+    let svg_path = resolve_path(slide_part, svg_target);
+    // Existence check only — `index_for_name` reads the central directory
+    // without inflating, unlike the former `read_zip_bytes` which decompressed
+    // the whole SVG part just to discard the bytes.
+    zip.index_for_name(&svg_path)?;
+    Some(svg_path)
+}
+
+/// Resolved drawable source of a `<*:blipFill><a:blip>` — the winning image
+/// part plus, when present, the Microsoft-2016 SVG twin surfaced separately so
+/// the renderer can prefer the vector original.
+pub(crate) struct BlipSource {
+    /// Zip path of the raster (preferred) or, when no raster is embedded, of the
+    /// SVG part itself, so the element is always drawable.
+    pub image_path: String,
+    /// MIME of whichever source wins (`image/svg+xml` for the SVG-only case).
+    pub mime_type: String,
+    /// Intrinsic PNG size for ink-fallback centering (`None` for non-PNG).
+    pub intrinsic_width_px: Option<u32>,
+    pub intrinsic_height_px: Option<u32>,
+    /// The SVG twin's zip path when the blip carries an `asvg:svgBlip`.
+    pub svg_image_path: Option<String>,
+}
+
+/// Resolve a `<a:blip>`'s drawable source from its parent `blip_fill` node.
+///
+/// Microsoft 2016 SVG extension: the real vector image rides inside
+/// `<a:blip><a:extLst>`, while `<a:blip r:embed>` carries a raster (PNG/JPEG)
+/// *fallback* for SVG-incapable clients. Resolve the SVG first so a picture that
+/// carries ONLY the svgBlip — with no raster `r:embed`, e.g. an icon inserted as
+/// a pure SVG — still parses instead of being dropped. The raster is optional; a
+/// pure-SVG picture omits it. A picture needs at least one drawable source: the
+/// raster is preferred as `image_path` (the renderer's srcRect / SVG-decode-
+/// failure fallback path); when no raster is embedded, fall back to the SVG part
+/// itself. Returns `None` when neither source resolves.
+///
+/// Shared by `parse_picture` and `parse_ole_preview_picture` so the ordinary and
+/// OLE-preview picture paths resolve blips identically.
+fn parse_picture_blip_effects(
+    blip_fill: roxmltree::Node<'_, '_>,
+    resolver: &dyn ooxml_common::color::ThemeResolver,
+    tint_mode: ooxml_common::color::TintMode,
+    part: &str,
+    rels: &HashMap<String, String>,
+) -> Vec<ooxml_common::blip::BlipEffect> {
+    let mut effects = ooxml_common::blip::parse_blip_effects(blip_fill, resolver, tint_mode);
+    ooxml_common::blip::resolve_blip_effect_images(&mut effects, &mut |rid| {
+        rels.get(rid).map(|target| resolve_path(part, target))
+    });
+    effects
+}
+
+pub(crate) fn resolve_blip_source(
+    blip_fill: roxmltree::Node<'_, '_>,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    zip: &mut PptxZip,
+) -> Option<BlipSource> {
+    let blip = child(blip_fill, "blip")?;
+
+    let svg_image_path = svg_blip_path(blip, slide_part, rels, zip);
+
+    // Raster blip (`<a:blip r:embed>` → zip path + intrinsic PNG size).
+    let raster: Option<(String, Option<(u32, u32)>)> = (|| {
+        let r_id = attr_r(&blip, "embed")?;
+        let rel_target = rels.get(&r_id)?;
+        let path = resolve_path(slide_part, rel_target);
+        // PNG dimensions live in the first 24 bytes. Do not inflate a potentially
+        // huge image merely to discover its intrinsic size.
+        let image_bytes = read_zip_head(zip, &path, 24).ok()?;
+        // Intrinsic PNG size for the ink-fallback centering (None for non-PNG,
+        // unchanged from the former png_size_from_data_url semantics).
+        let size = png_size_from_bytes(&image_bytes);
+        Some((path, size))
+    })();
+
+    let (image_path, mime_type, intrinsic_width_px, intrinsic_height_px) =
+        match (raster, svg_image_path.as_ref()) {
+            (Some((path, size)), _) => {
+                let mime = mime_from_ext(&path).to_owned();
+                let (w, h) = match size {
+                    Some((w, h)) => (Some(w), Some(h)),
+                    None => (None, None),
+                };
+                (path, mime, w, h)
+            }
+            (None, Some(svg)) => (svg.clone(), "image/svg+xml".to_owned(), None, None),
+            (None, None) => return None,
+        };
+
+    Some(BlipSource {
+        image_path,
+        mime_type,
+        intrinsic_width_px,
+        intrinsic_height_px,
+        svg_image_path,
+    })
+}
+
+pub(crate) fn parse_picture(
+    pic_node: roxmltree::Node<'_, '_>,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    zip: &mut PptxZip,
+) -> Option<PictureElement> {
+    let theme = theme_source.colors();
+    let sp_pr = child(pic_node, "spPr")?;
+    let xfrm_node = child(sp_pr, "xfrm")?;
+    let t = parse_xfrm(xfrm_node);
+
+    if t.cx == 0 || t.cy == 0 {
+        return None; // pictures always need explicit dimensions
+    }
+
+    let blip_fill = child(pic_node, "blipFill")?;
+    // Resolve the drawable blip source (raster preferred, SVG twin surfaced).
+    let BlipSource {
+        image_path,
+        mime_type,
+        intrinsic_width_px,
+        intrinsic_height_px,
+        svg_image_path,
+    } = resolve_blip_source(blip_fill, slide_part, rels, zip)?;
+
+    // ECMA-376 §20.1.9.8 — `<p:pic>` may carry `<a:custGeom>` inside `<p:spPr>`,
+    // in which case the bitmap is clipped to that custom path (e.g. a laptop
+    // silhouette). Re-use the same parser as for shapes so the renderer can
+    // build a Path2D and `ctx.clip()` before drawing the image.
+    let cust_geom = child(sp_pr, "custGeom")
+        .map(|geometry| parse_cust_geom(geometry, t.cx as f64, t.cy as f64));
+
+    let style_node = child(pic_node, "style");
+    let PictureShapeProperties {
+        stroke,
+        shadow,
+        inner_shadow,
+        glow,
+        soft_edge,
+        reflection,
+        scene3d,
+        sp3d,
+    } = resolve_picture_shape_properties(Some(sp_pr), style_node, None, theme_source);
+
+    let (prst_geom, prst_adjust) = parse_pic_prst_geom(sp_pr);
+    Some(PictureElement {
+        id: own_cnv_pr(pic_node).and_then(|node| attr(&node, "id")),
+        x: t.x,
+        y: t.y,
+        width: t.cx,
+        height: t.cy,
+        rotation: t.rot,
+        flip_h: t.flip_h,
+        flip_v: t.flip_v,
+        image_path,
+        mime_type,
+        svg_image_path,
+        intrinsic_width_px,
+        intrinsic_height_px,
+        stroke,
+        fill: parse_fill(sp_pr, theme),
+        prst_geom,
+        prst_adjust,
+        src_rect: parse_src_rect(blip_fill),
+        alpha: None, /* alpha is baked by the ordered blip chain */
+        // §20.1.8.23 `<a:duotone>` recolour, resolved through the slide's theme
+        // palette with PowerPoint's linear tint. `None` ⇒ no effect.
+        duotone: parse_blip_duotone(
+            blip_fill,
+            &PptxSchemeResolver { theme },
+            ooxml_common::color::TintMode::PowerPointLinear,
+        ),
+        blip_effects: parse_picture_blip_effects(
+            blip_fill,
+            &PptxSchemeResolver { theme },
+            ooxml_common::color::TintMode::PowerPointLinear,
+            slide_part,
+            rels,
+        ),
+        cust_geom,
+        shadow,
+        inner_shadow,
+        glow,
+        soft_edge,
+        reflection,
+        scene3d,
+        sp3d,
+    })
+}
+
+/// Build a `PictureElement` for an OLE preview `<p:pic>` that carries NO
+/// `<a:xfrm>` (so `parse_picture` returns None). The enclosing graphicFrame's
+/// `Transform` supplies placement and size. Only the blip resolution is
+/// borrowed from the ordinary picture path; every drawing decoration
+/// (custGeom, effects, srcRect …) that requires an spPr xfrm is irrelevant for
+/// an unstyled preview, so we keep them at their neutral defaults.
+pub(crate) fn parse_ole_preview_picture(
+    pic_node: roxmltree::Node<'_, '_>,
+    gf: &Transform,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    theme: &HashMap<String, String>,
+    zip: &mut PptxZip,
+) -> Option<PictureElement> {
+    if gf.cx == 0 || gf.cy == 0 {
+        return None; // no drawable box
+    }
+    let blip_fill = child(pic_node, "blipFill")?;
+    // Same blip resolution as the ordinary picture path (raster preferred, SVG
+    // twin surfaced), shared via `resolve_blip_source`.
+    let BlipSource {
+        image_path,
+        mime_type,
+        intrinsic_width_px,
+        intrinsic_height_px,
+        svg_image_path,
+    } = resolve_blip_source(blip_fill, slide_part, rels, zip)?;
+
+    Some(PictureElement {
+        id: own_cnv_pr(pic_node).and_then(|node| attr(&node, "id")),
+        x: gf.x,
+        y: gf.y,
+        width: gf.cx,
+        height: gf.cy,
+        rotation: gf.rot,
+        flip_h: gf.flip_h,
+        flip_v: gf.flip_v,
+        image_path,
+        mime_type,
+        svg_image_path,
+        intrinsic_width_px,
+        intrinsic_height_px,
+        stroke: None,
+        fill: None,
+        prst_geom: None,
+        prst_adjust: None,
+        src_rect: parse_src_rect(blip_fill),
+        alpha: None, /* alpha is baked by the ordered blip chain */
+        duotone: parse_blip_duotone(
+            blip_fill,
+            &PptxSchemeResolver { theme },
+            ooxml_common::color::TintMode::PowerPointLinear,
+        ),
+        blip_effects: parse_picture_blip_effects(
+            blip_fill,
+            &PptxSchemeResolver { theme },
+            ooxml_common::color::TintMode::PowerPointLinear,
+            slide_part,
+            rels,
+        ),
+        cust_geom: None,
+        shadow: None,
+        inner_shadow: None,
+        glow: None,
+        soft_edge: None,
+        reflection: None,
+        scene3d: None,
+        sp3d: None,
+    })
+}
+
+/// Decode (width, height) from raw PNG bytes by reading the IHDR chunk. Returns
+/// None for non-PNG payloads or malformed data (unchanged semantics from the
+/// former `png_size_from_data_url`, only the input is now raw bytes instead of
+/// a base64 data URL).
+pub(crate) fn png_size_from_bytes(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    Some((w, h))
+}
+
+/// If a `p:pic` declares an `a:audioFile` / `a:videoFile` in its `nvPr`
+/// (or the newer `p14:media` extension), emit a `MediaElement` with the
+/// poster image and the media bytes. Returns None for regular pictures.
+pub(crate) fn parse_media(
+    pic_node: roxmltree::Node<'_, '_>,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+) -> Option<MediaElement> {
+    let nv_pic_pr = child(pic_node, "nvPicPr")?;
+    let nv_pr = child(nv_pic_pr, "nvPr")?;
+
+    // A `<p:pic>` can carry several media references at once: the legacy
+    // `<a:videoFile>`/`<a:audioFile>` (r:embed or r:link) and the modern
+    // `<p14:media r:embed>` extension. We collect every reference and use the
+    // first that actually resolves, preferring an *embedded* ref over a
+    // *linked* one. Embedded refs always point at internal media we can read;
+    // a linked ref may target an External resource we cannot fetch, or its rId
+    // may be missing/unresolvable (caught below via `rels.get`). Trying embeds
+    // first means a present `<p14:media>` embed is used even when the deck also
+    // carries a videoFile link, instead of being shadowed and demoted to a
+    // poster-only Picture. (Note: parse_rels stores Id+Target and never reads
+    // TargetMode, so a real External link keeps its non-empty URL here.)
+    // (ECMA-376 §19.3.1.17/18 a:videoFile/a:audioFile; p14:media is a Microsoft
+    // extension.)
+    let av = nv_pr
+        .children()
+        .find(|n| n.is_element() && matches!(n.tag_name().name(), "videoFile" | "audioFile"));
+    let av_kind: Option<&str> = av.map(|n| {
+        if n.tag_name().name() == "videoFile" {
+            "video"
+        } else {
+            "audio"
+        }
+    });
+    let av_embed = av.and_then(|n| attr_r(&n, "embed"));
+    let av_link = av.and_then(|n| attr_r(&n, "link"));
+
+    // `<p14:media>` lives in `nvPr > extLst > ext`.
+    let p14 = child(nv_pr, "extLst").and_then(|ext_lst| {
+        ext_lst
+            .children()
+            .filter(|c| c.is_element())
+            .find_map(|ext| {
+                ext.children()
+                    .find(|m| m.is_element() && m.tag_name().name() == "media")
+            })
+    });
+    let p14_embed = p14.and_then(|n| attr_r(&n, "embed"));
+    let p14_link = p14.and_then(|n| attr_r(&n, "link"));
+
+    // Preference: embedded refs (always internal) before linked refs (a link may
+    // be External / unresolved); within each, the kind-bearing
+    // videoFile/audioFile before the kind-less p14:media.
+    let candidates = [
+        (av_kind, av_embed),
+        (None, p14_embed),
+        (av_kind, av_link),
+        (None, p14_link),
+    ];
+    let (media_kind, media_path, mime) = candidates.into_iter().find_map(|(kind_hint, rid)| {
+        let rid = rid?;
+        let target = rels.get(&rid)?;
+        if target.is_empty() {
+            return None; // malformed rel with an empty Target (External links carry a non-empty URL)
+        }
+        let path = resolve_path(slide_part, target);
+        let mime = mime_from_ext(&path);
+        let kind = match kind_hint {
+            Some(k) => k.to_string(),
+            None if mime.starts_with("video/") => "video".to_string(),
+            None if mime.starts_with("audio/") => "audio".to_string(),
+            None => return None, // p14:media with an unknown MIME — try the next ref
+        };
+        Some((kind, path, mime))
+    })?;
+
+    // Geometry
+    let sp_pr = child(pic_node, "spPr")?;
+    let xfrm_node = child(sp_pr, "xfrm")?;
+    let t = parse_xfrm(xfrm_node);
+    if t.cx == 0 || t.cy == 0 {
+        return None;
+    }
+
+    // Poster image (from blipFill). Optional — the renderer falls back to a
+    // solid fill when the poster is absent or still loading. We emit just the
+    // zip path so the main thread can lazily `getMedia` it; embedding large
+    // posters inline ballooned the parse output for video-heavy decks.
+    let (poster_path, poster_mime_type) = (|| -> Option<(String, String)> {
+        let blip_fill = child(pic_node, "blipFill")?;
+        let r_id = child(blip_fill, "blip").and_then(|b| attr_r(&b, "embed"))?;
+        let rel_target = rels.get(&r_id)?;
+        let image_path = resolve_path(slide_part, rel_target);
+        let img_mime = mime_from_ext(&image_path).to_string();
+        Some((image_path, img_mime))
+    })()
+    .unwrap_or_default();
+
+    Some(MediaElement {
+        id: own_cnv_pr(pic_node).and_then(|node| attr(&node, "id")),
+        x: t.x,
+        y: t.y,
+        width: t.cx,
+        height: t.cy,
+        rotation: t.rot,
+        flip_h: t.flip_h,
+        flip_v: t.flip_v,
+        media_kind,
+        poster_path,
+        poster_mime_type,
+        media_path,
+        mime_type: mime.to_string(),
+    })
+}
+
+/// Parse ppt/tableStyles.xml into a map of styleId → TableStyleDef.
+pub(crate) fn parse_table_styles_xml(
+    xml: &str,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+) -> HashMap<String, TableStyleDef> {
+    parse_table_styles_xml_with_relationships(xml, theme_source, &HashMap::new())
+}
+
+/// Explicit style blips belong to tableStyles.xml; fillRef blips belong to
+/// the theme. Never resolve either against the consuming slide's rIds.
+fn parse_table_styles_xml_with_relationships(
+    xml: &str,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    relationships: &HashMap<String, String>,
+) -> HashMap<String, TableStyleDef> {
+    let theme = theme_source.colors();
+    let mut map = HashMap::new();
+    let Ok(doc) = crate::parse_preflighted_pptx_xml(xml) else {
+        return map;
+    };
+    let root = doc.root_element();
+    for style_node in root
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "tblStyle")
+    {
+        let Some(style_id) = attr(&style_node, "styleId") else {
+            continue;
+        };
+        let style_id = style_id.to_string();
+        let mut def = TableStyleDef::default();
+
+        let parse_on_off_default = |value: Option<String>| -> Option<bool> {
+            match value.as_deref() {
+                Some("on" | "1" | "true") => Some(true),
+                Some("off" | "0" | "false") => Some(false),
+                // ST_OnOffStyleType `def` inherits; it is not explicit off.
+                Some("def") | None => None,
+                _ => None,
+            }
+        };
+        let parse_tc_text = |role: roxmltree::Node<'_, '_>| -> TableTextStyle {
+            let Some(text) = child(role, "tcTxStyle") else {
+                return TableTextStyle::default();
+            };
+            // EG_ThemeableFontStyles: `fontRef` names the theme major/minor
+            // collection (idx none: no font); `font` carries its own faces.
+            let font = child(text, "fontRef")
+                .and_then(|font_ref| attr(&font_ref, "idx"))
+                .and_then(|idx| match idx.as_str() {
+                    "major" => Some(TableStyleFont::Collection("+mj")),
+                    "minor" => Some(TableStyleFont::Collection("+mn")),
+                    _ => None,
+                })
+                .or_else(|| {
+                    child(text, "font").map(|font| {
+                        let face =
+                            |name: &str| child(font, name).and_then(|n| attr(&n, "typeface"));
+                        TableStyleFont::Faces {
+                            latin: face("latin"),
+                            ea: face("ea"),
+                            cs: face("cs"),
+                        }
+                    })
+                });
+            TableTextStyle {
+                color: parse_color_node(text, theme),
+                bold: parse_on_off_default(attr(&text, "b")),
+                italic: parse_on_off_default(attr(&text, "i")),
+                font,
+            }
+        };
+
+        // ECMA-376 §20.1.4.2.4 `CT_TableCellBorderStyle` declares left,
+        // right, top, bottom, insideH, and insideV independently. A role's
+        // explicit no-fill line is retained as `NoLine`; absence inherits.
+        let parse_part = |role: roxmltree::Node<'_, '_>| -> TablePartStyle {
+            let Some(tc_style) = child(role, "tcStyle") else {
+                return TablePartStyle {
+                    text: parse_tc_text(role),
+                    ..Default::default()
+                };
+            };
+            // §20.1.4.2.27: the role fill is `fill` or `fillRef`, never a fill
+            // child directly on `tcStyle`.
+            let fill = child(tc_style, "fill")
+                .and_then(|fill| {
+                    parse_table_blip_fill(fill, theme, relationships, "ppt/tableStyles.xml")
+                        .or_else(|| parse_table_style_fill(fill, theme))
+                })
+                .or_else(|| {
+                    child(tc_style, "fillRef").and_then(|fill_ref| {
+                        let index = attr(&fill_ref, "idx")
+                            .and_then(|value| value.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        if index == 0 {
+                            Some(Fill::None)
+                        } else {
+                            parse_style_matrix_fill_from_source(fill_ref, theme_source).or_else(
+                                || {
+                                    parse_color_node(fill_ref, theme)
+                                        .map(|color| Fill::Solid { color })
+                                },
+                            )
+                        }
+                    })
+                });
+            let tc_bdr = child(tc_style, "tcBdr");
+            let parse_side = |side: &str| -> TableLineStyle {
+                let Some(side_node) = tc_bdr.and_then(|borders| child(borders, side)) else {
+                    return TableLineStyle::Unspecified;
+                };
+                if let Some(line) = child(side_node, "ln") {
+                    if child(line, "noFill").is_some() {
+                        return TableLineStyle::NoLine;
+                    }
+                    return TableLineStyle::from_stroke(parse_stroke(line, theme));
+                }
+                if let Some(line_ref) = child(side_node, "lnRef") {
+                    let index = attr(&line_ref, "idx")
+                        .and_then(|value| value.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    if index == 0 {
+                        return TableLineStyle::NoLine;
+                    }
+                    if style_line_ref_is_explicit_no_line(line_ref, theme_source) {
+                        return TableLineStyle::NoLine;
+                    }
+                    return TableLineStyle::from_stroke(resolve_style_line_ref(
+                        line_ref,
+                        theme_source,
+                    ));
+                }
+                TableLineStyle::Unspecified
+            };
+            TablePartStyle {
+                fill,
+                text: parse_tc_text(role),
+                borders: TableCellBorderStyle {
+                    left: parse_side("left"),
+                    right: parse_side("right"),
+                    top: parse_side("top"),
+                    bottom: parse_side("bottom"),
+                    inside_h: parse_side("insideH"),
+                    inside_v: parse_side("insideV"),
+                    diagonal_tl: parse_side("tl2br"),
+                    diagonal_tr: parse_side("tr2bl"),
+                },
+            }
+        };
+
+        // ECMA-376 §20.1.4.2.25: tblBg is a table-sized paint below the
+        // thirteen cell roles. Keeping it separate preserves gradients and
+        // the alpha composition of band1H/band1V over that background.
+        // Background effects (effect/effectRef) are not supported here.
+        def.background = child(style_node, "tblBg").and_then(|background| {
+            child(background, "fill")
+                .and_then(|fill| {
+                    parse_table_blip_fill(fill, theme, relationships, "ppt/tableStyles.xml")
+                        .or_else(|| parse_table_style_fill(fill, theme))
+                })
+                .or_else(|| {
+                    child(background, "fillRef").and_then(|reference| {
+                        parse_style_matrix_fill_from_source(reference, theme_source)
+                    })
+                })
+        });
+
+        macro_rules! parse_role {
+            ($xml_name:literal, $field:ident) => {
+                if let Some(role) = child(style_node, $xml_name) {
+                    def.$field = parse_part(role);
+                }
+            };
+        }
+        parse_role!("wholeTbl", whole_tbl);
+        // The cell's default grid survives an unspecified whole-table
+        // border; an explicit noFill line removes it. Tagged PDF controls
+        // distinguish a custom wholeTbl with empty tcBdr (1pt black grid)
+        // from the documented No Style, No Grid definition (all NoLine).
+        let grid = TableLineStyle::from_stroke(Some(table_style_presets::stroke("000000")));
+        for side in [
+            &mut def.whole_tbl.borders.left,
+            &mut def.whole_tbl.borders.right,
+            &mut def.whole_tbl.borders.top,
+            &mut def.whole_tbl.borders.bottom,
+            &mut def.whole_tbl.borders.inside_h,
+            &mut def.whole_tbl.borders.inside_v,
+        ] {
+            if matches!(side, TableLineStyle::Unspecified) {
+                *side = grid.clone();
+            }
+        }
+
+        parse_role!("band1H", band1_h);
+        parse_role!("band2H", band2_h);
+        parse_role!("band1V", band1_v);
+        parse_role!("band2V", band2_v);
+        parse_role!("firstRow", first_row);
+        parse_role!("lastRow", last_row);
+        parse_role!("firstCol", first_col);
+        parse_role!("lastCol", last_col);
+        parse_role!("nwCell", nw_cell);
+        parse_role!("neCell", ne_cell);
+        parse_role!("swCell", sw_cell);
+        parse_role!("seCell", se_cell);
+
+        map.insert(style_id, def);
+    }
+    map
+}
+
+#[derive(Clone, Copy)]
+enum TablePartRegion {
+    Whole,
+    Row,
+    Column,
+    Cell,
+}
+
+/// Resolve the table-style cascade for one physical cell. ECMA-376 §21.1.3.11
+/// defines thirteen `CT_TablePartStyle` components. PowerPoint applies the
+/// general table role first, then banding, edge roles, and finally the corner
+/// intersection. A role only replaces fields it actually declares.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_table_cell_style(
+    style: &TableStyleDef,
+    flags: TableStyleFlags,
+    row: usize,
+    col: usize,
+    row_count: usize,
+    col_count: usize,
+) -> ResolvedTableCellStyle {
+    let last_row = row_count.saturating_sub(1);
+    let last_col = col_count.saturating_sub(1);
+    let mut resolved = ResolvedTableCellStyle::default();
+
+    let overlay =
+        |resolved: &mut ResolvedTableCellStyle, role: &TablePartStyle, region: TablePartRegion| {
+            if role.fill.is_some() {
+                resolved.fill = role.fill.clone();
+            }
+            resolved.text.overlay(&role.text);
+
+            resolved.diagonal_tl.overlay(&role.borders.diagonal_tl);
+            resolved.diagonal_tr.overlay(&role.borders.diagonal_tr);
+
+            let overlay_line = |target: &mut TableLineStyle, source: &TableLineStyle| {
+                target.overlay(source);
+            };
+            match region {
+                TablePartRegion::Whole => {
+                    overlay_line(
+                        &mut resolved.border_l,
+                        if col == 0 {
+                            &role.borders.left
+                        } else {
+                            &role.borders.inside_v
+                        },
+                    );
+                    overlay_line(
+                        &mut resolved.border_r,
+                        if col == last_col {
+                            &role.borders.right
+                        } else {
+                            &role.borders.inside_v
+                        },
+                    );
+                    overlay_line(
+                        &mut resolved.border_t,
+                        if row == 0 {
+                            &role.borders.top
+                        } else {
+                            &role.borders.inside_h
+                        },
+                    );
+                    overlay_line(
+                        &mut resolved.border_b,
+                        if row == last_row {
+                            &role.borders.bottom
+                        } else {
+                            &role.borders.inside_h
+                        },
+                    );
+                }
+                TablePartRegion::Row => {
+                    overlay_line(
+                        &mut resolved.border_l,
+                        if col == 0 {
+                            &role.borders.left
+                        } else {
+                            &role.borders.inside_v
+                        },
+                    );
+                    overlay_line(
+                        &mut resolved.border_r,
+                        if col == last_col {
+                            &role.borders.right
+                        } else {
+                            &role.borders.inside_v
+                        },
+                    );
+                    overlay_line(&mut resolved.border_t, &role.borders.top);
+                    overlay_line(&mut resolved.border_b, &role.borders.bottom);
+                }
+                TablePartRegion::Column => {
+                    overlay_line(&mut resolved.border_l, &role.borders.left);
+                    overlay_line(&mut resolved.border_r, &role.borders.right);
+                    overlay_line(
+                        &mut resolved.border_t,
+                        if row == 0 {
+                            &role.borders.top
+                        } else {
+                            &role.borders.inside_h
+                        },
+                    );
+                    overlay_line(
+                        &mut resolved.border_b,
+                        if row == last_row {
+                            &role.borders.bottom
+                        } else {
+                            &role.borders.inside_h
+                        },
+                    );
+                }
+                TablePartRegion::Cell => {
+                    overlay_line(&mut resolved.border_l, &role.borders.left);
+                    overlay_line(&mut resolved.border_r, &role.borders.right);
+                    overlay_line(&mut resolved.border_t, &role.borders.top);
+                    overlay_line(&mut resolved.border_b, &role.borders.bottom);
+                }
+            }
+        };
+
+    overlay(&mut resolved, &style.whole_tbl, TablePartRegion::Whole);
+    if flags.band_row {
+        let band_row = row.saturating_sub(usize::from(flags.first_row));
+        overlay(
+            &mut resolved,
+            if band_row % 2 == 0 {
+                &style.band1_h
+            } else {
+                &style.band2_h
+            },
+            TablePartRegion::Row,
+        );
+    }
+    // ECMA-376 §20.1.4.2.2/.4 define vertical band roles. PowerPoint
+    // applies them to the interior
+    // columns after enabled first/last-column regions are reserved. Tagged
+    // PDF combined-flag controls distinguish this from overwriting a row
+    // band: an edge column retains its horizontal band but gets no vertical
+    // band fill (both-bands and all-flags counterexamples).
+    if flags.band_col && !(flags.first_col && col == 0 || flags.last_col && col == last_col) {
+        let band_col = col.saturating_sub(usize::from(flags.first_col));
+        overlay(
+            &mut resolved,
+            if band_col % 2 == 0 {
+                &style.band1_v
+            } else {
+                &style.band2_v
+            },
+            TablePartRegion::Column,
+        );
+    }
+    if flags.first_row && row == 0 {
+        overlay(&mut resolved, &style.first_row, TablePartRegion::Row);
+    }
+    if flags.last_row && row == last_row {
+        overlay(&mut resolved, &style.last_row, TablePartRegion::Row);
+    }
+    if flags.first_col && col == 0 {
+        overlay(&mut resolved, &style.first_col, TablePartRegion::Column);
+    }
+    if flags.last_col && col == last_col {
+        overlay(&mut resolved, &style.last_col, TablePartRegion::Column);
+    }
+    if flags.first_row && row == 0 && flags.first_col && col == 0 {
+        overlay(&mut resolved, &style.nw_cell, TablePartRegion::Cell);
+    }
+    if flags.first_row && row == 0 && flags.last_col && col == last_col {
+        overlay(&mut resolved, &style.ne_cell, TablePartRegion::Cell);
+    }
+    if flags.last_row && row == last_row && flags.first_col && col == 0 {
+        overlay(&mut resolved, &style.sw_cell, TablePartRegion::Cell);
+    }
+    if flags.last_row && row == last_row && flags.last_col && col == last_col {
+        overlay(&mut resolved, &style.se_cell, TablePartRegion::Cell);
+    }
+
+    resolved
+}
+
+/// The list-level base a table cell's text inherits, built before the cell's
+/// own text is parsed so its lstStyle, paragraph defRPr and runs apply over it
+/// and every theme token resolves with the completed cascade (issue #1627).
+///
+/// * Latin: the table style's tcTxStyle face, else the theme minor font, else
+///   the hard default. Observed: a cell of a built-in table style rendered in
+///   the master theme's minor font even when defaultTextStyle named another
+///   face (issue #1620); a cell of no table style, or of a custom style whose
+///   tcTxStyle names no font, also rendered in the theme minor font at every
+///   level, not in the defaultTextStyle or master otherStyle face (#1628). A
+///   style fontRef whose collection has an empty Latin face gives Arial.
+/// * ea/cs: a tcTxStyle `fontRef` is the CT_FontReference a shape's p:style
+///   uses; the text-box controls (#1627 N13, N20, I26, P31-P35) and the
+///   table-lang controls show a fontRef naming its collection for the ea and
+///   cs slots as well as Latin. A cell without a style font takes the minor
+///   collection like its Latin face; a tcTxStyle `<a:font>` supplies its own
+///   authored ea/cs. A token or literal authored in the cell overrides it,
+///   `typeface=""` included.
+/// * No list-style language or faces: cells take neither the defaultTextStyle
+///   nor the otherStyle faces (#1628), and the #1627 table-lang controls show
+///   no defaultTextStyle lang (ja-JP, ko-KR, he-IL) or literal ea/cs reaching
+///   a cell, styled or not, while the text-box twins took them. Only the
+///   cell's own lang / altLang apply.
+pub(crate) fn table_cell_chain(
+    style_font: Option<&TableStyleFont>,
+    theme: &HashMap<String, String>,
+) -> LevelRunProperties {
+    let theme_minor = || resolve_latin_face("+mn-lt", theme);
+    let (face, ea, cs) = match style_font {
+        // A fontRef collection holds for ea/cs whatever its Latin face; an
+        // empty Latin face draws in Arial (#1627 table-lang TE*, like a
+        // shape's fontRef, XE*).
+        Some(TableStyleFont::Collection(set)) => (
+            resolve_latin_face(&format!("{set}-lt"), theme),
+            Some(format!("{set}-ea")),
+            Some(format!("{set}-cs")),
+        ),
+        // `<a:font>` faces are authored values: a Latin token naming an empty
+        // slot is unspecified and the cell falls through to the theme minor
+        // face (#1620 / #1628 behaviour); ea/cs are used as authored.
+        Some(TableStyleFont::Faces { latin, ea, cs }) => (
+            latin
+                .as_deref()
+                .and_then(|face| resolve_latin_face(face, theme))
+                .or_else(theme_minor),
+            ea.clone(),
+            cs.clone(),
+        ),
+        None => (
+            theme_minor(),
+            Some("+mn-ea".to_owned()),
+            Some("+mn-cs".to_owned()),
+        ),
+    };
+    let face = face.or_else(|| Some(HARD_DEFAULT_LATIN_FACE.to_owned()));
+    std::array::from_fn(|_| {
+        RunProperties::script_base(ea.clone(), cs.clone(), None, None)
+            // Sizes stay on the level-size tier (`TableTextLevels`), which
+            // the renderer applies to runs without their own size.
+            .with_chain_face_and_size(face.clone(), None)
+    })
+}
+
+/// Apply the resolved style below direct `tcPr` formatting. This separate step
+/// makes the precedence rule testable without constructing a complete package.
+pub(crate) fn apply_resolved_table_cell_style(
+    cell: &mut TableCell,
+    effective: ResolvedTableCellStyle,
+) {
+    if !cell.has_direct_fill {
+        cell.fill = effective.fill;
+    }
+    if cell.text_color.is_none() {
+        cell.text_color = effective.text.color;
+    }
+    if let (Some(b), Some(tb)) = (effective.text.bold, cell.text_body.as_mut()) {
+        if tb.default_bold.is_none() {
+            tb.default_bold = Some(b);
+        }
+    }
+    if let (Some(i), Some(tb)) = (effective.text.italic, cell.text_body.as_mut()) {
+        if tb.default_italic.is_none() {
+            tb.default_italic = Some(i);
+        }
+    }
+    if !cell.has_direct_border_l {
+        effective.border_l.apply_to(&mut cell.border_l);
+    }
+    if !cell.has_direct_border_r {
+        effective.border_r.apply_to(&mut cell.border_r);
+    }
+    if !cell.has_direct_border_t {
+        effective.border_t.apply_to(&mut cell.border_t);
+    }
+    if !cell.has_direct_border_b {
+        effective.border_b.apply_to(&mut cell.border_b);
+    }
+    if !cell.has_direct_diagonal_tl {
+        effective.diagonal_tl.apply_to(&mut cell.diagonal_tl);
+    }
+    if !cell.has_direct_diagonal_tr {
+        effective.diagonal_tr.apply_to(&mut cell.diagonal_tr);
+    }
+}
+
+pub(crate) fn parse_table(
+    tbl: roxmltree::Node<'_, '_>,
+    t: &Transform,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    rels: &HashMap<String, String>,
+    source_part: &str,
+    default_text: &DefaultTextLevels,
+    zip: &mut PptxZip,
+) -> Option<TableElement> {
+    let theme = theme_source.colors();
+    // Parse tblPr attributes and look up table style
+    let tbl_pr = child(tbl, "tblPr");
+    let style_id = tbl_pr
+        .and_then(|n| child(n, "tableStyleId"))
+        .and_then(|n| n.text())
+        .map(|s| s.to_string());
+    let flag = |attr_name: &str| -> bool {
+        tbl_pr
+            .and_then(|n| attr(&n, attr_name))
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false)
+    };
+    let first_row = flag("firstRow");
+    let last_row = flag("lastRow");
+    // ECMA-376 §21.1.3.13 (a:tblPr@rtl): right-to-left table layout.
+    let rtl = flag("rtl");
+    let band_row = flag("bandRow");
+    let band_col = flag("bandCol");
+    let first_col = flag("firstCol");
+    let last_col = flag("lastCol");
+
+    // Load style definitions once
+    let table_styles_xml = read_zip_str(zip, "ppt/tableStyles.xml").ok();
+    let style_relationships = read_zip_str(zip, "ppt/_rels/tableStyles.xml.rels")
+        .ok()
+        .map(|xml| {
+            ooxml_common::rels::parse_rels(&xml)
+                .into_iter()
+                .filter(|(_, rel)| rel.mode == ooxml_common::rels::TargetMode::Internal)
+                .map(|(id, rel)| (id, rel.target))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let table_styles = table_styles_xml
+        .as_deref()
+        .map(|xml| {
+            parse_table_styles_xml_with_relationships(xml, theme_source, &style_relationships)
+        })
+        .unwrap_or_default();
+    let style_owned: Option<TableStyleDef> = style_id
+        .as_deref()
+        .and_then(|id| {
+            table_styles
+                .get(id)
+                .cloned()
+                .or_else(|| table_style_presets::lookup_builtin_table_style(id, theme_source))
+        })
+        .or_else(|| {
+            // [MS-OE376] §2.1.1343(a): an unresolved ID applies no table style.
+            // Tagged PowerPoint controls for omitted tblPr/ID, unknown and zero
+            // IDs (flags absent/all enabled) retain a plain 1pt black grid, even
+            // with a contrasting tblStyleLst default. Direct cell formatting wins.
+            table_style_presets::lookup_builtin_table_style(
+                "{5940675A-B579-460E-94D1-54222C63F5DA}",
+                theme_source,
+            )
+        });
+    let style = style_owned.as_ref();
+
+    let cols: Vec<i64> = tbl
+        .children()
+        .find(|n| n.is_element() && n.tag_name().name() == "tblGrid")
+        .map(|grid| {
+            grid.children()
+                .filter(|n| n.is_element() && n.tag_name().name() == "gridCol")
+                .filter_map(|n| attr_i64(&n, "w"))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if cols.is_empty() {
+        return None;
+    }
+
+    let col_count = cols.len();
+
+    let style_flags = TableStyleFlags {
+        first_row,
+        last_row,
+        first_col,
+        last_col,
+        band_row,
+        band_col,
+    };
+    let row_nodes: Vec<_> = tbl
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "tr")
+        .collect();
+    let row_count = row_nodes.len();
+    // The table-style tier of each cell's text is known from its position, so
+    // the cell text is parsed over it (see `table_cell_chain`).
+    let cell_font = |ri: usize, ci: usize| -> Option<TableStyleFont> {
+        let s = style?;
+        resolve_table_cell_style(s, style_flags, ri, ci, row_count, col_count)
+            .text
+            .font
+    };
+    let mut rows: Vec<TableRow> = row_nodes
+        .iter()
+        .enumerate()
+        .map(|(ri, tr)| {
+            parse_table_row_with(
+                *tr,
+                theme,
+                rels,
+                source_part,
+                &default_text.table,
+                zip,
+                |ci| table_cell_chain(cell_font(ri, ci).as_ref(), theme),
+            )
+        })
+        .collect();
+
+    // Apply table style fills and borders to each cell
+    for (ri, row) in rows.iter_mut().enumerate() {
+        for (ci, cell) in row.cells.iter_mut().enumerate() {
+            if let Some(s) = style {
+                let effective =
+                    resolve_table_cell_style(s, style_flags, ri, ci, row_count, col_count);
+
+                // Direct `tcPr` formatting is the final tier. The presence flags
+                // preserve an authored noFill/no-line, which is not equivalent to
+                // an omitted property inheriting the table style.
+                apply_resolved_table_cell_style(cell, effective);
+            }
+        }
+    }
+
+    Some(TableElement {
+        math_fallback: None,
+        // §21.1.3.15 CT_TableProperties admits direct EG_FillProperties.
+        // Direct table formatting overrides the style's tblBg, including noFill.
+        background: tbl_pr
+            .and_then(|properties| {
+                parse_table_blip_fill(properties, theme, rels, source_part)
+                    .or_else(|| parse_fill(properties, theme))
+            })
+            .or_else(|| style.and_then(|s| s.background.clone())),
+        id: None,
+        x: t.x,
+        y: t.y,
+        width: t.cx,
+        height: t.cy,
+        rotation: t.rot,
+        flip_h: t.flip_h,
+        flip_v: t.flip_v,
+        cols,
+        rows,
+        rtl,
+    })
+}
+
+fn parse_table_row_with(
+    tr: roxmltree::Node<'_, '_>,
+    theme: &HashMap<String, String>,
+    rels: &HashMap<String, String>,
+    source_part: &str,
+    table_text: &TableTextLevels,
+    zip: &mut PptxZip,
+    chain_for: impl Fn(usize) -> LevelRunProperties,
+) -> TableRow {
+    let height = attr_i64(&tr, "h").unwrap_or(0);
+    let cells: Vec<TableCell> = tr
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "tc")
+        .enumerate()
+        .map(|(ci, tc)| {
+            parse_table_cell_with_chain(
+                tc,
+                theme,
+                rels,
+                source_part,
+                table_text,
+                &chain_for(ci),
+                zip,
+            )
+        })
+        .collect();
+    TableRow { height, cells }
+}
+
+/// A table cell outside any table-style context (tests).
+#[cfg(test)]
+pub(crate) fn parse_table_cell(
+    tc: roxmltree::Node<'_, '_>,
+    theme: &HashMap<String, String>,
+    rels: &HashMap<String, String>,
+    source_part: &str,
+    table_text: &TableTextLevels,
+    zip: &mut PptxZip,
+) -> TableCell {
+    let chain = table_cell_chain(None, theme);
+    parse_table_cell_with_chain(tc, theme, rels, source_part, table_text, &chain, zip)
+}
+
+/// CT_TableCellProperties and CT_TableStyleCellStyle both admit blipFill
+/// (§§21.1.3.17 / 20.1.4.2.27). The generic colour fill parser deliberately
+/// cannot resolve image relationships; use the same blip grammar as shapes.
+/// OPC Part 2 §6.4.1 resolves against the owning slide/layout/master part
+/// for direct fills, or tableStyles.xml for explicit style fills.
+fn parse_table_blip_fill(
+    node: roxmltree::Node<'_, '_>,
+    theme: &HashMap<String, String>,
+    relationships: &HashMap<String, String>,
+    source_part: &str,
+) -> Option<Fill> {
+    let blip = child(node, "blipFill")?;
+    crate::fill::parse_blip_fill(blip, theme, &mut |id| {
+        relationships
+            .get(id)
+            .map(|target| resolve_path(source_part, target))
+    })
+}
+
+fn parse_table_cell_with_chain(
+    tc: roxmltree::Node<'_, '_>,
+    theme: &HashMap<String, String>,
+    rels: &HashMap<String, String>,
+    source_part: &str,
+    table_text: &TableTextLevels,
+    chain: &LevelRunProperties,
+    zip: &mut PptxZip,
+) -> TableCell {
+    let tc_pr = child(tc, "tcPr");
+    // tcPr > anchor controls vertical text alignment within the cell
+    let anchor = tc_pr
+        .and_then(|n| attr(&n, "anchor"))
+        .map(|a| a.to_string());
+    let text_direction = tc_pr.and_then(|n| attr(&n, "vert"));
+    // Table-cell margins (tcPr marL/marT/marR/marB) play the role of the
+    // inherited insets for the cell's text body.
+    let text_insets = tc_pr.map(|n| InheritedBodyPr {
+        insets: [
+            attr_i64(&n, "marL"),
+            attr_i64(&n, "marT"),
+            attr_i64(&n, "marR"),
+            attr_i64(&n, "marB"),
+        ],
+        ..InheritedBodyPr::default()
+    });
+    let text_body = child(tc, "txBody").map(|n| {
+        let mut body = parse_text_body(
+            n,
+            theme,
+            rels,
+            source_part,
+            None,
+            // Master otherStyle sizes (`TableTextLevels`); the table-style
+            // face tier is in `chain` (`table_cell_chain`).
+            table_text.sizes,
+            std::array::from_fn(|_| None),
+            chain.clone(),
+            table_text.indents,
+            &empty_level_bullets(),
+            None,
+            None,
+            None,
+            None, // inherited_reflection
+            anchor,
+            text_insets,
+            None, // inherited_alignment
+            &table_text.alignments,
+            None,               // inherited_ea_ln_brk
+            None,               // inherited_font_algn
+            Default::default(), // inherited_spacing
+            // Every level carries an explicit marL (`TableTextLevels`).
+            [0; 9],
+            zip,
+        );
+        // ECMA-376 §21.1.3.17: cell margins belong to tcPr (defaults
+        // 0.1in horizontally and 0.05in vertically). Tagged PowerPoint PDF
+        // controls with bodyPr 9pt and tcPr 1pt retain the 1pt cell margins;
+        // bodyPr insets do not override these cell-owned properties.
+        let margin = |name, default| tc_pr.and_then(|n| attr_i64(&n, name)).unwrap_or(default);
+        body.l_ins = margin("marL", 91_440);
+        body.r_ins = margin("marR", 91_440);
+        body.t_ins = margin("marT", 45_720);
+        body.b_ins = margin("marB", 45_720);
+        // Table-cell text direction is authored on tcPr rather than txBody's
+        // bodyPr (ECMA-376 §21.1.3.17 CT_TableCellProperties@vert).
+        if let Some(direction) = text_direction.as_deref() {
+            body.vert = direction.to_owned();
+        }
+        body
+    });
+
+    let fill = tc_pr.and_then(|n| {
+        parse_table_blip_fill(n, theme, rels, source_part).or_else(|| parse_fill(n, theme))
+    });
+
+    // ECMA-376 §21.1.3.17 (`CT_TableCellProperties`) makes direct formatting
+    // the final cascade tier. Presence must be tracked separately because
+    // direct `noFill`/no-line legitimately parse to no painted stroke.
+    let has_direct_fill = tc_pr.is_some_and(|n| {
+        [
+            "noFill",
+            "solidFill",
+            "gradFill",
+            "blipFill",
+            "pattFill",
+            "grpFill",
+        ]
+        .iter()
+        .any(|name| child(n, name).is_some())
+    });
+    let has_direct_border_l = tc_pr.is_some_and(|n| child(n, "lnL").is_some());
+    let has_direct_border_r = tc_pr.is_some_and(|n| child(n, "lnR").is_some());
+    let has_direct_border_t = tc_pr.is_some_and(|n| child(n, "lnT").is_some());
+    let has_direct_border_b = tc_pr.is_some_and(|n| child(n, "lnB").is_some());
+    let has_direct_diagonal_tl = tc_pr.is_some_and(|n| child(n, "lnTlToBr").is_some());
+    let has_direct_diagonal_tr = tc_pr.is_some_and(|n| child(n, "lnBlToTr").is_some());
+
+    let border_l = tc_pr
+        .and_then(|n| child(n, "lnL"))
+        .and_then(|n| parse_stroke(n, theme));
+    let border_r = tc_pr
+        .and_then(|n| child(n, "lnR"))
+        .and_then(|n| parse_stroke(n, theme));
+    let border_t = tc_pr
+        .and_then(|n| child(n, "lnT"))
+        .and_then(|n| parse_stroke(n, theme));
+    let border_b = tc_pr
+        .and_then(|n| child(n, "lnB"))
+        .and_then(|n| parse_stroke(n, theme));
+    // Diagonal borders: lnTlToBr (top-left→bottom-right) and lnBlToTr (bottom-left→top-right)
+    // These are CT_LineProperties elements (same structure as lnL/lnR/lnT/lnB)
+    let diagonal_tl = tc_pr
+        .and_then(|n| child(n, "lnTlToBr"))
+        .and_then(|n| parse_stroke(n, theme));
+    let diagonal_tr = tc_pr
+        .and_then(|n| child(n, "lnBlToTr"))
+        .and_then(|n| parse_stroke(n, theme));
+
+    let grid_span: u32 = attr(&tc, "gridSpan")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let row_span: u32 = attr(&tc, "rowSpan")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let h_merge = attr(&tc, "hMerge")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    let v_merge = attr(&tc, "vMerge")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+
+    TableCell {
+        text_body,
+        // CT_TableCellProperties@horzOverflow defaults to clip. Keep authored
+        // choices on the cell rather than borrowing shape bodyPr overflow.
+        // An invalid token cannot enable overflow: the omitted/default path clips.
+        horz_overflow: tc_pr
+            .and_then(|n| attr(&n, "horzOverflow"))
+            .and_then(|value| {
+                // ST_TextHorzOverflowType derives from xsd:token. For these
+                // single-word enum values, XML whitespace collapse reduces to
+                // trimming U+0020, TAB, LF and CR. Internal whitespace cannot
+                // match either value; Unicode whitespace is not XML whitespace.
+                match value.trim_matches(&[' ', '\t', '\n', '\r'][..]) {
+                    "clip" => Some("clip".to_owned()),
+                    "overflow" => Some("overflow".to_owned()),
+                    _ => None,
+                }
+            }),
+        fill,
+        has_direct_fill,
+        text_color: None,
+        border_l,
+        border_r,
+        border_t,
+        border_b,
+        has_direct_border_l,
+        has_direct_border_r,
+        has_direct_border_t,
+        has_direct_border_b,
+        has_direct_diagonal_tl,
+        has_direct_diagonal_tr,
+        diagonal_tl,
+        diagonal_tr,
+        grid_span,
+        row_span,
+        h_merge,
+        v_merge,
+    }
+}
+
+/// Walk a master/layout `<p:cSld><p:spTree>` and collect its NON-placeholder
+/// (decorative) shapes as `SlideElement`s (ECMA-376 §19.3.1.38 showMasterSp /
+/// layout decorations). Placeholders are skipped (`skip_placeholders = true`).
+/// Extracted verbatim from the two inline spTree walks in `parse_slide` so the
+/// master decorations can be pre-computed once per cached master; `theme`,
+/// `rels`, `smartart_drawings`, and `source_part` are the resolution context of the
+/// tree being walked. Appends to `out` (callers control ordering/gating).
+// The part's rels/drawings, its theme and the presentation defaultTextStyle
+// levels are independent inheritance inputs of the decorative shape tree.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn extract_decorative_shapes(
+    root: roxmltree::Node<'_, '_>,
+    source_part: &str,
+    rels: &HashMap<String, String>,
+    smartart_drawings: &HashMap<String, String>,
+    theme: &(impl PptxThemeSource + ?Sized),
+    default_text: &DefaultTextLevels,
+    zip: &mut PptxZip,
+    out: &mut Vec<SlideElement>,
+) {
+    if let Some(sp_tree) = child(root, "cSld").and_then(|n| child(n, "spTree")) {
+        // Decorations are ordinary shapes: no placeholder inheritance, only the
+        // presentation defaultTextStyle levels (observed for master and layout
+        // text boxes, issue #1620).
+        let empty_lph = LayoutPlaceholders {
+            default_text: default_text.clone(),
+            ..LayoutPlaceholders::default()
+        };
+        for node in sp_tree.children().filter(|n| n.is_element()) {
+            parse_sp_tree_node(
+                node,
+                &empty_lph,
+                source_part,
+                rels,
+                smartart_drawings,
+                zip,
+                theme,
+                out,
+                true, // skip placeholder shapes
+                None, // no inherited group fill at top level
+                DepthGuard::root(),
+            );
+        }
+    }
+}
+
+// Recurses the shape tree carrying placeholder/layout context, theme, rels,
+// smartart drawings, the zip, the output buffer and inherited group fill.
+//
+// `depth` bounds the `<p:grpSp>` recursion: a hand-crafted, thousands-deep group
+// nest would otherwise blow the fixed WASM stack and trap the whole parse. Past
+// the shared limit the group's children are dropped and parsing continues with
+// the rest of the slide (graceful degradation). See `ooxml_common::depth`.
+//
+// CT_GroupShape (ECMA-376 Part 4, pml.xsd) allows nested groups and every leaf
+// kind at each level. Keep leaf construction in non-inlined helpers: Rust reserves
+// stack for the largest match arm even while this function only visits a group.
+// The old debug frame was 813,120 bytes per level and a release WASM build trapped
+// on a synthetic nine-group slide with the linker's 1 MiB stack. The split
+// debug frame is 3,088 bytes; the same WASM build parses all 64 guarded levels.
+// The 64-level truncation is library resource policy, not an OOXML schema limit.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn parse_sp_tree_node(
+    node: roxmltree::Node<'_, '_>,
+    lph: &LayoutPlaceholders,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    smartart_drawings: &HashMap<String, String>,
+    zip: &mut PptxZip,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    out: &mut Vec<SlideElement>,
+    skip_placeholders: bool,
+    group_fill: Option<&Fill>,
+    depth: DepthGuard,
+) {
+    let theme = theme_source.colors();
+    // §20.1.2.2.8 — a shape/pic/graphicFrame/cxnSp/grpSp whose own
+    // `<p:cNvPr hidden="1">` marks it hidden is not rendered. Skip at parse
+    // time (no viewer-side "show hidden" mode is meaningful for a shape, unlike
+    // a whole slide). A hidden grpSp elides its entire subtree here.
+    // `mc:AlternateContent` has no cNvPr of its own, so it recurses normally.
+    if node_is_hidden(node) {
+        return;
+    }
+    match node.tag_name().name() {
+        "sp" => parse_sp_node(
+            node,
+            lph,
+            slide_part,
+            rels,
+            zip,
+            theme_source,
+            out,
+            skip_placeholders,
+            group_fill,
+        ),
+        "pic" => parse_pic_node(node, lph, slide_part, rels, zip, theme_source, out),
+        "AlternateContent" => {
+            let before = out.len();
+            // ECMA-376 Part 3 §9.3 — select the first Choice whose Requires namespaces
+            // are all understood, else the Fallback (replaces the old output-emptiness
+            // heuristic that never inspected Requires — issue #787).
+            let selected = ooxml_common::mce::select_alternate_content(node, &pptx_understands_ns);
+            // Ink/handwriting: a `<p:contentPart>` in any Choice is InkML PowerPoint
+            // renders directly and we cannot; its `p14` Choice is not understood, so the
+            // Fallback PNG is selected. Detect it so the PNG is drawn at its natural size
+            // (a few px for empty/single-tap strokes) rather than stretched to the box.
+            let is_ink = node
+                .children()
+                .filter(|n| n.is_element() && n.tag_name().name() == "Choice")
+                .any(|c| {
+                    c.descendants()
+                        .any(|n| n.is_element() && n.tag_name().name() == "contentPart")
+                });
+            let selected_is_fallback = selected.is_some_and(|s| s.tag_name().name() == "Fallback");
+            if let Some(sel) = selected {
+                for child_node in sel.children().filter(|n| n.is_element()) {
+                    // `mc:AlternateContent` is a transparent wrapper, not a group level —
+                    // pass `depth` through unchanged.
+                    parse_sp_tree_node(
+                        child_node,
+                        lph,
+                        slide_part,
+                        rels,
+                        smartart_drawings,
+                        zip,
+                        theme_source,
+                        out,
+                        skip_placeholders,
+                        group_fill,
+                        depth,
+                    );
+                }
+            }
+            // Part 3 §9.3 defines whole-branch alternatives. As library recovery
+            // policy, retain the alternative when the selected equation branch
+            // may fail at runtime; it can contain text, tables or pictures. This
+            // does not change normative Requires-based selection above.
+            if !selected_is_fallback {
+                // Shapes and table cells both carry DrawingML paragraphs. The
+                // anchor stores the range; it does not limit recovery to its own text.
+                let has_math = |body: &TextBody| {
+                    body.paragraphs.iter().any(|para| {
+                        para.runs
+                            .iter()
+                            .any(|run| matches!(run, TextRun::Math { .. }))
+                    })
+                };
+                let owner = out[before..].iter().position(|element| match element {
+                    SlideElement::Shape(shape) => shape.text_body.as_ref().is_some_and(has_math),
+                    SlideElement::Table(table) => table.rows.iter().any(|row| {
+                        row.cells
+                            .iter()
+                            .any(|cell| cell.text_body.as_ref().is_some_and(has_math))
+                    }),
+                    _ => false,
+                });
+                if let (Some(owner), Some(fallback)) = (owner, child(node, "Fallback")) {
+                    let mut elements = Vec::new();
+                    for child_node in fallback.children().filter(|n| n.is_element()) {
+                        parse_sp_tree_node(
+                            child_node,
+                            lph,
+                            slide_part,
+                            rels,
+                            smartart_drawings,
+                            zip,
+                            theme_source,
+                            &mut elements,
+                            skip_placeholders,
+                            group_fill,
+                            depth,
+                        );
+                    }
+                    let after = out.len() - before - owner - 1;
+                    if !elements.is_empty() {
+                        let recovery = EquationBranchFallback {
+                            elements,
+                            before: owner,
+                            after,
+                        };
+                        match &mut out[before + owner] {
+                            SlideElement::Shape(shape) => shape.math_fallback = Some(recovery),
+                            SlideElement::Table(table) => table.math_fallback = Some(recovery),
+                            _ => unreachable!("equation anchor must carry text"),
+                        }
+                    }
+                }
+            }
+            if is_ink && selected_is_fallback {
+                // Render the fallback PNG at its natural pixel size centered
+                // inside the original bounding box, so a 6×6 px empty-stroke
+                // PNG is drawn as a 6×6 px dot rather than stretched into a
+                // blocky cross. Visible strokes whose PNG natural size already
+                // matches the box keep their existing extent.
+                for el in &mut out[before..] {
+                    if let SlideElement::Picture(p) = el {
+                        if let (Some(nat_w_px), Some(nat_h_px)) =
+                            (p.intrinsic_width_px, p.intrinsic_height_px)
+                        {
+                            let nat_w = (nat_w_px as i64) * EMU_PER_PX_96DPI;
+                            let nat_h = (nat_h_px as i64) * EMU_PER_PX_96DPI;
+                            if nat_w < p.width && nat_h < p.height {
+                                p.x += (p.width - nat_w) / 2;
+                                p.y += (p.height - nat_h) / 2;
+                                p.width = nat_w;
+                                p.height = nat_h;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "graphicFrame" => parse_graphic_frame(
+            node,
+            slide_part,
+            rels,
+            smartart_drawings,
+            &lph.default_text,
+            zip,
+            theme_source,
+            out,
+        ),
+        "grpSp" => {
+            let grp_sp_pr = child(node, "grpSpPr");
+            let gt: Option<GroupTransform> =
+                grp_sp_pr.and_then(|pr| child(pr, "xfrm")).map(|xfrm| {
+                    let off = child(xfrm, "off");
+                    let ext = child(xfrm, "ext");
+                    let ch_off = child(xfrm, "chOff");
+                    let ch_ext = child(xfrm, "chExt");
+                    GroupTransform {
+                        x: off.and_then(|n| attr_i64(&n, "x")).unwrap_or(0),
+                        y: off.and_then(|n| attr_i64(&n, "y")).unwrap_or(0),
+                        cx: ext.and_then(|n| attr_i64(&n, "cx")).unwrap_or(0),
+                        cy: ext.and_then(|n| attr_i64(&n, "cy")).unwrap_or(0),
+                        ch_x: ch_off.and_then(|n| attr_i64(&n, "x")).unwrap_or(0),
+                        ch_y: ch_off.and_then(|n| attr_i64(&n, "y")).unwrap_or(0),
+                        ch_cx: ch_ext.and_then(|n| attr_i64(&n, "cx")).unwrap_or(0),
+                        ch_cy: ch_ext.and_then(|n| attr_i64(&n, "cy")).unwrap_or(0),
+                        flip_h: attr(&xfrm, "flipH")
+                            .map(|v| v == "1" || v == "true")
+                            .unwrap_or(false),
+                        flip_v: attr(&xfrm, "flipV")
+                            .map(|v| v == "1" || v == "true")
+                            .unwrap_or(false),
+                        rot: attr_f64(&xfrm, "rot").unwrap_or(0.0) / 60000.0,
+                    }
+                });
+
+            // Determine the fill to propagate to child shapes that use grpFill.
+            // - Group has solidFill/noFill → use that as child group fill
+            // - Group has grpFill → inherit from parent
+            // - Group has no fill → inherit from parent
+            let grp_has_grp_fill = grp_sp_pr.and_then(|pr| child(pr, "grpFill")).is_some();
+            let grp_explicit_fill = grp_sp_pr.and_then(|pr| parse_fill(pr, theme));
+            let child_group_fill: Option<Fill> = if grp_has_grp_fill {
+                group_fill.cloned()
+            } else if let Some(f) = grp_explicit_fill {
+                Some(f)
+            } else {
+                group_fill.cloned()
+            };
+
+            // Stop recursion at the existing ceiling. descend() latches a
+            // typed resource failure, so the package rejects this projection.
+            let start = out.len();
+            if let Some(child_depth) = depth.descend() {
+                for child_node in node.children().filter(|n| n.is_element()) {
+                    parse_sp_tree_node(
+                        child_node,
+                        lph,
+                        slide_part,
+                        rels,
+                        smartart_drawings,
+                        zip,
+                        theme_source,
+                        out,
+                        skip_placeholders,
+                        child_group_fill.as_ref(),
+                        child_depth,
+                    );
+                }
+            }
+            if let Some(gt) = gt {
+                for el in &mut out[start..] {
+                    apply_group_transform_to_element(el, &gt);
+                }
+            }
+        }
+        "cxnSp" => parse_connector_node(node, rels, theme_source, out, skip_placeholders),
+        _ => {}
+    }
+}
+
+// Constructing SlideElement::Shape here would enlarge every recursive frame.
+#[inline(never)]
+fn parse_connector_node(
+    node: roxmltree::Node<'_, '_>,
+    rels: &HashMap<String, String>,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    out: &mut Vec<SlideElement>,
+    skip_placeholders: bool,
+) {
+    if skip_placeholders && is_placeholder(node) {
+        return;
+    }
+    if let Some(shape) = parse_connector(node, theme_source, rels) {
+        out.push(SlideElement::Shape(shape));
+    }
+}
+
+// Keep picture and shape temporaries out of the recursive shape-tree frame.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn parse_sp_node(
+    node: roxmltree::Node<'_, '_>,
+    lph: &LayoutPlaceholders,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    zip: &mut PptxZip,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    out: &mut Vec<SlideElement>,
+    skip_placeholders: bool,
+    group_fill: Option<&Fill>,
+) {
+    let theme = theme_source.colors();
+    if skip_placeholders && is_placeholder(node) {
+        return;
+    }
+    // Image-filled shape: render through the same source resolver as
+    // p:pic. [MS-ODRAWXML] §1.3.3 / §2.26.1.1 identify svgBlip as the
+    // SVG resource and the main blip raster as its compatibility copy.
+    // That copy can be absent or point at a missing part; in that case
+    // the surviving SVG is still the authored picture. Requiring the
+    // raster here used to fall through to parse_shape, where the shape's
+    // fillRef could paint a black rectangle instead.
+    let sp_pr_node = child(node, "spPr");
+    let blip_fill_node = sp_pr_node.and_then(|p| child(p, "blipFill"));
+    let blip_source = blip_fill_node.and_then(|bf| resolve_blip_source(bf, slide_part, rels, zip));
+    if let Some(BlipSource {
+        image_path,
+        mime_type,
+        intrinsic_width_px,
+        intrinsic_height_px,
+        svg_image_path,
+    }) = blip_source
+    {
+        if let Some(xfrm_node) = sp_pr_node.and_then(|p| child(p, "xfrm")) {
+            let t = parse_xfrm(xfrm_node);
+            if t.cx > 0 && t.cy > 0 {
+                // §20.1.9.18 — the sp's prstGeom (any preset, not just
+                // roundRect) is the picture's clip silhouette.
+                let (prst_geom, prst_adjust) =
+                    sp_pr_node.map(parse_pic_prst_geom).unwrap_or((None, None));
+                let cust_geom = sp_pr_node
+                    .and_then(|p| child(p, "custGeom"))
+                    .map(|geometry| parse_cust_geom(geometry, t.cx as f64, t.cy as f64));
+                let PictureShapeProperties {
+                    stroke,
+                    shadow,
+                    inner_shadow,
+                    glow,
+                    soft_edge,
+                    reflection,
+                    scene3d,
+                    sp3d,
+                } = resolve_picture_shape_properties(
+                    sp_pr_node,
+                    child(node, "style"),
+                    None,
+                    theme_source,
+                );
+                out.push(SlideElement::Picture(PictureElement {
+                    id: own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id")),
+                    x: t.x,
+                    y: t.y,
+                    width: t.cx,
+                    height: t.cy,
+                    rotation: t.rot,
+                    flip_h: t.flip_h,
+                    flip_v: t.flip_v,
+                    image_path,
+                    mime_type,
+                    svg_image_path,
+                    intrinsic_width_px,
+                    intrinsic_height_px,
+                    stroke,
+                    // The sp's spPr fill is this blipFill itself; there
+                    // is no separate backing fill.
+                    fill: None,
+                    prst_geom,
+                    prst_adjust,
+                    src_rect: blip_fill_node.and_then(parse_src_rect),
+                    alpha: None, /* alpha is baked by the ordered blip chain */
+                    duotone: blip_fill_node.and_then(|bf| {
+                        parse_blip_duotone(
+                            bf,
+                            &PptxSchemeResolver { theme },
+                            ooxml_common::color::TintMode::PowerPointLinear,
+                        )
+                    }),
+                    blip_effects: blip_fill_node
+                        .map(|bf| {
+                            parse_picture_blip_effects(
+                                bf,
+                                &PptxSchemeResolver { theme },
+                                ooxml_common::color::TintMode::PowerPointLinear,
+                                slide_part,
+                                rels,
+                            )
+                        })
+                        .unwrap_or_default(),
+                    cust_geom,
+                    shadow,
+                    inner_shadow,
+                    glow,
+                    soft_edge,
+                    reflection,
+                    scene3d,
+                    sp3d,
+                }));
+                return;
+            }
+        }
+    }
+    // Picture-placeholder inheritance: slide sp has a ph but no own blipFill →
+    // look up an inherited blipFill from the layout placeholder. Transform
+    // comes from the slide's xfrm when present, otherwise from the layout.
+    if blip_fill_node.is_none() {
+        if let Some(ph) = node
+            .descendants()
+            .find(|n| n.is_element() && n.tag_name().name() == "ph")
+        {
+            let ph_type = attr(&ph, "type").unwrap_or_else(|| "body".into());
+            let ph_idx: Option<u32> = attr(&ph, "idx")
+                .and_then(|v| v.parse().ok())
+                .filter(|idx| *idx != u32::MAX);
+            if let Some(bf) = lph.lookup_blip_fill(&ph_type, ph_idx) {
+                let slide_xfrm = sp_pr_node.and_then(|p| child(p, "xfrm")).map(parse_xfrm);
+                let t = slide_xfrm.or_else(|| lph.lookup(&ph_type, ph_idx).cloned());
+                if let Some(t) = t {
+                    if t.cx > 0 && t.cy > 0 {
+                        let PictureShapeProperties {
+                            stroke,
+                            shadow,
+                            inner_shadow,
+                            glow,
+                            soft_edge,
+                            reflection,
+                            scene3d,
+                            sp3d,
+                        } = resolve_picture_shape_properties(
+                            sp_pr_node,
+                            child(node, "style"),
+                            lph.lookup_picture_properties(&ph_type, ph_idx),
+                            theme_source,
+                        );
+                        out.push(SlideElement::Picture(PictureElement {
+                            id: own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id")),
+                            x: t.x,
+                            y: t.y,
+                            width: t.cx,
+                            height: t.cy,
+                            rotation: t.rot,
+                            flip_h: t.flip_h,
+                            flip_v: t.flip_v,
+                            image_path: bf.image_path,
+                            mime_type: bf.mime_type,
+                            // TODO: an inherited layout-placeholder blipFill
+                            // (LayoutPlaceholders::lookup_blip_fill) does not
+                            // yet carry the svgBlip extension. Picture
+                            // placeholders pointing at an SVG are rare; thread
+                            // the svg path through BlipFill if a sample needs it.
+                            svg_image_path: None,
+                            // Intrinsic size is only consumed by the ink
+                            // fallback (PNG-IHDR centering); inherited
+                            // placeholder pictures stretch to the box, so
+                            // None matches the prior behaviour.
+                            intrinsic_width_px: None,
+                            intrinsic_height_px: None,
+                            stroke,
+                            fill: None,
+                            prst_geom: None,
+                            prst_adjust: None,
+                            src_rect: bf.src_rect,
+                            alpha: bf.alpha,
+                            // §20.1.8.23 duotone inherited from the layout
+                            // placeholder's blipFill (resolved through the
+                            // theme in InheritedBlipFill); the PictureElement
+                            // render applies it via the shared core cache.
+                            duotone: bf.duotone,
+                            blip_effects: bf.blip_effects,
+                            cust_geom: None,
+                            shadow,
+                            inner_shadow,
+                            glow,
+                            soft_edge,
+                            reflection,
+                            scene3d,
+                            sp3d,
+                        }));
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(shape) = parse_shape(node, lph, theme_source, rels, slide_part, group_fill, zip) {
+        out.push(SlideElement::Shape(shape));
+    }
+}
+
+// Keep picture and shape temporaries out of the recursive shape-tree frame.
+#[inline(never)]
+fn parse_pic_node(
+    node: roxmltree::Node<'_, '_>,
+    lph: &LayoutPlaceholders,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    zip: &mut PptxZip,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    out: &mut Vec<SlideElement>,
+) {
+    let theme = theme_source.colors();
+    if let Some(media) = parse_media(node, slide_part, rels) {
+        out.push(SlideElement::Media(media));
+    } else if let Some(pic) = parse_picture(node, slide_part, rels, theme_source, zip) {
+        out.push(SlideElement::Picture(pic));
+    } else {
+        // Placeholder pic: no xfrm in spPr — position comes from layout by_idx
+        let ph_node = node
+            .descendants()
+            .find(|n| n.is_element() && n.tag_name().name() == "ph");
+        let ph_type = ph_node
+            .and_then(|ph| attr(&ph, "type"))
+            .unwrap_or_else(|| "body".to_owned());
+        let ph_idx = ph_node
+            .and_then(|ph| attr(&ph, "idx"))
+            .and_then(|s| s.parse::<u32>().ok())
+            .filter(|idx| *idx != u32::MAX);
+        if let Some(idx) = ph_idx {
+            if let Some(t) = lph.by_idx.get(&idx) {
+                let blip_fill = child(node, "blipFill");
+                let blip = blip_fill.and_then(|bf| child(bf, "blip"));
+                let r_id = blip.and_then(|b| attr_r(&b, "embed"));
+                if let Some(rid) = r_id {
+                    if let Some(rel_target) = rels.get(&rid) {
+                        let image_path = resolve_path(slide_part, rel_target);
+                        if let Ok(image_bytes) = read_zip_head(zip, &image_path, 24) {
+                            let mime_type = mime_from_ext(&image_path).to_owned();
+                            let (intrinsic_width_px, intrinsic_height_px) =
+                                match png_size_from_bytes(&image_bytes) {
+                                    Some((w, h)) => (Some(w), Some(h)),
+                                    None => (None, None),
+                                };
+                            // Microsoft 2016 SVG extension on the placeholder
+                            // p:pic's blip — prefer the vector original.
+                            let svg_image_path =
+                                blip.and_then(|b| svg_blip_path(b, slide_part, rels, zip));
+                            let PictureShapeProperties {
+                                stroke,
+                                shadow,
+                                inner_shadow,
+                                glow,
+                                soft_edge,
+                                reflection,
+                                scene3d,
+                                sp3d,
+                            } = resolve_picture_shape_properties(
+                                child(node, "spPr"),
+                                child(node, "style"),
+                                lph.lookup_picture_properties(&ph_type, Some(idx)),
+                                theme_source,
+                            );
+                            out.push(SlideElement::Picture(PictureElement {
+                                id: own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id")),
+                                x: t.x,
+                                y: t.y,
+                                width: t.cx,
+                                height: t.cy,
+                                rotation: t.rot,
+                                flip_h: t.flip_h,
+                                flip_v: t.flip_v,
+                                image_path,
+                                mime_type,
+                                svg_image_path,
+                                intrinsic_width_px,
+                                intrinsic_height_px,
+                                stroke,
+                                fill: child(node, "spPr").and_then(|sp| parse_fill(sp, theme)),
+                                prst_geom: None,
+                                prst_adjust: None,
+                                src_rect: blip_fill.and_then(parse_src_rect),
+                                alpha: None, /* alpha is baked by the ordered blip chain */
+                                duotone: blip_fill.and_then(|bf| {
+                                    parse_blip_duotone(
+                                        bf,
+                                        &PptxSchemeResolver { theme },
+                                        ooxml_common::color::TintMode::PowerPointLinear,
+                                    )
+                                }),
+                                blip_effects: blip_fill
+                                    .map(|bf| {
+                                        parse_picture_blip_effects(
+                                            bf,
+                                            &PptxSchemeResolver { theme },
+                                            ooxml_common::color::TintMode::PowerPointLinear,
+                                            slide_part,
+                                            rels,
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                cust_geom: None,
+                                shadow,
+                                inner_shadow,
+                                glow,
+                                soft_edge,
+                                reflection,
+                                scene3d,
+                                sp3d,
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Keep chart/table/diagram temporaries out of the recursive shape-tree frame.
+// CT_GroupShape (ECMA-376 Part 4, pml.xsd) can contain graphicFrame at every
+// level, but these large locals are needed only when visiting that leaf.
+#[inline(never)]
+// Same shape-tree context as parse_sp_tree_node, plus the defaultTextStyle
+// levels that table-cell text falls back to.
+#[allow(clippy::too_many_arguments)]
+fn parse_graphic_frame(
+    node: roxmltree::Node<'_, '_>,
+    slide_part: &str,
+    rels: &HashMap<String, String>,
+    smartart_drawings: &HashMap<String, String>,
+    default_text: &DefaultTextLevels,
+    zip: &mut PptxZip,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    out: &mut Vec<SlideElement>,
+) {
+    let theme = theme_source.colors();
+    let xfrm_node = child(node, "xfrm");
+    let t = xfrm_node.map(parse_xfrm).unwrap_or_default();
+
+    // Table
+    let tbl_node = node
+        .descendants()
+        .find(|n| n.is_element() && n.tag_name().name() == "tbl");
+    if let Some(tbl_node) = tbl_node {
+        if let Some(mut table) = parse_table(
+            tbl_node,
+            &t,
+            theme_source,
+            rels,
+            slide_part,
+            default_text,
+            zip,
+        ) {
+            table.id = own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id"));
+            out.push(SlideElement::Table(table));
+        }
+        return;
+    }
+
+    // SmartArt (ECMA-376 §21.4). Preferred path: replay the
+    // PowerPoint-prebaked drawing (`drawingN.xml` / `dsp:spTree`) when
+    // Office persisted one — that carries the true layout geometry.
+    //
+    // Fallback (PP3): when no drawing part exists, recover the diagram's
+    // *content* from its data model (`dataN.xml`) — every node's text,
+    // indented by its parent/child depth — as a bulleted list filling the
+    // frame. Layout-engine reconstruction (hierarchy/cycle geometry) is
+    // still not implemented; see `smartart_fallback`.
+    if let Some(gd) = node
+        .descendants()
+        .find(|n| n.is_element() && n.tag_name().name() == "graphicData")
+    {
+        let uri = attr(&gd, "uri").unwrap_or_default();
+        if is_diagram_uri(&uri) {
+            if let Some(rel_ids) = child(gd, "relIds") {
+                if let Some(dm_rid) = attr_r(&rel_ids, "dm") {
+                    if let Some(drawing_xml) = smartart_drawings.get(&dm_rid) {
+                        parse_smartart_drawing(drawing_xml, &t, theme, out, zip);
+                        return;
+                    }
+                    // No prebaked drawing → data-model fallback. `rels` are
+                    // the referencing part's, so `rels[dm_rid]` resolved
+                    // against `slide_part` is the data part (§21.4.2.22
+                    // relIds `r:dm`). Emits M (content list) or S
+                    // (placeholder); either way this graphicData is a
+                    // diagram, so we return regardless of the outcome.
+                    crate::smartart_fallback::emit_smartart_fallback(
+                        &dm_rid, &t, slide_part, rels, theme, zip, out,
+                    );
+                    return;
+                }
+            }
+        }
+    }
+
+    // Chart
+    if let Some(gd) = node
+        .descendants()
+        .find(|n| n.is_element() && n.tag_name().name() == "graphicData")
+    {
+        let uri = attr(&gd, "uri").unwrap_or_default();
+        // Both <c:chart> and <cx:chart> share the local name "chart"
+        let chart_rid = gd
+            .descendants()
+            .find(|n| n.is_element() && n.tag_name().name() == "chart")
+            .and_then(|n| attr_r(&n, "id"));
+        if let Some(rid) = chart_rid {
+            if let Some(rel_target) = rels.get(&rid) {
+                let chart_path = resolve_path(slide_part, rel_target);
+                if let Ok(chart_xml) = read_zip_str(zip, &chart_path) {
+                    let graphic_frame_ordinal = node
+                        .document()
+                        .root_element()
+                        .descendants()
+                        .filter(|candidate| {
+                            candidate.is_element() && candidate.tag_name().name() == "graphicFrame"
+                        })
+                        .position(|candidate| candidate.id() == node.id())
+                        .unwrap_or(0);
+                    let retention_site = format!("graphicFrame:{graphic_frame_ordinal}");
+                    let related_parts = ooxml_common::chart::load_chart_related_parts(
+                        |part| read_zip_str(zip, part).ok(),
+                        &chart_path,
+                    );
+                    let chart_theme = related_parts.theme_override_xml.as_deref().map(|xml| {
+                        let mut theme = crate::theme::PptxTheme::from_source(theme_source);
+                        crate::theme::apply_theme_override(&mut theme, xml);
+                        theme
+                    });
+                    let theme = chart_theme
+                        .as_ref()
+                        .map(|theme| theme.colors())
+                        .unwrap_or(theme);
+                    let format_scheme = chart_theme
+                        .as_ref()
+                        .and_then(|theme| theme.format_scheme())
+                        .or_else(|| theme_source.format_scheme());
+                    let empty_theme_images =
+                        ooxml_common::chart::ChartImageRelationships::default();
+                    let image_resolver = ooxml_common::chart::ChartImageResolverChain::new(
+                        &related_parts.image_relationships,
+                        chart_theme
+                            .as_ref()
+                            .and_then(|theme| theme.chart_images())
+                            .or_else(|| theme_source.chart_images())
+                            .unwrap_or(&empty_theme_images),
+                    );
+                    let chart_opt = if uri.contains("chartex") || uri.contains("chartEx") {
+                        // chartEx title font size lives in the chart
+                        // part's associated chartStyle sidecar
+                        // (`styleN.xml`), reached via that part's OWN
+                        // rels. Read it best-effort before parsing.
+                        zip.operation()
+                            .and_then(|operation| operation.limit_reporter())
+                            .ok()
+                            .and_then(|reporter| {
+                                parse_chartex_with_images(
+                                    &chart_xml,
+                                    related_parts.style_xml.as_deref(),
+                                    related_parts.color_style_xml.as_deref(),
+                                    theme,
+                                    format_scheme,
+                                    &image_resolver,
+                                    Some(&reporter),
+                                    Some(ooxml_common::chart::ChartRetentionKey {
+                                        source_part: slide_part,
+                                        site: &retention_site,
+                                    }),
+                                )
+                            })
+                    } else {
+                        let user_shapes_xml = crate::parse_preflighted_pptx_xml(&chart_xml)
+                            .ok()
+                            .and_then(|chart_doc| {
+                                ooxml_common::chart::load_chart_user_shapes_xml(
+                                    |part| read_zip_str(zip, part).ok(),
+                                    &chart_path,
+                                    &chart_doc,
+                                )
+                            });
+                        parse_legacy_chart_with_style_parts_and_images(
+                            &chart_xml,
+                            related_parts.style_xml.as_deref(),
+                            related_parts.color_style_xml.as_deref(),
+                            user_shapes_xml.as_deref(),
+                            theme,
+                            format_scheme,
+                            &image_resolver,
+                        )
+                    };
+                    if let Some(mut chart) = chart_opt {
+                        chart.id = own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id"));
+                        chart.x = t.x;
+                        chart.y = t.y;
+                        chart.width = t.cx;
+                        chart.height = t.cy;
+                        chart.rotation = t.rot;
+                        chart.flip_h = t.flip_h;
+                        chart.flip_v = t.flip_v;
+                        out.push(SlideElement::Chart(chart));
+                    }
+                }
+            }
+        }
+    }
+
+    // OLE embedded object (§19.3.2.4 CT_OleObject). We can't run the
+    // embedded application, but the OOXML author bakes a preview `<p:pic>`
+    // inside `<p:oleObj>` for exactly this case. Route that picture through
+    // the ordinary image pipeline so the object is visible instead of a
+    // silent hole.
+    if let Some(gd) = node
+        .descendants()
+        .find(|n| n.is_element() && n.tag_name().name() == "graphicData")
+    {
+        let uri = attr(&gd, "uri").unwrap_or_default();
+        if is_pml_ole_uri(&uri) {
+            // `<p:oleObj>` is commonly wrapped in `mc:AlternateContent`.
+            // PowerPoint's canonical output puts a spid-only oleObj in the
+            // `mc:Choice Requires="v"` (VML) branch and the drawable
+            // `<p:pic>`-carrying oleObj in `mc:Fallback` — the `spid`
+            // attribute and a `<p:pic>` child are mutually exclusive on
+            // CT_OleObject (ECMA-376 Part 3 §B.1). Since we do not
+            // understand the `v` (VML) namespace, MCE §9.3 says to take the
+            // representation we can render, i.e. the Fallback's pic. Rather
+            // than depend on document order or Choice/Fallback wrapping,
+            // select the first oleObj that actually carries a `<p:pic>`
+            // (the capability predicate "has something drawable"). This also
+            // makes a bare, unwrapped `<p:oleObj><p:pic/>` work unchanged.
+            let ole_pic = gd
+                .descendants()
+                .filter(|n| n.is_element() && n.tag_name().name() == "oleObj")
+                .find_map(|ole| child(ole, "pic"));
+            if let Some(pic_node) = ole_pic {
+                // The preview pic's own `<a:xfrm>` is 0,0-relative (or
+                // absent), so the graphicFrame's `<p:xfrm>` is authoritative
+                // for placement. Parse the blip, then stamp gf geometry.
+                if let Some(mut pic) = parse_picture(pic_node, slide_part, rels, theme_source, zip)
+                {
+                    pic.id = own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id"));
+                    pic.x = t.x;
+                    pic.y = t.y;
+                    pic.width = t.cx;
+                    pic.height = t.cy;
+                    out.push(SlideElement::Picture(pic));
+                } else if let Some(mut pic) =
+                    parse_ole_preview_picture(pic_node, &t, slide_part, rels, theme, zip)
+                {
+                    // The pic lacked an `<a:xfrm>` (parse_picture requires
+                    // one), but still carries a resolvable blip — build the
+                    // element directly on the graphicFrame geometry.
+                    pic.id = own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id"));
+                    out.push(SlideElement::Picture(pic));
+                }
+            } else if let Some(spid) = gd
+                .descendants()
+                .filter(|n| n.is_element() && n.tag_name().name() == "oleObj")
+                .find_map(|ole| attr(&ole, "spid"))
+            {
+                // No oleObj carries a `<p:pic>` (a deck PowerPoint converted
+                // from binary .ppt writes a bare spid-only oleObj with no MCE
+                // Fallback). §19.3.2.4 `spid` names the shape in the part's
+                // legacy VML drawing, whose `<v:imagedata>` is the preview.
+                if let Some(mut pic) = vml_ole_preview_picture(&spid, &t, slide_part, zip) {
+                    pic.id = own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id"));
+                    out.push(SlideElement::Picture(pic));
+                }
+            }
+        }
+    }
+}
+
+/// Relationship types of the VML Drawing part (ECMA-376 Part 1 §15.2.20),
+/// Transitional and Strict.
+const VML_DRAWING_REL_TYPES: &[&str] = &[
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing",
+    "http://purl.oclc.org/ooxml/officeDocument/relationships/vmlDrawing",
+];
+
+/// The OLE previews of one legacy VML drawing part, shared by every host part
+/// (slide, layout, master) whose `vmlDrawing` relationship names that part.
+///
+/// Filtered when built: only a `v:shape` with an `o:spid` whose `<v:imagedata>`
+/// relationship is an internal image relationship naming an *existing* package
+/// entry with an image media type contributes an entry. External, non-image and
+/// dangling relationships are dropped before anything is stored. Each entry
+/// holds the SPID, the crop, and the operation-wide interned name of the image
+/// entry, so no relationship target and no per-shape or per-index path string
+/// is retained.
+#[derive(Debug, Default)]
+pub(crate) struct VmlOlePreviewIndex {
+    entries: HashMap<String, (std::rc::Rc<str>, Option<ooxml_common::blip::SrcRect>)>,
+}
+
+/// Per-operation OLE preview state on `PptxZip`.
+///
+/// Identity is the *stored* ZIP entry name returned by the package lookup
+/// (`PackageSession::entry_name`), so names that are equivalent under ECMA-376
+/// Part 2 §6.2.2.3 (ASCII case folding, percent-encoding) share one entry:
+/// - `entries` interns each existing entry name used here (VML parts and
+///   preview images) once per operation, so each entry has at most one
+///   `Rc<str>`;
+/// - `by_vml_part` holds one index per distinct VML entry, shared by every host
+///   that uses it, so each VML part is read and parsed once per operation;
+/// - `host` is a single slot mapping the host part being walked to its VML
+///   entry.
+#[derive(Debug, Default)]
+pub(crate) struct VmlOlePreviewCache {
+    entries: std::collections::HashSet<std::rc::Rc<str>>,
+    by_vml_part: HashMap<std::rc::Rc<str>, std::rc::Rc<VmlOlePreviewIndex>>,
+    host: Option<(String, Option<std::rc::Rc<str>>)>,
+}
+
+impl VmlOlePreviewCache {
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+        self.by_vml_part.clear();
+        self.host = None;
+    }
+
+    /// The single shared allocation for a stored entry name.
+    fn intern(&mut self, stored: String) -> std::rc::Rc<str> {
+        if let Some(existing) = self.entries.get(stored.as_str()) {
+            return existing.clone();
+        }
+        let interned: std::rc::Rc<str> = std::rc::Rc::from(stored);
+        self.entries.insert(interned.clone());
+        interned
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test probe: how many VML OLE preview indexes were built.
+    static VML_OLE_INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The stored entry name of the VML drawing part that `host`'s implicit
+/// `vmlDrawing` relationship names (Part 1 §15.2.20), if it exists.
+fn host_vml_part(host: &str, zip: &mut PptxZip) -> Option<String> {
+    let rels_xml = read_zip_str(zip, &ooxml_common::rels::relationship_part_path(host)).ok()?;
+    let rels_doc = crate::parse_preflighted_pptx_xml(&rels_xml).ok()?;
+    let target =
+        ooxml_common::rels::find_internal_rel_target_by_types(&rels_doc, VML_DRAWING_REL_TYPES)?;
+    zip.entry_name(&ooxml_common::rels::resolve_part_name(host, &target)?)
+}
+
+/// Build the filtered preview index of one VML entry (see
+/// [`VmlOlePreviewIndex`]). An unreadable or malformed part yields an empty
+/// index, which is cached like a full one. Image entry names are interned in
+/// `zip.ole_vml_previews`.
+fn build_vml_ole_preview_index(vml_path: &str, zip: &mut PptxZip) -> VmlOlePreviewIndex {
+    #[cfg(test)]
+    VML_OLE_INDEX_BUILDS.with(|count| count.set(count.get() + 1));
+    let mut index = VmlOlePreviewIndex::default();
+    let Ok(vml_xml) = read_zip_str(zip, vml_path) else {
+        return index;
+    };
+    let Ok(vml_doc) = crate::parse_preflighted_pptx_xml(&vml_xml) else {
+        return index;
+    };
+    // The VML part's own rels, keeping TargetMode and Type for the filter.
+    let vml_rels = read_zip_str(zip, &ooxml_common::rels::relationship_part_path(vml_path))
+        .ok()
+        .and_then(|xml| {
+            crate::parse_preflighted_pptx_xml(&xml)
+                .ok()
+                .map(|doc| ooxml_common::rels::parse_rels_document(&doc))
+        })
+        .unwrap_or_default();
+    // rId → interned existing image entry (None: filtered out). Transient.
+    let mut by_rel: HashMap<&str, Option<std::rc::Rc<str>>> = HashMap::new();
+    for shape in vml_doc
+        .descendants()
+        .filter(|n| n.is_element() && n.tag_name().name() == "shape")
+    {
+        let Some(spid) = shape.attribute((ooxml_common::vml::OFFICE_NS, "spid")) else {
+            continue;
+        };
+        if index.entries.contains_key(spid) {
+            continue; // the first shape with a given spid wins, as a lookup would
+        }
+        let Some(imagedata) = shape
+            .children()
+            .find(|n| n.is_element() && n.tag_name().name() == "imagedata")
+        else {
+            continue;
+        };
+        let Some(rid) = ooxml_common::vml::imagedata_rel_id(imagedata) else {
+            continue;
+        };
+        let path = match by_rel.get(rid) {
+            Some(path) => path.clone(),
+            None => {
+                let path = (|| {
+                    let path = ooxml_common::vml::image_rel_part(vml_rels.get(rid)?, vml_path)?;
+                    // Only a genuine, existing image part enters the picture
+                    // pipeline (the preview is typically EMF/WMF/PNG). The
+                    // lookup reads the central directory only.
+                    let stored = zip.entry_name(&path)?;
+                    if !mime_from_ext(&stored).starts_with("image/") {
+                        return None;
+                    }
+                    Some(zip.ole_vml_previews.intern(stored))
+                })();
+                by_rel.insert(rid, path.clone());
+                path
+            }
+        };
+        let Some(path) = path else {
+            continue;
+        };
+        index.entries.insert(
+            spid.to_owned(),
+            (path, ooxml_common::vml::imagedata_crop(imagedata)),
+        );
+    }
+    index
+}
+
+/// Build the preview picture of a spid-only `<p:oleObj>` from the legacy VML
+/// drawing of `part` (a slide, layout or master — each may carry its own
+/// implicit `vmlDrawing` relationship, Part 1 §15.2.20). The `v:shape` whose
+/// `o:spid` equals `spid` names its picture through `<v:imagedata o:relid>`,
+/// resolved against the VML part's own rels: only an internal image
+/// relationship naming an existing package entry qualifies. The graphicFrame
+/// `<p:xfrm>` is authoritative for placement, exactly as for the `<p:pic>`
+/// preview; the imagedata crop insets become the picture's source rectangle.
+///
+/// The host → VML mapping is re-derived only when the host part changes, and
+/// each VML entry is indexed once per operation and shared by all hosts.
+fn vml_ole_preview_picture(
+    spid: &str,
+    gf: &Transform,
+    part: &str,
+    zip: &mut PptxZip,
+) -> Option<PictureElement> {
+    if gf.cx == 0 || gf.cy == 0 {
+        return None;
+    }
+    let vml_part = match &zip.ole_vml_previews.host {
+        Some((host, vml_part)) if host == part => vml_part.clone(),
+        _ => {
+            let vml_part =
+                host_vml_part(part, zip).map(|stored| zip.ole_vml_previews.intern(stored));
+            zip.ole_vml_previews.host = Some((part.to_owned(), vml_part.clone()));
+            vml_part
+        }
+    }?;
+    let index = match zip.ole_vml_previews.by_vml_part.get(&vml_part) {
+        Some(index) => index.clone(),
+        None => {
+            let index = std::rc::Rc::new(build_vml_ole_preview_index(&vml_part, zip));
+            zip.ole_vml_previews
+                .by_vml_part
+                .insert(vml_part, index.clone());
+            index
+        }
+    };
+    let (path, src_rect) = index.entries.get(spid)?;
+    let src_rect = *src_rect;
+    let image_path = path.to_string();
+    let mime_type = mime_from_ext(&image_path).to_owned();
+    // The same bounded 24-byte header probe as the `<p:pic>` path.
+    let head = read_zip_head(zip, &image_path, 24).ok()?;
+    let size = png_size_from_bytes(&head);
+    Some(PictureElement {
+        id: None,
+        x: gf.x,
+        y: gf.y,
+        width: gf.cx,
+        height: gf.cy,
+        rotation: gf.rot,
+        flip_h: gf.flip_h,
+        flip_v: gf.flip_v,
+        image_path,
+        mime_type,
+        svg_image_path: None,
+        intrinsic_width_px: size.map(|(w, _)| w),
+        intrinsic_height_px: size.map(|(_, h)| h),
+        stroke: None,
+        fill: None,
+        prst_geom: None,
+        prst_adjust: None,
+        src_rect,
+        alpha: None,
+        duotone: None,
+        blip_effects: Vec::new(),
+        cust_geom: None,
+        shadow: None,
+        inner_shadow: None,
+        glow: None,
+        soft_edge: None,
+        reflection: None,
+        scene3d: None,
+        sp3d: None,
+    })
+}
+
+/// Render a SmartArt diagram's pre-baked fallback drawing (drawing1.xml).
+/// The drawing file stores a standard dsp:spTree whose shapes share the same
+/// element shape as a regular p:sp / p:cxnSp / p:grpSp (children use the `a:`
+/// namespace). Coordinates inside the drawing are local to the enclosing
+/// graphicFrame, so we translate every emitted element by the graphicFrame's xfrm.
+/// Read a SmartArt shape's explicit text frame from `<dsp:txXfrm>`
+/// (`<a:off>` / `<a:ext>`), in the drawing's local EMU coordinates. Returns
+/// `None` when the shape has no txXfrm (most ordinary shapes). The optional
+/// `rot` attribute is intentionally not consumed here — none of the supported
+/// SmartArt layouts rotate the text frame independently of the shape, and the
+/// renderer already rotates text by the shape's own rotation.
+fn parse_tx_xfrm(sp_node: roxmltree::Node<'_, '_>) -> Option<TextRect> {
+    let txx = child(sp_node, "txXfrm")?;
+    let off = child(txx, "off")?;
+    let ext = child(txx, "ext")?;
+    Some(TextRect {
+        x: attr_i64(&off, "x")?,
+        y: attr_i64(&off, "y")?,
+        width: attr_i64(&ext, "cx")?,
+        height: attr_i64(&ext, "cy")?,
+    })
+}
+
+fn parse_smartart_drawing(
+    drawing_xml: &str,
+    gf_xfrm: &Transform,
+    theme: &HashMap<String, String>,
+    out: &mut Vec<SlideElement>,
+    zip: &mut PptxZip,
+) {
+    let doc = match crate::parse_preflighted_pptx_xml(drawing_xml) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let root = doc.root_element();
+    let Some(sp_tree) = child(root, "spTree") else {
+        return;
+    };
+
+    let empty_lph = LayoutPlaceholders::default();
+
+    let start = out.len();
+    for node in sp_tree.children().filter(|n| n.is_element()) {
+        // dsp:sp / dsp:cxnSp / dsp:grpSp share local names with their p:* counterparts.
+        // Shapes inside drawing1.xml carry no `a:blip r:embed` picture fills, so
+        // `rels` is an empty stub. `zip` is still threaded through: a dsp shape's
+        // text body may declare a `<a:buBlip>` bullet whose part existence must be
+        // verified (it resolves against the empty `rels`, so it always falls
+        // through to Bullet::Inherit, but the resolver still needs the archive).
+        let empty_rels: HashMap<String, String> = HashMap::new();
+        let empty_smartart: HashMap<String, String> = HashMap::new();
+        // Dispatch the relevant branches (sp/cxnSp/grpSp) directly rather than via
+        // parse_sp_tree_node, since the dsp subtree never contains embedded pictures.
+        // §20.1.2.2.8 CT_NonVisualDrawingProps@hidden: this manual dsp:sp/cxnSp/
+        // grpSp dispatch bypasses parse_sp_tree_node's shared hidden check, so it
+        // needs its own — otherwise a hidden SmartArt fallback shape still renders.
+        if node_is_hidden(node) {
+            continue;
+        }
+        match node.tag_name().name() {
+            "sp" => {
+                if let Some(mut shape) =
+                    parse_shape(node, &empty_lph, theme, &empty_rels, "", None, zip)
+                {
+                    shape.text_rect = parse_tx_xfrm(node);
+                    out.push(SlideElement::Shape(shape));
+                }
+            }
+            "cxnSp" => {
+                if let Some(shape) = parse_connector(node, theme, &empty_rels) {
+                    out.push(SlideElement::Shape(shape));
+                }
+            }
+            "grpSp" => {
+                // Recursively render a group by collecting its children into a temp buffer
+                // and applying the group's xfrm, mirroring the grpSp branch in parse_sp_tree_node.
+                let grp_sp_pr = child(node, "grpSpPr");
+                let gt: Option<GroupTransform> =
+                    grp_sp_pr.and_then(|pr| child(pr, "xfrm")).map(|xfrm| {
+                        let off = child(xfrm, "off");
+                        let ext = child(xfrm, "ext");
+                        let ch_off = child(xfrm, "chOff");
+                        let ch_ext = child(xfrm, "chExt");
+                        GroupTransform {
+                            x: off.and_then(|n| attr_i64(&n, "x")).unwrap_or(0),
+                            y: off.and_then(|n| attr_i64(&n, "y")).unwrap_or(0),
+                            cx: ext.and_then(|n| attr_i64(&n, "cx")).unwrap_or(0),
+                            cy: ext.and_then(|n| attr_i64(&n, "cy")).unwrap_or(0),
+                            ch_x: ch_off.and_then(|n| attr_i64(&n, "x")).unwrap_or(0),
+                            ch_y: ch_off.and_then(|n| attr_i64(&n, "y")).unwrap_or(0),
+                            ch_cx: ch_ext.and_then(|n| attr_i64(&n, "cx")).unwrap_or(0),
+                            ch_cy: ch_ext.and_then(|n| attr_i64(&n, "cy")).unwrap_or(0),
+                            flip_h: attr(&xfrm, "flipH")
+                                .map(|v| v == "1" || v == "true")
+                                .unwrap_or(false),
+                            flip_v: attr(&xfrm, "flipV")
+                                .map(|v| v == "1" || v == "true")
+                                .unwrap_or(false),
+                            rot: attr_f64(&xfrm, "rot").unwrap_or(0.0) / 60000.0,
+                        }
+                    });
+                let group_start = out.len();
+                let _ = (&empty_rels, &empty_smartart); // silence unused warnings when no nested picture
+                for child_node in node.children().filter(|n| n.is_element()) {
+                    // Same per-node hidden check as the top-level dispatch above —
+                    // a hidden shape/connector nested directly inside a (visible)
+                    // SmartArt group must still be elided individually.
+                    if node_is_hidden(child_node) {
+                        continue;
+                    }
+                    match child_node.tag_name().name() {
+                        "sp" => {
+                            if let Some(mut shape) = parse_shape(
+                                child_node,
+                                &empty_lph,
+                                theme,
+                                &empty_rels,
+                                "",
+                                None,
+                                zip,
+                            ) {
+                                shape.text_rect = parse_tx_xfrm(child_node);
+                                out.push(SlideElement::Shape(shape));
+                            }
+                        }
+                        "cxnSp" => {
+                            if let Some(shape) = parse_connector(child_node, theme, &empty_rels) {
+                                out.push(SlideElement::Shape(shape));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(gt) = gt {
+                    for el in &mut out[group_start..] {
+                        apply_group_transform_to_element(el, &gt);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Translate all emitted elements by the graphicFrame's position.
+    for el in &mut out[start..] {
+        offset_slide_element(el, gf_xfrm.x, gf_xfrm.y);
+    }
+}
+
+fn offset_slide_element(el: &mut SlideElement, dx: i64, dy: i64) {
+    match el {
+        SlideElement::Shape(s) => {
+            s.x += dx;
+            s.y += dy;
+            if let Some(tr) = &mut s.text_rect {
+                tr.x += dx;
+                tr.y += dy;
+            }
+        }
+        SlideElement::Picture(p) => {
+            p.x += dx;
+            p.y += dy;
+        }
+        SlideElement::Table(t) => {
+            t.x += dx;
+            t.y += dy;
+        }
+        SlideElement::Chart(c) => {
+            c.x += dx;
+            c.y += dy;
+        }
+        SlideElement::Media(m) => {
+            m.x += dx;
+            m.y += dy;
+        }
+    }
+}
+
+/// Parse a connector shape (p:cxnSp) as a ShapeElement with line geometry.
+pub(crate) fn parse_connector(
+    node: roxmltree::Node<'_, '_>,
+    theme_source: &(impl PptxThemeSource + ?Sized),
+    rels: &HashMap<String, String>,
+) -> Option<ShapeElement> {
+    let theme = theme_source.colors();
+    let sp_pr = child(node, "spPr")?;
+    let xfrm = child(sp_pr, "xfrm")?;
+    let t = parse_xfrm(xfrm);
+    if t.cx == 0 && t.cy == 0 {
+        return None;
+    }
+    let cnv = read_cnv_pr(node, rels);
+
+    // Style-based stroke fallback. `p:style > a:lnRef idx="N"` references the
+    // complete theme fmtScheme lnStyleLst entry N (1-based).
+    let style_node = child(node, "style");
+    let style_stroke = parse_style_stroke(style_node, theme_source);
+
+    let stroke = merge_local_stroke(child(sp_pr, "ln"), style_stroke, theme);
+
+    let style_effects = style_node
+        .and_then(|style| child(style, "effectRef"))
+        .map(|effect_ref| parse_style_matrix_effects(effect_ref, theme))
+        .unwrap_or_default();
+    let style_scene3d = style_effects.scene3d;
+    let style_sp3d = style_effects.sp3d;
+    let local_effect_node = child(sp_pr, "effectLst").or_else(|| child(sp_pr, "effectDag"));
+    let EffectLst {
+        shadow,
+        inner_shadow,
+        glow,
+        soft_edge,
+        reflection,
+        ..
+    } = if local_effect_node.is_some() {
+        parse_effect_lst(local_effect_node, theme)
+    } else {
+        style_effects.effects
+    };
+
+    let cy = if t.cy == 0 { 1 } else { t.cy };
+
+    // Preserve the actual preset geometry (bentConnector3, curvedConnector4, …)
+    // rather than collapsing every p:cxnSp to "line" — otherwise the renderer
+    // can't distinguish bent/curved paths from a straight segment.
+    let prst_geom_node = child(sp_pr, "prstGeom");
+    let geometry = prst_geom_node
+        .and_then(|n| attr(&n, "prst"))
+        .unwrap_or_else(|| "line".to_owned());
+
+    // Pull connector adjust values from avLst (e.g. bentConnector3 adj1 = bend %).
+    let av_node = prst_geom_node.and_then(|n| child(n, "avLst"));
+    let gd_nodes: Vec<_> = av_node
+        .map(|av| {
+            av.children()
+                .filter(|n| n.is_element() && n.tag_name().name() == "gd")
+                .collect()
+        })
+        .unwrap_or_default();
+    let [adj, adj2, adj3, adj4] =
+        std::array::from_fn(|index| crate::master::preset_adjustment(&gd_nodes, index));
+
+    Some(ShapeElement {
+        math_fallback: None,
+        x: t.x,
+        y: t.y,
+        width: t.cx,
+        height: cy,
+        rotation: t.rot,
+        flip_h: t.flip_h,
+        flip_v: t.flip_v,
+        geometry,
+        fill: None,
+        stroke,
+        text_body: None,
+        default_text_color: None,
+        cust_geom: None,
+        cust_geom_paint: None,
+        adj,
+        adj2,
+        adj3,
+        adj4,
+        adj5: None,
+        adj6: None,
+        adj7: None,
+        adj8: None,
+        shadow,
+        inner_shadow,
+        glow,
+        soft_edge,
+        reflection,
+        id: cnv.id,
+        name: cnv.name,
+        hyperlink: cnv.hyperlink,
+        hyperlink_action: cnv.hyperlink_action,
+        placeholder_type: None,
+        placeholder_idx: None,
+        text_rect: None,
+        scene3d: parse_scene3d(sp_pr).or(style_scene3d),
+        sp3d: parse_sp3d(sp_pr, theme).or(style_sp3d),
+    })
+}
+
+#[cfg(test)]
+mod style_ref_tests {
+    use super::*;
+    use crate::master::LayoutPlaceholders;
+    use crate::theme::PptxTheme;
+    use std::io::Cursor;
+
+    /// Issue #1627 review round 3: an authored `<a:font><a:latin
+    /// typeface="+mj-lt"/>` is an ordinary token. With an empty major Latin
+    /// face it falls through to the theme minor face (main's behaviour), not
+    /// the Arial of a fontRef whose collection has an empty Latin face.
+    #[test]
+    fn table_style_authored_latin_token_keeps_the_minor_fallback() {
+        let theme: HashMap<String, String> =
+            [("+mn-lt", "Corbel"), ("+mj-script-Jpan", "MajorJpan")]
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                .collect();
+        let xml = r#"<a:tc xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:txBody><a:bodyPr/>
+            <a:p><a:r><a:rPr lang="ja-JP"/><a:t>a</a:t></a:r></a:p></a:txBody></a:tc>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let run = |font: TableStyleFont| {
+            let mut zip = empty_zip();
+            let chain = table_cell_chain(Some(&font), &theme);
+            let cell = parse_table_cell_with_chain(
+                doc.root_element(),
+                &theme,
+                &HashMap::new(),
+                "ppt/slides/slide1.xml",
+                &crate::master::TableTextLevels::default(),
+                &chain,
+                &mut zip,
+            );
+            match cell.text_body.unwrap().paragraphs.remove(0).runs.remove(0) {
+                TextRun::Text(t) => t,
+                other => panic!("expected text, got {other:?}"),
+            }
+        };
+        let authored = run(TableStyleFont::Faces {
+            latin: Some("+mj-lt".to_owned()),
+            ea: Some("+mj-ea".to_owned()),
+            cs: None,
+        });
+        assert_eq!(authored.font_family.as_deref(), Some("Corbel"));
+        assert_eq!(authored.font_family_ea.as_deref(), Some("MajorJpan"));
+        // Parsing keeps the two tcTxStyle forms apart.
+        let styles = parse_table_styles_xml(
+            r#"<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{A}">
+              <a:tblStyle styleId="{A}" styleName="authored"><a:wholeTbl><a:tcTxStyle><a:font><a:latin typeface="+mj-lt"/><a:ea typeface="+mj-ea"/><a:cs typeface=""/></a:font></a:tcTxStyle></a:wholeTbl></a:tblStyle>
+              <a:tblStyle styleId="{B}" styleName="ref"><a:wholeTbl><a:tcTxStyle><a:fontRef idx="major"/></a:tcTxStyle></a:wholeTbl></a:tblStyle>
+            </a:tblStyleLst>"#,
+            &theme,
+        );
+        assert_eq!(
+            styles["{A}"].whole_tbl.text.font,
+            Some(TableStyleFont::Faces {
+                latin: Some("+mj-lt".to_owned()),
+                ea: Some("+mj-ea".to_owned()),
+                cs: Some(String::new()),
+            })
+        );
+        assert_eq!(
+            styles["{B}"].whole_tbl.text.font,
+            Some(TableStyleFont::Collection("+mj"))
+        );
+        let font_ref = run(TableStyleFont::Collection("+mj"));
+        assert_eq!(font_ref.font_family.as_deref(), Some("Arial"));
+        assert_eq!(font_ref.font_family_ea.as_deref(), Some("MajorJpan"));
+    }
+
+    /// Issue #1627 review: a tcTxStyle fontRef names its theme collection for
+    /// ea/cs even when that collection's Latin face is empty, so the Latin
+    /// face falls back (Arial) while Japanese and Hebrew keep the MAJOR
+    /// script fonts.
+    #[test]
+    fn table_style_font_ref_collection_survives_an_empty_latin_face() {
+        let theme: HashMap<String, String> = [
+            ("+mn-lt", "Corbel"),
+            ("+mj-script-Jpan", "MajorJpan"),
+            ("+mj-script-Hebr", "MajorHebr"),
+            ("+mn-script-Jpan", "MinorJpan"),
+            ("+mn-script-Hebr", "MinorHebr"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        let xml = r#"<a:tc xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:txBody><a:bodyPr/>
+            <a:p><a:r><a:rPr lang="ja-JP"/><a:t>a</a:t></a:r></a:p>
+            <a:p><a:r><a:rPr lang="he-IL"/><a:t>b</a:t></a:r></a:p></a:txBody></a:tc>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let mut zip = empty_zip();
+        let chain = table_cell_chain(Some(&TableStyleFont::Collection("+mj")), &theme);
+        let cell = parse_table_cell_with_chain(
+            doc.root_element(),
+            &theme,
+            &HashMap::new(),
+            "ppt/slides/slide1.xml",
+            &crate::master::TableTextLevels::default(),
+            &chain,
+            &mut zip,
+        );
+        let runs: Vec<_> = cell
+            .text_body
+            .unwrap()
+            .paragraphs
+            .into_iter()
+            .map(|p| match p.runs.into_iter().next() {
+                Some(TextRun::Text(t)) => t,
+                other => panic!("expected text, got {other:?}"),
+            })
+            .collect();
+        // #1627 table-lang TE*: the empty major Latin face draws in Arial.
+        assert_eq!(runs[0].font_family.as_deref(), Some("Arial"));
+        assert_eq!(runs[0].font_family_ea.as_deref(), Some("MajorJpan"));
+        assert_eq!(runs[1].font_family_cs.as_deref(), Some("MajorHebr"));
+    }
+
+    #[test]
+    fn table_cell_blip_retains_slide_relationships_and_tile_properties() {
+        let xml = r#"<a:tc xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <a:tcPr><a:blipFill dpi="300"><a:blip r:embed="image"/>
+            <a:srcRect l="25000"/><a:tile tx="12700" sx="50000" flip="x"/>
+          </a:blipFill></a:tcPr></a:tc>"#;
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let mut zip = empty_zip();
+        let cell = parse_table_cell(
+            doc.root_element(),
+            &HashMap::new(),
+            &HashMap::from([("image".to_owned(), "../media/cell.png".to_owned())]),
+            "ppt/slides/slide1.xml",
+            &TableTextLevels::default(),
+            &mut zip,
+        );
+        let fill = serde_json::to_value(cell.fill.unwrap()).unwrap();
+        assert_eq!(fill["fillType"], "image");
+        assert_eq!(fill["imagePath"], "ppt/media/cell.png");
+        assert_eq!(fill["dpi"], 300);
+        assert_eq!(fill["srcRect"]["l"], 0.25);
+        assert_eq!(fill["tile"]["tx"], 12700);
+        assert_eq!(fill["tile"]["sx"], 0.5);
+        assert_eq!(fill["tile"]["flip"], "x");
+    }
+
+    fn empty_zip() -> PptxZip {
+        let mut bytes = Vec::new();
+        {
+            let writer = zip::ZipWriter::new(Cursor::new(&mut bytes));
+            writer.finish().unwrap();
+        }
+        PptxZip::new(Cursor::new(bytes)).unwrap()
+    }
+
+    fn zero_height_rect_height(text_body: &str) -> i64 {
+        let xml = format!(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                     xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:nvSpPr><p:cNvPr id="1" name="Rule"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr>
+                <a:xfrm><a:off x="731520" y="1737360"/><a:ext cx="1280160" cy="0"/></a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+                <a:noFill/>
+                <a:ln w="25400"><a:solidFill><a:srgbClr val="C9A227"/></a:solidFill></a:ln>
+              </p:spPr>
+              {text_body}
+            </p:sp>"#
+        );
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let mut zip = empty_zip();
+        parse_shape(
+            doc.root_element(),
+            &LayoutPlaceholders::default(),
+            &PptxTheme::default(),
+            &HashMap::new(),
+            "ppt/slides/slide1.xml",
+            None,
+            &mut zip,
+        )
+        .expect("zero-height rect is drawn")
+        .height
+    }
+
+    #[test]
+    fn zero_height_rect_without_text_stays_a_rule() {
+        assert_eq!(zero_height_rect_height(""), 0);
+        assert_eq!(
+            zero_height_rect_height(
+                r#"<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr/></a:p></p:txBody>"#
+            ),
+            0,
+            "an empty paragraph has nothing to grow for"
+        );
+        assert_eq!(
+            zero_height_rect_height(
+                r#"<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Caption</a:t></a:r></a:p></p:txBody>"#
+            ),
+            2_000_000,
+            "text keeps the auto-height fallback"
+        );
+    }
+
+    #[test]
+    fn partial_shape_line_and_effect_refs_inherit_theme_styles() {
+        let theme = PptxTheme::from_xml(
+            r#"<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:themeElements>
+                <a:clrScheme name="Regression">
+                  <a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
+                  <a:accent1><a:srgbClr val="4F81BD"/></a:accent1>
+                </a:clrScheme>
+                <a:fmtScheme name="Regression">
+                  <a:fillStyleLst/>
+                  <a:lnStyleLst>
+                    <a:ln w="9525"/><a:ln w="25400"/>
+                  <a:ln w="38100" cmpd="dbl"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+                    <a:prstDash val="dash"/><a:headEnd type="triangle"/>
+                  </a:ln>
+                  </a:lnStyleLst>
+                  <a:effectStyleLst>
+                    <a:effectStyle><a:effectLst>
+                      <a:outerShdw blurRad="40000" dist="23000" dir="5400000">
+                        <a:schemeClr val="phClr"><a:alpha val="35000"/></a:schemeClr>
+                      </a:outerShdw>
+                    </a:effectLst>
+                      <a:scene3d><a:camera prst="isometricLeftUp"/><a:lightRig rig="threePt" dir="t"/></a:scene3d>
+                      <a:sp3d prstMaterial="matte"><a:bevelT w="12700" h="6350"/></a:sp3d>
+                    </a:effectStyle>
+                  </a:effectStyleLst>
+                  <a:bgFillStyleLst/>
+                </a:fmtScheme>
+              </a:themeElements>
+            </a:theme>"#,
+        );
+        let doc = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                     xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:nvSpPr><p:cNvPr id="1" name="Styled"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+                <a:solidFill><a:schemeClr val="accent1"/></a:solidFill>
+                <a:ln w="44444" cmpd="sng"><a:prstDash val="solid"/><a:headEnd type="none"/><a:tailEnd type="none"/></a:ln>
+                <a:effectLst/>
+              </p:spPr>
+              <p:style>
+                <a:lnRef idx="3"><a:schemeClr val="lt1"/></a:lnRef>
+                <a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef>
+                <a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef>
+                <a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef>
+              </p:style>
+            </p:sp>"#,
+        )
+        .unwrap();
+        let mut zip = empty_zip();
+
+        let shape = parse_shape(
+            doc.root_element(),
+            &LayoutPlaceholders::default(),
+            &theme,
+            &HashMap::new(),
+            "ppt/slides/slide1.xml",
+            None,
+            &mut zip,
+        )
+        .unwrap();
+
+        let stroke = shape.stroke.expect("theme line must survive partial a:ln");
+        assert_eq!(stroke.color, "FFFFFF");
+        assert_eq!(stroke.width, 44444, "local width overrides styled paint");
+        assert_eq!(stroke.dash_style, None, "explicit solid clears theme dash");
+        assert!(
+            stroke.head_end.is_none(),
+            "explicit none clears theme arrow"
+        );
+        assert_eq!(
+            stroke.cmpd, None,
+            "explicit single clears theme compound line"
+        );
+        assert!(
+            shape.shadow.is_none(),
+            "an authored effectLst replaces the theme effect component"
+        );
+        assert_eq!(
+            shape
+                .scene3d
+                .as_ref()
+                .map(|scene| scene.camera.prst.as_str()),
+            Some("isometricLeftUp"),
+            "effectRef retains the theme scene3d component"
+        );
+        assert_eq!(
+            shape
+                .sp3d
+                .as_ref()
+                .map(|surface| surface.prst_material.as_str()),
+            Some("matte"),
+            "effectRef retains the theme sp3d component"
+        );
+    }
+
+    #[test]
+    fn fixed_theme_line_color_does_not_require_a_color_on_ln_ref() {
+        let theme = PptxTheme::from_xml(
+            r#"<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:themeElements>
+                <a:clrScheme name="Test"><a:accent1><a:srgbClr val="123456"/></a:accent1></a:clrScheme>
+                <a:fmtScheme name="Test"><a:fillStyleLst/><a:lnStyleLst>
+                  <a:ln w="19050" cap="rnd" algn="in"><a:solidFill><a:schemeClr val="accent1"/></a:solidFill>
+                    <a:custDash><a:ds d="125000" sp="75000"/></a:custDash><a:miter lim="800000"/>
+                  </a:ln>
+                </a:lnStyleLst><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme>
+              </a:themeElements>
+            </a:theme>"#,
+        );
+        let style = roxmltree::Document::parse(
+            r#"<p:style xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                        xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                  <a:lnRef idx="1"/>
+                </p:style>"#,
+        )
+        .unwrap();
+
+        let stroke = parse_style_stroke(Some(style.root_element()), &theme)
+            .expect("fixed recipe color should resolve");
+        assert_eq!(stroke.color, "123456");
+        assert_eq!(stroke.width, 19050);
+        assert_eq!(stroke.line_cap.as_deref(), Some("round"));
+        assert_eq!(stroke.dash_style, None);
+        assert_eq!(stroke.custom_dash.len(), 1);
+        assert!((stroke.custom_dash[0].dash - 1.25).abs() < f64::EPSILON);
+        assert!((stroke.custom_dash[0].space - 0.75).abs() < f64::EPSILON);
+        assert_eq!(stroke.line_join.as_deref(), Some("miter"));
+        assert_eq!(stroke.miter_limit, Some(8.0));
+        assert_eq!(stroke.alignment.as_deref(), Some("in"));
+    }
+
+    #[test]
+    fn slide_style_presence_replaces_placeholder_fill_and_line_including_no_style() {
+        let theme = PptxTheme::default();
+        let mut placeholders = LayoutPlaceholders::default();
+        placeholders.by_idx_fill.insert(
+            7,
+            Fill::Solid {
+                color: "AABBCC".to_owned(),
+            },
+        );
+        placeholders.by_idx_stroke.insert(
+            7,
+            Stroke {
+                color: "DDEEFF".to_owned(),
+                width: 12700,
+                fill: None,
+                dash_style: None,
+                custom_dash: Vec::new(),
+                line_cap: None,
+                line_join: None,
+                miter_limit: None,
+                alignment: None,
+                head_end: None,
+                tail_end: None,
+                cmpd: None,
+            },
+        );
+        let doc = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:nvSpPr><p:cNvPr id="1" name="Placeholder"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="7"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:style><a:lnRef idx="0"/><a:fillRef idx="0"/><a:effectRef idx="0"/><a:fontRef idx="minor"/></p:style></p:sp>"#,
+        )
+        .unwrap();
+        let mut zip = empty_zip();
+        let shape = parse_shape(
+            doc.root_element(),
+            &placeholders,
+            &theme,
+            &HashMap::new(),
+            "ppt/slides/slide1.xml",
+            None,
+            &mut zip,
+        )
+        .expect("shape");
+
+        assert!(shape.stroke.is_none());
+        assert!(matches!(shape.fill, Some(Fill::None)));
+    }
+
+    #[test]
+    fn slide_font_ref_replaces_placeholder_list_level_color() {
+        let theme = PptxTheme::default();
+        let mut placeholders = LayoutPlaceholders::default();
+        placeholders.by_idx_level_colors.insert(
+            7,
+            std::array::from_fn(|level| {
+                if level == 1 {
+                    Some("68217A".to_owned())
+                } else {
+                    None
+                }
+            }),
+        );
+        let doc = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:nvSpPr><p:cNvPr id="1" name="Placeholder"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="7"/></p:nvPr></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+              <p:style><a:fontRef idx="minor"><a:srgbClr val="FFFFFF"/></a:fontRef></p:style>
+              <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr lvl="1"/><a:r><a:t>Styled text</a:t></a:r></a:p></p:txBody>
+            </p:sp>"#,
+        )
+        .unwrap();
+        let mut zip = empty_zip();
+
+        let shape = parse_shape(
+            doc.root_element(),
+            &placeholders,
+            &theme,
+            &HashMap::new(),
+            "ppt/slides/slide1.xml",
+            None,
+            &mut zip,
+        )
+        .expect("shape");
+
+        assert_eq!(shape.default_text_color.as_deref(), Some("FFFFFF"));
+        assert_eq!(
+            shape
+                .text_body
+                .as_ref()
+                .and_then(|body| body.paragraphs.first())
+                .and_then(|paragraph| paragraph.def_color.as_deref()),
+            None,
+            "an explicit slide fontRef must remain authoritative over placeholder list styles"
+        );
+    }
+
+    #[test]
+    fn table_cell_preserves_horizontal_overflow() {
+        // CT_TableCellProperties defaults to clip. Absence is kept optional in
+        // the model; only the explicit schema token can enable overflow.
+        for (attribute, expected) in [
+            ("", None),
+            (r#"horzOverflow="clip""#, Some("clip")),
+            (r#"horzOverflow="overflow""#, Some("overflow")),
+            (r#"horzOverflow="invalid""#, None),
+            (r#"horzOverflow=" overflow ""#, Some("overflow")),
+            (r#"horzOverflow="&#x9;clip&#xA;&#xD;""#, Some("clip")),
+            (
+                r#"horzOverflow="&#x9;&#xA;&#xD;overflow&#x20;""#,
+                Some("overflow"),
+            ),
+            (r#"horzOverflow="&#xA0;overflow&#xA0;""#, None),
+            (r#"horzOverflow="over&#x9;flow""#, None),
+        ] {
+            let xml = format!(
+                r#"<a:tc xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:tcPr {attribute}/></a:tc>"#
+            );
+            let doc = roxmltree::Document::parse(&xml).unwrap();
+            let mut zip = empty_zip();
+            let cell = parse_table_cell(
+                doc.root_element(),
+                &HashMap::new(),
+                &HashMap::new(),
+                "ppt/slides/slide1.xml",
+                &crate::master::TableTextLevels::default(),
+                &mut zip,
+            );
+            assert_eq!(cell.horz_overflow.as_deref(), expected, "{attribute}");
+        }
+    }
+
+    #[test]
+    fn table_cell_vertical_tokens_preserve_raw_direction() {
+        for (raw, expected) in [
+            ("horz", "horz"),
+            ("&#x20;&#x9;horz&#xA;&#xD;", " \thorz\n\r"),
+            ("&#xA0;horz&#xA0;", "\u{a0}horz\u{a0}"),
+            ("ho&#x9;rz", "ho\trz"),
+            (" vert270 ", " vert270 "),
+            (" vert ", " vert "),
+            (" wordArtVert ", " wordArtVert "),
+        ] {
+            // Keep the direction unchanged for orientation dispatch; only the
+            // renderer's horizontal clip admission tolerates XML token padding.
+            // bodyPr serves table and shape text; tcPr overrides it for cells.
+            for on_cell in [false, true] {
+                let (body_attr, cell_attr) = if on_cell {
+                    (r#"vert="vert""#.to_owned(), format!(r#"vert="{raw}""#))
+                } else {
+                    (format!(r#"vert="{raw}""#), String::new())
+                };
+                let xml = format!(
+                    r#"<a:tc xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                      <a:txBody><a:bodyPr {body_attr}/><a:p/></a:txBody>
+                      <a:tcPr {cell_attr}/>
+                    </a:tc>"#
+                );
+                let doc = roxmltree::Document::parse(&xml).unwrap();
+                let mut zip = empty_zip();
+                let cell = parse_table_cell(
+                    doc.root_element(),
+                    &HashMap::new(),
+                    &HashMap::new(),
+                    "ppt/slides/slide1.xml",
+                    &crate::master::TableTextLevels::default(),
+                    &mut zip,
+                );
+                assert_eq!(
+                    cell.text_body.unwrap().vert,
+                    expected,
+                    "{raw}, tcPr={on_cell}"
+                );
+                if !on_cell {
+                    let body_pr = doc
+                        .descendants()
+                        .find(|n| {
+                            n.has_tag_name((
+                                "http://schemas.openxmlformats.org/drawingml/2006/main",
+                                "bodyPr",
+                            ))
+                        })
+                        .unwrap();
+                    assert_eq!(
+                        crate::text::InheritedBodyPr::from_body_pr(body_pr)
+                            .vert
+                            .as_deref(),
+                        Some(expected)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn table_cell_projects_tcpr_vertical_text_and_margins_into_the_text_body() {
+        let doc = roxmltree::Document::parse(
+            r#"<a:tc xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:txBody><a:bodyPr lIns="9999" tIns="9999" rIns="9999" bIns="9999"/><a:lstStyle/><a:p><a:r><a:t>Vertical label</a:t></a:r></a:p></a:txBody>
+              <a:tcPr vert="vert270" anchor="ctr" marL="100" marT="200" marR="300" marB="400"/>
+            </a:tc>"#,
+        )
+        .unwrap();
+        let mut zip = empty_zip();
+        let cell = parse_table_cell(
+            doc.root_element(),
+            &HashMap::new(),
+            &HashMap::new(),
+            "ppt/slides/slide1.xml",
+            &crate::master::TableTextLevels::default(),
+            &mut zip,
+        );
+        let body = cell.text_body.expect("table cell text body");
+        assert_eq!(body.vert, "vert270");
+        assert_eq!(body.vertical_anchor, "ctr");
+        assert_eq!(
+            (body.l_ins, body.t_ins, body.r_ins, body.b_ins),
+            (100, 200, 300, 400)
+        );
+    }
+
+    /// Issue #1618: theme objectDefaults are templates for newly inserted
+    /// objects only. PowerPoint renders existing text boxes, autoshapes (with
+    /// or without their own p:style) and table cells that omit bodyPr
+    /// attributes with the schema defaults, whatever txDef/spDef say.
+    #[test]
+    fn theme_object_defaults_do_not_reach_existing_text_bodies() {
+        let theme = PptxTheme::from_xml(
+            r#"<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="t">
+              <a:themeElements/>
+              <a:objectDefaults>
+                <a:spDef><a:spPr/><a:bodyPr wrap="none" vert="vert270" anchor="b" lIns="1371600"
+                  tIns="1143000" rIns="685800" bIns="533400" numCol="2" rtlCol="1" spcFirstLastPara="1">
+                  <a:normAutofit fontScale="50000"/></a:bodyPr><a:lstStyle/></a:spDef>
+                <a:txDef><a:spPr/><a:bodyPr wrap="none" anchor="ctr" lIns="914400" tIns="0"
+                  rIns="457200" bIns="381000" numCol="2" spcFirstLastPara="1"><a:spAutoFit/></a:bodyPr>
+                  <a:lstStyle/></a:txDef>
+              </a:objectDefaults>
+            </a:theme>"#,
+        );
+        let body = |c_nv_sp_pr: &str, style: &str| {
+            format!(
+                r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                         xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                  <p:nvSpPr><p:cNvPr id="2" name="s"/>{c_nv_sp_pr}<p:nvPr/></p:nvSpPr>
+                  <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+                    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>{style}
+                  <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Hg</a:t></a:r></a:p></p:txBody>
+                </p:sp>"#
+            )
+        };
+        let style = r#"<p:style><a:lnRef idx="1"><a:srgbClr val="000000"/></a:lnRef>
+            <a:fillRef idx="1"><a:srgbClr val="000000"/></a:fillRef>
+            <a:effectRef idx="0"><a:srgbClr val="000000"/></a:effectRef>
+            <a:fontRef idx="minor"><a:srgbClr val="000000"/></a:fontRef></p:style>"#;
+        for xml in [
+            body(r#"<p:cNvSpPr txBox="1"/>"#, ""),
+            body("<p:cNvSpPr/>", ""),
+            body("<p:cNvSpPr/>", style),
+        ] {
+            let doc = roxmltree::Document::parse(&xml).unwrap();
+            let mut zip = empty_zip();
+            let mut out = Vec::new();
+            parse_sp_tree_node(
+                doc.root_element(),
+                &LayoutPlaceholders::default(),
+                "ppt/slides/slide1.xml",
+                &HashMap::new(),
+                &HashMap::new(),
+                &mut zip,
+                &theme,
+                &mut out,
+                false,
+                None,
+                DepthGuard::root(),
+            );
+            let Some(SlideElement::Shape(shape)) = out.pop() else {
+                panic!("expected a shape")
+            };
+            let tb = shape.text_body.expect("text body");
+            assert_eq!(
+                (tb.l_ins, tb.t_ins, tb.r_ins, tb.b_ins),
+                (91_440, 45_720, 91_440, 45_720),
+                "{xml}"
+            );
+            assert_eq!(
+                (
+                    tb.vertical_anchor.as_str(),
+                    tb.wrap.as_str(),
+                    tb.vert.as_str()
+                ),
+                ("t", "square", "horz")
+            );
+            assert_eq!((tb.auto_fit.as_str(), tb.font_scale), ("none", None));
+            assert_eq!(
+                (tb.num_col, tb.rtl_col, tb.spc_first_last_para),
+                (1, false, false)
+            );
+        }
+
+        let cell = roxmltree::Document::parse(
+            r#"<a:tc xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Cell</a:t></a:r></a:p></a:txBody>
+              <a:tcPr/>
+            </a:tc>"#,
+        )
+        .unwrap();
+        let mut zip = empty_zip();
+        let cell = parse_table_cell(
+            cell.root_element(),
+            &theme,
+            &HashMap::new(),
+            "ppt/slides/slide1.xml",
+            &crate::master::TableTextLevels::default(),
+            &mut zip,
+        );
+        let tb = cell.text_body.expect("table cell text body");
+        assert_eq!((tb.t_ins, tb.b_ins), (45_720, 45_720));
+    }
+
+    #[test]
+    fn table_element_exposes_graphic_frame_id() {
+        let doc = roxmltree::Document::parse(
+            r#"<p:graphicFrame xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                                xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:nvGraphicFramePr><p:cNvPr id="42" name="Table 1"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+              <p:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></p:xfrm>
+              <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+                <a:tbl><a:tblPr/><a:tblGrid><a:gridCol w="100"/></a:tblGrid>
+                  <a:tr h="100"><a:tc><a:txBody/></a:tc></a:tr>
+                </a:tbl>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>"#,
+        )
+        .unwrap();
+        let mut zip = empty_zip();
+        let mut out = Vec::new();
+        parse_sp_tree_node(
+            doc.root_element(),
+            &LayoutPlaceholders::default(),
+            "ppt/slides/slide1.xml",
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut zip,
+            &PptxTheme::default(),
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+
+        let SlideElement::Table(table) = out.pop().expect("table output") else {
+            panic!("expected TableElement")
+        };
+        assert_eq!(table.id.as_deref(), Some("42"));
+    }
+}
+
+#[cfg(test)]
+mod picture_property_resolution_tests {
+    use super::*;
+    use crate::master::{InheritedBlipFill, LayoutPlaceholders};
+    use crate::theme::PptxTheme;
+    use std::io::{Cursor, Write};
+
+    fn tiny_png() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"\x89PNG\r\n\x1a\n");
+        bytes.extend_from_slice(&[0, 0, 0, 13]);
+        bytes.extend_from_slice(b"IHDR");
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        bytes
+    }
+
+    fn image_zip() -> PptxZip {
+        let mut bytes = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut bytes));
+            writer
+                .start_file(
+                    "ppt/media/image1.png",
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+            writer.write_all(&tiny_png()).unwrap();
+            writer.finish().unwrap();
+        }
+        PptxZip::new(Cursor::new(bytes)).unwrap()
+    }
+
+    fn svg_only_image_zip() -> PptxZip {
+        let mut bytes = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut bytes));
+            writer
+                .start_file(
+                    "ppt/media/image2.svg",
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+            writer
+                .write_all(br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="none" stroke="none"/></svg>"#)
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        PptxZip::new(Cursor::new(bytes)).unwrap()
+    }
+
+    fn theme_with_picture_style() -> crate::theme::PptxTheme {
+        crate::theme::PptxTheme::from_xml(
+            r#"<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:themeElements>
+                <a:clrScheme name="Test"><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1></a:clrScheme>
+                <a:fmtScheme name="Test">
+                  <a:fillStyleLst/>
+                  <a:lnStyleLst><a:ln w="22222"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst>
+                  <a:effectStyleLst><a:effectStyle>
+                    <a:effectLst><a:outerShdw blurRad="100" dist="200" dir="0"><a:srgbClr val="112233"/></a:outerShdw></a:effectLst>
+                    <a:scene3d><a:camera prst="isometricLeftUp"/><a:lightRig rig="threePt" dir="t"/></a:scene3d>
+                    <a:sp3d prstMaterial="matte"/>
+                  </a:effectStyle></a:effectStyleLst>
+                  <a:bgFillStyleLst/>
+                </a:fmtScheme>
+              </a:themeElements>
+            </a:theme>"#,
+        )
+    }
+
+    fn run_tree_child(
+        xml: &str,
+        placeholders: &LayoutPlaceholders,
+        theme: &(impl PptxThemeSource + ?Sized),
+        zip: &mut PptxZip,
+    ) -> PictureElement {
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let mut out = Vec::new();
+        let rels = HashMap::from([("rIdImg".to_owned(), "../media/image1.png".to_owned())]);
+        parse_sp_tree_node(
+            doc.root_element(),
+            placeholders,
+            "ppt/slides/slide1.xml",
+            &rels,
+            &HashMap::new(),
+            zip,
+            theme,
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+        let SlideElement::Picture(picture) = out.pop().expect("picture output") else {
+            panic!("expected PictureElement")
+        };
+        picture
+    }
+
+    fn assert_theme_properties(picture: &PictureElement) {
+        assert_eq!(
+            picture.stroke.as_ref().map(|stroke| stroke.width),
+            Some(22_222)
+        );
+        assert_eq!(picture.shadow.as_ref().map(|shadow| shadow.dist), Some(200));
+        assert_eq!(
+            picture
+                .scene3d
+                .as_ref()
+                .map(|scene| scene.camera.prst.as_str()),
+            Some("isometricLeftUp")
+        );
+        assert_eq!(
+            picture
+                .sp3d
+                .as_ref()
+                .map(|surface| surface.prst_material.as_str()),
+            Some("matte")
+        );
+    }
+
+    #[test]
+    fn normal_picture_and_blip_filled_shape_share_style_component_resolution() {
+        let theme = theme_with_picture_style();
+        let mut zip = image_zip();
+        let ordinary = run_tree_child(
+            r#"<p:pic xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <p:nvPicPr><p:cNvPr id="1" name="Picture"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+              <p:blipFill><a:blip r:embed="rIdImg"/></p:blipFill>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm></p:spPr>
+              <p:style><a:lnRef idx="1"><a:srgbClr val="FFFFFF"/></a:lnRef>
+                <a:effectRef idx="1"><a:srgbClr val="FFFFFF"/></a:effectRef></p:style>
+            </p:pic>"#,
+            &LayoutPlaceholders::default(),
+            &theme,
+            &mut zip,
+        );
+        assert_eq!(ordinary.id.as_deref(), Some("1"));
+        assert_theme_properties(&ordinary);
+
+        let mut zip = image_zip();
+        let blip_shape = run_tree_child(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <p:nvSpPr><p:cNvPr id="2" name="Blip shape"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm>
+                <a:blipFill><a:blip r:embed="rIdImg"/></a:blipFill></p:spPr>
+              <p:style><a:lnRef idx="1"><a:srgbClr val="FFFFFF"/></a:lnRef>
+                <a:effectRef idx="1"><a:srgbClr val="FFFFFF"/></a:effectRef></p:style>
+            </p:sp>"#,
+            &LayoutPlaceholders::default(),
+            &theme,
+            &mut zip,
+        );
+        assert_eq!(blip_shape.id.as_deref(), Some("2"));
+        assert_theme_properties(&blip_shape);
+    }
+
+    #[test]
+    fn blip_filled_shape_uses_svg_when_the_raster_fallback_part_is_missing() {
+        let doc = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                           xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main">
+              <p:nvSpPr><p:cNvPr id="7" name="SVG shape"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm>
+                <a:blipFill><a:blip r:embed="rIdMissingRaster"><a:extLst>
+                  <a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}">
+                    <asvg:svgBlip r:embed="rIdSvg"/>
+                  </a:ext>
+                </a:extLst></a:blip></a:blipFill></p:spPr>
+              <p:style><a:fillRef idx="1"><a:srgbClr val="000000"/></a:fillRef></p:style>
+            </p:sp>"#,
+        )
+        .unwrap();
+        let rels = HashMap::from([
+            (
+                "rIdMissingRaster".to_owned(),
+                "../media/missing.png".to_owned(),
+            ),
+            ("rIdSvg".to_owned(), "../media/image2.svg".to_owned()),
+        ]);
+        let mut zip = svg_only_image_zip();
+        let mut out = Vec::new();
+
+        parse_sp_tree_node(
+            doc.root_element(),
+            &LayoutPlaceholders::default(),
+            "ppt/slides/slide1.xml",
+            &rels,
+            &HashMap::new(),
+            &mut zip,
+            &PptxTheme::default(),
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+
+        let SlideElement::Picture(picture) = out.pop().expect("picture output") else {
+            panic!("the surviving SVG must not fall through to the black shape-style fill")
+        };
+        assert_eq!(picture.image_path, "ppt/media/image2.svg");
+        assert_eq!(picture.mime_type, "image/svg+xml");
+        assert_eq!(
+            picture.svg_image_path.as_deref(),
+            Some("ppt/media/image2.svg")
+        );
+        assert!(picture.stroke.is_none());
+    }
+
+    #[test]
+    fn unresolved_blip_filled_shape_does_not_fall_back_to_the_style_fill() {
+        let doc = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <p:nvSpPr><p:cNvPr id="8" name="Missing image"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm>
+                <a:blipFill><a:blip r:embed="rIdMissing"/></a:blipFill></p:spPr>
+              <p:style><a:fillRef idx="1"><a:srgbClr val="000000"/></a:fillRef></p:style>
+            </p:sp>"#,
+        )
+        .unwrap();
+        let rels = HashMap::from([("rIdMissing".to_owned(), "../media/missing.png".to_owned())]);
+        let mut zip = svg_only_image_zip();
+        let mut out = Vec::new();
+
+        parse_sp_tree_node(
+            doc.root_element(),
+            &LayoutPlaceholders::default(),
+            "ppt/slides/slide1.xml",
+            &rels,
+            &HashMap::new(),
+            &mut zip,
+            &PptxTheme::default(),
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+
+        let SlideElement::Shape(shape) = out.pop().expect("shape output") else {
+            panic!("an unresolved image fill must preserve the non-image shape properties")
+        };
+        assert!(matches!(shape.fill, Some(Fill::None)));
+        assert!(shape.stroke.is_none());
+    }
+
+    #[test]
+    fn inherited_blip_shape_and_transformless_picture_retain_layout_effects() {
+        let property_xml = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:spPr><a:ln w="33333"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:ln>
+                <a:effectLst><a:outerShdw blurRad="500" dist="700" dir="0"><a:srgbClr val="112233"/></a:outerShdw></a:effectLst>
+                <a:scene3d><a:camera prst="perspectiveFront"/><a:lightRig rig="threePt" dir="t"/></a:scene3d>
+                <a:sp3d prstMaterial="plastic"/>
+              </p:spPr>
+            </p:sp>"#,
+        )
+        .unwrap();
+        let properties = resolve_picture_shape_properties(
+            child(property_xml.root_element(), "spPr"),
+            None,
+            None,
+            &HashMap::new(),
+        );
+        let transform = Transform {
+            cx: 1000,
+            cy: 1000,
+            ..Default::default()
+        };
+        let inherited_blip = InheritedBlipFill {
+            image_path: "ppt/media/image1.png".to_owned(),
+            mime_type: "image/png".to_owned(),
+            src_rect: None,
+            alpha: None,
+            duotone: None,
+            blip_effects: Vec::new(),
+        };
+        let mut placeholders = LayoutPlaceholders::default();
+        placeholders.by_idx.insert(9, transform);
+        placeholders.by_idx_blip_fill.insert(9, inherited_blip);
+        placeholders.by_idx_picture_properties.insert(9, properties);
+
+        let assert_inherited = |picture: &PictureElement| {
+            assert_eq!(
+                picture.stroke.as_ref().map(|stroke| stroke.width),
+                Some(33_333)
+            );
+            assert_eq!(picture.shadow.as_ref().map(|shadow| shadow.dist), Some(700));
+            assert_eq!(
+                picture
+                    .scene3d
+                    .as_ref()
+                    .map(|scene| scene.camera.prst.as_str()),
+                Some("perspectiveFront")
+            );
+            assert_eq!(
+                picture
+                    .sp3d
+                    .as_ref()
+                    .map(|surface| surface.prst_material.as_str()),
+                Some("plastic")
+            );
+        };
+
+        let mut zip = image_zip();
+        let inherited_shape = run_tree_child(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:nvSpPr><p:cNvPr id="3" name="Inherited"/><p:cNvSpPr/><p:nvPr><p:ph type="pic" idx="9"/></p:nvPr></p:nvSpPr>
+              <p:spPr/>
+            </p:sp>"#,
+            &placeholders,
+            &HashMap::new(),
+            &mut zip,
+        );
+        assert_inherited(&inherited_shape);
+
+        let mut zip = image_zip();
+        let placeholder_picture = run_tree_child(
+            r#"<p:pic xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <p:nvPicPr><p:cNvPr id="4" name="Placeholder"/><p:cNvPicPr/><p:nvPr><p:ph type="pic" idx="9"/></p:nvPr></p:nvPicPr>
+              <p:blipFill><a:blip r:embed="rIdImg"/></p:blipFill><p:spPr/>
+            </p:pic>"#,
+            &placeholders,
+            &HashMap::new(),
+            &mut zip,
+        );
+        assert_inherited(&placeholder_picture);
+    }
+
+    #[test]
+    fn explicit_effect_ref_clears_inherited_3d_components() {
+        let inherited_xml = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:spPr><a:scene3d><a:camera prst="perspectiveFront"/><a:lightRig rig="threePt" dir="t"/></a:scene3d>
+                <a:sp3d prstMaterial="plastic"/></p:spPr>
+            </p:sp>"#,
+        )
+        .unwrap();
+        let inherited = resolve_picture_shape_properties(
+            child(inherited_xml.root_element(), "spPr"),
+            None,
+            None,
+            &HashMap::new(),
+        );
+        let slide_xml = roxmltree::Document::parse(
+            r#"<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:spPr/><p:style><a:effectRef idx="0"/></p:style>
+            </p:sp>"#,
+        )
+        .unwrap();
+        let resolved = resolve_picture_shape_properties(
+            child(slide_xml.root_element(), "spPr"),
+            child(slide_xml.root_element(), "style"),
+            Some(inherited),
+            &HashMap::new(),
+        );
+        assert!(resolved.scene3d.is_none());
+        assert!(resolved.sp3d.is_none());
+    }
+}
+
+#[cfg(test)]
+mod ole_tests {
+    use super::*;
+    use crate::master::LayoutPlaceholders;
+    use std::io::{Cursor, Write};
+
+    /// A 2×2 PNG so `png_size_from_bytes` returns Some((2, 2)) and
+    /// `read_zip_bytes` succeeds. Only the 8-byte signature + IHDR are read.
+    fn tiny_png() -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(b"\x89PNG\r\n\x1a\n"); // signature
+        b.extend_from_slice(&[0, 0, 0, 13]); // IHDR length
+        b.extend_from_slice(b"IHDR");
+        b.extend_from_slice(&2u32.to_be_bytes()); // width
+        b.extend_from_slice(&2u32.to_be_bytes()); // height
+        b.extend_from_slice(&[8, 6, 0, 0, 0]); // bit depth / colour type / etc.
+        b.extend_from_slice(&[0, 0, 0, 0]); // fake CRC (unread)
+        b
+    }
+
+    fn zip_with(parts: &[(&str, &[u8])]) -> PptxZip {
+        let mut buf = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+            let o = zip::write::SimpleFileOptions::default();
+            for (path, bytes) in parts {
+                w.start_file(*path, o).unwrap();
+                w.write_all(bytes).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        PptxZip::new(Cursor::new(buf)).unwrap()
+    }
+
+    const OLE_URI: &str = "http://schemas.openxmlformats.org/presentationml/2006/ole";
+
+    fn ns() -> &'static str {
+        concat!(
+            r#"xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" "#,
+            r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" "#,
+            r#"xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" "#,
+            r#"xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006""#
+        )
+    }
+
+    fn run(xml: &str, zip: &mut PptxZip, rels: &HashMap<String, String>) -> Vec<SlideElement> {
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let lph = LayoutPlaceholders::default();
+        let theme = HashMap::new();
+        let smart = HashMap::new();
+        let mut out = Vec::new();
+        parse_sp_tree_node(
+            doc.root_element(),
+            &lph,
+            "ppt/slides/slide1.xml",
+            rels,
+            &smart,
+            zip,
+            &theme,
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+        out
+    }
+
+    // ── MCE AlternateContent selection (ECMA-376 Part 3 §9.3) ───────────────
+    //
+    // A `<p:pic>` whose `<a:blip r:embed>` names `embed`, sized so
+    // `parse_picture` yields a `SlideElement::Picture` with `image_path`
+    // `ppt/media/<embed>.png`. Used to tell which MCE branch was selected.
+    fn mce_pic(embed: &str) -> String {
+        format!(
+            r#"<p:pic>
+                 <p:nvPicPr><p:cNvPr id="7" name="P"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+                 <p:blipFill><a:blip r:embed="{embed}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+                 <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+                   <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+               </p:pic>"#
+        )
+    }
+
+    /// `<mc:AlternateContent>` whose Choice carries `mce_pic("choice")` behind the
+    /// given `requires` prefix, and whose Fallback carries `mce_pic("fallback")`.
+    /// The `unk`/`a14`/`p14` prefixes are declared so `Requires` resolves. Returns
+    /// the single emitted picture's `image_path` (or a marker string).
+    fn mce_selected_pic_path(requires: &str, choice_inner: &str) -> Vec<SlideElement> {
+        let mut rels = HashMap::new();
+        rels.insert("rIdChoice".to_string(), "../media/choice.png".to_string());
+        rels.insert(
+            "rIdFallback".to_string(),
+            "../media/fallback.png".to_string(),
+        );
+        let mut zip = zip_with(&[
+            ("ppt/media/choice.png", &tiny_png()),
+            ("ppt/media/fallback.png", &tiny_png()),
+        ]);
+        let xml = format!(
+            r#"<mc:AlternateContent {ns}
+                 xmlns:unk="http://example.com/an/extension/we/do/not/understand"
+                 xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main"
+                 xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"
+                 xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex">
+                 <mc:Choice Requires="{requires}">{choice_inner}</mc:Choice>
+                 <mc:Fallback>{fallback}</mc:Fallback>
+               </mc:AlternateContent>"#,
+            ns = ns(),
+            requires = requires,
+            choice_inner = choice_inner,
+            fallback = mce_pic("rIdFallback"),
+        );
+        run(&xml, &mut zip, &rels)
+    }
+
+    #[test]
+    fn equation_mce_retains_picture_preview_and_complete_choice_range() {
+        let shape = r#"<p:sp xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
+          <p:nvSpPr><p:cNvPr id="8" name="Equation"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+          <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr>
+          <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a14:m><m:oMath><m:r><m:t>x</m:t></m:r></m:oMath></a14:m></a:p></p:txBody>
+        </p:sp>"#;
+        let selected = format!("{}{}{}", mce_pic("rIdChoice"), shape, shape);
+        let out = mce_selected_pic_path("a14", &selected);
+        assert_eq!(out.len(), 3);
+        let SlideElement::Shape(shape) = &out[1] else {
+            panic!("equation")
+        };
+        let fallback = shape.math_fallback.as_ref().expect("retained preview");
+        assert_eq!((fallback.before, fallback.after), (1, 1));
+        assert_eq!(only_pic_path(&fallback.elements), "ppt/media/fallback.png");
+    }
+
+    #[test]
+    fn equation_table_mce_retains_complete_preview_for_table_only_and_mixed_branches() {
+        let table = r#"<p:graphicFrame xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
+          <p:nvGraphicFramePr><p:cNvPr id="9" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+          <p:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></p:xfrm>
+          <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>
+          <a:tblPr/><a:tblGrid><a:gridCol w="914400"/></a:tblGrid><a:tr h="914400"><a:tc>
+          <a:txBody><a:bodyPr/><a:lstStyle/><a:p><a14:m><m:oMath><m:r><m:t>x</m:t></m:r></m:oMath></a14:m></a:p></a:txBody>
+          <a:tcPr/></a:tc></a:tr></a:tbl></a:graphicData></a:graphic>
+        </p:graphicFrame>"#;
+        let text_shape = r#"<p:sp><p:nvSpPr><p:cNvPr id="10" name="Text"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+          <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+          <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Text</a:t></a:r></a:p></p:txBody></p:sp>"#;
+        for mixed in [false, true] {
+            let choice = if mixed {
+                format!("{}{}{}", text_shape, table, mce_pic("rIdChoice"))
+            } else {
+                table.to_string()
+            };
+            let mut out = mce_selected_pic_path("a14", &choice);
+            let owner = usize::from(mixed);
+            let SlideElement::Table(table) = &out[owner] else {
+                panic!("equation table")
+            };
+            assert!(table.rows[0].cells[0]
+                .text_body
+                .as_ref()
+                .unwrap()
+                .paragraphs[0]
+                .runs
+                .iter()
+                .any(|run| matches!(run, TextRun::Math { .. })));
+            let value = serde_json::to_value(&out[owner]).unwrap();
+            let preview = &value["mathFallback"];
+            assert_eq!(preview["before"], owner);
+            assert_eq!(preview["after"], owner);
+            assert_eq!(
+                preview["elements"][0]["imagePath"],
+                "ppt/media/fallback.png"
+            );
+            // Recovery content follows its owning group just like the live table.
+            apply_group_transform_to_element(
+                &mut out[owner],
+                &GroupTransform {
+                    x: 100,
+                    y: 200,
+                    cx: 1828800,
+                    cy: 1828800,
+                    ch_x: 0,
+                    ch_y: 0,
+                    ch_cx: 914400,
+                    ch_cy: 914400,
+                    rot: 0.0,
+                    flip_h: false,
+                    flip_v: false,
+                },
+            );
+            let transformed = serde_json::to_value(&out[owner]).unwrap();
+            let picture = &transformed["mathFallback"]["elements"][0];
+            assert_eq!(picture["x"], 100);
+            assert_eq!(picture["y"], 200);
+            assert_eq!(picture["width"], 1828800);
+        }
+    }
+
+    fn only_pic_path(out: &[SlideElement]) -> String {
+        let pics: Vec<&String> = out
+            .iter()
+            .filter_map(|e| match e {
+                SlideElement::Picture(p) => Some(&p.image_path),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pics.len(), 1, "expected exactly one Picture, got {out:?}");
+        pics[0].clone()
+    }
+
+    /// ECMA-376 Part 3 §9.3(1) — a `<mc:Choice>` is selected only when EVERY
+    /// namespace in its `Requires` is understood. `unk` is a namespace the pptx
+    /// shape walker has no handler for; although the Choice's `<p:pic>` WOULD
+    /// render, the consumer must NOT select an un-understood Choice — it selects
+    /// the `<mc:Fallback>` instead. The old output-emptiness heuristic wrongly
+    /// kept the Choice because its picture produced output; this pins §9.3.
+    #[test]
+    fn mce_unhandled_choice_selects_fallback_picture() {
+        let out = mce_selected_pic_path("unk", &mce_pic("rIdChoice"));
+        assert_eq!(
+            only_pic_path(&out),
+            "ppt/media/fallback.png",
+            "un-understood Choice must yield the Fallback picture, not the Choice's"
+        );
+    }
+
+    /// §9.3(1) — the drawing-2010 (`a14`) namespace IS understood by the pptx
+    /// shape walker (Word/PowerPoint wrap ordinary `<p:sp>`/`<p:pic>` carrying an
+    /// a14 extension in `<mc:Choice Requires="a14">`, e.g. sample-8's 115 such
+    /// choices). The understood Choice must be selected and its picture kept, the
+    /// Fallback dropped — guarding against a regression on those real slides.
+    #[test]
+    fn mce_understood_a14_choice_selected_over_fallback() {
+        let out = mce_selected_pic_path("a14", &mce_pic("rIdChoice"));
+        assert_eq!(
+            only_pic_path(&out),
+            "ppt/media/choice.png",
+            "understood a14 Choice must be selected, Fallback dropped"
+        );
+    }
+
+    /// §9.3 + the "understood = renderable" contract — `p14`
+    /// (PowerPoint-2010, ink `<p:contentPart>`) is NOT rendered by the shape
+    /// walker, so a `Requires="p14"` Choice must not be selected: the Fallback
+    /// preview picture is drawn instead. (Matches sample-3's ink slides.)
+    #[test]
+    fn mce_ink_p14_contentpart_choice_falls_back_to_picture() {
+        let out = mce_selected_pic_path("p14", r#"<p:contentPart r:id="rIdInk"/>"#);
+        assert_eq!(
+            only_pic_path(&out),
+            "ppt/media/fallback.png",
+            "un-rendered ink Choice must yield the Fallback picture"
+        );
+    }
+
+    /// ECMA-376 §21.1.2.3.5 — a `<p:cNvPr><a:hlinkClick @r:id>` on a shape makes
+    /// the whole shape an EXTERNAL click target; r:id resolves via slide rels.
+    #[test]
+    fn shape_cnv_hlink_click_external_resolves_url() {
+        let mut rels = HashMap::new();
+        rels.insert("rId9".to_string(), "https://example.com/".to_string());
+        let mut zip = zip_with(&[]);
+        let xml = format!(
+            r#"<p:sp {ns}>
+                <p:nvSpPr>
+                  <p:cNvPr id="3" name="Rect"><a:hlinkClick r:id="rId9"/></p:cNvPr>
+                  <p:cNvSpPr/><p:nvPr/>
+                </p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+                  <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+               </p:sp>"#,
+            ns = ns()
+        );
+        let out = run(&xml, &mut zip, &rels);
+        let shape = match &out[0] {
+            SlideElement::Shape(s) => s,
+            _ => panic!("expected a shape element"),
+        };
+        assert_eq!(shape.hyperlink.as_deref(), Some("https://example.com/"));
+        assert!(shape.hyperlink_action.is_none());
+    }
+
+    /// A `<a:hlinkClick action="ppaction://hlinksldjump" r:id>` on a shape is an
+    /// INTERNAL slide jump: `hyperlink` is the resolved internal slide part and
+    /// `hyperlink_action` carries the raw ppaction verb. ECMA-376 §21.1.2.3.5.
+    #[test]
+    fn shape_cnv_hlink_click_internal_slidejump() {
+        let mut rels = HashMap::new();
+        rels.insert("rId3".to_string(), "../slides/slide3.xml".to_string());
+        let mut zip = zip_with(&[]);
+        let xml = format!(
+            r#"<p:sp {ns}>
+                <p:nvSpPr>
+                  <p:cNvPr id="4" name="Btn"><a:hlinkClick action="ppaction://hlinksldjump" r:id="rId3"/></p:cNvPr>
+                  <p:cNvSpPr/><p:nvPr/>
+                </p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+                  <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+               </p:sp>"#,
+            ns = ns()
+        );
+        let out = run(&xml, &mut zip, &rels);
+        let shape = match &out[0] {
+            SlideElement::Shape(s) => s,
+            _ => panic!("expected a shape element"),
+        };
+        assert_eq!(shape.hyperlink.as_deref(), Some("../slides/slide3.xml"));
+        assert_eq!(
+            shape.hyperlink_action.as_deref(),
+            Some("ppaction://hlinksldjump")
+        );
+    }
+
+    /// A shape with no cNvPr hlinkClick has both hyperlink fields None.
+    #[test]
+    fn shape_cnv_without_hlink_click_is_none() {
+        let rels = HashMap::new();
+        let mut zip = zip_with(&[]);
+        let xml = format!(
+            r#"<p:sp {ns}>
+                <p:nvSpPr><p:cNvPr id="5" name="Plain"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+                  <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+               </p:sp>"#,
+            ns = ns()
+        );
+        let out = run(&xml, &mut zip, &rels);
+        let shape = match &out[0] {
+            SlideElement::Shape(s) => s,
+            _ => panic!("expected a shape element"),
+        };
+        assert!(shape.hyperlink.is_none());
+        assert!(shape.hyperlink_action.is_none());
+    }
+
+    /// PowerPoint's canonical OLE output: `mc:Choice Requires="v"` holds a
+    /// spid-only `<p:oleObj>` (no `<p:pic>` — spid and pic are mutually exclusive,
+    /// ECMA-376 Part 3 §B.1) and `mc:Fallback` holds the drawable pic-carrying
+    /// oleObj. Because we do not understand the `v` (VML) namespace, MCE §9.3 says
+    /// to render the Fallback. Selecting the first oleObj that actually has a
+    /// `<p:pic>` must emit exactly ONE preview picture from the Fallback, even
+    /// though the Choice's spid-only oleObj comes first in document order.
+    #[test]
+    fn ole_object_canonical_choice_spid_fallback_pic_emits_single_picture() {
+        let mut rels = HashMap::new();
+        rels.insert("rIdImg".to_string(), "../media/oleImage1.png".to_string());
+        let mut zip = zip_with(&[("ppt/media/oleImage1.png", &tiny_png())]);
+
+        // Choice: spid-only oleObj (VML shape reference, no drawable pic).
+        let choice = r#"<p:oleObj spid="_x0000_s1026" r:id="rIdOle" progId="Excel.Sheet.12"><p:embed/></p:oleObj>"#;
+        // Fallback: the pic-carrying oleObj we can actually render.
+        let fallback = r#"<p:oleObj r:id="rIdOle" progId="Excel.Sheet.12"><p:embed/>
+                 <p:pic>
+                  <p:nvPicPr><p:cNvPr id="5" name="Object"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+                  <p:blipFill><a:blip r:embed="rIdImg"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+                  <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1828800" cy="914400"/></a:xfrm>
+                   <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                 </p:pic>
+                </p:oleObj>"#;
+        let xml = format!(
+            r#"<p:graphicFrame {ns}>
+              <p:xfrm><a:off x="1000000" y="2000000"/><a:ext cx="1828800" cy="914400"/></p:xfrm>
+              <a:graphic><a:graphicData uri="{uri}">
+                <mc:AlternateContent>
+                  <mc:Choice Requires="v">{choice}</mc:Choice>
+                  <mc:Fallback>{fallback}</mc:Fallback>
+                </mc:AlternateContent>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>"#,
+            ns = ns(),
+            uri = OLE_URI,
+            choice = choice,
+            fallback = fallback,
+        );
+
+        let out = run(&xml, &mut zip, &rels);
+        let pics: Vec<_> = out
+            .iter()
+            .filter(|e| matches!(e, SlideElement::Picture(_)))
+            .collect();
+        assert_eq!(
+            pics.len(),
+            1,
+            "canonical Choice(spid)/Fallback(pic) must yield exactly one preview picture, got {}",
+            pics.len()
+        );
+        // Position must be the graphicFrame's (the inner pic xfrm is 0,0-relative).
+        if let SlideElement::Picture(p) = pics[0] {
+            assert_eq!((p.x, p.y), (1_000_000, 2_000_000));
+            assert_eq!((p.width, p.height), (1_828_800, 914_400));
+        }
+    }
+
+    /// A constructed case where BOTH Choice and Fallback carry a pic-bearing
+    /// oleObj (not PowerPoint's real output, but a robustness guard): selecting
+    /// the *first* pic-carrying oleObj must still emit exactly ONE picture, never
+    /// a double-draw from the second.
+    #[test]
+    fn ole_object_both_branches_have_pic_emits_single_picture() {
+        let mut rels = HashMap::new();
+        rels.insert("rIdImg".to_string(), "../media/oleImage1.png".to_string());
+        let mut zip = zip_with(&[("ppt/media/oleImage1.png", &tiny_png())]);
+
+        let pic = |embed: &str| {
+            format!(
+                r#"<p:oleObj r:id="rIdOle" progId="Excel.Sheet.12"><p:embed/>
+                 <p:pic>
+                  <p:nvPicPr><p:cNvPr id="5" name="Object"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+                  <p:blipFill><a:blip r:embed="{embed}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+                  <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1828800" cy="914400"/></a:xfrm>
+                   <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                 </p:pic>
+                </p:oleObj>"#
+            )
+        };
+        let xml = format!(
+            r#"<p:graphicFrame {ns}>
+              <p:xfrm><a:off x="1000000" y="2000000"/><a:ext cx="1828800" cy="914400"/></p:xfrm>
+              <a:graphic><a:graphicData uri="{uri}">
+                <mc:AlternateContent>
+                  <mc:Choice Requires="v">{choice}</mc:Choice>
+                  <mc:Fallback>{fallback}</mc:Fallback>
+                </mc:AlternateContent>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>"#,
+            ns = ns(),
+            uri = OLE_URI,
+            choice = pic("rIdImg"),
+            fallback = pic("rIdImg"),
+        );
+
+        let out = run(&xml, &mut zip, &rels);
+        let pics: Vec<_> = out
+            .iter()
+            .filter(|e| matches!(e, SlideElement::Picture(_)))
+            .collect();
+        assert_eq!(
+            pics.len(),
+            1,
+            "two pic-carrying oleObjs must still yield exactly one preview picture, got {}",
+            pics.len()
+        );
+    }
+
+    /// A direct (un-wrapped) `<p:oleObj>` whose inner `<p:pic>` has NO xfrm must
+    /// still emit a picture, positioned/sized by the graphicFrame xfrm.
+    #[test]
+    fn ole_object_without_pic_xfrm_uses_graphicframe_xfrm() {
+        let mut rels = HashMap::new();
+        rels.insert("rIdImg".to_string(), "../media/oleImage2.png".to_string());
+        let mut zip = zip_with(&[("ppt/media/oleImage2.png", &tiny_png())]);
+
+        let xml = format!(
+            r#"<p:graphicFrame {ns}>
+              <p:xfrm><a:off x="500000" y="600000"/><a:ext cx="2743200" cy="1371600"/></p:xfrm>
+              <a:graphic><a:graphicData uri="{uri}">
+                <p:oleObj r:id="rIdOle" progId="Excel.Sheet.12"><p:embed/>
+                 <p:pic>
+                  <p:nvPicPr><p:cNvPr id="6" name="Object"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+                  <p:blipFill><a:blip r:embed="rIdImg"/></p:blipFill>
+                  <p:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                 </p:pic>
+                </p:oleObj>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>"#,
+            ns = ns(),
+            uri = OLE_URI,
+        );
+
+        let out = run(&xml, &mut zip, &rels);
+        let SlideElement::Picture(p) = out
+            .iter()
+            .find(|e| matches!(e, SlideElement::Picture(_)))
+            .expect("a picture must be emitted from a pic without its own xfrm")
+        else {
+            unreachable!()
+        };
+        assert_eq!((p.x, p.y), (500_000, 600_000));
+        assert_eq!((p.width, p.height), (2_743_200, 1_371_600));
+    }
+
+    /// A `<p:oleObj>` with NO `<p:pic>` (icon-only / link form) emits nothing —
+    /// preserving the prior silent-skip behaviour rather than drawing a blank.
+    #[test]
+    fn ole_object_without_pic_emits_nothing() {
+        let rels = HashMap::new();
+        let mut zip = zip_with(&[]);
+        let xml = format!(
+            r#"<p:graphicFrame {ns}>
+              <p:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></p:xfrm>
+              <a:graphic><a:graphicData uri="{uri}">
+                <p:oleObj r:id="rIdOle" progId="Equation.3" showAsIcon="1"><p:embed/></p:oleObj>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>"#,
+            ns = ns(),
+            uri = OLE_URI,
+        );
+        let out = run(&xml, &mut zip, &rels);
+        assert!(
+            out.is_empty(),
+            "an oleObj with no preview pic must emit nothing, got {} element(s)",
+            out.len()
+        );
+    }
+
+    /// Issue #2176: a deck PowerPoint converted from binary .ppt writes a bare
+    /// `<p:oleObj spid>` with no `<p:pic>` and no MCE Fallback. The preview is
+    /// the `<v:imagedata o:relid>` of the VML shape whose `o:spid` matches,
+    /// resolved through the VML part's own rels. Placement comes from the
+    /// graphicFrame; imagedata crop becomes the source rectangle. The same
+    /// structure works from a layout (any part with a vmlDrawing relationship).
+    #[test]
+    fn spid_only_ole_object_draws_vml_preview_from_slide_and_layout() {
+        const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let vml = r##"<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+            <v:shape id="Object_x0020_2" o:spid="_x0000_s1025" type="#_x0000_t75"><v:imagedata o:relid="rId2"/></v:shape>
+            <v:shape id="Object_x0020_3" o:spid="_x0000_s1026" type="#_x0000_t75">
+              <v:imagedata o:relid="rId1" cropleft="10%" o:title=""/></v:shape></xml>"##;
+        let vml_rels = format!(
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Type="{R}/image" Target="../media/image1.png"/>
+              <Relationship Id="rId2" Type="{R}/image" Target="../media/other.png"/></Relationships>"#
+        );
+        let part_rels = format!(
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rIdOle" Type="{R}/oleObject" Target="../embeddings/oleObject1.bin"/>
+              <Relationship Id="rIdVml" Type="{R}/vmlDrawing" Target="../drawings/vmlDrawing1.vml"/></Relationships>"#
+        );
+        let png = tiny_png();
+        let xml = format!(
+            r#"<p:graphicFrame {ns}>
+              <p:nvGraphicFramePr><p:cNvPr id="7" name="Object 3"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+              <p:xfrm><a:off x="4500000" y="500000"/><a:ext cx="2540000" cy="1524000"/></p:xfrm>
+              <a:graphic><a:graphicData uri="{uri}">
+                <p:oleObj spid="_x0000_s1026" name="Equation" r:id="rIdOle" progId="Equation.3"><p:embed/></p:oleObj>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>"#,
+            ns = ns(),
+            uri = OLE_URI,
+        );
+        for part in ["ppt/slides/slide1.xml", "ppt/slideLayouts/slideLayout1.xml"] {
+            let (dir, file) = part.rsplit_once('/').unwrap();
+            let rels_path = format!("{dir}/_rels/{file}.rels");
+            let mut zip = zip_with(&[
+                (rels_path.as_str(), part_rels.as_bytes()),
+                ("ppt/drawings/vmlDrawing1.vml", vml.as_bytes()),
+                (
+                    "ppt/drawings/_rels/vmlDrawing1.vml.rels",
+                    vml_rels.as_bytes(),
+                ),
+                ("ppt/media/image1.png", &png),
+                ("ppt/media/other.png", &png),
+            ]);
+            let doc = roxmltree::Document::parse(&xml).unwrap();
+            let mut out = Vec::new();
+            parse_sp_tree_node(
+                doc.root_element(),
+                &LayoutPlaceholders::default(),
+                part,
+                &HashMap::new(),
+                &HashMap::new(),
+                &mut zip,
+                &HashMap::new(),
+                &mut out,
+                false,
+                None,
+                DepthGuard::root(),
+            );
+            let [SlideElement::Picture(p)] = out.as_slice() else {
+                panic!(
+                    "{part}: expected exactly one preview picture, got {}",
+                    out.len()
+                );
+            };
+            assert_eq!(p.image_path, "ppt/media/image1.png", "{part}");
+            assert_eq!(p.mime_type, "image/png");
+            assert_eq!(p.id.as_deref(), Some("7"));
+            assert_eq!(
+                (p.x, p.y, p.width, p.height),
+                (4_500_000, 500_000, 2_540_000, 1_524_000)
+            );
+            assert_eq!(
+                (p.intrinsic_width_px, p.intrinsic_height_px),
+                (Some(2), Some(2))
+            );
+            assert_eq!(p.src_rect.map(|r| r.l), Some(0.1));
+        }
+
+        // Without a vmlDrawing relationship the object still emits nothing.
+        let mut zip = zip_with(&[(
+            "ppt/slides/_rels/slide1.xml.rels",
+            br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>"#,
+        )]);
+        assert!(run(&xml, &mut zip, &HashMap::new()).is_empty());
+    }
+
+    const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
+    const REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+    /// A spid-only OLE graphicFrame (the #2176 shape) with the given cNvPr id.
+    fn spid_frame(id: usize, spid: &str) -> String {
+        format!(
+            r#"<p:graphicFrame {ns}>
+              <p:nvGraphicFramePr><p:cNvPr id="{id}" name="Object {id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+              <p:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></p:xfrm>
+              <a:graphic><a:graphicData uri="{uri}">
+                <p:oleObj spid="{spid}" r:id="rIdOle" progId="Equation.3"><p:embed/></p:oleObj>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>"#,
+            ns = ns(),
+            uri = OLE_URI,
+        )
+    }
+
+    /// Slide 1 with a vmlDrawing whose shapes `_x0000_s1025..` (count `shapes`)
+    /// all use `rId1`, described by `vml_rel` in the VML part's rels.
+    fn vml_zip(shapes: usize, vml_rel: &str) -> PptxZip {
+        let mut vml = String::from(
+            r#"<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">"#,
+        );
+        for n in 0..shapes {
+            vml.push_str(&format!(
+                r#"<v:shape o:spid="_x0000_s{}"><v:imagedata o:relid="rId1"/></v:shape>"#,
+                1025 + n
+            ));
+        }
+        vml.push_str("</xml>");
+        let slide_rels = format!(
+            r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rIdVml" Type="{REL}/vmlDrawing" Target="../drawings/vmlDrawing1.vml"/></Relationships>"#
+        );
+        let vml_rels = format!(r#"<Relationships xmlns="{RELS_NS}">{vml_rel}</Relationships>"#);
+        let png = tiny_png();
+        zip_with(&[
+            ("ppt/slides/_rels/slide1.xml.rels", slide_rels.as_bytes()),
+            ("ppt/drawings/vmlDrawing1.vml", vml.as_bytes()),
+            (
+                "ppt/drawings/_rels/vmlDrawing1.vml.rels",
+                vml_rels.as_bytes(),
+            ),
+            ("ppt/media/image1.png", &png),
+        ])
+    }
+
+    fn index_builds() -> usize {
+        VML_OLE_INDEX_BUILDS.with(|count| count.get())
+    }
+
+    /// Parse every child of one host document, as a slide's spTree walk does:
+    /// all frames share the same host part XML.
+    fn run_tree(frames: &str, zip: &mut PptxZip) -> Vec<SlideElement> {
+        let xml = format!(r#"<p:spTree {ns}>{frames}</p:spTree>"#, ns = ns());
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let lph = LayoutPlaceholders::default();
+        let mut out = Vec::new();
+        for node in doc.root_element().children().filter(|n| n.is_element()) {
+            parse_sp_tree_node(
+                node,
+                &lph,
+                "ppt/slides/slide1.xml",
+                &HashMap::new(),
+                &HashMap::new(),
+                zip,
+                &HashMap::new(),
+                &mut out,
+                false,
+                None,
+                DepthGuard::root(),
+            );
+        }
+        out
+    }
+
+    /// Review finding: the VML drawing of a part is read and parsed ONCE for
+    /// any number of spid-only objects (no O(N²) re-reads that would also
+    /// evade the distinct-bytes budget), and a failed lookup is cached too.
+    #[test]
+    fn vml_ole_preview_index_is_built_once_per_part() {
+        const N: usize = 40;
+        let mut zip = vml_zip(
+            N,
+            &format!(
+                r#"<Relationship Id="rId1" Type="{REL}/image" Target="../media/image1.png"/>"#
+            ),
+        );
+        let before = index_builds();
+        let frames: String = (0..N)
+            .map(|n| spid_frame(n + 2, &format!("_x0000_s{}", 1025 + n)))
+            .collect();
+        assert_eq!(
+            run_tree(&frames, &mut zip).len(),
+            N,
+            "every object draws its preview"
+        );
+        assert_eq!(
+            index_builds() - before,
+            1,
+            "one index build for {N} objects"
+        );
+
+        // A host without a vmlDrawing caches that fact in the host slot: no
+        // index is built and its rels are not re-read per object.
+        let mut zip = zip_with(&[(
+            "ppt/slides/_rels/slide1.xml.rels",
+            format!(r#"<Relationships xmlns="{RELS_NS}"/>"#).as_bytes(),
+        )]);
+        let before = index_builds();
+        let frames: String = (0..N).map(|n| spid_frame(n + 2, "_x0000_s1025")).collect();
+        assert!(run_tree(&frames, &mut zip).is_empty());
+        assert_eq!(index_builds() - before, 0);
+        assert!(matches!(
+            &zip.ole_vml_previews.host,
+            Some((host, None)) if host == "ppt/slides/slide1.xml"
+        ));
+    }
+
+    /// Review finding: index memory must not amplify one long path per shape.
+    /// A drawing of many shapes that all point at one long image path keeps a
+    /// single path allocation, shared by every entry.
+    #[test]
+    fn vml_ole_preview_index_shares_one_path_allocation() {
+        const SHAPES: usize = 5_000;
+        let long_name = "x".repeat(8 * 1024);
+        let target = format!("../media/{long_name}.png");
+        let image_part = format!("ppt/media/{long_name}.png");
+        let mut vml = String::from(
+            r#"<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">"#,
+        );
+        for n in 0..SHAPES {
+            vml.push_str(&format!(
+                r#"<v:shape o:spid="_x0000_s{}"><v:imagedata o:relid="rId1"/></v:shape>"#,
+                1025 + n
+            ));
+        }
+        vml.push_str("</xml>");
+        let slide_rels = format!(
+            r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rIdVml" Type="{REL}/vmlDrawing" Target="../drawings/vmlDrawing1.vml"/></Relationships>"#
+        );
+        let vml_rels = format!(
+            r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rId1" Type="{REL}/image" Target="{target}"/></Relationships>"#
+        );
+        let png = tiny_png();
+        let mut zip = zip_with(&[
+            ("ppt/slides/_rels/slide1.xml.rels", slide_rels.as_bytes()),
+            ("ppt/drawings/vmlDrawing1.vml", vml.as_bytes()),
+            (
+                "ppt/drawings/_rels/vmlDrawing1.vml.rels",
+                vml_rels.as_bytes(),
+            ),
+            (image_part.as_str(), &png),
+        ]);
+        // The slide references three of the 5,000 shapes (one twice).
+        let frames = [
+            spid_frame(2, "_x0000_s1025"),
+            spid_frame(3, "_x0000_s3000"),
+            spid_frame(4, "_x0000_s6024"),
+            spid_frame(5, "_x0000_s3000"),
+        ]
+        .concat();
+        let out = run_tree(&frames, &mut zip);
+        assert_eq!(out.len(), 4);
+        for element in &out {
+            let SlideElement::Picture(p) = element else {
+                panic!("expected a preview picture")
+            };
+            assert_eq!(p.image_path, image_part);
+        }
+        let index = zip
+            .ole_vml_previews
+            .by_vml_part
+            .get("ppt/drawings/vmlDrawing1.vml")
+            .expect("index cached for the VML part");
+        // Entries are linear in the VML shapes; the long path is one
+        // allocation shared by all of them.
+        assert_eq!(index.entries.len(), SHAPES);
+        let first = &index.entries["_x0000_s1025"].0;
+        assert!(index
+            .entries
+            .values()
+            .all(|(path, _)| std::rc::Rc::ptr_eq(path, first)));
+    }
+
+    /// Review finding (round 3): resolved paths carried the VML part's
+    /// directory, so many distinct relationships under a long directory
+    /// amplified memory. A relationship survives only if it names an existing
+    /// package entry, and paths are interned per entry, so retained path bytes
+    /// are bounded by the package's own entry names.
+    #[test]
+    fn vml_ole_preview_index_drops_dangling_rels_under_long_directory() {
+        const RELS: usize = 2_000;
+        let dir = format!("ppt/{}", "d".repeat(8 * 1024));
+        let vml_part = format!("{dir}/vmlDrawing1.vml");
+        let mut vml = String::from(
+            r#"<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">"#,
+        );
+        let mut vml_rels = format!(r#"<Relationships xmlns="{RELS_NS}">"#);
+        for n in 0..RELS {
+            vml.push_str(&format!(
+                r#"<v:shape o:spid="_x0000_s{}"><v:imagedata o:relid="rId{n}"/></v:shape>"#,
+                1025 + n
+            ));
+            vml_rels.push_str(&format!(
+                r#"<Relationship Id="rId{n}" Type="{REL}/image" Target="img{n}.png"/>"#
+            ));
+        }
+        vml.push_str("</xml>");
+        vml_rels.push_str("</Relationships>");
+        let slide_rels = format!(
+            r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rIdVml" Type="{REL}/vmlDrawing" Target="/{vml_part}"/></Relationships>"#
+        );
+        let vml_rels_part = format!("{dir}/_rels/vmlDrawing1.vml.rels");
+        let present = format!("{dir}/img0.png");
+        let png = tiny_png();
+        let mut zip = zip_with(&[
+            ("ppt/slides/_rels/slide1.xml.rels", slide_rels.as_bytes()),
+            (vml_part.as_str(), vml.as_bytes()),
+            (vml_rels_part.as_str(), vml_rels.as_bytes()),
+            (present.as_str(), &png),
+        ]);
+        // Two referenced objects: rId0's image exists, rId1's does not.
+        let frames = [spid_frame(2, "_x0000_s1025"), spid_frame(3, "_x0000_s1026")].concat();
+        let out = run_tree(&frames, &mut zip);
+        let [SlideElement::Picture(p)] = out.as_slice() else {
+            panic!(
+                "only the preview whose part exists is drawn, got {}",
+                out.len()
+            )
+        };
+        assert_eq!(p.image_path, present);
+
+        let index = zip
+            .ole_vml_previews
+            .by_vml_part
+            .get(vml_part.as_str())
+            .unwrap();
+        // Dangling relationships (no package entry) are dropped when the index
+        // is built; only the one existing image survives, and no target or
+        // per-relationship resolved path is retained.
+        assert_eq!(index.entries.len(), 1);
+        assert_eq!(&*index.entries["_x0000_s1025"].0, present);
+    }
+
+    /// Review finding (round 4): many host parts sharing one VML part must not
+    /// each retain a copy of it, and an External relationship with a huge
+    /// target must be dropped before anything is stored. 200 slides share one
+    /// drawing whose only relationship is External with a 1 MiB target: the
+    /// drawing is parsed once, nothing is drawn, and the shared index is empty.
+    #[test]
+    fn vml_ole_preview_hosts_share_one_filtered_index() {
+        const HOSTS: usize = 200;
+        let long_target = format!("https://example.invalid/{}", "t".repeat(1024 * 1024));
+        let vml = r#"<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><v:shape o:spid="_x0000_s1025"><v:imagedata o:relid="rId1"/></v:shape></xml>"#;
+        let vml_rels = format!(
+            r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rId1" Type="{REL}/image" Target="{long_target}" TargetMode="External"/></Relationships>"#
+        );
+        let host_rels = format!(
+            r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rIdVml" Type="{REL}/vmlDrawing" Target="../drawings/vmlDrawing1.vml"/></Relationships>"#
+        );
+        let host_rels_paths: Vec<String> = (1..=HOSTS)
+            .map(|n| format!("ppt/slides/_rels/slide{n}.xml.rels"))
+            .collect();
+        let mut parts: Vec<(&str, &[u8])> = host_rels_paths
+            .iter()
+            .map(|path| (path.as_str(), host_rels.as_bytes()))
+            .collect();
+        parts.push(("ppt/drawings/vmlDrawing1.vml", vml.as_bytes()));
+        parts.push((
+            "ppt/drawings/_rels/vmlDrawing1.vml.rels",
+            vml_rels.as_bytes(),
+        ));
+        let mut zip = zip_with(&parts);
+        let frame = spid_frame(2, "_x0000_s1025");
+        let doc = roxmltree::Document::parse(&frame).unwrap();
+        let before = index_builds();
+        for n in 1..=HOSTS {
+            let mut out = Vec::new();
+            parse_sp_tree_node(
+                doc.root_element(),
+                &LayoutPlaceholders::default(),
+                &format!("ppt/slides/slide{n}.xml"),
+                &HashMap::new(),
+                &HashMap::new(),
+                &mut zip,
+                &HashMap::new(),
+                &mut out,
+                false,
+                None,
+                DepthGuard::root(),
+            );
+            assert!(out.is_empty(), "an External preview is never drawn");
+        }
+        assert_eq!(index_builds() - before, 1, "one parse for {HOSTS} hosts");
+        assert_eq!(zip.ole_vml_previews.by_vml_part.len(), 1);
+        assert!(
+            zip.ole_vml_previews.by_vml_part["ppt/drawings/vmlDrawing1.vml"]
+                .entries
+                .is_empty()
+        );
+    }
+
+    /// Parse one spid-only frame as a shape of host part `host`.
+    fn run_host(host: &str, spid: &str, zip: &mut PptxZip) -> Vec<SlideElement> {
+        let frame = spid_frame(2, spid);
+        let doc = roxmltree::Document::parse(&frame).unwrap();
+        let mut out = Vec::new();
+        parse_sp_tree_node(
+            doc.root_element(),
+            &LayoutPlaceholders::default(),
+            host,
+            &HashMap::new(),
+            &HashMap::new(),
+            zip,
+            &HashMap::new(),
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+        out
+    }
+
+    /// Review finding (round 5): the cache is keyed by ZIP entry identity, not
+    /// by the spelling of the resolved name. Hosts whose rels name the same
+    /// VML part with case-variant spellings (equivalent under Part 2
+    /// §6.2.2.3) share one index and one parse.
+    #[test]
+    fn vml_ole_preview_case_variant_vml_aliases_build_one_index() {
+        let vml = r#"<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><v:shape o:spid="_x0000_s1025"><v:imagedata o:relid="rId1"/></v:shape></xml>"#;
+        let vml_rels = format!(
+            r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rId1" Type="{REL}/image" Target="../media/image1.png"/></Relationships>"#
+        );
+        let host_rels = |target: &str| {
+            format!(
+                r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rIdVml" Type="{REL}/vmlDrawing" Target="{target}"/></Relationships>"#
+            )
+        };
+        let spellings = [
+            "../drawings/vmlDrawing1.vml",
+            "../drawings/VMLDRAWING1.vml",
+            "../Drawings/vmldrawing1.VML",
+        ];
+        let rels: Vec<String> = spellings.iter().map(|t| host_rels(t)).collect();
+        let rels_paths: Vec<String> = (1..=spellings.len())
+            .map(|n| format!("ppt/slides/_rels/slide{n}.xml.rels"))
+            .collect();
+        let png = tiny_png();
+        let mut parts: Vec<(&str, &[u8])> = rels_paths
+            .iter()
+            .zip(&rels)
+            .map(|(path, xml)| (path.as_str(), xml.as_bytes()))
+            .collect();
+        parts.push(("ppt/drawings/vmlDrawing1.vml", vml.as_bytes()));
+        parts.push((
+            "ppt/drawings/_rels/vmlDrawing1.vml.rels",
+            vml_rels.as_bytes(),
+        ));
+        parts.push(("ppt/media/image1.png", &png));
+        let mut zip = zip_with(&parts);
+        let before = index_builds();
+        for n in 1..=spellings.len() {
+            let out = run_host(
+                &format!("ppt/slides/slide{n}.xml"),
+                "_x0000_s1025",
+                &mut zip,
+            );
+            assert_eq!(out.len(), 1, "slide{n} draws its preview");
+        }
+        assert_eq!(index_builds() - before, 1, "one parse for all spellings");
+        assert_eq!(zip.ole_vml_previews.by_vml_part.len(), 1);
+        assert!(zip
+            .ole_vml_previews
+            .by_vml_part
+            .contains_key("ppt/drawings/vmlDrawing1.vml"));
+    }
+
+    /// Review finding (round 5): image entry names are interned once per
+    /// operation by entry identity, so many VML parts that reference the same
+    /// image under a long directory (with differing spellings) keep one path
+    /// allocation for it, not one per VML index.
+    #[test]
+    fn vml_ole_preview_many_vml_parts_share_one_image_allocation() {
+        const VMLS: usize = 50;
+        let dir = format!("ppt/{}", "m".repeat(4 * 1024));
+        let image = format!("{dir}/image1.png");
+        let png = tiny_png();
+        let mut owned: Vec<(String, String)> = Vec::new();
+        for n in 1..=VMLS {
+            // Alternate the spelling of the shared image target.
+            let target = if n % 2 == 0 {
+                format!("/{image}")
+            } else {
+                format!("/{}", image.to_ascii_uppercase())
+            };
+            owned.push((
+                format!("ppt/slides/_rels/slide{n}.xml.rels"),
+                format!(
+                    r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rIdVml" Type="{REL}/vmlDrawing" Target="../drawings/vmlDrawing{n}.vml"/></Relationships>"#
+                ),
+            ));
+            owned.push((
+                format!("ppt/drawings/vmlDrawing{n}.vml"),
+                r#"<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><v:shape o:spid="_x0000_s1025"><v:imagedata o:relid="rId1"/></v:shape></xml>"#.to_string(),
+            ));
+            owned.push((
+                format!("ppt/drawings/_rels/vmlDrawing{n}.vml.rels"),
+                format!(
+                    r#"<Relationships xmlns="{RELS_NS}"><Relationship Id="rId1" Type="{REL}/image" Target="{target}"/></Relationships>"#
+                ),
+            ));
+        }
+        let mut parts: Vec<(&str, &[u8])> = owned
+            .iter()
+            .map(|(path, xml)| (path.as_str(), xml.as_bytes()))
+            .collect();
+        parts.push((image.as_str(), &png));
+        let mut zip = zip_with(&parts);
+        for n in 1..=VMLS {
+            let out = run_host(
+                &format!("ppt/slides/slide{n}.xml"),
+                "_x0000_s1025",
+                &mut zip,
+            );
+            let [SlideElement::Picture(p)] = out.as_slice() else {
+                panic!("slide{n}: expected one preview")
+            };
+            assert_eq!(p.image_path, image, "the stored entry name is used");
+        }
+        let cache = &zip.ole_vml_previews;
+        assert_eq!(cache.by_vml_part.len(), VMLS);
+        let first = cache.by_vml_part.values().next().unwrap().entries["_x0000_s1025"]
+            .0
+            .clone();
+        assert!(cache
+            .by_vml_part
+            .values()
+            .all(|index| std::rc::Rc::ptr_eq(&index.entries["_x0000_s1025"].0, &first)));
+        // One interned name per VML entry plus one for the shared image.
+        assert_eq!(cache.entries.len(), VMLS + 1);
+    }
+
+    /// Review finding: the VML rels keep TargetMode and Type. An External
+    /// relationship whose Target looks like `../media/image1.png` must not
+    /// resolve to that unrelated package image, and a non-image relationship
+    /// never names a preview. Both relationship namespaces' image types work.
+    #[test]
+    fn vml_ole_preview_requires_internal_image_relationship() {
+        let draws = |vml_rel: String| {
+            let mut zip = vml_zip(1, &vml_rel);
+            !run(&spid_frame(2, "_x0000_s1025"), &mut zip, &HashMap::new()).is_empty()
+        };
+        assert!(draws(format!(
+            r#"<Relationship Id="rId1" Type="{REL}/image" Target="../media/image1.png"/>"#
+        )));
+        assert!(draws(
+            r#"<Relationship Id="rId1" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/image" Target="../media/image1.png"/>"#
+                .to_string()
+        ));
+        assert!(!draws(format!(
+            r#"<Relationship Id="rId1" Type="{REL}/image" Target="../media/image1.png" TargetMode="External"/>"#
+        )));
+        assert!(!draws(format!(
+            r#"<Relationship Id="rId1" Type="{REL}/oleObject" Target="../media/image1.png"/>"#
+        )));
+    }
+}
+
+/// §20.1.2.2.8 — `<p:cNvPr hidden="1">` marks a shape/pic/graphicFrame/cxnSp/
+/// grpSp as not-to-be-rendered. The parser must skip such nodes (and a hidden
+/// group's whole subtree) while leaving `hidden="0"` / absent shapes untouched.
+#[cfg(test)]
+mod hidden_tests {
+    use super::*;
+    use crate::master::LayoutPlaceholders;
+    use std::collections::HashMap;
+
+    const NS: &str = concat!(
+        r#"xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" "#,
+        r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" "#,
+        r#"xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships""#
+    );
+
+    fn run(xml: &str) -> Vec<SlideElement> {
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let lph = LayoutPlaceholders::default();
+        let theme = HashMap::new();
+        let smart = HashMap::new();
+        // No zip access needed for plain shapes; build an empty in-memory zip.
+        let mut zip = {
+            use std::io::Cursor;
+            let mut buf = Vec::new();
+            {
+                let w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.finish().unwrap();
+            }
+            PptxZip::new(Cursor::new(buf)).unwrap()
+        };
+        let rels = HashMap::new();
+        let mut out = Vec::new();
+        parse_sp_tree_node(
+            doc.root_element(),
+            &lph,
+            "ppt/slides/slide1.xml",
+            &rels,
+            &smart,
+            &mut zip,
+            &theme,
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+        out
+    }
+
+    fn shape_xml(name: &str, hidden_attr: &str) -> String {
+        format!(
+            r#"<p:sp {ns}>
+              <p:nvSpPr><p:cNvPr id="2" name="{name}"{hidden}/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+              <p:txBody><a:bodyPr/><a:p><a:r><a:t>{name}</a:t></a:r></a:p></p:txBody>
+            </p:sp>"#,
+            ns = NS,
+            name = name,
+            hidden = hidden_attr,
+        )
+    }
+
+    #[test]
+    fn hidden_shape_is_not_emitted() {
+        // hidden="1" and hidden="true" both suppress the shape.
+        for attr in [r#" hidden="1""#, r#" hidden="true""#] {
+            let out = run(&shape_xml("Hidden", attr));
+            assert!(
+                out.is_empty(),
+                "hidden shape emitted (attr={attr}): {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn visible_shape_is_emitted_unchanged() {
+        // Absent, "0", and "false" all keep the shape.
+        for attr in ["", r#" hidden="0""#, r#" hidden="false""#] {
+            let out = run(&shape_xml("Visible", attr));
+            assert_eq!(out.len(), 1, "visible shape dropped (attr={attr})");
+            assert!(matches!(out[0], SlideElement::Shape(_)));
+        }
+    }
+
+    #[test]
+    fn hidden_group_elides_whole_subtree() {
+        // A hidden grpSp must suppress its visible children too.
+        let xml = format!(
+            r#"<p:grpSp {ns}>
+              <p:nvGrpSpPr><p:cNvPr id="2" name="Grp" hidden="1"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+              <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/>
+                <a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></p:grpSpPr>
+              <p:sp><p:nvSpPr><p:cNvPr id="3" name="Child"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="457200" cy="457200"/></a:xfrm>
+                  <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                <p:txBody><a:bodyPr/><a:p><a:r><a:t>c</a:t></a:r></a:p></p:txBody></p:sp>
+            </p:grpSp>"#,
+            ns = NS,
+        );
+        assert!(run(&xml).is_empty(), "hidden group leaked a child shape");
+    }
+
+    #[test]
+    fn hidden_child_inside_visible_group_is_skipped() {
+        // A visible group with one hidden and one visible child emits only the
+        // visible child — proves the check is per-node, not just top-level.
+        let xml = format!(
+            r#"<p:grpSp {ns}>
+              <p:nvGrpSpPr><p:cNvPr id="2" name="Grp"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+              <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/>
+                <a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></p:grpSpPr>
+              <p:sp><p:nvSpPr><p:cNvPr id="3" name="Hidden" hidden="1"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="457200" cy="457200"/></a:xfrm>
+                  <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                <p:txBody><a:bodyPr/><a:p><a:r><a:t>h</a:t></a:r></a:p></p:txBody></p:sp>
+              <p:sp><p:nvSpPr><p:cNvPr id="4" name="Shown"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="457200" y="0"/><a:ext cx="457200" cy="457200"/></a:xfrm>
+                  <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                <p:txBody><a:bodyPr/><a:p><a:r><a:t>s</a:t></a:r></a:p></p:txBody></p:sp>
+            </p:grpSp>"#,
+            ns = NS,
+        );
+        let out = run(&xml);
+        assert_eq!(out.len(), 1, "expected only the visible child: {out:?}");
+    }
+
+    // ── Group-shape recursion depth guard (RB2) ────────────────────────────
+
+    /// `<p:grpSp>` nested `levels` deep (levels ≥ 1), with one visible leaf shape
+    /// at the very bottom. Each `<p:grpSp>` is a real `parse_sp_tree_node`
+    /// recursion. The outermost `<p:grpSp>` carries the namespace decls and is
+    /// returned as the root element (the `run` helper parses it as one node).
+    fn nested_groups(levels: usize) -> String {
+        assert!(levels >= 1);
+        let leaf = concat!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="99" name="Leaf"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>"#,
+            r#"<p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="457200" cy="457200"/></a:xfrm>"#,
+            r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>"#,
+            r#"<p:txBody><a:bodyPr/><a:p><a:r><a:t>x</a:t></a:r></a:p></p:txBody></p:sp>"#,
+        );
+        // Inner groups carry no xmlns (inherited from the root grpSp).
+        let open_inner = concat!(
+            r#"<p:grpSp><p:nvGrpSpPr><p:cNvPr id="2" name="G"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>"#,
+            r#"<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/>"#,
+            r#"<a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></p:grpSpPr>"#,
+        );
+        let mut inner = leaf.to_string();
+        // levels-1 inner groups around the leaf …
+        for _ in 0..levels - 1 {
+            inner = format!("{open_inner}{inner}</p:grpSp>");
+        }
+        // … then the outermost group with the namespace declarations, as root.
+        format!(
+            r#"<p:grpSp xmlns:p="{P}" xmlns:a="{A}"><p:nvGrpSpPr><p:cNvPr id="1" name="Root"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/><a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></p:grpSpPr>{inner}</p:grpSp>"#,
+            P = P_NS,
+            A = A_NS,
+        )
+    }
+
+    fn run_deep(levels: usize) -> Vec<SlideElement> {
+        // Exercise the recursive group-shape walker with native stack headroom;
+        // trusted fixtures bypass the separate production XML depth policy.
+        std::thread::Builder::new()
+            .stack_size(256 * 1024 * 1024)
+            .spawn(move || run(&nested_groups(levels)))
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    #[test]
+    fn group_depth_crossing_is_a_typed_resource_failure() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let governor = ooxml_common::resource::ResourceGovernor::from_wasm(
+                    ooxml_common::resource::OoxmlFormat::Pptx,
+                    None,
+                    None,
+                    None,
+                );
+                let _scope = governor.scope("group-depth-test");
+                let _provisional = run(&nested_groups(65));
+                let error = governor
+                    .first_error()
+                    .expect("group depth must fail closed");
+                assert!(error.starts_with("OOXML_RESOURCE_LIMIT:"), "{error}");
+                assert!(error.contains("\"limit\":64"), "{error}");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn deeply_nested_groups_do_not_trap() {
+        // ~2 000 nested groups is ~30× the depth limit; pre-guard this recurses
+        // 2 000 frames and traps on the WASM stack. The guard caps the descent so
+        // parsing RETURNS instead of aborting. A group deeper than the limit drops
+        // its subtree, so the single leaf below it does NOT survive — the assertion
+        // is simply that we get here (no trap) with a bounded result.
+        //
+        // NB: this runs on a 256 MB stack, so it cannot by itself catch a removed
+        // DepthGuard (the big stack absorbs the recursion). The LOAD-BEARING
+        // coverage for the roxmltree-layer trap is the default-stack neutralization
+        // test `theme::tests::deeply_nested_theme_xml_is_rejected_not_trapped`
+        // (and the docx/xlsx siblings), which would overflow if the PPTX guarded
+        // pre-check were bypassed. This test's job is the truncation contract.
+        let out = run_deep(2_000);
+        assert!(out.len() <= 1, "guard should bound the emitted shapes");
+    }
+
+    #[test]
+    fn shallow_nested_groups_keep_their_leaf() {
+        // A modest nest (well under the limit) parses in full: the leaf survives.
+        let out = run_deep(10);
+        assert_eq!(out.len(), 1, "leaf under a shallow group nest must survive");
+        assert!(matches!(out[0], SlideElement::Shape(_)));
+    }
+
+    // Namespaces for `nested_groups` (kept local to these depth tests).
+    const P_NS: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    const A_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+}
+
+#[cfg(test)]
+mod smartart_hidden_tests {
+    // `parse_smartart_drawing` dispatches dsp:sp/cxnSp/grpSp manually (it never
+    // routes through `parse_sp_tree_node`), so its own hidden check is a
+    // separate code path from `hidden_tests` above and needs its own coverage.
+    use super::*;
+    use std::collections::HashMap;
+
+    const NS: &str = concat!(
+        r#"xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" "#,
+        r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main""#
+    );
+
+    fn run(sp_tree_children: &str) -> Vec<SlideElement> {
+        // parse_smartart_drawing parses the drawing XML itself (it is the
+        // dsp:drawing1.xml part, not a subtree passed in already-parsed).
+        let xml = format!(
+            r#"<dsp:drawing {ns}><dsp:spTree>{children}</dsp:spTree></dsp:drawing>"#,
+            ns = NS,
+            children = sp_tree_children,
+        );
+        let theme = HashMap::new();
+        let gf_xfrm = Transform::default();
+        let mut out = Vec::new();
+        let mut zip = {
+            use std::io::Cursor;
+            let mut buf = Vec::new();
+            {
+                let w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.finish().unwrap();
+            }
+            PptxZip::new(Cursor::new(buf)).unwrap()
+        };
+        parse_smartart_drawing(&xml, &gf_xfrm, &theme, &mut out, &mut zip);
+        out
+    }
+
+    fn dsp_sp(name: &str, hidden_attr: &str) -> String {
+        format!(
+            r#"<dsp:sp>
+              <dsp:nvSpPr><dsp:cNvPr id="2" name="{name}"{hidden}/><dsp:cNvSpPr/><dsp:nvPr/></dsp:nvSpPr>
+              <dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></dsp:spPr>
+              <dsp:txBody><a:bodyPr/><a:p><a:r><a:t>{name}</a:t></a:r></a:p></dsp:txBody>
+            </dsp:sp>"#,
+            name = name,
+            hidden = hidden_attr,
+        )
+    }
+
+    #[test]
+    fn hidden_top_level_smartart_shape_is_not_emitted() {
+        let out = run(&dsp_sp("Hidden", r#" hidden="1""#));
+        assert!(out.is_empty(), "hidden top-level dsp:sp emitted: {out:?}");
+    }
+
+    #[test]
+    fn visible_top_level_smartart_shape_is_emitted_unchanged() {
+        let out = run(&dsp_sp("Visible", ""));
+        assert_eq!(out.len(), 1);
+        assert!(matches!(out[0], SlideElement::Shape(_)));
+    }
+
+    #[test]
+    fn hidden_smartart_group_elides_whole_subtree() {
+        let xml = format!(
+            r#"<dsp:grpSp>
+              <dsp:nvGrpSpPr><dsp:cNvPr id="2" name="Grp" hidden="1"/><dsp:cNvGrpSpPr/><dsp:nvPr/></dsp:nvGrpSpPr>
+              <dsp:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/>
+                <a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></dsp:grpSpPr>
+              {child}
+            </dsp:grpSp>"#,
+            child = dsp_sp("Child", ""),
+        );
+        assert!(
+            run(&xml).is_empty(),
+            "hidden SmartArt group leaked a child shape"
+        );
+    }
+
+    #[test]
+    fn hidden_child_inside_visible_smartart_group_is_skipped() {
+        let xml = format!(
+            r#"<dsp:grpSp>
+              <dsp:nvGrpSpPr><dsp:cNvPr id="2" name="Grp"/><dsp:cNvGrpSpPr/><dsp:nvPr/></dsp:nvGrpSpPr>
+              <dsp:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/>
+                <a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></dsp:grpSpPr>
+              {hidden}
+              {shown}
+            </dsp:grpSp>"#,
+            hidden = dsp_sp("Hidden", r#" hidden="1""#),
+            shown = dsp_sp("Shown", ""),
+        );
+        let out = run(&xml);
+        assert_eq!(out.len(), 1, "expected only the visible child: {out:?}");
+    }
+}
+
+/// Strict-conformance (ISO/IEC 29500 Strict) fixtures. PresentationML and
+/// DrawingML elements are matched by local name (already Strict-safe); the one
+/// namespace-pinned site is `attr_r`, which reads `r:embed` / `r:id`. These
+/// tests declare the p / a / r namespaces under the `http://purl.oclc.org/ooxml/`
+/// Strict URIs and assert a shape's text and a picture's resolved image path come
+/// out identical to the Transitional case — proving `attr_r` accepts the Strict
+/// relationships namespace. (Real Office-authored Strict `.pptx` end-to-end
+/// validation is the QA11 public-conformance-corpus track.)
+#[cfg(test)]
+mod strict_namespace_tests {
+    use super::*;
+    use crate::master::LayoutPlaceholders;
+    use std::io::{Cursor, Write};
+
+    const STRICT_NS: &str = concat!(
+        r#"xmlns:p="http://purl.oclc.org/ooxml/presentationml/main" "#,
+        r#"xmlns:a="http://purl.oclc.org/ooxml/drawingml/main" "#,
+        r#"xmlns:r="http://purl.oclc.org/ooxml/officeDocument/relationships""#
+    );
+
+    fn tiny_png() -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(b"\x89PNG\r\n\x1a\n");
+        b.extend_from_slice(&[0, 0, 0, 13]);
+        b.extend_from_slice(b"IHDR");
+        b.extend_from_slice(&2u32.to_be_bytes());
+        b.extend_from_slice(&2u32.to_be_bytes());
+        b.extend_from_slice(&[8, 6, 0, 0, 0]);
+        b.extend_from_slice(&[0, 0, 0, 0]);
+        b
+    }
+
+    fn zip_with(parts: &[(&str, &[u8])]) -> PptxZip {
+        let mut buf = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+            let o = zip::write::SimpleFileOptions::default();
+            for (path, bytes) in parts {
+                w.start_file(*path, o).unwrap();
+                w.write_all(bytes).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        PptxZip::new(Cursor::new(buf)).unwrap()
+    }
+
+    /// Parse each child of the `<p:spTree>` root, mirroring the real slide
+    /// driver (which iterates `cSld > spTree`'s element children).
+    fn run(xml: &str, zip: &mut PptxZip, rels: &HashMap<String, String>) -> Vec<SlideElement> {
+        run_with_smart(xml, zip, rels, &HashMap::new())
+    }
+
+    /// Like [`run`], but threads a `dm_rid → drawing_xml` SmartArt cache
+    /// through, mirroring [`crate::build_smartart_drawings`]'s output — needed
+    /// by tests that exercise the `<a:graphicData uri="…diagram">` fallback
+    /// path.
+    fn run_with_smart(
+        xml: &str,
+        zip: &mut PptxZip,
+        rels: &HashMap<String, String>,
+        smart: &HashMap<String, String>,
+    ) -> Vec<SlideElement> {
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let lph = LayoutPlaceholders::default();
+        let theme = HashMap::new();
+        let mut out = Vec::new();
+        for node in doc.root_element().children().filter(|n| n.is_element()) {
+            parse_sp_tree_node(
+                node,
+                &lph,
+                "ppt/slides/slide1.xml",
+                rels,
+                smart,
+                zip,
+                &theme,
+                &mut out,
+                false,
+                None,
+                DepthGuard::root(),
+            );
+        }
+        out
+    }
+
+    // A Strict `<p:sp>` text body yields the run text (local-name matching is
+    // namespace-agnostic), and a Strict `<p:pic>` resolves its blip `r:embed`
+    // through the relationships map into an `image_path` — the latter exercises
+    // `attr_r` against the Strict relationships URI.
+    #[test]
+    fn strict_shape_text_and_picture_embed_resolve() {
+        let mut rels = HashMap::new();
+        rels.insert("rIdImg".to_string(), "../media/image1.png".to_string());
+        let mut zip = zip_with(&[("ppt/media/image1.png", &tiny_png())]);
+
+        let xml = format!(
+            r#"<p:spTree {STRICT_NS}>
+                <p:sp>
+                  <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                  <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1828800" cy="457200"/></a:xfrm>
+                    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                  <p:txBody><a:bodyPr/><a:p><a:r><a:t>Strict Slide</a:t></a:r></a:p></p:txBody>
+                </p:sp>
+                <p:pic>
+                  <p:nvPicPr><p:cNvPr id="3" name="Image"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+                  <p:blipFill><a:blip r:embed="rIdImg"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+                  <p:spPr><a:xfrm><a:off x="0" y="500000"/><a:ext cx="1828800" cy="914400"/></a:xfrm>
+                    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                </p:pic>
+              </p:spTree>"#
+        );
+
+        let out = run(&xml, &mut zip, &rels);
+
+        let shape_text = out.iter().find_map(|e| match e {
+            SlideElement::Shape(s) => s
+                .text_body
+                .as_ref()
+                .and_then(|tb| tb.paragraphs.first())
+                .and_then(|para| para.runs.first())
+                .and_then(|r| match r {
+                    TextRun::Text(t) => Some(t.text.clone()),
+                    _ => None,
+                }),
+            _ => None,
+        });
+        assert_eq!(
+            shape_text.as_deref(),
+            Some("Strict Slide"),
+            "Strict shape text must parse"
+        );
+
+        let image_path = out.iter().find_map(|e| match e {
+            SlideElement::Picture(p) => Some(p.image_path.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            image_path.as_deref(),
+            Some("ppt/media/image1.png"),
+            "Strict r:embed must resolve to the media part via attr_r"
+        );
+    }
+
+    /// A `<p:graphicFrame>` whose `<a:graphicData uri="…">` is the *Strict*
+    /// SmartArt diagram literal (`http://purl.oclc.org/ooxml/drawingml/
+    /// diagram`, ECMA-376 Part 1 Strict `dml-diagram.xsd` targetNamespace) must
+    /// still be recognized and routed through the cached `drawing1.xml`
+    /// fallback — proving the `graphicData@uri` comparison itself (not just
+    /// `attr_r`) accepts the Strict value.
+    #[test]
+    fn strict_graphicframe_diagram_uri_renders_smartart_fallback() {
+        let rels = HashMap::new();
+        let mut zip = zip_with(&[]);
+
+        let dm_rid = "rIdData1";
+        let mut smart = HashMap::new();
+        smart.insert(
+            dm_rid.to_string(),
+            format!(
+                r#"<dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" {STRICT_NS}>
+                  <p:spTree>
+                    <p:sp>
+                      <p:nvSpPr><p:cNvPr id="2" name="Node1"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="457200"/></a:xfrm>
+                        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                      <p:txBody><a:bodyPr/><a:p><a:r><a:t>SmartArt Node</a:t></a:r></a:p></p:txBody>
+                    </p:sp>
+                  </p:spTree>
+                </dsp:drawing>"#
+            ),
+        );
+
+        let xml = format!(
+            r#"<p:spTree {STRICT_NS}>
+                <p:graphicFrame>
+                  <p:xfrm><a:off x="0" y="0"/><a:ext cx="1828800" cy="914400"/></p:xfrm>
+                  <a:graphic><a:graphicData uri="http://purl.oclc.org/ooxml/drawingml/diagram">
+                    <dgm:relIds xmlns:dgm="http://purl.oclc.org/ooxml/drawingml/diagram" r:dm="{dm_rid}" r:lo="rIdLo1" r:qs="rIdQs1" r:cs="rIdCs1"/>
+                  </a:graphicData></a:graphic>
+                </p:graphicFrame>
+              </p:spTree>"#
+        );
+
+        let out = run_with_smart(&xml, &mut zip, &rels, &smart);
+        let smartart_text = out.iter().find_map(|e| match e {
+            SlideElement::Shape(s) => s
+                .text_body
+                .as_ref()
+                .and_then(|tb| tb.paragraphs.first())
+                .and_then(|para| para.runs.first())
+                .and_then(|r| match r {
+                    TextRun::Text(t) => Some(t.text.clone()),
+                    _ => None,
+                }),
+            _ => None,
+        });
+        assert_eq!(
+            smartart_text.as_deref(),
+            Some("SmartArt Node"),
+            "Strict graphicData@uri for a diagram must still route to the cached drawing fallback"
+        );
+    }
+
+    /// A `<p:graphicFrame>` whose `<a:graphicData uri="…">` is the *Strict* OLE
+    /// literal (`http://purl.oclc.org/ooxml/presentationml/ole`, confirmed by
+    /// ECMA-376 Part 1 Annex L.7.2.5 Strict example markup) must still surface
+    /// the embedded object's preview `<p:pic>` as a picture element.
+    #[test]
+    fn strict_graphicframe_ole_uri_renders_preview_picture() {
+        let mut rels = HashMap::new();
+        rels.insert("rIdImg".to_string(), "../media/oleImage1.png".to_string());
+        let mut zip = zip_with(&[("ppt/media/oleImage1.png", &tiny_png())]);
+
+        let xml = format!(
+            r#"<p:spTree {STRICT_NS}>
+                <p:graphicFrame>
+                  <p:xfrm><a:off x="1000000" y="2000000"/><a:ext cx="1828800" cy="914400"/></p:xfrm>
+                  <a:graphic><a:graphicData uri="http://purl.oclc.org/ooxml/presentationml/ole">
+                    <p:oleObj r:id="rIdOle" progId="Excel.Sheet.12"><p:embed/>
+                      <p:pic>
+                        <p:nvPicPr><p:cNvPr id="5" name="Object"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+                        <p:blipFill><a:blip r:embed="rIdImg"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+                        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1828800" cy="914400"/></a:xfrm>
+                          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+                      </p:pic>
+                    </p:oleObj>
+                  </a:graphicData></a:graphic>
+                </p:graphicFrame>
+              </p:spTree>"#
+        );
+
+        let out = run(&xml, &mut zip, &rels);
+        let SlideElement::Picture(p) = out
+            .iter()
+            .find(|e| matches!(e, SlideElement::Picture(_)))
+            .expect("a Strict OLE graphicData@uri must still emit the preview picture")
+        else {
+            unreachable!()
+        };
+        assert_eq!((p.x, p.y), (1_000_000, 2_000_000));
+        assert_eq!((p.width, p.height), (1_828_800, 914_400));
+    }
+}

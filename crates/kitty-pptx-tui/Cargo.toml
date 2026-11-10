@@ -1,0 +1,12 @@
+[package]
+name = "kitty-pptx-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kitty-pptx-core = { workspace = true }
+kitty-pptx-display = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+thiserror = { workspace = true }
+crossbeam-channel = { workspace = true }

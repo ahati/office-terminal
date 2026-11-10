@@ -1,0 +1,23 @@
+[package]
+name = "ooxml-common"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+crc32fast = { workspace = true }
+flate2 = { workspace = true }
+quick-xml = { workspace = true }
+roxmltree = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zip = { workspace = true }
+# Test support only: a GFM parser for checking that the Markdown projection
+# keeps document text literal. Parser crates enable it from dev-dependencies.
+comrak = { version = "0.52", default-features = false, optional = true }
+
+[features]
+gfm-check = ["dep:comrak"]

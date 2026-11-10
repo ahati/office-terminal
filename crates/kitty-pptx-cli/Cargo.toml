@@ -1,0 +1,20 @@
+[package]
+name = "kitty-pptx-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kitty-pptx"
+path = "src/main.rs"
+
+[dependencies]
+kitty-pptx-core = { workspace = true }
+kitty-pptx-display = { workspace = true }
+kitty-pptx-tui = { workspace = true }
+clap = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+indicatif = { workspace = true }
+thiserror = { workspace = true }
+crossbeam-channel = { workspace = true }
+image = { workspace = true }

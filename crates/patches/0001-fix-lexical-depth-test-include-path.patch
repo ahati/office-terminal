@@ -1,0 +1,26 @@
+From: Antigravity Assistant <antigravity@google.com>
+Date: Tue, 10 Nov 2026 20:15:00 +0000
+Subject: [PATCH] fix(pptx-parser): adjust relative path to ooxml-common test support
+
+In the vendored workspace layout, `crates/pptx-parser` and `crates/ooxml-common`
+are peer directories under `crates/`, whereas upstream used `crates/pptx/pptx-parser`.
+Adjust the test support include path from `../../../` to `../../`.
+
+---
+ crates/pptx-parser/src/lib.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crates/pptx-parser/src/lib.rs b/crates/pptx-parser/src/lib.rs
+index efa4198..c6a4957 100644
+--- a/crates/pptx-parser/src/lib.rs
++++ b/crates/pptx-parser/src/lib.rs
+@@ -13642,7 +13642,7 @@ mod tests {
+     }
+ 
+     mod lexical_depth_cases {
+-        include!("../../../ooxml-common/tests/support/lexical_depth_cases.rs");
++        include!("../../ooxml-common/tests/support/lexical_depth_cases.rs");
+     }
+ 
+     #[test]
+-- 

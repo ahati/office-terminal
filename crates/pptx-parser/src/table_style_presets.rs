@@ -1,0 +1,1072 @@
+// Built-in PowerPoint table style presets.
+//
+// Color-transform logic adapted from:
+//   LibreOffice oox/source/drawingml/table/predefined-table-styles.cxx
+//   Mozilla Public License v. 2.0 — https://www.mozilla.org/en-US/MPL/2.0/
+//
+// GUID → (family, accent) catalog verified against:
+//   https://docs.microsoft.com/en-us/previous-versions/office/developer/office-2010/hh273476
+
+use std::collections::HashMap;
+
+use crate::{Fill, Stroke, TableLineStyle, TableStyleDef, TableTextStyle};
+use ooxml_common::color::{apply_tint_channels, hls_to_rgb, rgb_to_hls, TintMode};
+
+// ── Color helpers ────────────────────────────────────────────────────────────
+
+/// Apply a sequence of (name, val) color transforms to a hex color.
+/// val uses OOXML units (100_000 = 100%).
+pub(crate) fn apply_transforms(hex: &str, transforms: &[(&str, i64)]) -> String {
+    if hex.len() < 6 {
+        return hex.to_owned();
+    }
+    let r = u8::from_str_radix(hex.get(0..2).unwrap_or(""), 16).unwrap_or(0);
+    let g = u8::from_str_radix(hex.get(2..4).unwrap_or(""), 16).unwrap_or(0);
+    let b = u8::from_str_radix(hex.get(4..6).unwrap_or(""), 16).unwrap_or(0);
+    let mut rf = r as f64 / 255.0;
+    let mut gf = g as f64 / 255.0;
+    let mut bf = b as f64 / 255.0;
+    let mut alpha = 1.0_f64;
+    for (name, val) in transforms {
+        let v = *val as f64 / 100_000.0;
+        match *name {
+            "lumMod" => {
+                let (h, l, s) = rgb_to_hls(rf, gf, bf);
+                let (nr, ng, nb) = hls_to_rgb(h, (l * v).min(1.0), s);
+                rf = nr;
+                gf = ng;
+                bf = nb;
+            }
+            "lumOff" => {
+                let (h, l, s) = rgb_to_hls(rf, gf, bf);
+                let (nr, ng, nb) = hls_to_rgb(h, (l + v).clamp(0.0, 1.0), s);
+                rf = nr;
+                gf = ng;
+                bf = nb;
+            }
+            "shade" => {
+                // Generated table presets shade the encoded sRGB channels,
+                // unlike `ooxml_common::color::apply_color_transforms`, which
+                // shades PowerPoint colours in linear light. Keep this space
+                // choice local: moving it changes preset table colours.
+                rf *= v;
+                gf *= v;
+                bf *= v;
+            }
+            "tint" => {
+                // ECMA-376 §20.1.2.3.34; PowerPoint applies tint in linear
+                // sRGB, including generated table presets. Tagged PDF controls
+                // for Medium Style 2 distinguish this from encoded-sRGB tint.
+                (rf, gf, bf) = apply_tint_channels((rf, gf, bf), v, TintMode::PowerPointLinear);
+            }
+            "alpha" => {
+                alpha = v;
+            }
+            _ => {}
+        }
+    }
+    let ro = (rf.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let go = (gf.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let bo = (bf.clamp(0.0, 1.0) * 255.0).round() as u8;
+    if (alpha - 1.0).abs() < 0.004 {
+        format!("{:02X}{:02X}{:02X}", ro, go, bo)
+    } else {
+        let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+        format!("{:02X}{:02X}{:02X}{:02X}", ro, go, bo, a)
+    }
+}
+
+// ── Theme color helpers ──────────────────────────────────────────────────────
+
+fn accent(theme: &HashMap<String, String>, idx: Option<u8>) -> Option<String> {
+    let key = idx
+        .map(|n| format!("accent{n}"))
+        .unwrap_or_else(|| "dk1".into());
+    theme.get(&key).cloned()
+}
+
+fn lt1(theme: &HashMap<String, String>) -> Option<String> {
+    theme.get("lt1").cloned()
+}
+
+fn dk1(theme: &HashMap<String, String>) -> Option<String> {
+    theme.get("dk1").cloned()
+}
+
+fn solid(color: &str) -> Fill {
+    Fill::Solid {
+        color: color.to_owned(),
+    }
+}
+
+pub(crate) fn stroke(color: &str) -> Stroke {
+    Stroke {
+        color: color.to_owned(),
+        width: 12700,
+        fill: None,
+        dash_style: None,
+        custom_dash: Vec::new(),
+        line_cap: None,
+        line_join: None,
+        miter_limit: None,
+        alignment: None,
+        head_end: None,
+        tail_end: None,
+        cmpd: None,
+    }
+}
+
+fn double_stroke(color: &str) -> Stroke {
+    Stroke {
+        width: 38100,
+        cmpd: Some("dbl".to_owned()),
+        ..stroke(color)
+    }
+}
+
+// Built-in presets predate the lossless thirteen-role model. Keep their
+// declarative definitions compact while mapping each legacy shorthand onto the
+// exact CT_TablePartStyle member now used by XML-backed styles.
+macro_rules! set_table_style_field {
+    ($style:ident, whole_fill, $value:expr) => {
+        $style.whole_tbl.fill = $value
+    };
+    ($style:ident, band1h_fill, $value:expr) => {
+        $style.band1_h.fill = $value
+    };
+    ($style:ident, band2h_fill, $value:expr) => {
+        $style.band2_h.fill = $value
+    };
+    ($style:ident, first_row_fill, $value:expr) => {
+        $style.first_row.fill = $value
+    };
+    ($style:ident, last_row_fill, $value:expr) => {
+        $style.last_row.fill = $value
+    };
+    ($style:ident, first_col_fill, $value:expr) => {
+        $style.first_col.fill = $value
+    };
+    ($style:ident, last_col_fill, $value:expr) => {
+        $style.last_col.fill = $value
+    };
+    ($style:ident, whole_inside_h, $value:expr) => {
+        $style.whole_tbl.borders.inside_h = TableLineStyle::from_stroke($value)
+    };
+    ($style:ident, whole_inside_v, $value:expr) => {
+        $style.whole_tbl.borders.inside_v = TableLineStyle::from_stroke($value)
+    };
+    ($style:ident, whole_outer_h, $value:expr) => {{
+        let line = TableLineStyle::from_stroke($value);
+        $style.whole_tbl.borders.top = line.clone();
+        $style.whole_tbl.borders.bottom = line;
+    }};
+    ($style:ident, whole_outer_v, $value:expr) => {{
+        let line = TableLineStyle::from_stroke($value);
+        $style.whole_tbl.borders.left = line.clone();
+        $style.whole_tbl.borders.right = line;
+    }};
+    ($style:ident, first_row_border_b, $value:expr) => {
+        $style.first_row.borders.bottom = TableLineStyle::from_stroke($value)
+    };
+    ($style:ident, last_row_border_t, $value:expr) => {
+        $style.last_row.borders.top = TableLineStyle::from_stroke($value)
+    };
+    ($style:ident, whole_text, $value:expr) => {
+        $style.whole_tbl.text = $value
+    };
+    ($style:ident, first_row_text, $value:expr) => {
+        $style.first_row.text = $value
+    };
+    ($style:ident, last_row_text, $value:expr) => {
+        $style.last_row.text = $value
+    };
+    ($style:ident, first_col_text, $value:expr) => {
+        $style.first_col.text = $value
+    };
+    ($style:ident, last_col_text, $value:expr) => {
+        $style.last_col.text = $value
+    };
+}
+
+macro_rules! table_style {
+    ($($field:ident: $value:expr),* $(,)?) => {{
+        let mut style = TableStyleDef::default();
+        $(set_table_style_field!(style, $field, $value);)*
+        style
+    }};
+}
+
+// [MS-OE376] §2.1.1343(b): built-in base definitions and scheme-colour
+// replacement rules. Keep the declarative roles lossless and resolve them with
+// the same parser as package-defined styles: fillRef/lnRef depend on the active
+// theme matrix, not just its palette. Tagged PowerPoint PDF controls confirmed
+// all six accent variants, both band directions, isolated/combined edge flags,
+// explicit false flags, four matrices and direct bold overrides.
+const NO_GRID: &str = r#"<a:tblStyle styleId="{2D5ABB26-0587-4C30-8999-92F81FD0307C}" styleName=""><a:wholeTbl><a:tcTxStyle><a:fontRef idx="minor"><a:scrgbClr r="0" g="0" b="0"/></a:fontRef><a:schemeClr val="tx1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:left><a:ln><a:noFill/></a:ln></a:left><a:right><a:ln><a:noFill/></a:ln></a:right><a:top><a:ln><a:noFill/></a:ln></a:top><a:bottom><a:ln><a:noFill/></a:ln></a:bottom><a:insideH><a:ln><a:noFill/></a:ln></a:insideH><a:insideV><a:ln><a:noFill/></a:ln></a:insideV></a:tcBdr><a:fill><a:noFill/></a:fill></a:tcStyle></a:wholeTbl>
+</a:tblStyle>"#;
+
+const THEMED_1: &str = r#"<a:tblStyle styleId="{3C2FFA5D-87B4-456A-9821-1D502468CF0F}" styleName=""><a:tblBg><a:fillRef idx="2"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef></a:tblBg>
+<a:wholeTbl><a:tcTxStyle><a:fontRef idx="minor"><a:scrgbClr r="0" g="0" b="0"/></a:fontRef><a:schemeClr val="dk1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:left><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:left><a:right><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:right><a:top><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:top><a:bottom><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:bottom><a:insideH><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:insideH><a:insideV><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:insideV></a:tcBdr><a:fill><a:noFill/></a:fill></a:tcStyle></a:wholeTbl>
+<a:band1H><a:tcStyle><a:tcBdr/><a:fill><a:solidFill><a:schemeClr val="accent1"><a:alpha val="40000"/></a:schemeClr></a:solidFill></a:fill></a:tcStyle></a:band1H>
+<a:band2H><a:tcStyle><a:tcBdr/></a:tcStyle></a:band2H>
+<a:band1V><a:tcStyle><a:tcBdr><a:top><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:top><a:bottom><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:bottom></a:tcBdr><a:fill><a:solidFill><a:schemeClr val="accent1"><a:alpha val="40000"/></a:schemeClr></a:solidFill></a:fill></a:tcStyle></a:band1V>
+<a:band2V><a:tcStyle><a:tcBdr/></a:tcStyle></a:band2V>
+<a:lastCol><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr><a:left><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef></a:left><a:right><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:right><a:top><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:top><a:bottom><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:bottom><a:insideH><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:insideH><a:insideV><a:ln><a:noFill/></a:ln></a:insideV></a:tcBdr></a:tcStyle></a:lastCol>
+<a:firstCol><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr><a:left><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:left><a:right><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef></a:right><a:top><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:top><a:bottom><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:bottom><a:insideH><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:insideH><a:insideV><a:ln><a:noFill/></a:ln></a:insideV></a:tcBdr></a:tcStyle></a:firstCol>
+<a:lastRow><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr><a:left><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:left><a:right><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:right><a:top><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef></a:top><a:bottom><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef></a:bottom><a:insideH><a:ln><a:noFill/></a:ln></a:insideH><a:insideV><a:ln><a:noFill/></a:ln></a:insideV></a:tcBdr><a:fill><a:noFill/></a:fill></a:tcStyle></a:lastRow>
+<a:firstRow><a:tcTxStyle b="on"><a:fontRef idx="minor"><a:scrgbClr r="0" g="0" b="0"/></a:fontRef><a:schemeClr val="lt1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:left><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:left><a:right><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:right><a:top><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:top><a:bottom><a:lnRef idx="2"><a:schemeClr val="lt1"/></a:lnRef></a:bottom><a:insideH><a:ln><a:noFill/></a:ln></a:insideH><a:insideV><a:ln><a:noFill/></a:ln></a:insideV></a:tcBdr><a:fill><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></a:fill></a:tcStyle></a:firstRow>
+</a:tblStyle>"#;
+
+const GRID: &str = r#"<a:tblStyle styleId="{5940675A-B579-460E-94D1-54222C63F5DA}" styleName=""><a:wholeTbl><a:tcTxStyle><a:fontRef idx="minor"><a:scrgbClr r="0" g="0" b="0"/></a:fontRef><a:schemeClr val="tx1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:left><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:left><a:right><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:right><a:top><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:top><a:bottom><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:bottom><a:insideH><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:insideH><a:insideV><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:insideV></a:tcBdr><a:fill><a:noFill/></a:fill></a:tcStyle></a:wholeTbl>
+</a:tblStyle>"#;
+
+const LIGHT_1: &str = r#"<a:tblStyle styleId="{9D7B26C5-4107-4FEC-AEDC-1716B250A1EF}" styleName=""><a:wholeTbl><a:tcTxStyle><a:fontRef idx="minor"><a:scrgbClr r="0" g="0" b="0"/></a:fontRef><a:schemeClr val="tx1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:left><a:ln><a:noFill/></a:ln></a:left><a:right><a:ln><a:noFill/></a:ln></a:right><a:top><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:top><a:bottom><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:bottom><a:insideH><a:ln><a:noFill/></a:ln></a:insideH><a:insideV><a:ln><a:noFill/></a:ln></a:insideV></a:tcBdr><a:fill><a:noFill/></a:fill></a:tcStyle></a:wholeTbl>
+<a:band1H><a:tcStyle><a:tcBdr/><a:fill><a:solidFill><a:schemeClr val="tx1"><a:alpha val="20000"/></a:schemeClr></a:solidFill></a:fill></a:tcStyle></a:band1H>
+<a:band2H><a:tcStyle><a:tcBdr/></a:tcStyle></a:band2H>
+<a:band1V><a:tcStyle><a:tcBdr/><a:fill><a:solidFill><a:schemeClr val="tx1"><a:alpha val="20000"/></a:schemeClr></a:solidFill></a:fill></a:tcStyle></a:band1V>
+<a:lastCol><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr/></a:tcStyle></a:lastCol>
+<a:firstCol><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr/></a:tcStyle></a:firstCol>
+<a:lastRow><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr><a:top><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:top></a:tcBdr><a:fill><a:noFill/></a:fill></a:tcStyle></a:lastRow>
+<a:firstRow><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr><a:bottom><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:bottom></a:tcBdr><a:fill><a:noFill/></a:fill></a:tcStyle></a:firstRow>
+</a:tblStyle>"#;
+
+const MEDIUM_2: &str = r#"<a:tblStyle styleId="{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}" styleName=""><a:wholeTbl><a:tcTxStyle><a:fontRef idx="minor"><a:prstClr val="black"/></a:fontRef><a:schemeClr val="dk1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:left><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:left><a:right><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:right><a:top><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:top><a:bottom><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:bottom><a:insideH><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:insideH><a:insideV><a:ln w="12700" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:insideV></a:tcBdr><a:fill><a:solidFill><a:schemeClr val="dk1"><a:tint val="20000"/></a:schemeClr></a:solidFill></a:fill></a:tcStyle></a:wholeTbl>
+<a:band1H><a:tcStyle><a:tcBdr/><a:fill><a:solidFill><a:schemeClr val="dk1"><a:tint val="40000"/></a:schemeClr></a:solidFill></a:fill></a:tcStyle></a:band1H>
+<a:band2H><a:tcStyle><a:tcBdr/></a:tcStyle></a:band2H>
+<a:band1V><a:tcStyle><a:tcBdr/><a:fill><a:solidFill><a:schemeClr val="dk1"><a:tint val="40000"/></a:schemeClr></a:solidFill></a:fill></a:tcStyle></a:band1V>
+<a:band2V><a:tcStyle><a:tcBdr/></a:tcStyle></a:band2V>
+<a:lastCol><a:tcTxStyle b="on"><a:fontRef idx="minor"><a:prstClr val="black"/></a:fontRef><a:schemeClr val="lt1"/></a:tcTxStyle><a:tcStyle><a:tcBdr/><a:fill><a:solidFill><a:schemeClr val="dk1"/></a:solidFill></a:fill></a:tcStyle></a:lastCol>
+<a:firstCol><a:tcTxStyle b="on"><a:fontRef idx="minor"><a:prstClr val="black"/></a:fontRef><a:schemeClr val="lt1"/></a:tcTxStyle><a:tcStyle><a:tcBdr/><a:fill><a:solidFill><a:schemeClr val="dk1"/></a:solidFill></a:fill></a:tcStyle></a:firstCol>
+<a:lastRow><a:tcTxStyle b="on"><a:fontRef idx="minor"><a:prstClr val="black"/></a:fontRef><a:schemeClr val="lt1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:top><a:ln w="38100" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:top></a:tcBdr><a:fill><a:solidFill><a:schemeClr val="dk1"/></a:solidFill></a:fill></a:tcStyle></a:lastRow>
+<a:firstRow><a:tcTxStyle b="on"><a:fontRef idx="minor"><a:prstClr val="black"/></a:fontRef><a:schemeClr val="lt1"/></a:tcTxStyle><a:tcStyle><a:tcBdr><a:bottom><a:ln w="38100" cmpd="sng"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></a:bottom></a:tcBdr><a:fill><a:solidFill><a:schemeClr val="dk1"/></a:solidFill></a:fill></a:tcStyle></a:firstRow>
+</a:tblStyle>"#;
+
+// ── Family generators ────────────────────────────────────────────────────────
+
+fn themed_style_2(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    // The zero-accent catalogue entry is the neutral "Themed Style 2": it has
+    // no body fill and uses dk1 only for its grid. Treating `None` as dk1 here
+    // makes the entire table black. The accent variants are the only members
+    // that author a whole-table fill.
+    if let Some(a) = accent_idx.and_then(|idx| accent(theme, Some(idx))) {
+        let lt = lt1(theme).unwrap_or_else(|| "FFFFFF".into());
+        let outer_color = apply_transforms(&a, &[("tint", 50000)]);
+        let outer = Some(stroke(&outer_color));
+        table_style! {
+            whole_fill: Some(solid(&a)),
+            whole_outer_h: outer.clone(),
+            whole_outer_v: outer,
+            first_row_border_b: Some(stroke(&lt)),
+        }
+    } else {
+        let tx = dk1(theme).unwrap_or_else(|| "000000".into());
+        let outer_color = apply_transforms(&tx, &[("tint", 50000)]);
+        let outer = Some(stroke(&outer_color));
+        let inside = Some(stroke(&tx));
+        table_style! {
+            whole_outer_h: outer.clone(),
+            whole_outer_v: outer,
+            whole_inside_h: inside.clone(),
+            whole_inside_v: inside,
+        }
+    }
+}
+
+fn light_style_2(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    let a = accent(theme, accent_idx)
+        .or_else(|| dk1(theme))
+        .unwrap_or_else(|| "000000".into());
+    let outer = Some(stroke(&a));
+    table_style! {
+        first_row_fill: Some(solid(&a)),
+        whole_outer_h: outer.clone(),
+        whole_outer_v: outer,
+    }
+}
+
+fn light_style_3(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    let a = accent(theme, accent_idx)
+        .or_else(|| dk1(theme))
+        .unwrap_or_else(|| "000000".into());
+    let border = Some(stroke(&a));
+    let band1h_color = apply_transforms(&a, &[("alpha", 20000)]);
+    table_style! {
+        band1h_fill: Some(solid(&band1h_color)),
+        whole_outer_h: border.clone(),
+        whole_outer_v: border.clone(),
+        whole_inside_h: border.clone(),
+        whole_inside_v: border,
+        first_row_border_b: Some(stroke(&a)),
+    }
+}
+
+fn medium_style_1(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    let a = accent(theme, accent_idx)
+        .or_else(|| dk1(theme))
+        .unwrap_or_else(|| "000000".into());
+    let lt = lt1(theme).unwrap_or_else(|| "FFFFFF".into());
+    let dk = dk1(theme).unwrap_or_else(|| "000000".into());
+    let border = Some(stroke(&a));
+    let band1h_color = apply_transforms(&a, &[("tint", 20000)]);
+    table_style! {
+        whole_fill: Some(solid(&lt)),
+        first_row_fill: Some(solid(&a)),
+        last_row_fill: Some(solid(&lt)),
+        band1h_fill: Some(solid(&band1h_color)),
+        whole_outer_h: border.clone(),
+        whole_outer_v: border,
+        whole_inside_h: Some(stroke(&a)),
+        last_row_border_t: Some(double_stroke(&a)),
+        whole_text: TableTextStyle {
+            color: Some(dk.clone()),
+            ..Default::default()
+        },
+        first_row_text: TableTextStyle {
+            color: Some(lt),
+            bold: Some(true),
+            ..Default::default()
+        },
+        last_row_text: TableTextStyle {
+            color: Some(dk.clone()),
+            bold: Some(true),
+            ..Default::default()
+        },
+        first_col_text: TableTextStyle {
+            bold: Some(true),
+            ..Default::default()
+        },
+        last_col_text: TableTextStyle {
+            bold: Some(true),
+            ..Default::default()
+        },
+    }
+}
+
+fn medium_style_3(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    let a = accent(theme, accent_idx)
+        .or_else(|| dk1(theme))
+        .unwrap_or_else(|| "000000".into());
+    let dk = dk1(theme).unwrap_or_else(|| "000000".into());
+    let lt = lt1(theme).unwrap_or_else(|| "FFFFFF".into());
+    let band1h_color = apply_transforms(&dk, &[("tint", 20000)]);
+    table_style! {
+        whole_fill: Some(solid(&lt)),
+        first_row_fill: Some(solid(&a)),
+        last_row_fill: Some(solid(&lt)),
+        first_col_fill: Some(solid(&a)),
+        last_col_fill: Some(solid(&a)),
+        band1h_fill: Some(solid(&band1h_color)),
+        whole_outer_h: Some(stroke(&dk)),
+        first_row_border_b: Some(stroke(&dk)),
+    }
+}
+
+fn medium_style_4(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    let a = accent(theme, accent_idx)
+        .or_else(|| dk1(theme))
+        .unwrap_or_else(|| "000000".into());
+    let dk = dk1(theme).unwrap_or_else(|| "000000".into());
+    let border = Some(stroke(&a));
+    let whole_color = apply_transforms(&a, &[("tint", 20000)]);
+    let first_row_color = apply_transforms(&a, &[("tint", 20000)]);
+    let last_row_color = apply_transforms(&dk, &[("tint", 20000)]);
+    let band1h_color = apply_transforms(&a, &[("tint", 40000)]);
+    table_style! {
+        whole_fill: Some(solid(&whole_color)),
+        first_row_fill: Some(solid(&first_row_color)),
+        last_row_fill: Some(solid(&last_row_color)),
+        band1h_fill: Some(solid(&band1h_color)),
+        whole_outer_h: border.clone(),
+        whole_outer_v: border.clone(),
+        whole_inside_h: border.clone(),
+        whole_inside_v: border,
+    }
+}
+
+fn dark_style_1(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    if let Some(a) = accent(theme, accent_idx) {
+        let lt = lt1(theme).unwrap_or_else(|| "FFFFFF".into());
+        let dk = dk1(theme).unwrap_or_else(|| "000000".into());
+        let whole_color = apply_transforms(&a, &[("shade", 20000)]);
+        let band1h_color = apply_transforms(&a, &[("shade", 40000)]);
+        let col_color = apply_transforms(&a, &[("shade", 60000)]);
+        table_style! {
+            whole_fill: Some(solid(&whole_color)),
+            first_row_fill: Some(solid(&dk)),
+            last_row_fill: Some(solid(&col_color)),
+            first_col_fill: Some(solid(&col_color)),
+            last_col_fill: Some(solid(&col_color)),
+            band1h_fill: Some(solid(&band1h_color)),
+            first_row_border_b: Some(stroke(&lt)),
+        }
+    } else {
+        let dk = dk1(theme).unwrap_or_else(|| "000000".into());
+        let lt = lt1(theme).unwrap_or_else(|| "FFFFFF".into());
+        let whole_color = apply_transforms(&dk, &[("tint", 20000)]);
+        let band1h_color = apply_transforms(&dk, &[("tint", 40000)]);
+        let col_color = apply_transforms(&dk, &[("tint", 60000)]);
+        table_style! {
+            whole_fill: Some(solid(&whole_color)),
+            first_row_fill: Some(solid(&dk)),
+            last_row_fill: Some(solid(&col_color)),
+            first_col_fill: Some(solid(&col_color)),
+            last_col_fill: Some(solid(&col_color)),
+            band1h_fill: Some(solid(&band1h_color)),
+            first_row_border_b: Some(stroke(&lt)),
+        }
+    }
+}
+
+fn dark_style_2(theme: &HashMap<String, String>, accent_idx: Option<u8>) -> TableStyleDef {
+    let a = accent(theme, accent_idx)
+        .or_else(|| dk1(theme))
+        .unwrap_or_else(|| "000000".into());
+    let dk = dk1(theme).unwrap_or_else(|| "000000".into());
+    // firstRow fill = paired accent (odd→even offset: 1→2, 3→4, 5→6, none→dk1)
+    let first_row_key = match accent_idx {
+        Some(1) => "accent2",
+        Some(3) => "accent4",
+        Some(5) => "accent6",
+        _ => "dk1",
+    };
+    let first_row_hex = theme
+        .get(first_row_key)
+        .cloned()
+        .unwrap_or_else(|| dk.clone());
+    let whole_color = apply_transforms(&a, &[("tint", 20000)]);
+    let band1h_color = apply_transforms(&a, &[("tint", 40000)]);
+    let last_row_color = apply_transforms(&a, &[("tint", 20000)]);
+    table_style! {
+        whole_fill: Some(solid(&whole_color)),
+        first_row_fill: Some(solid(&first_row_hex)),
+        last_row_fill: Some(solid(&last_row_color)),
+        band1h_fill: Some(solid(&band1h_color)),
+    }
+}
+
+// ── GUID catalog ─────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy)]
+enum Family {
+    NoGrid,
+    ThemedStyle1,
+    ThemedStyle2,
+    LightStyle1,
+    LightStyle2,
+    LightStyle3,
+    MediumStyle1,
+    MediumStyle2,
+    MediumStyle3,
+    MediumStyle4,
+    DarkStyle1,
+    DarkStyle2,
+}
+
+// (GUID, family, accent_index: 0=no accent/dk1, 1-6=accent1-6)
+const CATALOG: &[(&str, Family, u8)] = &[
+    // Themed Style 1
+    ("{2D5ABB26-0587-4C30-8999-92F81FD0307C}", Family::NoGrid, 0),
+    (
+        "{3C2FFA5D-87B4-456A-9821-1D502468CF0F}",
+        Family::ThemedStyle1,
+        1,
+    ),
+    (
+        "{284E427A-3D55-4303-BF80-6455036E1DE7}",
+        Family::ThemedStyle1,
+        2,
+    ),
+    (
+        "{69C7853C-536D-4A76-A0AE-DD22124D55A5}",
+        Family::ThemedStyle1,
+        3,
+    ),
+    (
+        "{775DCB02-9BB8-47FD-8907-85C794F793BA}",
+        Family::ThemedStyle1,
+        4,
+    ),
+    (
+        "{35758FB7-9AC5-4552-8A53-C91805E547FA}",
+        Family::ThemedStyle1,
+        5,
+    ),
+    (
+        "{08FB837D-C827-4EFA-A057-4D05807E0F7C}",
+        Family::ThemedStyle1,
+        6,
+    ),
+    // Themed Style 2
+    (
+        "{5940675A-B579-460E-94D1-54222C63F5DA}",
+        Family::ThemedStyle2,
+        0,
+    ),
+    (
+        "{D113A9D2-9D6B-4929-AA2D-F23B5EE8CBE7}",
+        Family::ThemedStyle2,
+        1,
+    ),
+    (
+        "{18603FDC-E32A-4AB5-989C-0864C3EAD2B8}",
+        Family::ThemedStyle2,
+        2,
+    ),
+    (
+        "{306799F8-075E-4A3A-A7F6-7FBC6576F1A4}",
+        Family::ThemedStyle2,
+        3,
+    ),
+    (
+        "{E269D01E-BC32-4049-B463-5C60D7B0CCD2}",
+        Family::ThemedStyle2,
+        4,
+    ),
+    (
+        "{327F97BB-C833-4FB7-BDE5-3F7075034690}",
+        Family::ThemedStyle2,
+        5,
+    ),
+    (
+        "{638B1855-1B75-4FBE-930C-398BA8C253C6}",
+        Family::ThemedStyle2,
+        6,
+    ),
+    // Light Style 1
+    (
+        "{9D7B26C5-4107-4FEC-AEDC-1716B250A1EF}",
+        Family::LightStyle1,
+        0,
+    ),
+    (
+        "{3B4B98B0-60AC-42C2-AFA5-B58CD77FA1E5}",
+        Family::LightStyle1,
+        1,
+    ),
+    (
+        "{0E3FDE45-AF77-4B5C-9715-49D594BDF05E}",
+        Family::LightStyle1,
+        2,
+    ),
+    (
+        "{C083E6E3-FA7D-4D7B-A595-EF9225AFEA82}",
+        Family::LightStyle1,
+        3,
+    ),
+    (
+        "{D27102A9-8310-4765-A935-A1911B00CA55}",
+        Family::LightStyle1,
+        4,
+    ),
+    (
+        "{5FD0F851-EC5A-4D38-B0AD-8093EC10F338}",
+        Family::LightStyle1,
+        5,
+    ),
+    (
+        "{68D230F3-CF80-4859-8CE7-A43EE81993B5}",
+        Family::LightStyle1,
+        6,
+    ),
+    // Light Style 2
+    (
+        "{7E9639D4-E3E2-4D34-9284-5A2195B3D0D7}",
+        Family::LightStyle2,
+        0,
+    ),
+    (
+        "{69012ECD-51FC-41F1-AA8D-1B2483CD663E}",
+        Family::LightStyle2,
+        1,
+    ),
+    (
+        "{72833802-FEF1-4C79-8D5D-14CF1EAF98D9}",
+        Family::LightStyle2,
+        2,
+    ),
+    (
+        "{F2DE63D5-997A-4646-A377-4702673A728D}",
+        Family::LightStyle2,
+        3,
+    ),
+    (
+        "{17292A2E-F333-43FB-9621-5CBBE7FDCDCB}",
+        Family::LightStyle2,
+        4,
+    ),
+    (
+        "{5A111915-BE36-4E01-A7E5-04B1672EAD32}",
+        Family::LightStyle2,
+        5,
+    ),
+    (
+        "{912C8C85-51F0-491E-9774-3900AFEF0FD7}",
+        Family::LightStyle2,
+        6,
+    ),
+    // Light Style 3
+    (
+        "{616DA210-FB5B-4158-B5E0-FEB733F419BA}",
+        Family::LightStyle3,
+        0,
+    ),
+    (
+        "{BC89EF96-8CEA-46FF-86C4-4CE0E7609802}",
+        Family::LightStyle3,
+        1,
+    ),
+    (
+        "{5DA37D80-6434-44D0-A028-1B22A696006F}",
+        Family::LightStyle3,
+        2,
+    ),
+    (
+        "{8799B23B-EC83-4686-B30A-512413B5E67A}",
+        Family::LightStyle3,
+        3,
+    ),
+    (
+        "{ED083AE6-46FA-4A59-8FB0-9F97EB10719F}",
+        Family::LightStyle3,
+        4,
+    ),
+    (
+        "{BDBED569-4797-4DF1-A0F4-6AAB3CD982D8}",
+        Family::LightStyle3,
+        5,
+    ),
+    (
+        "{E8B1032C-EA38-4F05-BA0D-38AFFFC7BED3}",
+        Family::LightStyle3,
+        6,
+    ),
+    // Medium Style 1
+    (
+        "{793D81CF-94F2-401A-BA57-92F5A7B2D0C5}",
+        Family::MediumStyle1,
+        0,
+    ),
+    (
+        "{B301B821-A1FF-4177-AEE7-76D212191A09}",
+        Family::MediumStyle1,
+        1,
+    ),
+    (
+        "{9DCAF9ED-07DC-4A11-8D7F-57B35C25682E}",
+        Family::MediumStyle1,
+        2,
+    ),
+    (
+        "{1FECB4D8-DB02-4DC6-A0A2-4F2EBAE1DC90}",
+        Family::MediumStyle1,
+        3,
+    ),
+    (
+        "{1E171933-4619-4E11-9A3F-F7608DF75F80}",
+        Family::MediumStyle1,
+        4,
+    ),
+    (
+        "{FABFCF23-3B69-468F-B69F-88F6DE6A72F2}",
+        Family::MediumStyle1,
+        5,
+    ),
+    (
+        "{10A1B5D5-9B99-4C35-A422-299274C87663}",
+        Family::MediumStyle1,
+        6,
+    ),
+    // Medium Style 2
+    (
+        "{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}",
+        Family::MediumStyle2,
+        0,
+    ),
+    (
+        "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}",
+        Family::MediumStyle2,
+        1,
+    ),
+    (
+        "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}",
+        Family::MediumStyle2,
+        2,
+    ),
+    (
+        "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}",
+        Family::MediumStyle2,
+        3,
+    ),
+    (
+        "{00A15C55-8517-42AA-B614-E9B94910E393}",
+        Family::MediumStyle2,
+        4,
+    ),
+    (
+        "{7DF18680-E054-41AD-8BC1-D1AEF772440D}",
+        Family::MediumStyle2,
+        5,
+    ),
+    (
+        "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}",
+        Family::MediumStyle2,
+        6,
+    ),
+    // Medium Style 3
+    (
+        "{8EC20E35-A176-4012-BC5E-935CFFF8708E}",
+        Family::MediumStyle3,
+        0,
+    ),
+    (
+        "{6E25E649-3F16-4E02-A733-19D2CDBF48F0}",
+        Family::MediumStyle3,
+        1,
+    ),
+    (
+        "{85BE263C-DBD7-4A20-BB59-AAB30ACAA65A}",
+        Family::MediumStyle3,
+        2,
+    ),
+    (
+        "{EB344D84-9AFB-497E-A393-DC336BA19D2E}",
+        Family::MediumStyle3,
+        3,
+    ),
+    (
+        "{EB9631B5-78F2-41C9-869B-9F39066F8104}",
+        Family::MediumStyle3,
+        4,
+    ),
+    (
+        "{74C1A8A3-306A-4EB7-A6B1-4F7E0EB9C5D6}",
+        Family::MediumStyle3,
+        5,
+    ),
+    (
+        "{2A488322-F2BA-4B5B-9748-0D474271808F}",
+        Family::MediumStyle3,
+        6,
+    ),
+    // Medium Style 4
+    (
+        "{D7AC3CCA-C797-4891-BE02-D94E43425B78}",
+        Family::MediumStyle4,
+        0,
+    ),
+    (
+        "{69CF1AB2-1976-4502-BF36-3FF5EA218861}",
+        Family::MediumStyle4,
+        1,
+    ),
+    (
+        "{8A107856-5554-42FB-B03E-39F5DBC370BA}",
+        Family::MediumStyle4,
+        2,
+    ),
+    (
+        "{0505E3EF-67EA-436B-97B2-0124C06EBD24}",
+        Family::MediumStyle4,
+        3,
+    ),
+    (
+        "{C4B1156A-380E-4F78-BDF5-A606A8083BF9}",
+        Family::MediumStyle4,
+        4,
+    ),
+    (
+        "{22838BEF-8BB2-4498-84A7-C5851F593DF1}",
+        Family::MediumStyle4,
+        5,
+    ),
+    (
+        "{16D9F66E-5EB9-4882-86FB-DCBF35E3C3E4}",
+        Family::MediumStyle4,
+        6,
+    ),
+    // Dark Style 1
+    (
+        "{E8034E78-7F5D-4C2E-B375-FC64B27BC917}",
+        Family::DarkStyle1,
+        0,
+    ),
+    (
+        "{125E5076-3810-47DD-B79F-674D7AD40C01}",
+        Family::DarkStyle1,
+        1,
+    ),
+    (
+        "{37CE84F3-28C3-443E-9E96-99CF82512B78}",
+        Family::DarkStyle1,
+        2,
+    ),
+    (
+        "{D03447BB-5D67-496B-8E87-E561075AD55C}",
+        Family::DarkStyle1,
+        3,
+    ),
+    (
+        "{E929F9F4-4A8F-4326-A1B4-22849713DDAB}",
+        Family::DarkStyle1,
+        4,
+    ),
+    (
+        "{8FD4443E-F989-4FC4-A0C8-D5A2AF1F390B}",
+        Family::DarkStyle1,
+        5,
+    ),
+    (
+        "{AF606853-7671-496A-8E4F-DF71F8EC918B}",
+        Family::DarkStyle1,
+        6,
+    ),
+    // Dark Style 2
+    (
+        "{5202B0CA-FC54-4496-8BCA-5EF66A818D29}",
+        Family::DarkStyle2,
+        0,
+    ),
+    (
+        "{0660B408-B3CF-4A94-85FC-2B1E0A45F4A2}",
+        Family::DarkStyle2,
+        1,
+    ),
+    (
+        "{91EBBBCC-DAD2-459C-BE2E-F6DE35CF9A28}",
+        Family::DarkStyle2,
+        3,
+    ),
+    (
+        "{46F890A9-2807-4EBB-B81D-B2AA78EC7F39}",
+        Family::DarkStyle2,
+        5,
+    ),
+];
+
+fn documented_style(
+    definition: &str,
+    base_id: &str,
+    replacement: Option<(&str, u8)>,
+    theme_source: &(impl crate::theme::PptxThemeSource + ?Sized),
+) -> TableStyleDef {
+    let definition = if let Some((slot, accent)) = replacement {
+        // [MS-OE376] §2.1.1343 supplies the accent paint replacements.
+        // Tagged PDF controls keep the whole-table text neutral: all six
+        // Light Style 1 accents, remapped colours/non-white lt1 and alternate
+        // matrices, plus Medium Style 2 Accent 1. Replacing its text slot as
+        // well would incorrectly colour ordinary cell text with the accent.
+        let start = definition
+            .find("<a:tcTxStyle")
+            .expect("built-in definitions have whole-table text formatting");
+        let end = start
+            + definition[start..]
+                .find("</a:tcTxStyle>")
+                .expect("built-in whole-table text formatting is closed")
+            + "</a:tcTxStyle>".len();
+        let from = format!("val=\"{slot}\"");
+        let to = format!("val=\"accent{accent}\"");
+        format!(
+            "{}{}{}",
+            definition[..start].replace(&from, &to),
+            &definition[start..end],
+            definition[end..].replace(&from, &to)
+        )
+    } else {
+        definition.to_owned()
+    };
+    let xml = format!(
+        r#"<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">{definition}</a:tblStyleLst>"#
+    );
+    crate::shape::parse_table_styles_xml(&xml, theme_source)
+        .remove(base_id)
+        .unwrap_or_default()
+}
+
+// ── Public entry point ───────────────────────────────────────────────────────
+
+pub fn lookup_builtin_table_style(
+    guid: &str,
+    theme_source: &(impl crate::theme::PptxThemeSource + ?Sized),
+) -> Option<TableStyleDef> {
+    let theme = theme_source.colors();
+    let (_, family, accent_u8) = CATALOG.iter().find(|(g, _, _)| *g == guid)?;
+    let accent_idx = if *accent_u8 == 0 {
+        None
+    } else {
+        Some(*accent_u8)
+    };
+    let mut style = match family {
+        Family::NoGrid => documented_style(
+            NO_GRID,
+            "{2D5ABB26-0587-4C30-8999-92F81FD0307C}",
+            None,
+            theme_source,
+        ),
+        Family::ThemedStyle1 => documented_style(
+            THEMED_1,
+            "{3C2FFA5D-87B4-456A-9821-1D502468CF0F}",
+            accent_idx.map(|n| ("accent1", n)),
+            theme_source,
+        ),
+        Family::ThemedStyle2 if accent_idx.is_none() => documented_style(
+            GRID,
+            "{5940675A-B579-460E-94D1-54222C63F5DA}",
+            None,
+            theme_source,
+        ),
+        Family::ThemedStyle2 => themed_style_2(theme, accent_idx),
+        Family::LightStyle1 => documented_style(
+            LIGHT_1,
+            "{9D7B26C5-4107-4FEC-AEDC-1716B250A1EF}",
+            accent_idx.map(|n| ("tx1", n)),
+            theme_source,
+        ),
+        Family::LightStyle2 => light_style_2(theme, accent_idx),
+        Family::LightStyle3 => light_style_3(theme, accent_idx),
+        Family::MediumStyle1 => medium_style_1(theme, accent_idx),
+        Family::MediumStyle2 => documented_style(
+            MEDIUM_2,
+            "{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}",
+            accent_idx.map(|n| ("dk1", n)),
+            theme_source,
+        ),
+        Family::MediumStyle3 => medium_style_3(theme, accent_idx),
+        Family::MediumStyle4 => medium_style_4(theme, accent_idx),
+        Family::DarkStyle1 => dark_style_1(theme, accent_idx),
+        Family::DarkStyle2 => dark_style_2(theme, accent_idx),
+    };
+    // Every built-in PowerPoint table style's wholeTbl text references the
+    // theme minor font (`<a:tcTxStyle><a:fontRef idx="minor">`): each copy of a
+    // built-in style that PowerPoint wrote into a deck's tableStyles.xml does,
+    // and an un-copied Medium Style 2 cell rendered in the master's minor font
+    // (issue #1620).
+    style.whole_tbl.text.font = Some(crate::TableStyleFont::Collection("+mn"));
+    Some(style)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Theme scheme colours reach the preset table-style transforms verbatim;
+    /// a non-ASCII value must not panic on a char-boundary slice.
+    #[test]
+    fn apply_transforms_tolerates_non_ascii_hex() {
+        let out = apply_transforms("a\u{e9}000", &[("tint", 50000)]);
+        assert!(out.is_ascii() && out.len() >= 6, "{out:?}");
+    }
+
+    fn solid_color(fill: &Option<Fill>) -> Option<&str> {
+        match fill {
+            Some(Fill::Solid { color }) => Some(color),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn no_grid_and_edge_text_roles_follow_documented_catalogue() {
+        let theme = HashMap::from([
+            ("dk1".into(), "000000".into()),
+            ("tx1".into(), "000000".into()),
+            ("lt1".into(), "FFFFFF".into()),
+            ("accent1".into(), "4472C4".into()),
+        ]);
+        let plain =
+            lookup_builtin_table_style("{2D5ABB26-0587-4C30-8999-92F81FD0307C}", &theme).unwrap();
+        assert!(matches!(
+            plain.whole_tbl.borders.inside_h,
+            TableLineStyle::NoLine
+        ));
+        for id in [
+            "{3C2FFA5D-87B4-456A-9821-1D502468CF0F}",
+            "{3B4B98B0-60AC-42C2-AFA5-B58CD77FA1E5}",
+        ] {
+            let style = lookup_builtin_table_style(id, &theme).unwrap();
+            assert_eq!(style.first_row.text.bold, Some(true));
+            assert_eq!(style.last_row.text.bold, Some(true));
+            assert_eq!(style.first_col.text.bold, Some(true));
+            assert_eq!(style.last_col.text.bold, Some(true));
+        }
+    }
+
+    #[test]
+    fn themed_style_2_without_an_accent_keeps_the_table_body_unfilled() {
+        let theme = HashMap::from([
+            ("dk1".to_owned(), "000000".to_owned()),
+            ("lt1".to_owned(), "FFFFFF".to_owned()),
+            ("accent1".to_owned(), "4668C5".to_owned()),
+        ]);
+        let style = lookup_builtin_table_style("{5940675A-B579-460E-94D1-54222C63F5DA}", &theme)
+            .expect("built-in Themed Style 2");
+
+        assert_eq!(solid_color(&style.whole_tbl.fill), None);
+        assert!(matches!(
+            style.whole_tbl.borders.inside_h,
+            TableLineStyle::Stroke(_)
+        ));
+        assert!(matches!(
+            style.whole_tbl.borders.inside_v,
+            TableLineStyle::Stroke(_)
+        ));
+    }
+
+    /// The built-in Medium Style 2 / Accent 1 table is the default produced by
+    /// python-pptx and many Office generators. ECMA-376 §20.1.2.3.34 tint values
+    /// retain the stated fraction in linear sRGB. Tagged PDF measurements
+    /// distinguish both body and band colours from an encoded-sRGB blend.
+    #[test]
+    fn medium_style_2_accent_1_uses_powerpoint_linear_tints() {
+        let theme = HashMap::from([
+            ("accent1".to_owned(), "4472C4".to_owned()),
+            ("lt1".to_owned(), "FFFFFF".to_owned()),
+            ("dk1".to_owned(), "000000".to_owned()),
+        ]);
+        let style = lookup_builtin_table_style("{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}", &theme)
+            .expect("known PowerPoint table style");
+
+        assert_eq!(solid_color(&style.first_row.fill), Some("4472C4"));
+        assert_eq!(solid_color(&style.whole_tbl.fill), Some("E9EBF5"));
+        assert_eq!(solid_color(&style.band1_h.fill), Some("CFD5EA"));
+        assert_eq!(style.first_row.text.color.as_deref(), Some("FFFFFF"));
+        assert_eq!(style.first_row.text.bold, Some(true));
+        assert_eq!(style.whole_tbl.text.color.as_deref(), Some("000000"));
+        assert_eq!(style.last_row.text.color.as_deref(), Some("FFFFFF"));
+        assert_eq!(style.first_col.text.color.as_deref(), Some("FFFFFF"));
+        assert_eq!(style.last_col.text.color.as_deref(), Some("FFFFFF"));
+        assert_eq!(style.last_row.text.bold, Some(true));
+        assert_eq!(style.first_col.text.bold, Some(true));
+        assert_eq!(style.last_col.text.bold, Some(true));
+    }
+
+    /// Built-in Medium Style 1 is not serialized into tableStyles.xml. An
+    /// Office-produced flag matrix shows regular whole-table text, bold text on
+    /// flagged header/total/first-column/last-column parts, light header text,
+    /// and a compound double separator above a flagged total row.
+    #[test]
+    fn medium_style_1_accent_1_carries_text_and_total_row_formatting() {
+        let theme = HashMap::from([
+            ("accent1".to_owned(), "1D6FA8".to_owned()),
+            ("lt1".to_owned(), "F9F9F9".to_owned()),
+            ("dk1".to_owned(), "10263F".to_owned()),
+        ]);
+        let style = lookup_builtin_table_style("{B301B821-A1FF-4177-AEE7-76D212191A09}", &theme)
+            .expect("known PowerPoint table style");
+
+        assert_eq!(style.whole_tbl.text.color.as_deref(), Some("10263F"));
+        assert_eq!(style.whole_tbl.text.bold, None);
+        assert_eq!(style.first_row.text.color.as_deref(), Some("F9F9F9"));
+        assert_eq!(style.first_row.text.bold, Some(true));
+        assert_eq!(style.last_row.text.color.as_deref(), Some("10263F"));
+        assert_eq!(style.last_row.text.bold, Some(true));
+        assert_eq!(style.first_col.text.color, None);
+        assert_eq!(style.first_col.text.bold, Some(true));
+        assert_eq!(style.last_col.text.color, None);
+        assert_eq!(style.last_col.text.bold, Some(true));
+        let TableLineStyle::Stroke(total_separator) = &style.last_row.borders.top else {
+            panic!("last-row top separator");
+        };
+        assert_eq!(total_separator.color, "1D6FA8");
+        assert_eq!(total_separator.width, 38_100);
+        assert_eq!(total_separator.cmpd.as_deref(), Some("dbl"));
+    }
+}
