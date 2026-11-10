@@ -285,7 +285,8 @@ impl PresentationState {
         self.sorter.end(total)
     }
 
-    pub fn update_layout_dimensions(&mut self, width: u16, _height: u16) {
+    pub fn update_layout_dimensions(&mut self, width: u16, height: u16) {
         self.sorter.update_cols_for_width(width);
+        self.set_layout_dimensions(width, height);
     }
 }

@@ -326,8 +326,9 @@ fn execute_task(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &Atomi
             }
 
             let slide = &ctx.presentation.slides[index];
-            match ctx.compiler.compile(
+            match ctx.compiler.compile_in_deck(
                 slide,
+                &ctx.presentation.slides,
                 ctx.presentation.slide_width,
                 ctx.presentation.slide_height,
                 &ctx.warning_sink,

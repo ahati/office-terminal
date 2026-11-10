@@ -3,7 +3,7 @@ use crate::app::mode::AppMode;
 use crate::app::state::{BlankMode, PresentationState};
 
 /// Action resulting from an event handling cycle.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppAction {
     /// No state changed requiring pipeline or driver action.
     None,
@@ -13,6 +13,8 @@ pub enum AppAction {
     Redraw,
     /// Exit presentation.
     Quit,
+    /// Launch a validated external URL in the OS browser.
+    OpenExternal(String),
 }
 
 /// Handle a crossterm keyboard event.
@@ -22,16 +24,25 @@ pub fn handle_key_event(key: KeyEvent, state: &mut PresentationState) -> AppActi
         return AppAction::Quit;
     }
 
-    // 2. Check Overlays
+    // 2. Check Ctrl-O global hyperlink picker shortcut
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('o') {
+        state.toggle_link_picker();
+        return AppAction::Redraw;
+    }
+
+    // 3. Check Overlays
     match state.mode() {
         AppMode::HelpModal => return handle_help_key(key, state),
         AppMode::CommentsDrawer => return handle_comments_key(key, state),
         AppMode::WarningDrawer => return handle_warnings_key(key, state),
         AppMode::TocSearchModal => return handle_search_key(key, state),
+        AppMode::LinkPickerModal => {
+            return crate::app::link_state::handle_link_picker_key(key, state)
+        }
         _ => {}
     }
 
-    // 3. Check Ctrl-F global shortcut (outside modal)
+    // 4. Check Ctrl-F global shortcut (outside modal)
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('f') {
         state.clear_digits();
         state.open_search();
@@ -285,6 +296,11 @@ fn handle_presentation_key(key: KeyEvent, state: &mut PresentationState) -> AppA
         KeyCode::Char('q') | KeyCode::Esc => AppAction::Quit,
 
         // Overlays
+        KeyCode::Char('o') => {
+            state.clear_digits();
+            state.toggle_link_picker();
+            AppAction::Redraw
+        }
         KeyCode::Char('c') => {
             state.clear_digits();
             state.toggle_comments();

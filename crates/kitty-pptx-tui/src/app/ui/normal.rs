@@ -55,12 +55,18 @@ pub fn render_normal(state: &PresentationState, f: &mut Frame, area: Rect) {
         } else {
             ""
         };
+        let link_badge = if state.current_slide_link_count() > 0 {
+            format!(" | [o: {} Links]", state.current_slide_link_count())
+        } else {
+            String::new()
+        };
 
         let status_text = format!(
-            " Slide {} / {}{} | Elapsed: {} | [?] Help | [p] Presenter | [Tab/s] Sorter | [t] Hide Bar | [q] Quit ",
+            " Slide {} / {}{}{} | Elapsed: {} | [?] Help | [p] Presenter | [Tab/s] Sorter | [t] Hide Bar | [q] Quit ",
             state.current_slide() + 1,
             state.total_slides(),
             media_badge,
+            link_badge,
             state.elapsed_formatted()
         );
         spans.push(Span::styled(

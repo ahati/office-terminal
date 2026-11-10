@@ -4,12 +4,13 @@ pub mod sorter_state;
 pub mod search_state;
 pub mod warnings_state;
 pub mod events;
+pub mod link_state;
 pub mod ui;
 pub mod media;
 
 use std::sync::Arc;
 use std::time::Duration;
-use crossterm::event::{self, Event, KeyEvent};
+use crossterm::event::{self, Event, KeyEvent, MouseEvent};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -22,6 +23,7 @@ pub use sorter_state::SorterState;
 pub use search_state::{SearchState, SlideSearchEntry};
 pub use warnings_state::{SlideWarning, WarningsState};
 pub use events::{handle_key_event, handle_resize_event, AppAction};
+pub use link_state::{handle_mouse_event, launch_external_browser, LinkDispatch, LinkPickerState};
 pub use ui::render_app;
 pub use media::{find_slide_media, has_slide_media, try_play_current_slide_media};
 
@@ -74,6 +76,12 @@ impl PresentationApp {
         self
     }
 
+    /// Attach physical slide dimensions for hyperlink mouse hit-testing.
+    pub fn with_slide_dimensions(mut self, width_emu: i64, height_emu: i64) -> Self {
+        self.state.set_slide_dimensions(width_emu, height_emu);
+        self
+    }
+
     pub fn state(&self) -> &PresentationState {
         &self.state
     }
@@ -115,6 +123,18 @@ impl PresentationApp {
     /// Process a keyboard event and perform necessary pipeline actions.
     pub fn handle_key(&mut self, key: KeyEvent) -> AppAction {
         let action = handle_key_event(key, &mut self.state);
+        self.apply_action(&action);
+        action
+    }
+
+    /// Process a mouse event and perform the resulting action.
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) -> AppAction {
+        let action = handle_mouse_event(mouse, &mut self.state);
+        self.apply_action(&action);
+        action
+    }
+
+    fn apply_action(&mut self, action: &AppAction) {
         match action {
             AppAction::Quit => {
                 self.is_running = false;
@@ -122,9 +142,14 @@ impl PresentationApp {
             AppAction::SlideChanged => {
                 self.trigger_prefetch();
             }
-            _ => {}
+            AppAction::OpenExternal(url) => {
+                if launch_external_browser(url).is_err() {
+                    self.state
+                        .set_toast("[Error: Unable to launch web browser]");
+                }
+            }
+            AppAction::None | AppAction::Redraw => {}
         }
-        action
     }
 
     /// Handle terminal window resize cleanly, adjusting target resolution and re-staging.
@@ -146,6 +171,7 @@ impl PresentationApp {
         crossterm::execute!(
             stdout,
             crossterm::terminal::EnterAlternateScreen,
+            crossterm::event::EnableMouseCapture,
             crossterm::cursor::Hide
         )?;
         let backend = CrosstermBackend::new(stdout);
@@ -167,6 +193,9 @@ impl PresentationApp {
                     Event::Resize(cols, rows) => {
                         self.handle_resize(cols, rows);
                     }
+                    Event::Mouse(mouse) => {
+                        self.handle_mouse(mouse);
+                    }
                     _ => {}
                 }
             }
@@ -178,6 +207,7 @@ impl PresentationApp {
         crossterm::execute!(
             terminal.backend_mut(),
             crossterm::terminal::LeaveAlternateScreen,
+            crossterm::event::DisableMouseCapture,
             crossterm::cursor::Show
         )?;
 

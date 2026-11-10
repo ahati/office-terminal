@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use kitty_pptx_core::RgbaSlide;
+use kitty_pptx_core::{HyperlinkTarget, RgbaSlide, RectF32, SlideLink};
 use kitty_pptx_display::*;
 
 fn create_test_slide(w: u32, h: u32, color: [u8; 4]) -> RgbaSlide {
@@ -297,4 +297,81 @@ fn test_aspect_ratio_fitting() {
     assert_eq!(centered.rows, 23);
     assert_eq!(centered.col, 0);
     assert_eq!(centered.row, (40 - 23) / 2);
+}
+
+// -----------------------------------------------------------------------------
+// OSC 8 Hyperlink Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_kitty_placeholder_without_links_is_byte_identical() {
+    let id = ImageId(9);
+    let rect = CellRect { row: 1, col: 1, rows: 2, cols: 4 };
+    let plain = KittyDriver::generate_placeholder_string(id, rect);
+    let linked = KittyDriver::generate_placeholder_string_with_links(id, rect, &[]);
+    assert_eq!(plain, linked);
+    assert!(!plain.contains("\x1b]8;"));
+}
+
+#[test]
+fn test_kitty_placeholder_wraps_linked_cells_in_osc8() {
+    let id = ImageId(3);
+    let rect = CellRect { row: 0, col: 0, rows: 1, cols: 6 };
+    let link = TerminalHyperlink::new(
+        7,
+        "https://example.com/doc",
+        CellRect { row: 0, col: 2, rows: 1, cols: 2 },
+    );
+    let output = KittyDriver::generate_placeholder_string_with_links(id, rect, &[link]);
+    assert!(output.contains("\x1b]8;id=link_7;https://example.com/doc\x1b\\"));
+    assert!(output.contains("\x1b]8;;\x1b\\"));
+    let open = output.find("\x1b]8;id=link_7;").expect("open sequence present");
+    let close = output.find("\x1b]8;;\x1b\\").expect("close sequence present");
+    assert!(open < close);
+}
+
+#[test]
+fn test_kitty_placeholder_skips_unsanitized_link_urls() {
+    let id = ImageId(3);
+    let rect = CellRect { row: 0, col: 0, rows: 1, cols: 3 };
+    let link = TerminalHyperlink::new(
+        1,
+        "javascript:alert(1)",
+        CellRect { row: 0, col: 0, rows: 1, cols: 3 },
+    );
+    let output = KittyDriver::generate_placeholder_string_with_links(id, rect, &[link]);
+    assert_eq!(
+        output,
+        KittyDriver::generate_placeholder_string(id, rect)
+    );
+}
+
+#[test]
+fn test_map_slide_links_to_cells_and_sanitize() {
+    let links = vec![
+        SlideLink::new(
+            HyperlinkTarget::ExternalUri("https://example.com".into()),
+            RectF32::new(100.0, 200.0, 300.0, 400.0),
+            None,
+        ),
+        SlideLink::new(
+            HyperlinkTarget::SlideIndex(3),
+            RectF32::new(0.0, 0.0, 1000.0, 1000.0),
+            None,
+        ),
+        SlideLink::new(
+            HyperlinkTarget::ExternalUri("file:///etc/passwd".into()),
+            RectF32::new(0.0, 0.0, 1000.0, 1000.0),
+            None,
+        ),
+    ];
+    let placement = CellRect { row: 3, col: 2, rows: 10, cols: 10 };
+    let mapped = map_slide_links_to_cells(&links, 1000, 1000, placement, 1);
+    assert_eq!(mapped.len(), 1);
+    assert_eq!(mapped[0].url, "https://example.com");
+    assert_eq!(mapped[0].id, 1);
+    assert_eq!(
+        mapped[0].rect,
+        CellRect { row: 5, col: 3, rows: 5, cols: 4 }
+    );
 }

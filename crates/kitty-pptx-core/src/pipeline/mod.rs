@@ -134,8 +134,9 @@ impl DefaultRenderPipeline {
         } else {
             let (tx, _rx) = crossbeam_channel::unbounded();
             let slide = &self.presentation.slides[index];
-            let v = self.compiler.compile(
+            let v = self.compiler.compile_in_deck(
                 slide,
+                &self.presentation.slides,
                 self.presentation.slide_width,
                 self.presentation.slide_height,
                 &tx,

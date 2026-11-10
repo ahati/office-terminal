@@ -6,6 +6,8 @@ pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
 use crate::app::search_state::SearchState;
 use crate::app::sorter_state::SorterState;
 use crate::app::warnings_state::WarningsState;
+use crate::app::link_state::LinkPickerState;
+use kitty_pptx_core::SlideLink;
 
 /// Presentation navigation and UI state machine.
 pub struct PresentationState {
@@ -24,10 +26,16 @@ pub struct PresentationState {
     pub(crate) sorter: SorterState,
     pub(crate) search: SearchState,
     pub(crate) warnings: WarningsState,
+    pub(crate) link_picker: LinkPickerState,
     pub(crate) comments_scroll: usize,
 
     // Slide models & media
     pub(crate) slides: Vec<Slide>,
+    pub(crate) slide_links: Vec<Vec<SlideLink>>,
+    pub(crate) slide_width_emu: i64,
+    pub(crate) slide_height_emu: i64,
+    pub(crate) layout_cols: u16,
+    pub(crate) layout_rows: u16,
 
     // Notification toast
     pub(crate) toast_message: Option<String>,
@@ -50,8 +58,14 @@ impl PresentationState {
             sorter: SorterState::new(),
             search: SearchState::new(),
             warnings: WarningsState::new(),
+            link_picker: LinkPickerState::new(),
             comments_scroll: 0,
             slides: Vec::new(),
+            slide_links: Vec::new(),
+            slide_width_emu: 12_192_000,
+            slide_height_emu: 6_858_000,
+            layout_cols: 80,
+            layout_rows: 24,
             toast_message: None,
             toast_time: None,
         }
@@ -380,14 +394,35 @@ impl PresentationState {
     }
 
     pub fn set_slides(&mut self, slides: Vec<Slide>) {
+        self.slide_links = kitty_pptx_core::extract_deck_hyperlinks(&slides);
         self.slides = slides;
         self.search.sync_entries(&self.slides, &self.notes, self.total_slides);
     }
 
     pub fn with_slides(mut self, slides: Vec<Slide>) -> Self {
+        self.slide_links = kitty_pptx_core::extract_deck_hyperlinks(&slides);
         self.slides = slides;
         self.search.sync_entries(&self.slides, &self.notes, self.total_slides);
         self
+    }
+
+    /// Set the physical slide dimensions used for mouse hit-testing.
+    pub fn set_slide_dimensions(&mut self, width_emu: i64, height_emu: i64) {
+        if width_emu > 0 && height_emu > 0 {
+            self.slide_width_emu = width_emu;
+            self.slide_height_emu = height_emu;
+        }
+    }
+
+    pub fn with_slide_dimensions(mut self, width_emu: i64, height_emu: i64) -> Self {
+        self.set_slide_dimensions(width_emu, height_emu);
+        self
+    }
+
+    /// Record the latest terminal cell grid for mouse hit-testing.
+    pub fn set_layout_dimensions(&mut self, cols: u16, rows: u16) {
+        self.layout_cols = cols;
+        self.layout_rows = rows;
     }
 
     pub fn current_slide_model(&self) -> Option<&Slide> {
