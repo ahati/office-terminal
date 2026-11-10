@@ -35,10 +35,11 @@ The upstream project structures its PPTX implementation into two core Rust crate
 `kitty-pptx` consumes these upstream crates directly in a cargo workspace:
 ```toml
 [dependencies]
+ooxml-common = { path = "./crates/ooxml-common", default-features = false }
 pptx-model = { path = "./crates/pptx-model", default-features = false }
 pptx-parser = { path = "./crates/pptx-parser", default-features = false }
 ```
-*Note*: The `wasm-entry` feature in `pptx-parser` (the default) gates the `wasm-bindgen` exports; disabling it compiles the parser as a lean native library. The native entry points `parse_pptx_model_native` and `to_markdown_native` are unconditional and used by this project. *(Verified against the upstream `Cargo.toml` and `parser/src/lib.rs`.)*
+*Note*: `pptx-parser` depends directly on `ooxml-common` (for OPC relationships, namespaces, and depth/resource guards) and `pptx-model`. The `wasm-entry` feature in `pptx-parser` (the default) gates the `wasm-bindgen` exports; disabling it compiles the parser as a lean native library. The native entry points `parse_pptx_model_native` and `to_markdown_native` are unconditional and used by this project. *(Verified against the upstream `Cargo.toml` and `parser/src/lib.rs`.)*
 
 ### 2.2 Upstream Synchronization Policy
 The upstream repository moves quickly (AI-authored, spec-first, fuzz-tested; migration docs for multiple minor versions in-tree). Policy:
@@ -60,7 +61,11 @@ The upstream repository moves quickly (AI-authored, spec-first, fuzz-tested; mig
    - Layout placeholder hierarchies resolve Master → Layout → Slide; the model emits a flat, inheritance-resolved element list per slide, each element tagged with its `SlideElementOrigin` (Master | Layout | Slide).
 
 ### 3.2 Slide Materialization (`ppt/slides/slideN.xml`)
-Each slide carries resolved dimensions/transforms (EMU), background (solid / gradient / image), a z-ordered `Vec<SlideElement>`, and notes text from `ppt/notesSlides/`.
+Each slide carries resolved dimensions/transforms (EMU), background (solid / gradient / image), a z-ordered `Vec<SlideElement>`, and:
+- `notes: Option<String>`: Plain text from `ppt/notesSlides/notesSlideN.xml` for speaker notes.
+- `comments: Vec<PptxComment>`: Threaded reviewer comments associated with the slide.
+- `hidden: bool`: Authoring flag (`<p:sld show="0">`) indicating the slide is skipped during linear presentation shows.
+- `parse_error: Option<String>`: Upstream partial degradation (RB7) marker: if a single slide's XML part is malformed, other slides load normally while this slide carries the error detail for placeholder rendering.
 
 **Group flattening**: `<p:grpSp>` groups are flattened by the parser into child elements with composed transforms, under a fail-closed nesting-depth budget. The model has **no group variant**; the renderer handles exactly one transform level per element ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §3.1).
 

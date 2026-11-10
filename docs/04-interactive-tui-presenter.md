@@ -76,21 +76,30 @@ For dual-monitor setups or rehearsal on a single screen.
 
 | Action | Primary | Vim / Secondary |
 | :--- | :--- | :--- |
-| **Next slide** | `Space`, `Enter`, `Right`, `PageDown` | `j`, `l` |
-| **Previous slide** | `Backspace`, `Left`, `PageUp` | `k`, `h` |
+| **Next slide** | `Space`, `Enter`, `Right`, `PageDown` | `j`, `l` (skips hidden slides) |
+| **Previous slide** | `Backspace`, `Left`, `PageUp` | `k`, `h` (skips hidden slides) |
 | **First slide** | `gg` (prefix: `g` waits for second key) | `Home` |
 | **Last slide** | `G` | `End` |
-| **Direct jump** | number prefix + `Enter` (e.g. `1` `2` `Enter`) | number prefix + `G` |
+| **Direct jump** | number prefix + `Enter` (e.g. `1` `2` `Enter`) | number prefix + `G` (can jump to hidden slides) |
 | **Toggle presenter view** | `p` | `n` (notes) |
 | **Toggle sorter** | `Tab` | `t` |
 | **Toggle status bar** | `H` | — |
 | **Fuzzy find / TOC** | `/` | `Ctrl+F` |
 | **Screen blackout / whiteout** | `b` / `w` | `.` / `,` |
+| **Warning drawer** | `W` (Shift-W) | — |
+| **Reviewer comments drawer** | `c` | — |
+| **Play embedded media** | `M` (Shift-M) | Launch external player (e.g. `mpv`) |
 | **Timer: reset / pause** | `r` / `s` | — |
 | **Help overlay** | `?` | `F1` |
 | **Quit** | `q`, `Esc` | `Ctrl+C` |
 
-*(Corrects the previous revision, where `h` was bound both to "previous slide" and "toggle bottom bar", and where `g` and `gg` were listed as independent bindings. `g` is now strictly a pending prefix; the bar toggle moved to `H`.)*
+*(Note on keybinding hygiene: `w` is PowerPoint's canonical screen-whiteout key; the warning drawer is bound to `W`. `h` is strictly previous slide while `H` toggles the status bar.)*
+
+### 3.1 Hidden Slide Semantics
+PowerPoint decks often contain hidden slides (`<p:sld show="0">`, carried as `Slide.hidden: bool` in the model):
+- **Linear Navigation (`Space`, `j`, `k`, `Enter`)**: Hidden slides are **automatically skipped**, matching PowerPoint presentation behavior.
+- **Visual Slide Sorter (`Tab`)**: Hidden slides are displayed with a dimmed border and a `[#N (hidden)]` badge so the presenter can see their position.
+- **Direct Jump (`<N>G`)**: Explicit jumps directly target the requested slide, even if hidden.
 
 All bindings are rebindable via `[keybindings]` in the config ([PRD 05](./05-cli-and-export.md) §3).
 
@@ -141,6 +150,7 @@ loop {
 
 ## 6. Status, Warnings & Failure Surfaces
 
-- **Warning badges**: `WarningEvent`s ([PRD 06](./06-component-interface-contracts.md) §4) from the current slide surface as a `⚠ n` badge in the status bar; `w` opens the warning drawer (element, feature, fidelity class).
+- **Warning badges**: `WarningEvent`s ([PRD 06](./06-component-interface-contracts.md) §4) from the current slide surface as a `⚠ n` badge in the status bar; `W` opens the warning drawer (element, feature, fidelity class).
+- **Reviewer comments**: slides containing reviewer comments (`Slide.comments`) display a `💬` badge; `c` toggles the slide comments drawer.
 - **Pipeline failure** (`entry(n) == Failed`): the slide area shows the placeholder presentation (PRD 02d §3) with the `RenderError` summary; navigation remains functional.
 - **Display degradation**: on `DisplayError::Io` mid-session, the TUI attempts the half-block driver (PRD 03 §10) and posts a status message; if unavailable, it exits with code 3.

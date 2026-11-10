@@ -61,7 +61,12 @@ struct WinSize { ws_row: u16, ws_col: u16, ws_xpixel: u16, ws_ypixel: u16 }
 
 $$\text{cell\_w} = \frac{\text{ws\_xpixel}}{\text{ws\_col}},\qquad \text{cell\_h} = \frac{\text{ws\_ypixel}}{\text{ws\_row}}$$
 
-If `ws_xpixel` is `0` (multiplexers and some pty configurations), assume a $10 \times 20$ px cell (2:1 aspect) and mark geometry as *estimated* — placement recomputes when real pixels arrive.
+If `ws_xpixel` is `0` (multiplexers, virtual ptys, and some SSH setups):
+1. **Active Query Fallback**: The driver immediately sends an ANSI window/cell size query:
+   - `CSI 16 t` (`\x1b[16t`): Requests cell size in pixels, answered as `\x1b[6;<h>;<w>t`.
+   - `CSI 14 t` (`\x1b[14t`): Requests window size in pixels, answered as `\x1b[4;<h>;<w>t`.
+   A quick 50 ms non-blocking read resolves the exact pixel dimensions.
+2. **Heuristic Fallback**: If the query times out or is unsupported, assume a standard $10 \times 20$ px cell (2:1 aspect ratio) and mark geometry as *estimated* — placement recomputes cleanly when real pixel data is received.
 
 ### 4.2 Fitting Modes & Client-Side Scaling
 The adapter transmits frames at the pipeline's render resolution (default 1920×1080) and **lets the terminal scale** by specifying display size in cells (`c`/`r`) — the terminal scales the resident image to the cell area:
@@ -71,6 +76,17 @@ The adapter transmits frames at the pipeline's render resolution (default 1920×
 - **`ActualPixels`**: no `c`/`r` — 1:1 pixels (pipeline target switches to native pixel dims; 02a §5.3 `TargetChanged`).
 
 Consequence: **resize does not re-transmit or re-rasterize** — the adapter re-issues only the display action with new `c`/`r`, and the terminal rescales its resident image.
+
+### 4.3 Terminal Multiplexer Support (`tmux`, `zellij`)
+When running inside a terminal multiplexer (detected via `$TMUX` or `$ZELLIJ`):
+1. **`tmux` DCS Pass-Through**: By default, `tmux` drops unhandled OSC/graphics escapes. To pass sequences through to the outer terminal:
+   - Every escape byte `\x1b` within the sequence is doubled (`\x1b\x1b`).
+   - The sequence is wrapped in a Device Control String (DCS) pass-through envelope:
+     ```
+     \x1bPtmux;\x1b<escaped_graphics_command>\x1b\\
+     ```
+   - *Requirement*: `tmux` must have `set -g allow-passthrough on` in `tmux.conf` (a helpful diagnostic warning is emitted if passthrough fails).
+2. **`zellij`**: Newer Zellij versions support Kitty/Sixel passthrough directly without DCS wrapping.
 
 ## 5. Image Lifecycle & Pre-Transmission
 
@@ -115,7 +131,14 @@ Behavioral contract (normative, PRD 06 §6): `present`/`reposition` on an unstag
 ## 7. Placement Modes
 
 ### 7.1 Interactive (TUI)
-Alternate-screen presentation ([PRD 04](./04-interactive-tui-presenter.md)). Placement = `CellRect` in the TUI's layout; the TUI owns cell bookkeeping, the driver owns emission. Cursor addressing (`CUP`) precedes the display action.
+Alternate-screen presentation ([PRD 04](./04-interactive-tui-presenter.md)). The TUI layout allocates a `CellRect` for the slide canvas. Two display methods are supported:
+
+1. **Unicode Placeholder Grid (`U=1`) — Preferred for Ratatui**:
+   - The slide frame is transmitted with `a=t,U=1,i=<id>`.
+   - The TUI's custom Ratatui slide widget fills the target canvas cells in Ratatui's internal `Buffer` with Kitty placeholder characters (`U+10EEEE`), using foreground and background colors to encode the Image ID and cell row/col offsets.
+   - **Why this is superior**: Ratatui's standard cell-diffing engine writes the placeholder cells normally. Overlapping UI elements (help modals `?`, warning drawers `w`, status bars) seamlessly overwrite the image without cell-clearing race conditions or cursor positioning hacks!
+2. **Direct Placement (`a=p`) — Fallback**:
+   - If Unicode placeholders are disabled, the driver emits a cursor positioning sequence (`CUP`) to `(rect.row, rect.col)` followed by `\x1b_Ga=p,i=<id>,c=<cols>,r=<rows>\x1b\`. Ratatui's buffer leaves the slide area blank.
 
 ### 7.2 Scrollback (`view` subcommand)
 The one-shot pager ([PRD 05](./05-cli-and-export.md) §2.2) prints slides into the terminal **scrollback buffer**. Plain cursor-positioned images do **not** survive scrolling; scrollback placement therefore uses **Unicode placeholders** (`U=1`):

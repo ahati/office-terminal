@@ -64,6 +64,7 @@ kitty-pptx export deck.pptx --out ./thumbs/ --slides 1-4,8
 
 Contract:
 - **Headless by construction**: export builds the pipeline with no `StageSink`/driver — the composition half only (PRD 06 §6.2). This is the enforced architectural invariant; display code is not merely unused but absent from the build.
+- **Streaming memory bounded**: workers execute in a pipeline that composites a frame, immediately encodes it to PNG, writes it to disk, and drops the raw `RgbaSlide` buffer before advancing to the next. Even with `-j 8` at 300 DPI, peak resident memory stays bounded below the 150 MB RSS budget.
 - Output is deterministic for a given (deck, dpi, versions, font set) tuple — required by the golden regime ([PRD 07](./07-quality-and-testing.md) §4.2): fixed PNG encoder settings, no timestamps.
 - **PNG is the only v1 format.** *(SVG export from the previous revision is removed: the engine rasterizes; a vector backend would be a second renderer. Vector export may be revisited post-v1 as a separate renderer backend with its own PRD.)*
 - Exit codes follow §5; a slide that fails composition exports as its placeholder rendering with a warning (never silently skipped, listed in stderr summary).
@@ -71,10 +72,12 @@ Contract:
 ### 2.4 Subcommand: `dump` (Text & Metadata Extraction)
 ```bash
 kitty-pptx dump deck.pptx --notes      # speaker notes
+kitty-pptx dump deck.pptx --comments   # threaded reviewer comments
 kitty-pptx dump deck.pptx --markdown   # GitHub-Flavored Markdown
 kitty-pptx dump deck.pptx --json       # full AST
 ```
 - `--notes`: slide numbers + notes text (the slide-thumbnail image embedded in notes slides is filtered out — notes text only).
+- `--comments`: slide numbers + author, timestamp, and threaded comment text (`Slide.comments`).
 - `--markdown`: GFM via the upstream `to_markdown_native` (headers, bullets, tables).
 - `--json`: the full `pptx-model::Presentation`, wrapped as `{"schemaVersion": 1, "warnings": [...], "presentation": {...}}`. The schema version bumps on breaking AST changes ([PRD 06](./06-component-interface-contracts.md) §11); session `WarningEvent`s are included so degradation is visible to tooling.
 
@@ -121,11 +124,17 @@ custom_font_dirs = [
   "/usr/share/fonts",
 ]
 
+[media]
+# Command to spawn when pressing 'M' on a slide containing embedded audio/video
+player = "mpv"                 # or "vlc", "ffplay", etc. (passes extracted temp file path)
+
 [keybindings]
 next_slide = ["Space", "Enter", "Right", "j"]
 prev_slide = ["Backspace", "Left", "k"]
 toggle_notes = ["n", "p"]
+toggle_comments = ["c"]
 toggle_sorter = ["Tab", "t"]
+play_media = ["M"]
 quit = ["q", "Esc"]
 ```
 

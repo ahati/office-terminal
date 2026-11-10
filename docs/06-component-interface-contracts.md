@@ -215,7 +215,8 @@ One raw-mode writer wrapping stdout/stderr:
 1. All escape-sequence emission (drivers, ratatui enter/leave, cleanup) funnels through it.
 2. Writes are **atomic per sequence**: a sequence is buffered fully, then flushed in one `write`; a failed write never strands a partial sequence.
 3. Flush discipline: `present`/`reposition` flush immediately (latency-critical); staging chunks flush opportunistically (throughput-oriented).
-4. On drop or signal: flush-or-discard, then mode restoration (PRD 03 §9).
+4. Multiplexer pass-through: when `$TMUX` is present, `TtyWriter` automatically encapsulates graphics escape sequences in tmux DCS pass-through envelopes (`\x1bPtmux;\x1b...\x1b\\`) with escape doubling (PRD 03 §4.3).
+5. On drop or signal: flush-or-discard, then mode restoration (PRD 03 §9).
 
 ## 11. Versioning & Stability
 
