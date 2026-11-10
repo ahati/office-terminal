@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use kitty_pptx_display::{ImageId, PlacementMode};
 
 use crate::app::state::PresentationState;
-use crate::widget::SlideWidget;
+use crate::widget::{SlideRenderMode, SlideWidget};
 
 /// Render the interactive thumbnail slide sorter grid.
 pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -138,10 +138,20 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
             f.render_widget(block, card_rect);
 
             if inner.width > 0 && inner.height > 0 {
-                let img_id = ImageId((idx % 8 + 1) as u32);
-                let slide_widget = SlideWidget::new(img_id, PlacementMode::Interactive)
-                    .with_aspect_ratio(state.aspect_ratio());
-                f.render_widget(slide_widget, inner);
+                if super::thumbnails_supported(state) {
+                    let img_id = ImageId((idx % 8 + 1) as u32);
+                    let slide_widget = SlideWidget::new(img_id, PlacementMode::Interactive)
+                        .with_aspect_ratio(state.aspect_ratio())
+                        .with_render_mode(SlideRenderMode::Placeholder);
+                    f.render_widget(slide_widget, inner);
+                } else {
+                    // Direct positioning can only place one image rect reliably;
+                    // leave thumbnail cells blank instead of showing placeholders.
+                    f.render_widget(
+                        Block::default().style(Style::default().bg(Color::Black)),
+                        inner,
+                    );
+                }
             }
         }
     }

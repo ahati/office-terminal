@@ -6,7 +6,7 @@ use crate::drivers::{KittyDriver, HalfBlockDriver, SixelDriver, Iterm2Driver};
 pub mod env;
 pub mod query;
 
-pub use env::{detect_protocol_from_env, DetectedProtocol};
+pub use env::{detect_protocol_from_env, detect_protocol_with, DetectedProtocol};
 pub use query::{query_terminal_device, parse_da1_has_sixel};
 
 pub struct CapabilityProbe;
@@ -44,12 +44,25 @@ impl CapabilityProbe {
     }
 
     /// Instantiates the appropriate graphics driver for the detected protocol.
+    ///
+    /// Unicode placeholders are only enabled for genuine kitty in interactive
+    /// mode; partial protocol implementations use raw RGBA + direct placement.
     pub fn instantiate_driver(
         protocol: DetectedProtocol,
         mode: PlacementMode,
     ) -> Box<dyn TerminalGraphicsDriver> {
         match protocol {
-            DetectedProtocol::Kitty => Box::new(KittyDriver::new(mode)),
+            DetectedProtocol::Kitty => {
+                let driver = KittyDriver::new_full(mode);
+                if mode == PlacementMode::Interactive {
+                    Box::new(driver.with_placeholder_mode(true))
+                } else {
+                    Box::new(driver)
+                }
+            }
+            DetectedProtocol::KittyCompat => {
+                Box::new(KittyDriver::new_compat(mode))
+            }
             DetectedProtocol::Sixel => Box::new(SixelDriver::new(mode)),
             DetectedProtocol::Iterm2 => Box::new(Iterm2Driver::new(mode)),
             DetectedProtocol::HalfBlock => Box::new(HalfBlockDriver::new(mode)),

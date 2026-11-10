@@ -40,7 +40,10 @@ fn query_internal(timeout: Duration) -> Option<DetectedProtocol> {
                     response.push(c);
                     // Check if we received Kitty response
                     if response.contains("_Gi=31;") {
-                        return Some(DetectedProtocol::Kitty);
+                        // A terminal answering the graphics query may be a partial
+                        // implementation (WezTerm, Ghostty, Konsole, ...), so only
+                        // assume raw RGBA transmission and direct placement.
+                        return Some(DetectedProtocol::KittyCompat);
                     }
                     // Check if we received DA1 response containing 4 (Sixel capability)
                     if response.ends_with('c') && response.contains('?') && parse_da1_has_sixel(&response) {
@@ -54,7 +57,7 @@ fn query_internal(timeout: Duration) -> Option<DetectedProtocol> {
     }
 
     if response.contains("_Gi=31;") {
-        Some(DetectedProtocol::Kitty)
+        Some(DetectedProtocol::KittyCompat)
     } else if parse_da1_has_sixel(&response) {
         Some(DetectedProtocol::Sixel)
     } else {

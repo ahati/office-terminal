@@ -1,7 +1,9 @@
 use kitty_pptx_core::{sanitize_hyperlink_url, DisplayError, HyperlinkTarget, RgbaSlide, SlideLink};
 
 pub use crate::geometry::*;
-pub use crate::drivers::{KittyDriver, HalfBlockDriver, SixelDriver, Iterm2Driver};
+pub use crate::drivers::{
+    HalfBlockDriver, Iterm2Driver, KittyDriver, KittyFlavor, SixelDriver, TransmissionFormat,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ImageId(pub u32);
@@ -142,6 +144,14 @@ pub trait TerminalGraphicsDriver: Send {
     ) -> Result<(), DisplayError> {
         let _ = links;
         self.present(id, p)
+    }
+    /// Whether Unicode placeholder rendering is active for this driver.
+    ///
+    /// Callers must only fill the screen with U+10EEEE cells when this returns
+    /// `true`; otherwise placeholder cells render as literal text on terminals
+    /// that do not implement the Kitty Unicode placeholder extension.
+    fn supports_placeholders(&self) -> bool {
+        self.caps().placeholders
     }
     fn reposition(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError>;
     fn release(&mut self, id: ImageId) -> Result<(), DisplayError>;

@@ -8,9 +8,12 @@ pub mod warnings;
 pub mod search;
 pub mod link_picker;
 
+use std::sync::{Arc, Mutex};
 use ratatui::Frame;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
+use crate::widget::{SlideRenderMode, SlideWidget};
+use kitty_pptx_display::{CellRect, ImageId, PlacementMode};
 
 pub use blank::render_blank_screen;
 pub use comments::render_comments_drawer;
@@ -21,6 +24,33 @@ pub use search::render_search_modal;
 pub use sorter::render_sorter;
 pub use warnings::render_warning_drawer;
 pub use link_picker::render_link_picker;
+
+/// Builds the widget for the main slide canvas, honoring the desired render mode.
+pub(crate) fn current_slide_widget(state: &PresentationState) -> SlideWidget {
+    slide_widget(state, state.current_image_id(), state.placement_sink())
+}
+
+/// Builds the widget for the presenter next-slide preview.
+pub(crate) fn preview_slide_widget(state: &PresentationState, image_id: ImageId) -> SlideWidget {
+    slide_widget(state, image_id, state.preview_placement_sink())
+}
+
+fn slide_widget(
+    state: &PresentationState,
+    image_id: ImageId,
+    sink: Arc<Mutex<Option<CellRect>>>,
+) -> SlideWidget {
+    SlideWidget::new(image_id, PlacementMode::Interactive)
+        .with_aspect_ratio(state.aspect_ratio())
+        .with_render_mode(state.slide_render_mode())
+        .with_direct_sink(sink)
+}
+
+/// Thumbnails are only rendered as Kitty placeholders; on direct-positioning
+/// drivers they are left blank rather than emitting a bogus colour grid.
+pub(crate) fn thumbnails_supported(state: &PresentationState) -> bool {
+    state.slide_render_mode() == SlideRenderMode::Placeholder
+}
 
 /// Render the presentation UI based on the current state.
 pub fn render_app(state: &PresentationState, f: &mut Frame) {

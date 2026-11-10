@@ -7,6 +7,9 @@ pub mod events;
 pub mod link_state;
 pub mod ui;
 pub mod media;
+mod graphics;
+#[cfg(test)]
+mod graphics_tests;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,11 +30,14 @@ pub use link_state::{handle_mouse_event, launch_external_browser, LinkDispatch, 
 pub use ui::render_app;
 pub use media::{find_slide_media, has_slide_media, try_play_current_slide_media};
 
+use graphics::{render_mode_for, GraphicsSyncer};
+
 /// Full interactive slide presentation runner.
 pub struct PresentationApp {
     pipeline: Arc<dyn RenderPipeline>,
     driver: Box<dyn TerminalGraphicsDriver>,
     state: PresentationState,
+    graphics: GraphicsSyncer,
     is_running: bool,
     current_target: RenderTargetSpec,
 }
@@ -46,11 +52,14 @@ impl PresentationApp {
         total_slides: usize,
         notes: Vec<Option<String>>,
     ) -> Self {
-        let state = PresentationState::new(total_slides, notes);
+        let mut state = PresentationState::new(total_slides, notes);
+        // Decide once, from the driver, whether Unicode placeholders are safe.
+        state.set_slide_render_mode(render_mode_for(driver.as_ref()));
         Self {
             pipeline,
             driver,
             state,
+            graphics: GraphicsSyncer::new(),
             is_running: true,
             current_target: RenderTargetSpec { width_px: 1920, height_px: 1080 },
         }
@@ -161,7 +170,18 @@ impl PresentationApp {
 
         self.state.update_layout_dimensions(cols, rows);
         self.pipeline.invalidate(InvalidateCause::Resize);
+        // Re-stage at the new target resolution and re-place at the new rect.
+        self.graphics.reset();
         self.trigger_prefetch();
+    }
+
+    /// Stages and places terminal graphics for the frame that was just drawn.
+    ///
+    /// Safe to call every frame: the syncer only talks to the driver when the
+    /// slide, its rect, or the blank state actually changed.
+    pub fn sync_graphics(&mut self) -> Result<(), kitty_pptx_core::DisplayError> {
+        self.graphics
+            .sync(&self.state, self.pipeline.as_ref(), self.driver.as_mut())
     }
 
     /// Runs the interactive presentation event loop.
@@ -181,9 +201,15 @@ impl PresentationApp {
         self.trigger_prefetch();
 
         while self.is_running {
+            self.state.clear_placement_rects();
             terminal.draw(|f| {
                 ui::render_app(&self.state, f);
             })?;
+
+            // Place staged images after ratatui's frame so the graphics layer
+            // matches the cell rect the views just computed. Best-effort: a
+            // failed placement must not terminate the presentation.
+            let _ = self.sync_graphics();
 
             if event::poll(Duration::from_millis(50))? {
                 match event::read()? {

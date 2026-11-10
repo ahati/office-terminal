@@ -36,7 +36,7 @@ pub fn run_interactive(
         rasterizer,
     ));
 
-    let detected = CapabilityProbe::probe().unwrap_or(DetectedProtocol::Kitty);
+    let detected = CapabilityProbe::probe().unwrap_or(DetectedProtocol::HalfBlock);
     let driver = CapabilityProbe::instantiate_driver(detected, PlacementMode::Interactive);
 
     let notes: Vec<Option<String>> = pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
