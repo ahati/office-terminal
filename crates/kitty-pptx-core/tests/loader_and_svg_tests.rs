@@ -63,6 +63,7 @@ fn test_svg_export_modes_and_image_embedding() {
         dest_rect: RectF32::new(100000.0, 100000.0, 500000.0, 500000.0),
         opacity: 0.8,
         transform: AffineTransform::default(),
+        effects: Vec::new(),
     });
 
     // Add a text command

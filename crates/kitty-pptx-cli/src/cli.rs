@@ -32,6 +32,10 @@ pub enum Commands {
         slide: usize,
         #[arg(short, long)]
         all: bool,
+        #[arg(long, value_enum, default_value = "contain")]
+        fit: FitMode,
+        #[arg(long, value_enum, default_value = "png")]
+        payload: PayloadMode,
     },
     #[command(about = "Headless batch slide export to PNG or vector SVG")]
     Export {
@@ -68,6 +72,20 @@ pub enum Commands {
     },
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug, Default)]
+pub enum FitMode {
+    #[default]
+    Contain,
+    Width,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug, Default)]
+pub enum PayloadMode {
+    #[default]
+    Png,
+    Raw,
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 pub enum ExportFormat {
     Png,
@@ -76,28 +94,54 @@ pub enum ExportFormat {
 }
 
 pub fn parse_slide_range(input: &str, total: usize) -> Result<Vec<usize>, String> {
+    if total == 0 {
+        return Err("presentation has no slides".to_string());
+    }
     let mut indices = Vec::new();
     for part in input.split(',') {
         let trimmed = part.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
         if let Some((start_s, end_s)) = trimmed.split_once('-') {
-            let start = if start_s.is_empty() { 1 } else {
-                start_s.parse::<usize>().map_err(|_| format!("invalid start number: {}", start_s))?
+            let start = if start_s.is_empty() {
+                1
+            } else {
+                start_s
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid start number: {}", start_s))?
             };
-            let end = if end_s.is_empty() { total } else {
-                end_s.parse::<usize>().map_err(|_| format!("invalid end number: {}", end_s))?
+            let end = if end_s.is_empty() {
+                total
+            } else {
+                end_s
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid end number: {}", end_s))?
             };
+            if start == 0 || start > total {
+                return Err(format!("slide start {} out of bounds (1..={})", start, total));
+            }
+            if end == 0 || end > total {
+                return Err(format!("slide end {} out of bounds (1..={})", end, total));
+            }
+            if start > end {
+                return Err(format!("invalid slide range: {} > {}", start, end));
+            }
             for i in start..=end {
-                if i >= 1 && i <= total {
-                    indices.push(i - 1);
-                }
+                indices.push(i - 1);
             }
         } else {
-            let num = trimmed.parse::<usize>().map_err(|_| format!("invalid slide number: {}", trimmed))?;
-            if num >= 1 && num <= total {
-                indices.push(num - 1);
+            let num = trimmed
+                .parse::<usize>()
+                .map_err(|_| format!("invalid slide number: {}", trimmed))?;
+            if num == 0 || num > total {
+                return Err(format!("slide index {} out of bounds (1..={})", num, total));
             }
+            indices.push(num - 1);
         }
+    }
+    if indices.is_empty() {
+        return Err("slide range resulted in empty selection".to_string());
     }
     indices.sort_unstable();
     indices.dedup();

@@ -12,7 +12,7 @@ pub use style::parse_hex_color;
 
 use crossbeam_channel::Sender;
 use crate::contracts::{
-    VectorCommand, VectorSlide, WarningEvent,
+    FidelityClass, VectorCommand, VectorSlide, WarningEvent,
 };
 use crate::error::RenderError;
 
@@ -57,6 +57,22 @@ impl SlideCompiler for DefaultSlideCompiler {
         for elem in &slide.elements {
             match elem {
                 pptx_model::SlideElement::Shape(shape) => {
+                    // Inspect shape effects per PRD 02d §2.1
+                    if shape.shadow.is_some()
+                        || shape.inner_shadow.is_some()
+                        || shape.glow.is_some()
+                        || shape.soft_edge.is_some()
+                        || shape.reflection.is_some()
+                        || shape.scene3d.is_some()
+                        || shape.sp3d.is_some()
+                    {
+                        let _ = warning_sink.send(WarningEvent::FidelityDegraded {
+                            element_id: shape.geometry.clone(),
+                            feature: "shape_effect_omitted",
+                            class: FidelityClass::Omitted,
+                        });
+                    }
+
                     let transform = transform::compute_shape_transform(
                         shape.x,
                         shape.y,

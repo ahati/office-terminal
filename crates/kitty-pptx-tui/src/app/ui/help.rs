@@ -6,8 +6,8 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 /// Render a centered help popup modal displaying all keybindings.
 pub fn render_help_modal(f: &mut Frame, area: Rect) {
-    let popup_width = 68.min(area.width.saturating_sub(4));
-    let popup_height = 23.min(area.height.saturating_sub(2));
+    let popup_width = 70.min(area.width.saturating_sub(4));
+    let popup_height = 27.min(area.height.saturating_sub(2));
 
     let horiz = Layout::default()
         .direction(Direction::Horizontal)
@@ -64,8 +64,12 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
             Span::styled("  G                              ", key_style),
             Span::styled(": Last slide", desc_style),
         ]),
+        Line::from(vec![
+            Span::styled("  / or Ctrl+F                    ", key_style),
+            Span::styled(": Fuzzy TOC Search", desc_style),
+        ]),
         Line::from(""),
-        Line::from(vec![Span::styled("Presentation Views & Modes:", header_style)]),
+        Line::from(vec![Span::styled("Presentation Views & Overlays:", header_style)]),
         Line::from(vec![
             Span::styled("  p                              ", key_style),
             Span::styled(": Toggle Presenter Mode", desc_style),
@@ -73,6 +77,14 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  Tab, s                         ", key_style),
             Span::styled(": Toggle Slide Sorter Grid", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  c                              ", key_style),
+            Span::styled(": Toggle Reviewer Comments", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  W (Shift-W)                    ", key_style),
+            Span::styled(": Toggle Fidelity Warnings", desc_style),
         ]),
         Line::from(vec![
             Span::styled("  m                              ", key_style),

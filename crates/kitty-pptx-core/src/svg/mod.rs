@@ -126,6 +126,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                         &dest,
                         1.0,
                         &crate::contracts::AffineTransform::default(),
+                        &[],
                     );
                     if !img_svg.is_empty() {
                         svg.push_str(&img_svg);
@@ -171,6 +172,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     dest_rect,
                     opacity,
                     transform,
+                    effects,
                 } => {
                     let img_svg = image::serialize_svg_image(
                         assets,
@@ -179,6 +181,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                         dest_rect,
                         *opacity,
                         transform,
+                        effects,
                     );
                     if !img_svg.is_empty() {
                         svg.push_str(&img_svg);

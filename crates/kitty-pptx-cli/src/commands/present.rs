@@ -4,6 +4,7 @@ use std::sync::Arc;
 use kitty_pptx_core::*;
 use kitty_pptx_display::*;
 use kitty_pptx_tui::*;
+use crate::commands::source_from_path;
 
 pub fn run_interactive(
     file_path: Option<PathBuf>,
@@ -19,7 +20,7 @@ pub fn run_interactive(
         }
     };
 
-    let (presentation, asset_store) = match loader.load(Source::File(file_path)) {
+    let (presentation, asset_store) = match loader.load(source_from_path(file_path)) {
         Ok(res) => res,
         Err(e) => {
             eprintln!("Error loading presentation: {}", e);

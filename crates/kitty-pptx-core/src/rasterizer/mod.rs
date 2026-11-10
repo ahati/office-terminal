@@ -1,3 +1,4 @@
+pub mod effects;
 mod image;
 mod path;
 mod text;
@@ -108,6 +109,7 @@ impl SlideRasterizer for TinySkiaRasterizer {
                         &dest,
                         1.0,
                         &crate::contracts::AffineTransform::default(),
+                        &[],
                         s_f32,
                         dx,
                         dy,
@@ -144,6 +146,7 @@ impl SlideRasterizer for TinySkiaRasterizer {
                     dest_rect,
                     opacity,
                     transform,
+                    effects,
                 } => {
                     image::render_image(
                         &mut pixmap,
@@ -153,6 +156,7 @@ impl SlideRasterizer for TinySkiaRasterizer {
                         dest_rect,
                         *opacity,
                         transform,
+                        effects,
                         s_f32,
                         dx,
                         dy,

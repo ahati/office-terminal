@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
-use kitty_pptx_core::{DefaultPresentationLoader, PresentationLoader, Source};
+use kitty_pptx_core::{DefaultPresentationLoader, PresentationLoader};
+use crate::commands::source_from_path;
 
 pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
-    let (presentation, _) = match loader.load(Source::File(file.clone())) {
+    let source = source_from_path(file.clone());
+    let (presentation, asset_store) = match loader.load(source) {
         Ok(res) => res,
         Err(e) => {
             eprintln!("Error loading deck: {}", e);
@@ -11,10 +13,74 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
         }
     };
 
-    println!("File:           {}", file.display());
-    println!("Slides:         {} slides", presentation.slides.len());
-    println!("Dimensions:     {} x {} EMU", presentation.slide_width, presentation.slide_height);
-    println!("Aspect Ratio:   {:.2}:1", presentation.slide_width as f64 / presentation.slide_height as f64);
-    println!("Themes:         Office Theme");
+    let file_str = if file.as_os_str() == "-" {
+        "<stdin>".to_string()
+    } else {
+        file.display().to_string()
+    };
+    println!("File:           {}", file_str);
+
+    let total = presentation.slides.len();
+    let hidden = presentation.slides.iter().filter(|s| s.hidden).count();
+    if hidden > 0 {
+        println!("Slides:         {} slides ({} hidden)", total, hidden);
+    } else {
+        println!("Slides:         {} slides", total);
+    }
+
+    let w_emu = presentation.slide_width;
+    let h_emu = presentation.slide_height;
+    println!("Dimensions:     {} x {} EMU", w_emu, h_emu);
+
+    let w_px = (w_emu as f64 / 9525.0).round() as u64;
+    let h_px = (h_emu as f64 / 9525.0).round() as u64;
+    let ratio_str = format_aspect_ratio(w_emu, h_emu);
+    println!("Aspect Ratio:   {} ({} x {} px at 96 DPI base)", ratio_str, w_px, h_px);
+
+    let theme_str = match (&presentation.major_font, &presentation.minor_font) {
+        (Some(maj), Some(min)) => format!("Office Theme ({}, {})", maj, min),
+        (Some(maj), None) => format!("Office Theme ({})", maj),
+        (None, Some(min)) => format!("Office Theme ({})", min),
+        (None, None) => "Office Theme".to_string(),
+    };
+    println!("Themes:         {}", theme_str);
+
+    let mut slide_media_count = 0;
+    for s in &presentation.slides {
+        for el in &s.elements {
+            if matches!(el, pptx_model::SlideElement::Picture(_) | pptx_model::SlideElement::Media(_)) {
+                slide_media_count += 1;
+            }
+        }
+    }
+    let stats = asset_store.stats();
+    let count = if stats.cached_entries > 0 { stats.cached_entries } else { slide_media_count };
+    let mb = stats.cached_bytes as f64 / (1024.0 * 1024.0);
+    println!("Media Assets:   {} images ({:.1} MB)", count, mb);
+
     ExitCode::SUCCESS
+}
+
+fn format_aspect_ratio(w: i64, h: i64) -> String {
+    if h == 0 {
+        return "0:0".to_string();
+    }
+    let ratio = w as f64 / h as f64;
+    if (ratio - 16.0 / 9.0).abs() < 0.02 {
+        "16:9".to_string()
+    } else if (ratio - 4.0 / 3.0).abs() < 0.02 {
+        "4:3".to_string()
+    } else if (ratio - 16.0 / 10.0).abs() < 0.02 {
+        "16:10".to_string()
+    } else {
+        fn gcd(a: i64, b: i64) -> i64 {
+            if b == 0 { a } else { gcd(b, a % b) }
+        }
+        let g = gcd(w, h);
+        if g > 0 && w / g < 100 && h / g < 100 {
+            format!("{}:{}", w / g, h / g)
+        } else {
+            format!("{:.2}:1", ratio)
+        }
+    }
 }

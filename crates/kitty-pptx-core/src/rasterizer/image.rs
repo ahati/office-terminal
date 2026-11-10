@@ -10,6 +10,7 @@ pub fn render_image(
     dest_rect: &RectF32,
     opacity: f32,
     transform: &AffineTransform,
+    effects: &[ooxml_common::blip::BlipEffect],
     scale: f32,
     offset_x: f32,
     offset_y: f32,
@@ -41,47 +42,52 @@ pub fn render_image(
         None => return,
     };
 
-    // Copy and premultiply pixels from cropped region
+    // Extract cropped straight RGBA8 pixels
     let orig_pixels = &decoded.pixels;
     let orig_w = decoded.width as usize;
-    let dst_data = src_pixmap.data_mut();
-
-    let opacity_clamped = opacity.clamp(0.0, 1.0);
+    let mut cropped_rgba = vec![0u8; (crop_w * crop_h * 4) as usize];
 
     for row in 0..crop_h as usize {
         let src_row_start = ((crop_y as usize + row) * orig_w + crop_x as usize) * 4;
         let dst_row_start = (row * crop_w as usize) * 4;
 
-        if src_row_start + crop_w as usize * 4 > orig_pixels.len() {
-            break;
+        if src_row_start + crop_w as usize * 4 <= orig_pixels.len() {
+            cropped_rgba[dst_row_start..dst_row_start + crop_w as usize * 4]
+                .copy_from_slice(&orig_pixels[src_row_start..src_row_start + crop_w as usize * 4]);
         }
+    }
 
-        for col in 0..crop_w as usize {
-            let si = src_row_start + col * 4;
-            let di = dst_row_start + col * 4;
+    // Apply blip effects if present
+    if !effects.is_empty() {
+        super::effects::apply_blip_effects(&mut cropped_rgba, effects);
+    }
 
-            let r = orig_pixels[si] as u32;
-            let g = orig_pixels[si + 1] as u32;
-            let b = orig_pixels[si + 2] as u32;
-            let a = ((orig_pixels[si + 3] as f32 * opacity_clamped).round() as u32).min(255);
+    let opacity_clamped = opacity.clamp(0.0, 1.0);
+    let dst_data = src_pixmap.data_mut();
 
-            if a == 0 {
-                dst_data[di] = 0;
-                dst_data[di + 1] = 0;
-                dst_data[di + 2] = 0;
-                dst_data[di + 3] = 0;
-            } else if a == 255 {
-                dst_data[di] = r as u8;
-                dst_data[di + 1] = g as u8;
-                dst_data[di + 2] = b as u8;
-                dst_data[di + 3] = 255;
-            } else {
-                // Premultiply
-                dst_data[di] = ((r * a + 127) / 255) as u8;
-                dst_data[di + 1] = ((g * a + 127) / 255) as u8;
-                dst_data[di + 2] = ((b * a + 127) / 255) as u8;
-                dst_data[di + 3] = a as u8;
-            }
+    #[allow(clippy::chunks_exact_to_as_chunks)]
+    for (src_chunk, dst_chunk) in cropped_rgba.chunks_exact(4).zip(dst_data.chunks_exact_mut(4)) {
+        let r = src_chunk[0] as u32;
+        let g = src_chunk[1] as u32;
+        let b = src_chunk[2] as u32;
+        let a = ((src_chunk[3] as f32 * opacity_clamped).round() as u32).min(255);
+
+        if a == 0 {
+            dst_chunk[0] = 0;
+            dst_chunk[1] = 0;
+            dst_chunk[2] = 0;
+            dst_chunk[3] = 0;
+        } else if a == 255 {
+            dst_chunk[0] = r as u8;
+            dst_chunk[1] = g as u8;
+            dst_chunk[2] = b as u8;
+            dst_chunk[3] = 255;
+        } else {
+            // Premultiply
+            dst_chunk[0] = ((r * a + 127) / 255) as u8;
+            dst_chunk[1] = ((g * a + 127) / 255) as u8;
+            dst_chunk[2] = ((b * a + 127) / 255) as u8;
+            dst_chunk[3] = a as u8;
         }
     }
 

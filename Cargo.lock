@@ -803,9 +803,14 @@ dependencies = [
  "kitty-pptx-core",
  "kitty-pptx-display",
  "kitty-pptx-tui",
+ "pptx-model",
+ "pptx-parser",
  "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
  "toml",
+ "zip",
 ]
 
 [[package]]

@@ -1,5 +1,8 @@
+pub mod mode;
 pub mod state;
 pub mod sorter_state;
+pub mod search_state;
+pub mod warnings_state;
 pub mod events;
 pub mod ui;
 pub mod media;
@@ -13,8 +16,11 @@ use ratatui::Terminal;
 use kitty_pptx_core::{InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::TerminalGraphicsDriver;
 
-pub use state::{AppMode, BlankMode, PresentationState, PresenterMode};
+pub use mode::{AppMode, BlankMode, PresenterMode};
+pub use state::PresentationState;
 pub use sorter_state::SorterState;
+pub use search_state::{SearchState, SlideSearchEntry};
+pub use warnings_state::{SlideWarning, WarningsState};
 pub use events::{handle_key_event, handle_resize_event, AppAction};
 pub use ui::render_app;
 pub use media::{find_slide_media, has_slide_media, try_play_current_slide_media};

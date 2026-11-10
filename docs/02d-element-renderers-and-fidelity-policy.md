@@ -59,8 +59,7 @@ A PowerPoint renderer that silently omits unsupported features produces deceptiv
 | Feature | Class | Execution Details |
 | :--- | :--- | :--- |
 | All Charts (classic + ChartEx) | **PLACEHOLDER** | Data-rich chart placeholder (§4.3) showing title, series names, counts, swatches. |
-| OMML Equations (with fallback) | **FULL** | Renders authoring-time `math_fallback` image preview faithfully. |
-| OMML Equations (no fallback) | **PLACEHOLDER** | Standard placeholder with equation label. |
+| OMML Equations (Live Typesetting) | **FULL** | Live TeX-style vector typesetting ([PRD 09](./09-omml-equation-typesetting.md)); authoring-time raster preview or degraded placeholder on error. |
 | SmartArt (Diagrams) | **PLACEHOLDER** | Standard placeholder showing carried diagram title. |
 | Embedded Video / Audio | **PLACEHOLDER** | Carried poster frame with media glyph; playback triggered via `M` ([PRD 04](./04-interactive-tui-presenter.md) §6). |
 | Hyperlinks | **DEGRADED** | Visual underline and presentation hyperlink color; not interactive. |

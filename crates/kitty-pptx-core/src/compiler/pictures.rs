@@ -1,6 +1,6 @@
 use crossbeam_channel::Sender;
 use crate::contracts::{
-    NormalizedRect, RectF32, VectorCommand, WarningEvent,
+    FidelityClass, NormalizedRect, RectF32, VectorCommand, WarningEvent,
 };
 use super::shapes::build_shape_path;
 use super::style::{compile_fill, compile_stroke};
@@ -87,7 +87,29 @@ pub fn compile_picture_element(
         commands.push(VectorCommand::PushClip(transformed_path));
     }
 
-    // 3. Draw image
+    // 3. Draw image with blip effects
+    // Collect blip effects and emit fidelity warnings per PRD 02d §2.2
+    let mut effects = pic.blip_effects.clone();
+    if let Some(ref duo) = pic.duotone {
+        let has_duotone = effects
+            .iter()
+            .any(|e| matches!(e, ooxml_common::blip::BlipEffect::Duotone { .. }));
+        if !has_duotone {
+            effects.push(ooxml_common::blip::BlipEffect::Duotone {
+                clr1: duo.clr1.clone(),
+                clr2: duo.clr2.clone(),
+            });
+        }
+    }
+
+    for _ in &effects {
+        let _ = warning_sink.send(WarningEvent::FidelityDegraded {
+            element_id: pic.image_path.clone(),
+            feature: "blip_effect",
+            class: FidelityClass::Degraded,
+        });
+    }
+
     // Prefer svg_image_path if available
     let rel_id = pic
         .svg_image_path
@@ -101,6 +123,7 @@ pub fn compile_picture_element(
         dest_rect,
         opacity,
         transform,
+        effects,
     });
 
     // 4. Pop clip if shaped

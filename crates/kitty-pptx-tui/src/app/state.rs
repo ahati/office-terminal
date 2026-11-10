@@ -1,60 +1,37 @@
 use std::time::{Duration, Instant, SystemTime};
 use kitty_pptx_display::ImageId;
-use pptx_model::Slide;
+use pptx_model::{PptxComment, Slide};
+
+pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
+use crate::app::search_state::SearchState;
 use crate::app::sorter_state::SorterState;
-
-/// Application display mode.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AppMode {
-    /// Fullscreen slide view with minimal status line (or hidden until toggled).
-    Fullscreen,
-    /// Split-pane presenter console (current slide, next preview, notes, timers, gauge).
-    PresenterConsole,
-    /// Help popup modal showing keyboard shortcuts.
-    HelpModal,
-    /// Thumbnail slide sorter grid mode.
-    Sorter,
-}
-
-/// Backwards-compatible alias for `AppMode`.
-pub type PresenterMode = AppMode;
-
-#[allow(non_upper_case_globals)]
-impl AppMode {
-    pub const Normal: AppMode = AppMode::Fullscreen;
-    pub const ThumbnailGrid: AppMode = AppMode::Sorter;
-}
-
-/// Blank screen mode for pausing talks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BlankMode {
-    None,
-    Black,
-    White,
-}
+use crate::app::warnings_state::WarningsState;
 
 /// Presentation navigation and UI state machine.
 pub struct PresentationState {
-    current_slide: usize,
-    total_slides: usize,
-    mode: AppMode,
-    previous_mode: AppMode,
-    blank_mode: BlankMode,
-    status_line_visible: bool,
-    notes: Vec<Option<String>>,
-    start_time: Instant,
-    digit_buffer: String,
-    aspect_ratio: f32,
+    pub(crate) current_slide: usize,
+    pub(crate) total_slides: usize,
+    pub(crate) mode: AppMode,
+    pub(crate) previous_mode: AppMode,
+    pub(crate) blank_mode: BlankMode,
+    pub(crate) status_line_visible: bool,
+    pub(crate) notes: Vec<Option<String>>,
+    pub(crate) start_time: Instant,
+    pub(crate) digit_buffer: String,
+    pub(crate) aspect_ratio: f32,
 
-    // Sorter grid state
-    sorter: SorterState,
+    // Sub-states
+    pub(crate) sorter: SorterState,
+    pub(crate) search: SearchState,
+    pub(crate) warnings: WarningsState,
+    pub(crate) comments_scroll: usize,
 
     // Slide models & media
-    slides: Vec<Slide>,
+    pub(crate) slides: Vec<Slide>,
 
     // Notification toast
-    toast_message: Option<String>,
-    toast_time: Option<Instant>,
+    pub(crate) toast_message: Option<String>,
+    pub(crate) toast_time: Option<Instant>,
 }
 
 impl PresentationState {
@@ -71,6 +48,9 @@ impl PresentationState {
             digit_buffer: String::new(),
             aspect_ratio: 16.0 / 9.0,
             sorter: SorterState::new(),
+            search: SearchState::new(),
+            warnings: WarningsState::new(),
+            comments_scroll: 0,
             slides: Vec::new(),
             toast_message: None,
             toast_time: None,
@@ -123,6 +103,9 @@ impl PresentationState {
         let clamped = slide_0based.min(self.total_slides.saturating_sub(1));
         let changed = self.current_slide != clamped;
         self.current_slide = clamped;
+        if changed {
+            self.comments_scroll = 0;
+        }
         changed
     }
 
@@ -133,6 +116,7 @@ impl PresentationState {
         }
         if self.current_slide + 1 < self.total_slides {
             self.current_slide += 1;
+            self.comments_scroll = 0;
             true
         } else {
             false
@@ -143,6 +127,7 @@ impl PresentationState {
     pub fn prev_slide(&mut self) -> bool {
         if self.current_slide > 0 {
             self.current_slide -= 1;
+            self.comments_scroll = 0;
             true
         } else {
             false
@@ -153,6 +138,9 @@ impl PresentationState {
     pub fn first_slide(&mut self) -> bool {
         let changed = self.current_slide != 0;
         self.current_slide = 0;
+        if changed {
+            self.comments_scroll = 0;
+        }
         changed
     }
 
@@ -164,6 +152,9 @@ impl PresentationState {
         let last = self.total_slides.saturating_sub(1);
         let changed = self.current_slide != last;
         self.current_slide = last;
+        if changed {
+            self.comments_scroll = 0;
+        }
         changed
     }
 
@@ -175,6 +166,9 @@ impl PresentationState {
         let target_0based = slide_1based.saturating_sub(1).min(self.total_slides - 1);
         let changed = self.current_slide != target_0based;
         self.current_slide = target_0based;
+        if changed {
+            self.comments_scroll = 0;
+        }
         changed
     }
 
@@ -218,20 +212,35 @@ impl PresentationState {
         self.mode = mode;
     }
 
+    pub(crate) fn enter_overlay(&mut self, target: AppMode) {
+        self.unblank();
+        if self.mode.is_base_mode() {
+            self.previous_mode = self.mode;
+        }
+        self.mode = target;
+    }
+
+    pub(crate) fn exit_overlay(&mut self) {
+        self.mode = if self.previous_mode.is_base_mode() {
+            self.previous_mode
+        } else {
+            AppMode::Fullscreen
+        };
+    }
+
     /// Toggle help modal ('?' or 'h').
     pub fn toggle_help(&mut self) {
         if self.mode == AppMode::HelpModal {
-            self.mode = self.previous_mode;
+            self.close_help();
         } else {
-            self.previous_mode = self.mode;
-            self.mode = AppMode::HelpModal;
+            self.enter_overlay(AppMode::HelpModal);
         }
     }
 
     /// Close help modal if open.
     pub fn close_help(&mut self) {
         if self.mode == AppMode::HelpModal {
-            self.mode = self.previous_mode;
+            self.exit_overlay();
         }
     }
 
@@ -256,8 +265,11 @@ impl PresentationState {
 
     /// Speaker notes for current slide.
     pub fn current_notes(&self) -> Option<&str> {
-        self.notes.get(self.current_slide)
-            .and_then(|opt| opt.as_deref())
+        self.notes.get(self.current_slide).and_then(|opt| opt.as_deref())
+    }
+
+    pub fn notes_slice(&self) -> &[Option<String>] {
+        &self.notes
     }
 
     /// Next slide index if available.
@@ -276,8 +288,7 @@ impl PresentationState {
 
     /// ImageId for the next slide preview.
     pub fn next_image_id(&self) -> Option<ImageId> {
-        self.next_slide_index()
-            .map(|idx| ImageId((idx % 8 + 1) as u32))
+        self.next_slide_index().map(|idx| ImageId((idx % 8 + 1) as u32))
     }
 
     /// Elapsed time since presentation start.
@@ -321,160 +332,77 @@ impl PresentationState {
         self.previous_mode
     }
 
-    /// Return the currently highlighted slide index in sorter mode.
-    pub fn selected_sorter_index(&self) -> usize {
-        self.sorter.selected_index()
+    // ─── Comments Drawer ────────────────────────────────────────────
+
+    pub fn comments_scroll(&self) -> usize {
+        self.comments_scroll
     }
 
-    /// Set the highlighted slide index in sorter mode, clamping to valid slide bounds.
-    pub fn set_selected_sorter_index(&mut self, index: usize) -> bool {
-        self.sorter.set_selected_index(index, self.total_slides)
+    pub fn scroll_comments_up(&mut self) {
+        self.comments_scroll = self.comments_scroll.saturating_sub(1);
     }
 
-    /// Current number of columns in the thumbnail sorter grid.
-    pub fn sorter_cols(&self) -> usize {
-        self.sorter.cols()
+    pub fn scroll_comments_down(&mut self) {
+        self.comments_scroll = self.comments_scroll.saturating_add(1);
     }
 
-    /// Set the number of columns in the thumbnail sorter grid.
-    pub fn set_sorter_cols(&mut self, cols: usize) {
-        self.sorter.set_cols(cols);
-    }
-
-    /// Whether cursor navigation wraps around grid boundaries.
-    pub fn sorter_wrap(&self) -> bool {
-        self.sorter.wrap()
-    }
-
-    /// Configure whether cursor navigation wraps around grid boundaries.
-    pub fn set_sorter_wrap(&mut self, wrap: bool) {
-        self.sorter.set_wrap(wrap);
-    }
-
-    /// Toggle sorter grid mode on and off.
-    pub fn toggle_sorter(&mut self) {
-        if self.mode == AppMode::Sorter {
-            self.exit_sorter(false);
+    pub fn current_slide_comments(&self) -> &[PptxComment] {
+        if let Some(slide) = self.current_slide_model() {
+            &slide.comments
         } else {
-            self.unblank();
-            if self.mode != AppMode::HelpModal {
-                self.previous_mode = self.mode;
-            }
-            self.mode = AppMode::Sorter;
-            self.sorter.selected_index = self.current_slide;
+            &[]
         }
     }
 
-    /// Open sorter mode directly.
-    pub fn open_sorter(&mut self) {
-        if self.mode != AppMode::Sorter {
-            self.unblank();
-            if self.mode != AppMode::HelpModal {
-                self.previous_mode = self.mode;
-            }
-            self.mode = AppMode::Sorter;
-            self.sorter.selected_index = self.current_slide;
-        }
-    }
-
-    /// Exit sorter mode, optionally selecting the highlighted slide.
-    /// Returns true if the presentation slide index changed.
-    pub fn exit_sorter(&mut self, apply_selection: bool) -> bool {
-        if self.mode != AppMode::Sorter {
-            return false;
-        }
-        let mut slide_changed = false;
-        if apply_selection && self.total_slides > 0 {
-            let clamped = self.sorter.selected_index.min(self.total_slides - 1);
-            slide_changed = self.current_slide != clamped;
-            self.current_slide = clamped;
-        }
-        self.mode = if self.previous_mode == AppMode::Sorter {
-            AppMode::Fullscreen
+    pub fn toggle_comments(&mut self) {
+        if self.mode == AppMode::CommentsDrawer {
+            self.close_comments();
         } else {
-            self.previous_mode
-        };
-        slide_changed
+            self.open_comments();
+        }
     }
 
-    /// Move sorter selection cursor one cell to the left.
-    pub fn sorter_left(&mut self) -> bool {
-        self.sorter.left(self.total_slides)
+    pub fn open_comments(&mut self) {
+        self.comments_scroll = 0;
+        self.enter_overlay(AppMode::CommentsDrawer);
     }
 
-    /// Move sorter selection cursor one cell to the right.
-    pub fn sorter_right(&mut self) -> bool {
-        self.sorter.right(self.total_slides)
+    pub fn close_comments(&mut self) {
+        if self.mode == AppMode::CommentsDrawer {
+            self.exit_overlay();
+        }
     }
 
-    /// Move sorter selection cursor one row up.
-    pub fn sorter_up(&mut self) -> bool {
-        self.sorter.up(self.total_slides)
-    }
+    // ─── Slide Models & Toasts ──────────────────────────────────────
 
-    /// Move sorter selection cursor one row down.
-    pub fn sorter_down(&mut self) -> bool {
-        self.sorter.down(self.total_slides)
-    }
-
-    /// Move sorter selection cursor one page up.
-    pub fn sorter_page_up(&mut self) -> bool {
-        self.sorter.page_up(self.total_slides)
-    }
-
-    /// Move sorter selection cursor one page down.
-    pub fn sorter_page_down(&mut self) -> bool {
-        self.sorter.page_down(self.total_slides)
-    }
-
-    /// Jump sorter cursor to the first slide.
-    pub fn sorter_home(&mut self) -> bool {
-        self.sorter.home(self.total_slides)
-    }
-
-    /// Jump sorter cursor to the last slide.
-    pub fn sorter_end(&mut self) -> bool {
-        self.sorter.end(self.total_slides)
-    }
-
-    /// Update dynamic layout dimensions when terminal is resized.
-    pub fn update_layout_dimensions(&mut self, width: u16, _height: u16) {
-        self.sorter.update_cols_for_width(width);
-    }
-
-    /// Slide models attached to this presentation.
     pub fn slides(&self) -> &[Slide] {
         &self.slides
     }
 
-    /// Set presentation slide models.
     pub fn set_slides(&mut self, slides: Vec<Slide>) {
         self.slides = slides;
+        self.search.sync_entries(&self.slides, &self.notes, self.total_slides);
     }
 
-    /// Builder pattern helper to attach slide models.
     pub fn with_slides(mut self, slides: Vec<Slide>) -> Self {
         self.slides = slides;
+        self.search.sync_entries(&self.slides, &self.notes, self.total_slides);
         self
     }
 
-    /// Current slide's model if available.
     pub fn current_slide_model(&self) -> Option<&Slide> {
         self.slides.get(self.current_slide)
     }
 
-    /// Returns true if the currently active slide contains embedded media.
     pub fn current_slide_has_media(&self) -> bool {
         self.current_slide_model().is_some_and(crate::app::media::has_slide_media)
     }
 
-    /// Set an ephemeral user notification toast.
     pub fn set_toast(&mut self, msg: impl Into<String>) {
         self.toast_message = Some(msg.into());
         self.toast_time = Some(Instant::now());
     }
 
-    /// Get current active toast notification if it has not expired (5s timeout).
     pub fn toast(&self) -> Option<&str> {
         if let Some(time) = self.toast_time {
             if time.elapsed() < Duration::from_secs(5) {
@@ -484,10 +412,8 @@ impl PresentationState {
         None
     }
 
-    /// Clear user notification toast.
     pub fn clear_toast(&mut self) {
         self.toast_message = None;
         self.toast_time = None;
     }
 }
-

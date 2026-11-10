@@ -1,3 +1,6 @@
+use crate::app::mode::AppMode;
+use crate::app::state::PresentationState;
+
 /// State and 2D cursor navigation logic for the Slide Sorter Grid.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SorterState {
@@ -184,5 +187,105 @@ impl SorterState {
         } else {
             5
         };
+    }
+}
+
+/// PresentationState extensions for Sorter Grid.
+impl PresentationState {
+    pub fn selected_sorter_index(&self) -> usize {
+        self.sorter.selected_index()
+    }
+
+    pub fn set_selected_sorter_index(&mut self, index: usize) -> bool {
+        self.sorter.set_selected_index(index, self.total_slides())
+    }
+
+    pub fn sorter_cols(&self) -> usize {
+        self.sorter.cols()
+    }
+
+    pub fn set_sorter_cols(&mut self, cols: usize) {
+        self.sorter.set_cols(cols);
+    }
+
+    pub fn sorter_wrap(&self) -> bool {
+        self.sorter.wrap()
+    }
+
+    pub fn set_sorter_wrap(&mut self, wrap: bool) {
+        self.sorter.set_wrap(wrap);
+    }
+
+    pub fn toggle_sorter(&mut self) {
+        if self.mode() == AppMode::Sorter {
+            self.exit_sorter(false);
+        } else {
+            self.enter_overlay(AppMode::Sorter);
+            self.sorter.selected_index = self.current_slide();
+        }
+    }
+
+    pub fn open_sorter(&mut self) {
+        if self.mode() != AppMode::Sorter {
+            self.enter_overlay(AppMode::Sorter);
+            self.sorter.selected_index = self.current_slide();
+        }
+    }
+
+    pub fn exit_sorter(&mut self, apply_selection: bool) -> bool {
+        if self.mode() != AppMode::Sorter {
+            return false;
+        }
+        let mut slide_changed = false;
+        if apply_selection && self.total_slides() > 0 {
+            let clamped = self.sorter.selected_index.min(self.total_slides() - 1);
+            slide_changed = self.set_current_slide(clamped);
+        }
+        self.exit_overlay();
+        slide_changed
+    }
+
+    pub fn sorter_left(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.left(total)
+    }
+
+    pub fn sorter_right(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.right(total)
+    }
+
+    pub fn sorter_up(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.up(total)
+    }
+
+    pub fn sorter_down(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.down(total)
+    }
+
+    pub fn sorter_page_up(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.page_up(total)
+    }
+
+    pub fn sorter_page_down(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.page_down(total)
+    }
+
+    pub fn sorter_home(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.home(total)
+    }
+
+    pub fn sorter_end(&mut self) -> bool {
+        let total = self.total_slides();
+        self.sorter.end(total)
+    }
+
+    pub fn update_layout_dimensions(&mut self, width: u16, _height: u16) {
+        self.sorter.update_cols_for_width(width);
     }
 }

@@ -1,6 +1,7 @@
 use super::geometry::{AffineTransform, NormalizedRect, RectF32, VectorPath};
 use super::paint::{VectorGradient, VectorPaint, VectorStroke};
 use super::text::PositionedGlyphRun;
+pub use ooxml_common::blip::BlipEffect;
 
 /// Resolution-independent 2D vector display list for a PowerPoint slide.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,7 +50,28 @@ pub enum VectorCommand {
         dest_rect: RectF32,       // EMU bounding box
         opacity: f32,
         transform: AffineTransform,
+        effects: Vec<BlipEffect>,
     },
     PushClip(VectorPath),
     PopClip,
+}
+
+impl VectorCommand {
+    /// Helper to construct a DrawImage command without blip effects.
+    pub fn draw_image(
+        rel_id: String,
+        src_rect: NormalizedRect,
+        dest_rect: RectF32,
+        opacity: f32,
+        transform: AffineTransform,
+    ) -> Self {
+        Self::DrawImage {
+            rel_id,
+            src_rect,
+            dest_rect,
+            opacity,
+            transform,
+            effects: Vec::new(),
+        }
+    }
 }

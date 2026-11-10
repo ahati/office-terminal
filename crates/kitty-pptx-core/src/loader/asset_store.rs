@@ -27,6 +27,9 @@ pub trait AssetStore: Send + Sync {
         let _ = rel_id;
         Err(AssetError::NotFound(rel_id.to_string()))
     }
+    fn archive_bytes(&self) -> Option<&[u8]> {
+        None
+    }
     fn stats(&self) -> AssetStoreStats;
 }
 
@@ -158,7 +161,14 @@ impl AssetStore for DefaultAssetStore {
     }
 
     fn get_raw_bytes(&self, rel_id: &str) -> Result<Vec<u8>, AssetError> {
+        if rel_id.is_empty() || rel_id == "/" || rel_id == "__archive__" {
+            return Ok(self.archive_bytes.to_vec());
+        }
         self.read_zip_entry(rel_id)
+    }
+
+    fn archive_bytes(&self) -> Option<&[u8]> {
+        Some(&self.archive_bytes)
     }
 
     fn stats(&self) -> AssetStoreStats {

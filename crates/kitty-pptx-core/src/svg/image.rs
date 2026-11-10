@@ -10,14 +10,20 @@ pub fn serialize_svg_image(
     dest_rect: &RectF32,
     opacity: f32,
     transform: &AffineTransform,
+    effects: &[ooxml_common::blip::BlipEffect],
 ) -> String {
-    let (bytes, mime) = if let Ok(raw) = assets.get_raw_bytes(rel_id) {
+    let (bytes, mime) = if effects.is_empty() && assets.get_raw_bytes(rel_id).is_ok() {
+        let raw = assets.get_raw_bytes(rel_id).unwrap();
         let detected_mime = detect_mime(rel_id, &raw);
         (raw, detected_mime)
     } else if let Ok(decoded) = assets.get(rel_id, SizeHint::Native) {
+        let mut pixels = decoded.pixels.to_vec();
+        if !effects.is_empty() {
+            crate::rasterizer::effects::apply_blip_effects(&mut pixels, effects);
+        }
         // Encode decoded RGBA back to PNG
         let mut png_bytes = Vec::new();
-        if let Some(rgba) = image::RgbaImage::from_raw(decoded.width, decoded.height, decoded.pixels.to_vec()) {
+        if let Some(rgba) = image::RgbaImage::from_raw(decoded.width, decoded.height, pixels) {
             let _ = rgba.write_to(
                 &mut std::io::Cursor::new(&mut png_bytes),
                 image::ImageFormat::Png,

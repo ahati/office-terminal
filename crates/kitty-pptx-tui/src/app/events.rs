@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::app::mode::AppMode;
 use crate::app::state::{BlankMode, PresentationState};
 
 /// Action resulting from an event handling cycle.
@@ -21,106 +22,279 @@ pub fn handle_key_event(key: KeyEvent, state: &mut PresentationState) -> AppActi
         return AppAction::Quit;
     }
 
-    // 2. If in Help Modal
-    if state.mode() == crate::app::state::AppMode::HelpModal {
-        match key.code {
-            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => {
-                state.close_help();
-                return AppAction::Redraw;
-            }
-            _ => return AppAction::None,
-        }
+    // 2. Check Overlays
+    match state.mode() {
+        AppMode::HelpModal => return handle_help_key(key, state),
+        AppMode::CommentsDrawer => return handle_comments_key(key, state),
+        AppMode::WarningDrawer => return handle_warnings_key(key, state),
+        AppMode::TocSearchModal => return handle_search_key(key, state),
+        _ => {}
     }
 
-    // 3. If in Sorter Grid Mode
-    if state.mode() == crate::app::state::AppMode::Sorter {
-        match key.code {
-            KeyCode::Char('q') => return AppAction::Quit,
-            KeyCode::Esc | KeyCode::Tab | KeyCode::Char('s') => {
-                state.exit_sorter(false);
-                return AppAction::Redraw;
-            }
-            KeyCode::Enter => {
-                state.exit_sorter(true);
-                return AppAction::SlideChanged;
-            }
-            KeyCode::Left | KeyCode::Char('h') => {
-                state.sorter_left();
-                return AppAction::Redraw;
-            }
-            KeyCode::Right | KeyCode::Char('l') => {
-                state.sorter_right();
-                return AppAction::Redraw;
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                state.sorter_up();
-                return AppAction::Redraw;
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                state.sorter_down();
-                return AppAction::Redraw;
-            }
-            KeyCode::PageUp => {
-                state.sorter_page_up();
-                return AppAction::Redraw;
-            }
-            KeyCode::PageDown => {
-                state.sorter_page_down();
-                return AppAction::Redraw;
-            }
-            KeyCode::Home => {
-                state.sorter_home();
-                return AppAction::Redraw;
-            }
-            KeyCode::End => {
-                state.sorter_end();
-                return AppAction::Redraw;
-            }
-            KeyCode::Char('m') => {
-                let msg = if let Some(slide) = state.current_slide_model() {
-                    crate::app::media::try_play_current_slide_media(slide)
-                        .unwrap_or_else(|| "No media found on current slide".to_string())
-                } else {
-                    "No media found on current slide".to_string()
-                };
-                state.set_toast(msg);
-                return AppAction::Redraw;
-            }
-            KeyCode::Char('?') => {
-                state.toggle_help();
-                return AppAction::Redraw;
-            }
-            _ => return AppAction::None,
-        }
+    // 3. Check Ctrl-F global shortcut (outside modal)
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('f') {
+        state.clear_digits();
+        state.open_search();
+        return AppAction::Redraw;
     }
 
-    // 4. If in Blank Screen mode
+    // 4. If in Sorter Grid Mode
+    if state.mode() == AppMode::Sorter {
+        return handle_sorter_key(key, state);
+    }
+
+    // 5. If in Blank Screen mode
     if state.is_blank() {
-        match key.code {
-            KeyCode::Char('b') => {
-                state.toggle_blank(BlankMode::Black);
-                return AppAction::Redraw;
-            }
-            KeyCode::Char('w') => {
-                state.toggle_blank(BlankMode::White);
-                return AppAction::Redraw;
-            }
-            KeyCode::Char('q') | KeyCode::Esc => {
-                state.unblank();
-                return AppAction::Redraw;
-            }
-            _ => {
-                // Any other key unblanks and resumes
-                state.unblank();
-                return AppAction::Redraw;
-            }
-        }
+        return handle_blank_key(key, state);
     }
 
-    // 5. Normal / Presenter mode key handling
+    // 6. Normal / Presenter mode key handling
+    handle_presentation_key(key, state)
+}
+
+fn handle_help_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => {
+            state.close_help();
+            AppAction::Redraw
+        }
+        _ => AppAction::None,
+    }
+}
+
+fn handle_comments_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('c') => {
+            state.close_comments();
+            AppAction::Redraw
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.scroll_comments_up();
+            AppAction::Redraw
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.scroll_comments_down();
+            AppAction::Redraw
+        }
+        KeyCode::PageUp => {
+            for _ in 0..5 {
+                state.scroll_comments_up();
+            }
+            AppAction::Redraw
+        }
+        KeyCode::PageDown => {
+            for _ in 0..5 {
+                state.scroll_comments_down();
+            }
+            AppAction::Redraw
+        }
+        KeyCode::Char('?') => {
+            state.toggle_help();
+            AppAction::Redraw
+        }
+        _ => AppAction::None,
+    }
+}
+
+fn handle_warnings_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
+    let is_w = key.code == KeyCode::Char('W')
+        || (key.code == KeyCode::Char('w') && key.modifiers.contains(KeyModifiers::SHIFT));
+
+    if is_w || key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
+        state.close_warnings();
+        return AppAction::Redraw;
+    }
+
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.scroll_warnings_up();
+            AppAction::Redraw
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.scroll_warnings_down();
+            AppAction::Redraw
+        }
+        KeyCode::PageUp => {
+            for _ in 0..5 {
+                state.scroll_warnings_up();
+            }
+            AppAction::Redraw
+        }
+        KeyCode::PageDown => {
+            for _ in 0..5 {
+                state.scroll_warnings_down();
+            }
+            AppAction::Redraw
+        }
+        KeyCode::Char('?') => {
+            state.toggle_help();
+            AppAction::Redraw
+        }
+        _ => AppAction::None,
+    }
+}
+
+fn handle_search_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('f') {
+        state.exit_search(false);
+        return AppAction::Redraw;
+    }
+
+    match key.code {
+        KeyCode::Esc => {
+            state.exit_search(false);
+            AppAction::Redraw
+        }
+        KeyCode::Enter => {
+            if state.exit_search(true) {
+                AppAction::SlideChanged
+            } else {
+                AppAction::Redraw
+            }
+        }
+        KeyCode::Up => {
+            state.search_up();
+            AppAction::Redraw
+        }
+        KeyCode::Down => {
+            state.search_down();
+            AppAction::Redraw
+        }
+        KeyCode::Backspace => {
+            state.search_backspace();
+            AppAction::Redraw
+        }
+        KeyCode::Char(c) => {
+            state.search_push_char(c);
+            AppAction::Redraw
+        }
+        _ => AppAction::None,
+    }
+}
+
+fn handle_sorter_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
+    let is_w = key.code == KeyCode::Char('W')
+        || (key.code == KeyCode::Char('w') && key.modifiers.contains(KeyModifiers::SHIFT));
+
+    if is_w {
+        state.toggle_warnings();
+        return AppAction::Redraw;
+    }
+
+    match key.code {
+        KeyCode::Char('q') => AppAction::Quit,
+        KeyCode::Esc | KeyCode::Tab | KeyCode::Char('s') => {
+            state.exit_sorter(false);
+            AppAction::Redraw
+        }
+        KeyCode::Enter => {
+            state.exit_sorter(true);
+            AppAction::SlideChanged
+        }
+        KeyCode::Char('c') => {
+            state.toggle_comments();
+            AppAction::Redraw
+        }
+        KeyCode::Char('/') => {
+            state.open_search();
+            AppAction::Redraw
+        }
+        KeyCode::Left | KeyCode::Char('h') => {
+            state.sorter_left();
+            AppAction::Redraw
+        }
+        KeyCode::Right | KeyCode::Char('l') => {
+            state.sorter_right();
+            AppAction::Redraw
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.sorter_up();
+            AppAction::Redraw
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.sorter_down();
+            AppAction::Redraw
+        }
+        KeyCode::PageUp => {
+            state.sorter_page_up();
+            AppAction::Redraw
+        }
+        KeyCode::PageDown => {
+            state.sorter_page_down();
+            AppAction::Redraw
+        }
+        KeyCode::Home => {
+            state.sorter_home();
+            AppAction::Redraw
+        }
+        KeyCode::End => {
+            state.sorter_end();
+            AppAction::Redraw
+        }
+        KeyCode::Char('m') => {
+            let msg = if let Some(slide) = state.current_slide_model() {
+                crate::app::media::try_play_current_slide_media(slide)
+                    .unwrap_or_else(|| "No media found on current slide".to_string())
+            } else {
+                "No media found on current slide".to_string()
+            };
+            state.set_toast(msg);
+            AppAction::Redraw
+        }
+        KeyCode::Char('?') => {
+            state.toggle_help();
+            AppAction::Redraw
+        }
+        _ => AppAction::None,
+    }
+}
+
+fn handle_blank_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
+    match key.code {
+        KeyCode::Char('b') => {
+            state.toggle_blank(BlankMode::Black);
+            AppAction::Redraw
+        }
+        KeyCode::Char('w') => {
+            state.toggle_blank(BlankMode::White);
+            AppAction::Redraw
+        }
+        KeyCode::Char('q') | KeyCode::Esc => {
+            state.unblank();
+            AppAction::Redraw
+        }
+        _ => {
+            state.unblank();
+            AppAction::Redraw
+        }
+    }
+}
+
+fn handle_presentation_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
+    let is_w = key.code == KeyCode::Char('W')
+        || (key.code == KeyCode::Char('w') && key.modifiers.contains(KeyModifiers::SHIFT));
+
+    if is_w {
+        state.clear_digits();
+        state.toggle_warnings();
+        return AppAction::Redraw;
+    }
+
     match key.code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => AppAction::Quit,
+
+        // Overlays
+        KeyCode::Char('c') => {
+            state.clear_digits();
+            state.toggle_comments();
+            AppAction::Redraw
+        }
+        KeyCode::Char('/') => {
+            state.clear_digits();
+            state.open_search();
+            AppAction::Redraw
+        }
 
         // Help
         KeyCode::Char('?') | KeyCode::Char('h') => {
@@ -257,7 +431,7 @@ pub fn handle_resize_event(_cols: u16, _rows: u16) -> AppAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyModifiers, KeyEventKind, KeyEventState};
+    use crossterm::event::{KeyEventKind, KeyEventState};
 
     fn make_key(code: KeyCode) -> KeyEvent {
         KeyEvent {
@@ -335,15 +509,15 @@ mod tests {
         let mut state = PresentationState::new(5, vec![]);
         let action = handle_key_event(make_key(KeyCode::Char('p')), &mut state);
         assert_eq!(action, AppAction::Redraw);
-        assert_eq!(state.mode(), crate::app::state::AppMode::PresenterConsole);
+        assert_eq!(state.mode(), AppMode::PresenterConsole);
 
         let action2 = handle_key_event(make_key(KeyCode::Char('?')), &mut state);
         assert_eq!(action2, AppAction::Redraw);
-        assert_eq!(state.mode(), crate::app::state::AppMode::HelpModal);
+        assert_eq!(state.mode(), AppMode::HelpModal);
 
         let action3 = handle_key_event(make_key(KeyCode::Esc), &mut state);
         assert_eq!(action3, AppAction::Redraw);
-        assert_eq!(state.mode(), crate::app::state::AppMode::PresenterConsole);
+        assert_eq!(state.mode(), AppMode::PresenterConsole);
     }
 
     #[test]

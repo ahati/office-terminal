@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use kitty_pptx_core::*;
 use crate::cli::{ExportFormat, parse_slide_range};
+use crate::commands::source_from_path;
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_export(
@@ -16,7 +17,7 @@ pub fn run_export(
     rasterizer: &Arc<TinySkiaRasterizer>,
     svg_serializer: &Arc<DefaultSlideSvgSerializer>,
 ) -> ExitCode {
-    let (presentation, asset_store) = match loader.load(Source::File(file)) {
+    let (presentation, asset_store) = match loader.load(source_from_path(file)) {
         Ok(res) => res,
         Err(e) => {
             eprintln!("Parse error: {}", e);

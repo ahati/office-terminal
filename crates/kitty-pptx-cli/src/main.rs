@@ -33,8 +33,8 @@ fn main() -> ExitCode {
         Some(Commands::Dump { file, notes, comments, markdown, json }) => {
             run_dump(file, notes, comments, markdown, json, &loader)
         }
-        Some(Commands::View { file, slide, all }) => {
-            run_view(file, slide, all, &loader, &compiler, &rasterizer)
+        Some(Commands::View { file, slide, all, fit, payload }) => {
+            run_view(file, slide, all, fit, payload, &loader, &compiler, &rasterizer)
         }
         None => {
             run_interactive(args.file, &loader, compiler, rasterizer)
