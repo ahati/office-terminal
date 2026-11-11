@@ -116,11 +116,21 @@ fn serialize_selectable_text(
         } else {
             String::new()
         };
+        let weight_attr = if run.bold {
+            r#" font-weight="bold""#
+        } else {
+            ""
+        };
+        let style_attr = if run.italic {
+            r#" font-style="italic""#
+        } else {
+            ""
+        };
 
         let escaped = xml_escape(&run.text);
         let _ = writeln!(
             out,
-            r#"  <text x="{:.1}" y="{:.1}" font-family="{}" font-size="{:.1}" fill="rgb({},{},{})" fill-opacity="{:.2}"{}{}>{}</text>"#,
+            r#"  <text x="{:.1}" y="{:.1}" font-family="{}" font-size="{:.1}" fill="rgb({},{},{})" fill-opacity="{:.2}"{}{}{}{}>{}</text>"#,
             first_x,
             first_y,
             xml_escape(&run.font_family),
@@ -129,6 +139,8 @@ fn serialize_selectable_text(
             g,
             b,
             opacity,
+            weight_attr,
+            style_attr,
             decor_attr,
             transform_attr,
             escaped
@@ -156,9 +168,9 @@ fn serialize_vector_glyphs(
                     Family::Name(&run.font_family),
                     Family::SansSerif,
                 ],
-                weight: Weight::NORMAL,
+                weight: if run.bold { Weight::BOLD } else { Weight::NORMAL },
                 stretch: Stretch::Normal,
-                style: Style::Normal,
+                style: if run.italic { Style::Italic } else { Style::Normal },
             };
 
             let face_id = match db.query(&query) {

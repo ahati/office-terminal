@@ -415,6 +415,8 @@ pub fn make_simple_run(
         font_family: "Carlito".to_string(),
         font_size_pt: sz_pt,
         color,
+        bold: false,
+        italic: false,
         glyphs,
         underline: false,
         strikethrough: false,

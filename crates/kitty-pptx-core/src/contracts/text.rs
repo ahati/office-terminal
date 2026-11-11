@@ -5,6 +5,8 @@ pub struct PositionedGlyphRun {
     pub font_family: String,
     pub font_size_pt: f32,
     pub color: [u8; 4],
+    pub bold: bool,
+    pub italic: bool,
     pub glyphs: Vec<PositionedGlyph>,
     pub underline: bool,
     pub strikethrough: bool,

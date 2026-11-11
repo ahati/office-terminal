@@ -1,5 +1,7 @@
 use std::cell::RefCell;
-use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight,
+};
 use crate::contracts::{AffineTransform, PositionedGlyphRun};
 
 thread_local! {
@@ -51,12 +53,14 @@ pub fn render_text_runs(
             let mut buffer = Buffer::new(font_system, Metrics::new(sz_px, line_h));
 
             let family = Family::Name(&run.font_family);
-            buffer.set_text(
-                font_system,
-                &run.text,
-                Attrs::new().family(family),
-                Shaping::Advanced,
-            );
+            let mut attrs = Attrs::new().family(family);
+            if run.bold {
+                attrs = attrs.weight(Weight::BOLD);
+            }
+            if run.italic {
+                attrs = attrs.style(Style::Italic);
+            }
+            buffer.set_text(font_system, &run.text, attrs, Shaping::Advanced);
             buffer.shape_until_scroll(font_system, false);
 
             let draw_x = origin_x.round() as i32;
