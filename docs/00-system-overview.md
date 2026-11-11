@@ -46,8 +46,8 @@ The architecture decouples layout resolution from backend output using an interm
 │ B10 Slide Compiler (DrawingML -> Vector)  │  │ B13 Geometry Negotiation    │
 │     B6 Style Resolver · B7 Geometry Engine│  │ B14 Capability Probe        │
 │     B8 Text Layout · B9 Element Compilers │  │ B15 Protocol Drivers        │
-│ B5  Asset Store                           │  │     (Kitty, Sixel, iTerm2,  │
-│ B3  Parser Facade ──► B4 pptx-model       │  │      Half-Block)            │
+│ B5  Asset Store                           │  │     (Kitty graphics only)   │
+│ B3  Parser Facade ──► B4 pptx-model       │  │                             │
 └─────────────────────┬─────────────────────┘  │ B16 Image Lifecycle Manager │
                       │ VectorSlide            └──────────────┬──────────────┘
        ┌──────────────┴──────────────┐                        ▲
@@ -66,7 +66,7 @@ The architecture decouples layout resolution from backend output using an interm
 - `crates/pptx-parser` (vendored OOXML parser)
 - `crates/ooxml-common` (vendored relationships & XML limits)
 - `crates/kitty-pptx-core`: Slide compiler, `VectorSlide` display list, style/geometry/text services, asset store, `tiny-skia` rasterizer, SVG serializer, and pipeline scheduler. Zero display/terminal dependencies.
-- `crates/kitty-pptx-display`: Terminal graphics drivers, capability probe, geometry negotiation, and `TtyWriter`.
+- `crates/kitty-pptx-display`: Kitty graphics driver, capability probe, geometry negotiation, and `TtyWriter`.
 - `crates/kitty-pptx-tui`: Ratatui slide widgets, presenter console, sorter grid, and input event loop.
 - `crates/kitty-pptx-cli`: Clap CLI shell, subcommand dispatch, config loader.
 
@@ -83,7 +83,7 @@ The architecture decouples layout resolution from backend output using an interm
 | B10, B11 | Slide Compiler, `VectorSlide`, Pipeline | [PRD 02a](./02a-composition-core-and-render-pipeline.md) |
 | B12 | Seam Contracts (`VectorSlide`, `RgbaSlide`, `RenderTargetSpec`) | [PRD 06](./06-component-interface-contracts.md) §2 |
 | B15, B16 | Kitty Reference Driver, Image Lifecycle | [PRD 03a](./03a-kitty-graphics-protocol-driver.md) |
-| B13, B14 | Geometry Negotiation, Probe, Fallback Drivers | [PRD 03b](./03b-display-fallbacks-and-probing.md) |
+| B13, B14 | Geometry Negotiation and Kitty Capability Probe | [PRD 03a](./03a-kitty-graphics-protocol-driver.md) |
 | B17 | Interactive Presenter TUI | [PRD 04](./04-interactive-tui-presenter.md) |
 | B18, B19, B20 | Export (PNG & SVG), Dump, Info | [PRD 05](./05-cli-and-export.md) |
 | — | Error Taxonomy, Threading, TtyWriter | [PRD 06](./06-component-interface-contracts.md) |

@@ -2,19 +2,15 @@
 
 > High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`) decks.
 
-`kitty-pptx` renders PowerPoint presentations directly inside your terminal emulator with GPU-accelerated clarity, powered by the **Kitty Graphics Protocol** and a universal fallback ladder for other terminals. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, and headless SVG/PNG export.
+`kitty-pptx` renders PowerPoint presentations directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, and headless SVG/PNG export.
 
 ---
 
 ## What to Expect
 
 - **Native Terminal Presentation**: Present `.pptx` slide decks directly from the command line without opening a heavy office suite.
-- **Hardware-Accelerated Terminal Graphics**: Leverages the Kitty Graphics Protocol with 24-bit RGB/RGBA transfers, direct cursor placement, and Unicode placeholder grids.
-- **Universal Display Fallbacks**: Automatically probes and adapts to your terminal emulator:
-  1. **Kitty Graphics Protocol** (Kitty, Ghostty, WezTerm)
-  2. **Sixel Graphics** (Foot, mintty, XTerm)
-  3. **iTerm2 Inline Images** (iTerm2, WezTerm)
-  4. **Truecolor Halfblocks** (24-bit ANSI fallback for any modern terminal)
+- **Hardware-Accelerated Terminal Graphics**: Uses the Kitty Graphics Protocol with PNG transmission and direct cursor placement for full-resolution slides.
+- **Kitty-Only Display**: Startup fails with a clear error when the terminal does not implement the Kitty graphics protocol. There is no Sixel, iTerm2, or half-block fallback.
 - **Interactive Dual-Mode TUI**:
   - **Normal Mode**: Clean, full-bleed slide rendering centered with automatic aspect ratio compensation (16:9, 4:3, widescreen).
   - **Presenter Mode**: Dual-pane console featuring current slide, next slide preview thumbnail, speaker notes, elapsed presentation timer, and progress gauge.
@@ -28,7 +24,7 @@
 ### Prerequisites
 
 - **Rust**: Version 1.75 or later with Cargo ([rustup.rs](https://rustup.rs/))
-- **Terminal Emulator**: A terminal supporting modern graphics protocols is recommended (Kitty, Ghostty, WezTerm, iTerm2), though any terminal with truecolor support works via halfblock fallback.
+- **Terminal Emulator**: A terminal implementing the Kitty graphics protocol (Kitty, Ghostty, WezTerm, or an Alacritty fork with Kitty graphics support).
 
 ### Building from Source
 
@@ -166,10 +162,9 @@ kitty-pptx dump presentation.pptx --json
         ▼
 ┌─────────────────────────────────┐
 │     Terminal Graphics Driver    │
-│  - Kitty Protocol (RGB / Place) │
-│  - Sixel (Adaptive 256 Colors)  │
-│  - iTerm2 Inline Images (OSC)   │
-│  - Truecolor ANSI Halfblocks    │
+│  - Kitty graphics protocol      │
+│  - PNG transmission             │
+│  - Direct cell placement        │
 └─────────────────────────────────┘
 ```
 
@@ -177,7 +172,7 @@ kitty-pptx dump presentation.pptx --json
 
 - **`kitty-pptx-cli`**: Command-line interface, configuration loading, and subcommand routing.
 - **`kitty-pptx-core`**: Core engine containing the `VectorSlide` intermediate representation, shape compilers, `tiny-skia` rasterizer, and SVG serializer.
-- **`kitty-pptx-display`**: Terminal protocol drivers (Kitty, Sixel, iTerm2, Halfblock), hardware probing, and cell aspect ratio mappers.
+- **`kitty-pptx-display`**: Kitty graphics driver, capability probe, and cell aspect ratio mapper.
 - **`kitty-pptx-tui`**: Ratatui presentation application, dual-mode layout widgets, keyboard handler, and speaker notes display.
 - **`pptx-parser` & `pptx-model`**: Upstream OOXML PowerPoint DOM parser and data model (vendored for build reproducibility).
 
@@ -188,9 +183,6 @@ kitty-pptx dump presentation.pptx --json
 `kitty-pptx` supports optional configuration via `kitty-pptx.toml` (searched in `./kitty-pptx.toml` or `~/.config/kitty-pptx/config.toml`):
 
 ```toml
-# Default terminal graphics protocol ('auto', 'kitty', 'sixel', 'iterm2', 'halfblock')
-driver = "auto"
-
 # Default presentation view ('normal' or 'presenter')
 mode = "normal"
 

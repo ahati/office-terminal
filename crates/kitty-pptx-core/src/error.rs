@@ -66,7 +66,7 @@ pub enum DisplayError {
     NotStaged(u32),
     #[error("Terminal I/O error: {0}")]
     Io(std::io::Error),
-    #[error("No graphics-capable terminal found")]
+    #[error("Terminal does not support the Kitty graphics protocol")]
     NoCapableTerminal,
     #[error("Graphics command requires a valid TTY")]
     TtyRequired,

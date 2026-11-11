@@ -38,16 +38,15 @@ Previously, hyperlinks were treated as degraded visual formatting (`DEGRADED` in
 │   Terminal OSC 8 Driver   ││   TUI Interactive Present ││   Native Vector SVG Export│
 │ \x1b]8;id=K;<URI>\x1b\... ││ - Hotkey 'o' Modal Picker ││ <a href="<URI>"          │
 │ Integrated with Kitty     ││ - Cell Spatial Hit-Test   ││    target="_blank"        │
-│ Unicode Placeholders U=1  ││ - Non-blocking Browser OS ││    rel="noopener">...</a> │
+│ Direct Kitty placement   ││ - Non-blocking Browser OS ││    rel="noopener">...</a> │
 └───────────────────────────┘└───────────────────────────┘└───────────────────────────┘
 ```
 
 ### 1.1 The Three Interactivity Seams
 
-1. **Seam 1 — Terminal Native OSC 8 Hyperlink Protocol**:
-   - Emits standardized OSC 8 escape sequences (`\x1b]8;;<URL>\x1b\...text...\x1b]8;;\x1b\`) directly to the terminal stream for text runs and shape boundaries.
-   - Bridges terminal graphics with OS interactivity by wrapping Kitty Unicode Placeholder characters (`\u{10EEEE}`) in OSC 8 sequences, enabling native Cmd+Click / Ctrl+Click on GPU-rendered slide shapes.
-   - Compatible with modern terminal emulators: Kitty, Ghostty, WezTerm, iTerm2, Alacritty ($\ge 0.13$), and Windows Terminal ($\ge 1.4$).
+1. **Seam 1 — TUI Link Picker and Mouse Dispatch**:
+   - The Kitty image path uses direct placement, not Unicode placeholder cells, so terminal-native OSC 8 wrapping of slide pixels is not emitted.
+   - External links are opened through the [PRD 04](./04-interactive-tui-presenter.md) link picker and mouse hit-testing; internal jumps and presentation actions are handled in-process.
 2. **Seam 2 — TUI Interactive Presenter Navigation**:
    - Provides universal, terminal-independent interactivity within the Ratatui presenter loop ([PRD 04](./04-interactive-tui-presenter.md)).
    - Pressing `o` or `Ctrl+O` opens the **Slide Link Picker** overlay, enumerating all hyperlinks on the active slide with quick-access hotkeys `1..=N`.
@@ -243,25 +242,7 @@ The terminal hyperlink escape sequence follows the standard OSC 8 format:
 - **Terminator**: String Terminator `\x1b\` (`ESC \`).
 - **Closing Sequence**: `\x1b]8;;\x1b\` (empty URI and empty params) closes the active link scope.
 
-### 4.2 Embedding OSC 8 in Kitty Unicode Placeholders (`U=1`)
-
-Under the Kitty Graphics Protocol ([PRD 03a](./03a-kitty-graphics-protocol-driver.md) §4), slides are placed in terminal VRAM and displayed via a grid of Unicode placeholder characters (`\u{10EEEE}`). 
-
-By nesting OSC 8 escape sequences around the specific placeholder character cells that cover a linked shape or image:
-```
-\x1b]8;id=link_3;https://example.com\x1b\\u{10EEEE}\u{10EEEE}...\x1b]8;;\x1b\
-```
-The terminal emulator binds the underlying hardware-accelerated GPU graphic directly to the terminal's native OS hyperlink handler!
-- **User Experience**: Hovering the cursor over that graphic region displays the native terminal URL preview toast and changes the cursor to an interactive pointer hand.
-- **Activation**: Cmd+Click (macOS) or Ctrl+Click (Linux/Windows) opens the URL in the system browser directly from the terminal without passing through TUI event loops.
-
-```
-Terminal Grid Buffer:
-Row r:   [ \u{10EEEE} ][ \u{10EEEE} ][ \u{10EEEE} ]  <-- Unlinked slide area
-Row r+1: \x1b]8;id=3;https://rust-lang.org\x1b\[ \u{10EEEE} ][ \u{10EEEE} ]\x1b]8;;\x1b\ <-- Clickable graphic
-```
-
-### 4.3 URL Security Sanitization Gate
+### 4.2 URL Security Sanitization Gate
 
 Hyperlink targets from untrusted PPTX files must pass strict security sanitization before being emitted in OSC 8 sequences, rendered in SVG, or dispatched to OS subprocesses:
 

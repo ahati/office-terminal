@@ -1,12 +1,10 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
-use kitty_pptx_display::{ImageId, PlacementMode};
+use ratatui::Frame;
 
 use crate::app::state::PresentationState;
-use crate::widget::{SlideRenderMode, SlideWidget};
 
 /// Render the interactive thumbnail slide sorter grid.
 pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -31,7 +29,10 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
     let header_line = Line::from(vec![
         Span::styled(
             " SLIDE SORTER ",
-            Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
+            Style::default()
+                .bg(Color::Cyan)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(format!(
             " Total: {} slides | Cursor: #{} | Active: #{} ",
@@ -68,7 +69,8 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
     };
 
     let start_idx = (scroll_row as usize) * cols;
-    let num_rows_to_render = rows_visible.min(total.saturating_sub(start_idx).div_ceil(cols) as u16);
+    let num_rows_to_render =
+        rows_visible.min(total.saturating_sub(start_idx).div_ceil(cols) as u16);
 
     let mut row_constraints = Vec::with_capacity(num_rows_to_render as usize + 1);
     for _ in 0..num_rows_to_render {
@@ -99,25 +101,34 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
             let card_rect = col_rects[c];
             let is_cursor = idx == state.selected_sorter_index();
             let is_active = idx == state.current_slide();
-            let has_media = state.slides().get(idx).is_some_and(crate::app::media::has_slide_media);
+            let has_media = state
+                .slides()
+                .get(idx)
+                .is_some_and(crate::app::media::has_slide_media);
 
             let media_tag = if has_media { " [M]" } else { "" };
             let (border_type, border_style, title_text) = if is_cursor && is_active {
                 (
                     BorderType::Double,
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                     format!(" ▶ Slide {} (Active){} ◀ ", idx + 1, media_tag),
                 )
             } else if is_cursor {
                 (
                     BorderType::Thick,
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                     format!(" ▶ Slide {}{} ◀ ", idx + 1, media_tag),
                 )
             } else if is_active {
                 (
                     BorderType::Double,
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                     format!(" Slide {} (Active){} ", idx + 1, media_tag),
                 )
             } else {
@@ -138,32 +149,24 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
             f.render_widget(block, card_rect);
 
             if inner.width > 0 && inner.height > 0 {
-                if super::thumbnails_supported(state) {
-                    let img_id = ImageId((idx % 8 + 1) as u32);
-                    let slide_widget = SlideWidget::new(img_id, PlacementMode::Interactive)
-                        .with_aspect_ratio(state.aspect_ratio())
-                        .with_render_mode(SlideRenderMode::Placeholder);
-                    f.render_widget(slide_widget, inner);
-                } else {
-                    // Direct positioning can only place one image rect reliably;
-                    // leave thumbnail cells blank instead of showing placeholders.
-                    f.render_widget(
-                        Block::default().style(Style::default().bg(Color::Black)),
-                        inner,
-                    );
-                }
+                // Direct positioning can only place the current/preview image
+                // reliably; leave sorter thumbnail cells blank.
+                f.render_widget(
+                    Block::default().style(Style::default().bg(Color::Black)),
+                    inner,
+                );
             }
         }
     }
 
     // 3. Footer Status Line
     let footer_line = if let Some(toast) = state.toast() {
-        Line::from(vec![
-            Span::styled(
-                format!(" 📢 Notification: {} ", toast),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ),
-        ])
+        Line::from(vec![Span::styled(
+            format!(" 📢 Notification: {} ", toast),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )])
     } else {
         let total_rows = total.div_ceil(cols);
         Line::from(vec![

@@ -1,36 +1,36 @@
-pub mod mode;
-pub mod state;
-pub mod sorter_state;
-pub mod search_state;
-pub mod warnings_state;
 pub mod events;
-pub mod link_state;
-pub mod ui;
-pub mod media;
 mod graphics;
 #[cfg(test)]
 mod graphics_tests;
+pub mod link_state;
+pub mod media;
+pub mod mode;
+pub mod search_state;
+pub mod sorter_state;
+pub mod state;
+pub mod ui;
+pub mod warnings_state;
 
-use std::sync::Arc;
-use std::time::Duration;
 use crossterm::event::{self, Event, KeyEvent, MouseEvent};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use std::sync::Arc;
+use std::time::Duration;
 
 use kitty_pptx_core::{InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::TerminalGraphicsDriver;
 
-pub use mode::{AppMode, BlankMode, PresenterMode};
-pub use state::PresentationState;
-pub use sorter_state::SorterState;
-pub use search_state::{SearchState, SlideSearchEntry};
-pub use warnings_state::{SlideWarning, WarningsState};
 pub use events::{handle_key_event, handle_resize_event, AppAction};
 pub use link_state::{handle_mouse_event, launch_external_browser, LinkDispatch, LinkPickerState};
-pub use ui::render_app;
 pub use media::{find_slide_media, has_slide_media, try_play_current_slide_media};
+pub use mode::{AppMode, BlankMode, PresenterMode};
+pub use search_state::{SearchState, SlideSearchEntry};
+pub use sorter_state::SorterState;
+pub use state::PresentationState;
+pub use ui::render_app;
+pub use warnings_state::{SlideWarning, WarningsState};
 
-use graphics::{render_mode_for, GraphicsSyncer};
+use graphics::GraphicsSyncer;
 
 /// Full interactive slide presentation runner.
 pub struct PresentationApp {
@@ -52,16 +52,17 @@ impl PresentationApp {
         total_slides: usize,
         notes: Vec<Option<String>>,
     ) -> Self {
-        let mut state = PresentationState::new(total_slides, notes);
-        // Decide once, from the driver, whether Unicode placeholders are safe.
-        state.set_slide_render_mode(render_mode_for(driver.as_ref()));
+        let state = PresentationState::new(total_slides, notes);
         Self {
             pipeline,
             driver,
             state,
             graphics: GraphicsSyncer::new(),
             is_running: true,
-            current_target: RenderTargetSpec { width_px: 1920, height_px: 1080 },
+            current_target: RenderTargetSpec {
+                width_px: 1920,
+                height_px: 1080,
+            },
         }
     }
 
@@ -163,10 +164,21 @@ impl PresentationApp {
 
     /// Handle terminal window resize cleanly, adjusting target resolution and re-staging.
     pub fn handle_resize(&mut self, cols: u16, rows: u16) {
-        // Approximate pixel target based on terminal dimensions (typical cell is ~10x20 px)
-        let width_px = (cols as u32 * 10).max(640);
-        let height_px = (rows as u32 * 20).max(360);
-        self.current_target = RenderTargetSpec { width_px, height_px };
+        // Approximate pixel target based on terminal dimensions (typical cell is ~10x20 px).
+        // The slide aspect ratio is authoritative: fit the slide inside the terminal
+        // pixel budget so resizing never stretches it.
+        let (slide_width, slide_height) = self.state.slide_dimensions();
+        let slide_aspect = slide_width as f64 / slide_height as f64;
+        let max_width = (cols as u32 * 10).max(640);
+        let max_height = (rows as u32 * 20).max(360);
+        let width_px = max_width
+            .min((max_height as f64 * slide_aspect).round() as u32)
+            .max(1);
+        let height_px = (width_px as f64 / slide_aspect).round().max(1.0) as u32;
+        self.current_target = RenderTargetSpec {
+            width_px,
+            height_px,
+        };
 
         self.state.update_layout_dimensions(cols, rows);
         self.pipeline.invalidate(InvalidateCause::Resize);
@@ -197,8 +209,9 @@ impl PresentationApp {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        // Staging initial slides
-        self.trigger_prefetch();
+        // Establish the aspect-correct target before the first prefetch.
+        let area = terminal.size()?;
+        self.handle_resize(area.width, area.height);
 
         while self.is_running {
             self.state.clear_placement_rects();

@@ -135,7 +135,6 @@ pub enum PlacementMode { Interactive, Scrollback }
 #[derive(Clone, Debug)]
 pub struct DriverCaps {
     pub alpha: bool,
-    pub placeholders: bool,
     pub terminal_side_scaling: bool,
     pub resident_ids: u32, // > 0: stage/present supported; 0: present re-emits
 }
@@ -366,5 +365,4 @@ pub trait StageSink: Send + Sync {
 All terminal writes (drivers, Ratatui layouts, signal handlers) funnel through a single `TtyWriter`:
 1. **Thread Safety**: Protected by an internal non-reentrant mutex.
 2. **Atomic Sequence Buffering**: Escape sequences are fully assembled in a local buffer before flushing in a single system `write()` call. No interleaved or broken sequences can ever be emitted.
-3. **Multiplexer Encapsulation**: Automatically applies `tmux` DCS wrapping and escape doubling (`\x1b\x1b`) when `$TMUX` is active ([PRD 03b](./03b-display-fallbacks-and-probing.md) §3).
-4. **Signal-Safe Cleanup**: Flushes cleanup escape sequences on exit or SIGINT before restoring terminal canonical mode.
+3. **Signal-Safe Cleanup**: Flushes cleanup escape sequences on exit or SIGINT before restoring terminal canonical mode.

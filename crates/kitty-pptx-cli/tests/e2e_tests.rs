@@ -1,10 +1,13 @@
+use kitty_pptx_cli::cli::{ExportFormat, FitMode};
+use kitty_pptx_cli::commands::{run_dump, run_export, run_info, run_view, source_from_path};
+use kitty_pptx_core::{
+    DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, PresentationLoader,
+    Source, TinySkiaRasterizer,
+};
 use std::io::{Cursor, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use kitty_pptx_cli::cli::{ExportFormat, FitMode, PayloadMode};
-use kitty_pptx_cli::commands::{run_dump, run_export, run_info, run_view, source_from_path};
-use kitty_pptx_core::{DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, PresentationLoader, Source, TinySkiaRasterizer};
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
@@ -245,11 +248,8 @@ fn create_test_pptx() -> Vec<u8> {
         // ppt/media/image1.png: 2x2 red PNG
         let img = image::RgbaImage::from_fn(2, 2, |_, _| image::Rgba([255, 0, 0, 255]));
         let mut png_bytes = Vec::new();
-        img.write_to(
-            &mut Cursor::new(&mut png_bytes),
-            image::ImageFormat::Png,
-        )
-        .unwrap();
+        img.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+            .unwrap();
         put("ppt/media/image1.png", &png_bytes);
 
         zw.finish().unwrap();
@@ -378,7 +378,6 @@ fn test_run_view_tty_check_and_execution() {
         1,
         false,
         FitMode::Contain,
-        PayloadMode::Png,
         &loader,
         &compiler,
         &rasterizer,
@@ -386,14 +385,14 @@ fn test_run_view_tty_check_and_execution() {
     assert_eq!(code_no_tty, ExitCode::from(3));
     std::env::remove_var("KITTY_PPTX_FORCE_NOT_TTY");
 
-    // When TTY is forced via env var, slide 1 renders successfully
+    // When TTY and Kitty graphics are forced, slide 1 renders successfully.
     std::env::set_var("KITTY_PPTX_FORCE_TTY", "1");
+    std::env::set_var("KITTY_PPTX_PROTOCOL", "kitty");
     let code_ok = run_view(
         temp_file.path().to_path_buf(),
         1,
         false,
         FitMode::Contain,
-        PayloadMode::Png,
         &loader,
         &compiler,
         &rasterizer,
@@ -406,7 +405,6 @@ fn test_run_view_tty_check_and_execution() {
         99,
         false,
         FitMode::Contain,
-        PayloadMode::Png,
         &loader,
         &compiler,
         &rasterizer,
@@ -419,13 +417,13 @@ fn test_run_view_tty_check_and_execution() {
         1,
         true,
         FitMode::Width,
-        PayloadMode::Raw,
         &loader,
         &compiler,
         &rasterizer,
     );
     assert_eq!(code_all, ExitCode::SUCCESS);
 
+    std::env::remove_var("KITTY_PPTX_PROTOCOL");
     std::env::remove_var("KITTY_PPTX_FORCE_TTY");
 }
 
@@ -438,7 +436,10 @@ fn test_stdin_source_loading() {
     assert_eq!(pres.slides.len(), 2);
     assert!(!pres.slides[0].hidden);
     assert!(pres.slides[1].hidden);
-    assert_eq!(pres.slides[0].notes.as_deref(), Some("Speaker note for slide 1"));
+    assert_eq!(
+        pres.slides[0].notes.as_deref(),
+        Some("Speaker note for slide 1")
+    );
     assert_eq!(pres.slides[0].comments.len(), 1);
     assert_eq!(pres.slides[0].comments[0].text, "Great slide presentation!");
 

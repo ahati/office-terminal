@@ -1,8 +1,12 @@
-use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "kitty-pptx", version, about = "High-fidelity terminal PowerPoint presenter & exporter")]
+#[command(
+    name = "kitty-pptx",
+    version,
+    about = "High-fidelity terminal PowerPoint presenter & exporter"
+)]
 pub struct Cli {
     #[arg(help = "Path to .pptx deck, or '-' for stdin")]
     pub file: Option<PathBuf>,
@@ -13,10 +17,11 @@ pub struct Cli {
     #[arg(short, long, help = "Start in split-pane presenter mode")]
     pub presenter: bool,
 
-    #[arg(long, help = "Force specific graphics protocol")]
-    pub protocol: Option<String>,
-
-    #[arg(long = "generate-completions", value_name = "SHELL", help = "Generate shell completions script directly to stdout (bash, zsh, fish, elvish, powershell)")]
+    #[arg(
+        long = "generate-completions",
+        value_name = "SHELL",
+        help = "Generate shell completions script directly to stdout (bash, zsh, fish, elvish, powershell)"
+    )]
     pub generate_completions: Option<clap_complete::Shell>,
 
     #[command(subcommand)]
@@ -34,8 +39,6 @@ pub enum Commands {
         all: bool,
         #[arg(long, value_enum, default_value = "contain")]
         fit: FitMode,
-        #[arg(long, value_enum, default_value = "png")]
-        payload: PayloadMode,
     },
     #[command(about = "Headless batch slide export to PNG or vector SVG")]
     Export {
@@ -62,12 +65,13 @@ pub enum Commands {
         json: bool,
     },
     #[command(about = "Deck structure and diagnostic summary")]
-    Info {
-        file: PathBuf,
-    },
+    Info { file: PathBuf },
     #[command(about = "Generate shell completion scripts directly to stdout")]
     Completions {
-        #[arg(value_name = "SHELL", help = "Target shell (bash, zsh, fish, elvish, powershell)")]
+        #[arg(
+            value_name = "SHELL",
+            help = "Target shell (bash, zsh, fish, elvish, powershell)"
+        )]
         shell: clap_complete::Shell,
     },
 }
@@ -77,13 +81,6 @@ pub enum FitMode {
     #[default]
     Contain,
     Width,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug, Default)]
-pub enum PayloadMode {
-    #[default]
-    Png,
-    Raw,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -119,7 +116,10 @@ pub fn parse_slide_range(input: &str, total: usize) -> Result<Vec<usize>, String
                     .map_err(|_| format!("invalid end number: {}", end_s))?
             };
             if start == 0 || start > total {
-                return Err(format!("slide start {} out of bounds (1..={})", start, total));
+                return Err(format!(
+                    "slide start {} out of bounds (1..={})",
+                    start, total
+                ));
             }
             if end == 0 || end > total {
                 return Err(format!("slide end {} out of bounds (1..={})", end, total));

@@ -1,14 +1,13 @@
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
 use kitty_pptx_display::{CellRect, ImageId};
 use pptx_model::{PptxComment, Slide};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
+use crate::app::link_state::LinkPickerState;
 pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
 use crate::app::search_state::SearchState;
 use crate::app::sorter_state::SorterState;
 use crate::app::warnings_state::WarningsState;
-use crate::app::link_state::LinkPickerState;
-use crate::widget::SlideRenderMode;
 use kitty_pptx_core::SlideLink;
 
 /// Presentation navigation and UI state machine.
@@ -40,7 +39,6 @@ pub struct PresentationState {
     pub(crate) layout_rows: u16,
 
     // Terminal graphics placement
-    pub(crate) slide_render_mode: SlideRenderMode,
     pub(crate) placement_rect: Arc<Mutex<Option<CellRect>>>,
     pub(crate) preview_placement_rect: Arc<Mutex<Option<CellRect>>>,
 
@@ -73,7 +71,6 @@ impl PresentationState {
             slide_height_emu: 6_858_000,
             layout_cols: 80,
             layout_rows: 24,
-            slide_render_mode: SlideRenderMode::Placeholder,
             placement_rect: Arc::new(Mutex::new(None)),
             preview_placement_rect: Arc::new(Mutex::new(None)),
             toast_message: None,
@@ -289,7 +286,9 @@ impl PresentationState {
 
     /// Speaker notes for current slide.
     pub fn current_notes(&self) -> Option<&str> {
-        self.notes.get(self.current_slide).and_then(|opt| opt.as_deref())
+        self.notes
+            .get(self.current_slide)
+            .and_then(|opt| opt.as_deref())
     }
 
     pub fn notes_slice(&self) -> &[Option<String>] {
@@ -311,8 +310,12 @@ impl PresentationState {
     }
 
     /// ImageId for the next slide preview.
+    ///
+    /// Preview ids live in a separate range (9..=16) so releasing the old
+    /// preview cannot delete an image that has just become the current slide.
     pub fn next_image_id(&self) -> Option<ImageId> {
-        self.next_slide_index().map(|idx| ImageId((idx % 8 + 1) as u32))
+        self.next_slide_index()
+            .map(|idx| ImageId((idx % 8 + 1 + 8) as u32))
     }
 
     /// Elapsed time since presentation start.
@@ -406,13 +409,15 @@ impl PresentationState {
     pub fn set_slides(&mut self, slides: Vec<Slide>) {
         self.slide_links = kitty_pptx_core::extract_deck_hyperlinks(&slides);
         self.slides = slides;
-        self.search.sync_entries(&self.slides, &self.notes, self.total_slides);
+        self.search
+            .sync_entries(&self.slides, &self.notes, self.total_slides);
     }
 
     pub fn with_slides(mut self, slides: Vec<Slide>) -> Self {
         self.slide_links = kitty_pptx_core::extract_deck_hyperlinks(&slides);
         self.slides = slides;
-        self.search.sync_entries(&self.slides, &self.notes, self.total_slides);
+        self.search
+            .sync_entries(&self.slides, &self.notes, self.total_slides);
         self
     }
 
@@ -421,6 +426,7 @@ impl PresentationState {
         if width_emu > 0 && height_emu > 0 {
             self.slide_width_emu = width_emu;
             self.slide_height_emu = height_emu;
+            self.aspect_ratio = width_emu as f32 / height_emu as f32;
         }
     }
 
@@ -445,7 +451,8 @@ impl PresentationState {
     }
 
     pub fn current_slide_has_media(&self) -> bool {
-        self.current_slide_model().is_some_and(crate::app::media::has_slide_media)
+        self.current_slide_model()
+            .is_some_and(crate::app::media::has_slide_media)
     }
 
     pub fn set_toast(&mut self, msg: impl Into<String>) {

@@ -12,11 +12,11 @@ use kitty_pptx_display::{
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-use crate::app::graphics::{render_mode_for, GraphicsSyncer};
+use crate::app::graphics::GraphicsSyncer;
 use crate::app::mode::{AppMode, BlankMode};
 use crate::app::state::PresentationState;
 use crate::app::ui::render_app;
-use crate::widget::SlideRenderMode;
+use crate::app::PresentationApp;
 
 fn test_bitmap(width: u32, height: u32) -> RgbaSlide {
     RgbaSlide {
@@ -56,16 +56,14 @@ struct DriverLog {
 
 struct MockDriver {
     log: Arc<Mutex<DriverLog>>,
-    placeholders: bool,
 }
 
 impl MockDriver {
-    fn new(placeholders: bool) -> (Self, Arc<Mutex<DriverLog>>) {
+    fn new() -> (Self, Arc<Mutex<DriverLog>>) {
         let log = Arc::new(Mutex::new(DriverLog::default()));
         (
             Self {
                 log: Arc::clone(&log),
-                placeholders,
             },
             log,
         )
@@ -79,7 +77,6 @@ impl TerminalGraphicsDriver for MockDriver {
     fn caps(&self) -> DriverCaps {
         DriverCaps {
             alpha: true,
-            placeholders: self.placeholders,
             terminal_side_scaling: false,
             resident_ids: 8,
         }
@@ -121,25 +118,10 @@ fn draw_frame(state: &PresentationState) {
 }
 
 #[test]
-fn test_render_mode_selection_prefers_placeholders_only_when_supported() {
-    let (placeholder_driver, _) = MockDriver::new(true);
-    let (direct_driver, _) = MockDriver::new(false);
-    assert_eq!(
-        render_mode_for(&placeholder_driver),
-        SlideRenderMode::Placeholder
-    );
-    assert_eq!(
-        render_mode_for(&direct_driver),
-        SlideRenderMode::DirectPositioning
-    );
-}
-
-#[test]
 fn test_direct_positioning_stages_and_presents_once() {
     let pipeline = MockPipeline { slides: 3 };
-    let (mut driver, log) = MockDriver::new(false);
+    let (mut driver, log) = MockDriver::new();
     let mut state = PresentationState::new(3, vec![]);
-    state.set_slide_render_mode(SlideRenderMode::DirectPositioning);
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
@@ -177,9 +159,8 @@ fn test_direct_positioning_stages_and_presents_once() {
 #[test]
 fn test_rect_change_uses_reposition() {
     let pipeline = MockPipeline { slides: 2 };
-    let (mut driver, log) = MockDriver::new(false);
-    let mut state = PresentationState::new(2, vec![]);
-    state.set_slide_render_mode(SlideRenderMode::DirectPositioning);
+    let (mut driver, log) = MockDriver::new();
+    let state = PresentationState::new(2, vec![]);
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
@@ -199,29 +180,10 @@ fn test_rect_change_uses_reposition() {
 }
 
 #[test]
-fn test_placeholder_mode_presents_after_frame() {
-    let pipeline = MockPipeline { slides: 2 };
-    let (mut driver, log) = MockDriver::new(true);
-    let mut state = PresentationState::new(2, vec![]);
-    state.set_slide_render_mode(SlideRenderMode::Placeholder);
-    let mut syncer = GraphicsSyncer::new();
-
-    draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
-
-    let expected = state.placement_rects().0.expect("slide rect recorded");
-    let log = log.lock().unwrap();
-    assert_eq!(log.staged, vec![1]);
-    // Placeholder placement carries the same cell rect as direct mode.
-    assert_eq!(log.presented, vec![(1, expected)]);
-}
-
-#[test]
 fn test_presenter_mode_places_preview() {
     let pipeline = MockPipeline { slides: 2 };
-    let (mut driver, log) = MockDriver::new(false);
+    let (mut driver, log) = MockDriver::new();
     let mut state = PresentationState::new(2, vec![]);
-    state.set_slide_render_mode(SlideRenderMode::DirectPositioning);
     state.set_mode(AppMode::PresenterConsole);
     let mut syncer = GraphicsSyncer::new();
 
@@ -230,24 +192,55 @@ fn test_presenter_mode_places_preview() {
     syncer.sync(&state, &pipeline, &mut driver).unwrap();
 
     let log = log.lock().unwrap();
-    assert_eq!(log.staged, vec![1, 2]);
+    assert_eq!(log.staged, vec![1, 10]);
     assert_eq!(log.presented.len(), 2);
     assert_eq!(log.presented[0], (1, current.expect("current rect")));
-    assert_eq!(log.presented[1], (2, preview.expect("preview rect")));
+    assert_eq!(log.presented[1], (10, preview.expect("preview rect")));
 }
 
 #[test]
-fn test_missing_rect_releases_previous_image() {
-    let pipeline = MockPipeline { slides: 2 };
-    let (mut driver, log) = MockDriver::new(false);
-    let mut state = PresentationState::new(2, vec![]);
-    state.set_slide_render_mode(SlideRenderMode::DirectPositioning);
+fn test_presenter_navigation_keeps_current_image() {
+    let pipeline = MockPipeline { slides: 3 };
+    let (mut driver, log) = MockDriver::new();
+    let mut state = PresentationState::new(3, vec![]);
+    state.set_mode(AppMode::PresenterConsole);
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
     syncer.sync(&state, &pipeline, &mut driver).unwrap();
 
-    // No slide widget drawn this frame (e.g. sorter on a direct driver).
+    // Slide 1 was the preview (id 10) and becomes the current slide (id 2).
+    // Releasing the old preview must not release the new current image.
+    state.next_slide();
+    draw_frame(&state);
+    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+
+    let log = log.lock().unwrap();
+    assert!(
+        log.released.contains(&10),
+        "old preview id 10 should be released"
+    );
+    assert!(
+        !log.released.contains(&2),
+        "new current id 2 must not be released by preview cleanup"
+    );
+    assert!(
+        log.presented.iter().any(|(id, _)| *id == 2),
+        "new current slide should be presented"
+    );
+}
+
+#[test]
+fn test_missing_rect_releases_previous_image() {
+    let pipeline = MockPipeline { slides: 2 };
+    let (mut driver, log) = MockDriver::new();
+    let state = PresentationState::new(2, vec![]);
+    let mut syncer = GraphicsSyncer::new();
+
+    draw_frame(&state);
+    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+
+    // No slide widget drawn this frame (e.g. sorter).
     state.clear_placement_rects();
     syncer.sync(&state, &pipeline, &mut driver).unwrap();
 
@@ -258,9 +251,8 @@ fn test_missing_rect_releases_previous_image() {
 #[test]
 fn test_blank_screen_suppresses_graphics_once_then_resumes() {
     let pipeline = MockPipeline { slides: 2 };
-    let (mut driver, log) = MockDriver::new(false);
+    let (mut driver, log) = MockDriver::new();
     let mut state = PresentationState::new(2, vec![]);
-    state.set_slide_render_mode(SlideRenderMode::DirectPositioning);
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
@@ -277,4 +269,22 @@ fn test_blank_screen_suppresses_graphics_once_then_resumes() {
     let log = log.lock().unwrap();
     assert_eq!(log.staged.len(), 2);
     assert_eq!(log.presented.len(), 2);
+}
+#[test]
+fn test_resize_preserves_slide_aspect_ratio() {
+    let pipeline: Arc<dyn RenderPipeline> = Arc::new(MockPipeline { slides: 1 });
+    let (driver, _) = MockDriver::new();
+    let mut app = PresentationApp::new(pipeline, Box::new(driver), 1, vec![])
+        .with_slide_dimensions(10_000_000, 7_500_000); // 4:3
+
+    app.handle_resize(80, 24);
+    let target = app.current_target;
+    let aspect = target.width_px as f64 / target.height_px as f64;
+    assert!(
+        (aspect - 4.0 / 3.0).abs() < 0.01,
+        "resized target must preserve the slide aspect: {}x{} (aspect {aspect:.3})",
+        target.width_px,
+        target.height_px
+    );
+    assert!((app.state.aspect_ratio() - 4.0 / 3.0).abs() < 0.001);
 }
