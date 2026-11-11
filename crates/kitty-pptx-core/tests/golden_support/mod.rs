@@ -50,7 +50,7 @@ impl Thresholds {
 /// A committed fixture deck plus its fixed deterministic render spec.
 #[derive(Clone, Copy, Debug)]
 pub struct DeckConfig {
-    /// File stem, e.g. `e2e_deck` (also the golden directory name).
+    /// File stem, e.g. `pptxgenjs_sample` (also the golden directory name).
     pub name: &'static str,
     /// Fixed render width in pixels. Height is derived from the slide aspect.
     pub width_px: u32,
@@ -86,6 +86,11 @@ pub fn goldens_dir() -> PathBuf {
 
 pub fn fixture_path(deck: &str) -> PathBuf {
     fixtures_dir().join(format!("{deck}.pptx"))
+}
+
+/// Whether the generated `.pptx` fixture is present in the working tree.
+pub fn fixture_available(deck: &str) -> bool {
+    fixture_path(deck).is_file()
 }
 
 pub fn golden_path(deck: &str, slide_index: usize) -> PathBuf {
@@ -133,11 +138,10 @@ pub fn render_deck(config: &'static DeckConfig) -> Arc<DeckRender> {
         .unwrap_or_else(|| {
             panic!(
                 "golden fixture missing: {}\n\
-                 The .pptx fixtures are committed test assets and must not be deleted. \
-                 Regenerate the synthetic decks with \
-                 `python3 crates/kitty-pptx-core/tests/golden/gen_fixture.py` and \
-                 `node crates/kitty-pptx-core/tests/golden/gen_pptxgenjs.js`; \
-                 real-world decks are static binaries.",
+                 The .pptx fixtures are generated in-repo. Regenerate this deck with \
+                 `node crates/kitty-pptx-core/tests/golden/gen_pptxgenjs.js` and then run \
+                 `python3 crates/kitty-pptx-core/tests/golden/normalize_pptx.py`; see \
+                 `tests/golden/README.md` for the fixture policy.",
                 manifest
                     .join("tests/golden/fixtures")
                     .join(&file_name)

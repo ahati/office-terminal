@@ -1,0 +1,10 @@
+{
+  "name": "kitty-pptx-golden-fixtures",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Deterministic PptxGenJS fixture generator for kitty-pptx",
+  "license": "MIT",
+  "dependencies": {
+    "pptxgenjs": "4.0.1"
+  }
+}
