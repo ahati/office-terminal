@@ -1,0 +1,12 @@
+{
+  "name": "kitty-pptx-external-viewer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright reference renderer for the opt-in LibreOffice fixture tier",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@silurus/ooxml": "0.89.9",
+    "playwright": "1.65.0"
+  }
+}
