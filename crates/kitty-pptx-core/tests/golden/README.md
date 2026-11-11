@@ -129,6 +129,22 @@ Calibri/Arial/Segoe UI with the best available system face, so:
   `pptxgenjs_slide1_solid_regions_match_ground_truth`. It asserts solid shape
   fills without any golden files.
 
+## External renderer tier (opt-in)
+
+`external/` contains a separate, expensive comparison against selected
+LibreOffice QA decks rendered by `office-open-xml-viewer` through Playwright.
+Fixtures are fetched at test time from a pinned LibreOffice commit with a
+tree-filtered sparse checkout; reference PNGs are generated locally. Neither
+the decks nor the reference images are committed, and the tier is not run by
+`cargo test` or CI.
+
+```sh
+python3 crates/kitty-pptx-core/tests/golden/external/run.py
+```
+
+See `external/README.md` for caching, licensing, thresholds, and how to add a
+fixture.
+
 ## Terminal-stream goldens
 
 `kitty-pptx-display/tests/golden_stream_tests.rs` captures real driver output

@@ -1,0 +1,69 @@
+{
+  "upstream": "https://github.com/LibreOffice/core",
+  "commit": "2ddb63be403dcead26b52f657ba869d28785c038",
+  "license": "MPL-2.0",
+  "distribution": "Fetched at test time and not distributed with this repository.",
+  "render_width": 1600,
+  "files": [
+    {
+      "name": "chart_pt_color_bg1",
+      "path": "sd/qa/unit/data/pptx/chart_pt_color_bg1.pptx",
+      "sha256": "11b8fbd9710c79a9e0d7bc466f27a071dc7a8f0de3078eaf79e7967af46d5c1e",
+      "slides": 1,
+      "strict": true,
+      "note": "chart geometry, series colours, labels",
+      "thresholds": {
+        "min_cell_pass_ratio": 0.9,
+        "max_global_mean_abs_diff": 8.0,
+        "max_ink_fraction_delta": 0.03
+      }
+    },
+    {
+      "name": "Bar_List",
+      "path": "sd/qa/unit/data/pptx/Bar_List.pptx",
+      "sha256": "3d467df34df975d6c5b0fb362930b0691520c84258345ed8d3a19fa19625c413",
+      "slides": 1,
+      "strict": true,
+      "note": "bars, list layout, solid fills",
+      "thresholds": {
+        "min_cell_pass_ratio": 0.9,
+        "max_global_mean_abs_diff": 8.0,
+        "max_ink_fraction_delta": 0.03
+      }
+    },
+    {
+      "name": "ShapeTextInflateTop",
+      "path": "sd/qa/unit/data/pptx/ShapeTextInflateTop.pptx",
+      "sha256": "c44e46939a5f10e7d1c31693168a7f6da2d0fef69337f887a6acd42358285945",
+      "slides": 1,
+      "strict": true,
+      "note": "text box insets and vertical anchoring",
+      "thresholds": {
+        "min_cell_pass_ratio": 0.9,
+        "max_global_mean_abs_diff": 8.0,
+        "max_ink_fraction_delta": 0.03
+      }
+    },
+    {
+      "name": "ShapePlusImage",
+      "path": "sd/qa/unit/data/pptx/ShapePlusImage.pptx",
+      "sha256": "5b4016ca717d6ca552e6bdf06f0b756f72c98c2ee3798a04d4de07baf9116d51",
+      "slides": 1,
+      "strict": true,
+      "note": "preset shapes, image fill, text warp",
+      "thresholds": {
+        "min_cell_pass_ratio": 0.9,
+        "max_global_mean_abs_diff": 8.0,
+        "max_ink_fraction_delta": 0.03
+      }
+    },
+    {
+      "name": "3columns",
+      "path": "sd/qa/unit/data/pptx/3columns.pptx",
+      "sha256": "e639064968d29c4cf5cc3ad4dae28e825ec9d2567ae78aac895c870e91170d71",
+      "slides": 1,
+      "strict": false,
+      "note": "known gap: column spacing and inter-word spacing"
+    }
+  ]
+}

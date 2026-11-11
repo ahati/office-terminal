@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>kitty-pptx external reference renderer</title>
+<canvas id="stage"></canvas>
+<script type="importmap">
+{
+  "imports": {
+    "@silurus/ooxml/pptx": "/node_modules/@silurus/ooxml/dist/pptx.mjs"
+  }
+}
+</script>
+<script type="module">
+import { PptxPresentation } from '@silurus/ooxml/pptx';
+
+const params = new URLSearchParams(location.search);
+const src = params.get('src');
+const width = Number(params.get('width') || 1600);
+
+(async () => {
+  await document.fonts.ready;
+  const presentation = await PptxPresentation.load(src, { useGoogleFonts: false });
+  const slides = [];
+  for (let index = 0; index < presentation.slideCount; index++) {
+    const bitmap = await presentation.renderSlideToBitmap(index, { width, dpr: 1 });
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0);
+    slides.push({
+      width: canvas.width,
+      height: canvas.height,
+      data: canvas.toDataURL('image/png'),
+    });
+    if (typeof bitmap.close === 'function') bitmap.close();
+  }
+  window.__result = slides;
+})().catch((error) => {
+  window.__error = String((error && error.stack) || error);
+});
+</script>
