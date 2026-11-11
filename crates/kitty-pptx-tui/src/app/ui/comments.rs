@@ -32,7 +32,12 @@ pub fn render_comments_drawer(state: &PresentationState, f: &mut Frame, area: Re
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .border_style(
+            Style::default()
+                .bg(Color::Black)
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(Color::Black).fg(Color::White));
 
     let mut lines = Vec::new();
@@ -128,6 +133,7 @@ pub fn render_comments_drawer(state: &PresentationState, f: &mut Frame, area: Re
 
     let paragraph = Paragraph::new(lines)
         .block(block)
+        .style(Style::default().bg(Color::Black))
         .scroll((state.comments_scroll() as u16, 0));
 
     f.render_widget(paragraph, drawer_area);

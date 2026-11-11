@@ -342,3 +342,40 @@ fn test_ui_rendering_smoke_across_overlays() {
     state.open_search();
     terminal.draw(|f| render_app(&state, f)).expect("Render search modal");
 }
+
+/// Regression test: overlays must be opaque edge-to-edge. With kitty z=-1
+/// slide images behind text, any popup cell left at the default background
+/// lets the slide bleed through and makes the text unreadable.
+#[test]
+fn test_help_modal_opaque_edge_to_edge() {
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    let popup = Rect::new((100 - 70) / 2, (32 - 27) / 2, 70, 27);
+    let backend = TestBackend::new(100, 32);
+    let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+    terminal
+        .draw(|f| {
+            kitty_pptx_tui::app::ui::render_help_modal(f, f.area());
+        })
+        .expect("draw");
+
+    let buf: Buffer = terminal.backend().buffer().clone();
+    let area = buf.area;
+    let mut opaque = 0usize;
+    let mut total = 0usize;
+    for y in 0..area.height {
+        for x in 0..area.width {
+            // The modal is 70x27 centered in 100x32; everything inside its
+            // bounds (borders included) must have a non-default background.
+            if popup.contains(ratatui::layout::Position { x, y }) {
+                let cell = &buf[(x, y)];
+                total += 1;
+                if matches!(cell.bg, ratatui::style::Color::Rgb(_, _, _) | ratatui::style::Color::Black | ratatui::style::Color::Indexed(_)) {
+                    opaque += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(opaque, total, "every help-modal cell must carry an opaque bg");
+}

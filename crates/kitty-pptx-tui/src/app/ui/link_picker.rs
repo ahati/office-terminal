@@ -42,7 +42,12 @@ pub fn render_link_picker(state: &PresentationState, f: &mut Frame, area: Rect) 
     let block = Block::default()
         .title(" Active Slide Hyperlinks ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .border_style(
+            Style::default()
+                .bg(Color::Black)
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(Color::Black).fg(Color::White));
     let inner = block.inner(modal_area);
     f.render_widget(block, modal_area);
@@ -64,7 +69,10 @@ pub fn render_link_picker(state: &PresentationState, f: &mut Frame, area: Rect) 
             "   No hyperlinks on this slide.",
             Style::default().fg(Color::DarkGray),
         )));
-        f.render_widget(Paragraph::new(lines), inner);
+        f.render_widget(
+            Paragraph::new(lines).style(Style::default().bg(Color::Black)),
+            inner,
+        );
         return;
     }
 
@@ -141,7 +149,10 @@ pub fn render_link_picker(state: &PresentationState, f: &mut Frame, area: Rect) 
         )));
     }
 
-    f.render_widget(Paragraph::new(lines), inner);
+    f.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(Color::Black)),
+        inner,
+    );
 }
 
 fn describe_target(link: &SlideLink) -> (&'static str, String) {

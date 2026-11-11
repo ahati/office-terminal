@@ -33,7 +33,12 @@ pub fn render_warning_drawer(state: &PresentationState, f: &mut Frame, area: Rec
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .border_style(
+            Style::default()
+                .bg(Color::Black)
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(Color::Black).fg(Color::White));
 
     let mut lines = Vec::new();
@@ -138,6 +143,7 @@ pub fn render_warning_drawer(state: &PresentationState, f: &mut Frame, area: Rec
 
     let paragraph = Paragraph::new(lines)
         .block(block)
+        .style(Style::default().bg(Color::Black))
         .scroll((state.warnings_scroll() as u16, 0));
 
     f.render_widget(paragraph, drawer_area);

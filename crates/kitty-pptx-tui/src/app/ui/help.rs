@@ -33,12 +33,21 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
     let block = Block::default()
         .title(" Keyboard Shortcuts & Help ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .border_style(
+            Style::default()
+                .bg(Color::Black)
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(Color::Black).fg(Color::White));
 
     let header_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
     let key_style = Style::default().fg(Color::Green).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::White);
+    // Base style for every cell the paragraph covers: an opaque background so
+    // the z=-1 slide image behind the text never bleeds through the overlay.
+    // Span styles patch on top (fg-only spans keep this bg).
+    let body_style = Style::default().bg(Color::Black);
 
     let text = vec![
         Line::from(vec![Span::styled("Navigation:", header_style)]),
@@ -114,6 +123,8 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
         ]),
     ];
 
-    let p = Paragraph::new(text).block(block);
+    let p = Paragraph::new(text)
+        .block(block)
+        .style(body_style);
     f.render_widget(p, popup_area);
 }

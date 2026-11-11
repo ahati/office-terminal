@@ -50,7 +50,12 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
     let query_block = Block::default()
         .title(" Fuzzy TOC Search (/ or Ctrl+F) ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .border_style(
+            Style::default()
+                .bg(Color::Black)
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(Color::Black).fg(Color::White));
 
     let query_line = Line::from(vec![
@@ -58,7 +63,12 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
         Span::styled(search.query(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::styled("█", Style::default().fg(Color::Cyan)), // Blinking input cursor simulation
     ]);
-    f.render_widget(Paragraph::new(query_line).block(query_block), modal_chunks[0]);
+    f.render_widget(
+        Paragraph::new(query_line)
+            .block(query_block)
+            .style(Style::default().bg(Color::Black)),
+        modal_chunks[0],
+    );
 
     // 2. Results List
     let matched = search.matched_indices();
@@ -66,7 +76,7 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
     let list_block = Block::default()
         .title(list_title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().bg(Color::Black).fg(Color::Cyan))
         .style(Style::default().bg(Color::Black).fg(Color::White));
 
     let inner_height = modal_chunks[1].height.saturating_sub(2) as usize;
@@ -140,7 +150,12 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
         }
     }
 
-    f.render_widget(Paragraph::new(list_lines).block(list_block), modal_chunks[1]);
+    f.render_widget(
+        Paragraph::new(list_lines)
+            .block(list_block)
+            .style(Style::default().bg(Color::Black)),
+        modal_chunks[1],
+    );
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {
