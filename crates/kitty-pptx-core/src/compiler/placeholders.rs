@@ -171,6 +171,7 @@ fn make_simple_run(text: &str, sz_pt: f32, color: [u8; 4], x_start: f32, y: f32)
             x: cur_x,
             y,
             advance: gw,
+            warp_u: None,
         });
         cur_x += gw;
     }
@@ -184,5 +185,6 @@ fn make_simple_run(text: &str, sz_pt: f32, color: [u8; 4], x_start: f32, y: f32)
         glyphs,
         underline: false,
         strikethrough: false,
+        warp: None,
     }
 }

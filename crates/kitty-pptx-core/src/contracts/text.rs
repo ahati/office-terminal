@@ -1,3 +1,28 @@
+/// A flattened warp boundary polyline in shape-local EMU.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WarpPolyline {
+    pub points: Vec<(f32, f32)>,
+    pub cumulative: Vec<f32>,
+}
+
+/// The two boundary curves of a text-warp envelope.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WarpEnvelope {
+    pub top: WarpPolyline,
+    pub bottom: WarpPolyline,
+    pub single_edge: bool,
+}
+
+/// Per-line parameters for a spec-driven WordArt warp.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RunWarp {
+    pub envelope: std::sync::Arc<WarpEnvelope>,
+    pub band_frac: f32,
+    pub warp_box_h: f32,
+    pub h_scale: f32,
+    pub line_w: f32,
+}
+
 /// Positioned text run containing shaped glyphs and run styling.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PositionedGlyphRun {
@@ -10,6 +35,24 @@ pub struct PositionedGlyphRun {
     pub glyphs: Vec<PositionedGlyph>,
     pub underline: bool,
     pub strikethrough: bool,
+    /// Present when this run is mapped by a WordArt envelope.
+    pub warp: Option<std::sync::Arc<RunWarp>>,
+}
+
+/// Per-glyph WordArt warp transform applied around the glyph baseline origin.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlyphTransform {
+    /// Warped baseline origin in slide EMU.
+    pub x: f32,
+    pub y: f32,
+    /// Rotation of the advance axis, radians (screen coordinates, y down).
+    pub angle: f32,
+    /// Horizontal scale of the glyph em-box.
+    pub scale_x: f32,
+    /// Vertical scale of the glyph em-box.
+    pub scale_y: f32,
+    /// Horizontal shear applied to the em-box before rotation.
+    pub shear: f32,
 }
 
 /// A single positioned glyph within a glyph run.
@@ -19,6 +62,8 @@ pub struct PositionedGlyph {
     pub x: f32, // Offset in EMU from run origin
     pub y: f32,
     pub advance: f32,
+    /// Horizontal fraction of this glyph's centre along the warp line.
+    pub warp_u: Option<f32>,
 }
 
 /// SVG text rendering mode.

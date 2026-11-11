@@ -1,14 +1,24 @@
-use std::cell::RefCell;
+use crate::contracts::{AffineTransform, PositionedGlyphRun};
 use cosmic_text::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight,
 };
-use crate::contracts::{AffineTransform, PositionedGlyphRun};
+use fontdb::{
+    Database, Family as DbFamily, Query as DbQuery, Stretch as DbStretch, Style as DbStyle,
+    Weight as DbWeight,
+};
+use rustybuzz::ttf_parser::{Face, OutlineBuilder};
+use std::cell::RefCell;
 
 thread_local! {
     static FONT_CONTEXT: RefCell<(FontSystem, SwashCache)> = RefCell::new({
         let fs = FontSystem::new();
         let sc = SwashCache::new();
         (fs, sc)
+    });
+    static WARP_FONT_DB: RefCell<Database> = RefCell::new({
+        let mut db = Database::new();
+        db.load_system_fonts();
+        db
     });
 }
 
@@ -35,15 +45,19 @@ pub fn render_text_runs(
                 continue;
             }
 
+            if run.warp.is_some()
+                && run.glyphs.iter().any(|glyph| glyph.warp_u.is_some())
+                && run.text.chars().count() == run.glyphs.len()
+            {
+                render_warped_run(pixmap, run, transform, scale, offset_x, offset_y);
+                continue;
+            }
+
             let sz_px = (run.font_size_pt * 12700.0 * scale).max(6.0);
             let [r, g, b, a] = run.color;
 
             // Get start offset in shape coordinates from first glyph
-            let (first_gx, first_gy) = run
-                .glyphs
-                .first()
-                .map(|g| (g.x, g.y))
-                .unwrap_or((0.0, 0.0));
+            let (first_gx, first_gy) = run.glyphs.first().map(|g| (g.x, g.y)).unwrap_or((0.0, 0.0));
 
             let (tx, ty) = transform.transform_point(first_gx, first_gy);
             let origin_x = offset_x + tx * scale;
@@ -69,64 +83,59 @@ pub fn render_text_runs(
             let text_color = Color::rgba(r, g, b, a);
             let pix_data = pixmap.data_mut();
 
-            buffer.draw(
-                font_system,
-                swash_cache,
-                text_color,
-                |x, y, w, h, col| {
-                    let (cr, cg, cb, ca) = (
-                        col.r() as u32,
-                        col.g() as u32,
-                        col.b() as u32,
-                        col.a() as u32,
-                    );
-                    if ca == 0 {
-                        return;
+            buffer.draw(font_system, swash_cache, text_color, |x, y, w, h, col| {
+                let (cr, cg, cb, ca) = (
+                    col.r() as u32,
+                    col.g() as u32,
+                    col.b() as u32,
+                    col.a() as u32,
+                );
+                if ca == 0 {
+                    return;
+                }
+
+                for dy in 0..h as i32 {
+                    let target_y = draw_y + y + dy;
+                    if target_y < 0 || target_y >= pix_h {
+                        continue;
                     }
 
-                    for dy in 0..h as i32 {
-                        let target_y = draw_y + y + dy;
-                        if target_y < 0 || target_y >= pix_h {
+                    for dx in 0..w as i32 {
+                        let target_x = draw_x + x + dx;
+                        if target_x < 0 || target_x >= pix_w {
                             continue;
                         }
 
-                        for dx in 0..w as i32 {
-                            let target_x = draw_x + x + dx;
-                            if target_x < 0 || target_x >= pix_w {
-                                continue;
-                            }
-
-                            let idx = ((target_y * pix_w + target_x) * 4) as usize;
-                            if idx + 3 >= pix_data.len() {
-                                continue;
-                            }
-
-                            // Premultiply source
-                            let src_a = (ca * a as u32) / 255;
-                            let src_r = (cr * src_a) / 255;
-                            let src_g = (cg * src_a) / 255;
-                            let src_b = (cb * src_a) / 255;
-
-                            let dst_r = pix_data[idx] as u32;
-                            let dst_g = pix_data[idx + 1] as u32;
-                            let dst_b = pix_data[idx + 2] as u32;
-                            let dst_a = pix_data[idx + 3] as u32;
-
-                            // Porter-Duff Over: out = src + dst * (1 - src_a)
-                            let inv_a = 255 - src_a;
-                            let out_r = (src_r + (dst_r * inv_a + 127) / 255).min(255);
-                            let out_g = (src_g + (dst_g * inv_a + 127) / 255).min(255);
-                            let out_b = (src_b + (dst_b * inv_a + 127) / 255).min(255);
-                            let out_a = (src_a + (dst_a * inv_a + 127) / 255).min(255);
-
-                            pix_data[idx] = out_r as u8;
-                            pix_data[idx + 1] = out_g as u8;
-                            pix_data[idx + 2] = out_b as u8;
-                            pix_data[idx + 3] = out_a as u8;
+                        let idx = ((target_y * pix_w + target_x) * 4) as usize;
+                        if idx + 3 >= pix_data.len() {
+                            continue;
                         }
+
+                        // Premultiply source
+                        let src_a = (ca * a as u32) / 255;
+                        let src_r = (cr * src_a) / 255;
+                        let src_g = (cg * src_a) / 255;
+                        let src_b = (cb * src_a) / 255;
+
+                        let dst_r = pix_data[idx] as u32;
+                        let dst_g = pix_data[idx + 1] as u32;
+                        let dst_b = pix_data[idx + 2] as u32;
+                        let dst_a = pix_data[idx + 3] as u32;
+
+                        // Porter-Duff Over: out = src + dst * (1 - src_a)
+                        let inv_a = 255 - src_a;
+                        let out_r = (src_r + (dst_r * inv_a + 127) / 255).min(255);
+                        let out_g = (src_g + (dst_g * inv_a + 127) / 255).min(255);
+                        let out_b = (src_b + (dst_b * inv_a + 127) / 255).min(255);
+                        let out_a = (src_a + (dst_a * inv_a + 127) / 255).min(255);
+
+                        pix_data[idx] = out_r as u8;
+                        pix_data[idx + 1] = out_g as u8;
+                        pix_data[idx + 2] = out_b as u8;
+                        pix_data[idx + 3] = out_a as u8;
                     }
-                },
-            );
+                }
+            });
 
             // Underline
             if run.underline {
@@ -169,6 +178,167 @@ pub fn render_text_runs(
             }
         }
     });
+}
+
+fn render_warped_run(
+    pixmap: &mut tiny_skia::Pixmap,
+    run: &PositionedGlyphRun,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) {
+    let Some(run_warp) = run.warp.as_ref() else {
+        return;
+    };
+    if std::env::var("KITTY_PPTX_DEBUG_WARP").is_ok() {
+        eprintln!(
+            "raster warp run {:?} glyphs={} hscale={:.3} linew={:.0} boxh={:.0} band={:.3}",
+            run.text,
+            run.glyphs.len(),
+            run_warp.h_scale,
+            run_warp.line_w,
+            run_warp.warp_box_h,
+            run_warp.band_frac
+        );
+    }
+    WARP_FONT_DB.with(|cell| {
+        let db = cell.borrow();
+        let query = DbQuery {
+            families: &[DbFamily::Name(&run.font_family), DbFamily::SansSerif],
+            weight: if run.bold {
+                DbWeight::BOLD
+            } else {
+                DbWeight::NORMAL
+            },
+            stretch: DbStretch::Normal,
+            style: if run.italic {
+                DbStyle::Italic
+            } else {
+                DbStyle::Normal
+            },
+        };
+        let Some(face_id) = db.query(&query) else {
+            return;
+        };
+        let _ = db.with_face_data(face_id, |data, index| {
+            let Ok(face) = Face::parse(data, index) else {
+                return;
+            };
+            let units_per_em = face.units_per_em() as f32;
+            if units_per_em <= 0.0 {
+                return;
+            }
+            let emu_per_unit = run.font_size_pt * 12700.0 / units_per_em;
+            for (glyph, ch) in run.glyphs.iter().zip(run.text.chars()) {
+                let Some(u_center) = glyph.warp_u else {
+                    continue;
+                };
+                let Some(glyph_id) = face.glyph_index(ch) else {
+                    continue;
+                };
+                let mut builder = WarpOutlineBuilder {
+                    path: tiny_skia::PathBuilder::new(),
+                    run_warp,
+                    u_center,
+                    advance: glyph.advance.max(0.0),
+                    emu_per_unit,
+                    transform: *transform,
+                    scale,
+                    offset_x,
+                    offset_y,
+                };
+                if face.outline_glyph(glyph_id, &mut builder).is_none() {
+                    continue;
+                }
+                let Some(path) = builder.path.finish() else {
+                    continue;
+                };
+                let [red, green, blue, alpha] = run.color;
+                let mut paint = tiny_skia::Paint::default();
+                paint.set_color_rgba8(red, green, blue, alpha);
+                paint.anti_alias = true;
+                pixmap.fill_path(
+                    &path,
+                    &paint,
+                    tiny_skia::FillRule::Winding,
+                    tiny_skia::Transform::identity(),
+                    None,
+                );
+            }
+        });
+    });
+}
+
+struct WarpOutlineBuilder<'a> {
+    path: tiny_skia::PathBuilder,
+    run_warp: &'a crate::contracts::RunWarp,
+    u_center: f32,
+    advance: f32,
+    emu_per_unit: f32,
+    transform: AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+}
+
+impl WarpOutlineBuilder<'_> {
+    fn point(&self, x: f32, y: f32) -> (f32, f32) {
+        let local_x = x * self.emu_per_unit;
+        let local_y = -y * self.emu_per_unit;
+        let centered_x = local_x - self.advance * 0.5;
+        let line_w = self.run_warp.line_w.max(1.0);
+        let u = (self.u_center + centered_x / line_w).clamp(0.0, 1.0);
+        let Some(warp) = crate::compiler::text_warp::warp_glyph_transform(
+            &self.run_warp.envelope,
+            u,
+            self.run_warp.warp_box_h,
+            self.run_warp.band_frac,
+        ) else {
+            return (self.offset_x, self.offset_y);
+        };
+        let scaled_x = centered_x * self.run_warp.h_scale;
+        let scaled_y = local_y * warp.scale_y;
+        let sheared_x = scaled_x + warp.shear * scaled_y;
+        let cos = warp.angle.cos();
+        let sin = warp.angle.sin();
+        let warped_x = warp.x + sheared_x * cos - scaled_y * sin;
+        let warped_y = warp.y + sheared_x * sin + scaled_y * cos;
+        let (slide_x, slide_y) = self.transform.transform_point(warped_x, warped_y);
+        (
+            self.offset_x + slide_x * self.scale,
+            self.offset_y + slide_y * self.scale,
+        )
+    }
+}
+
+impl OutlineBuilder for WarpOutlineBuilder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.path.move_to(x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.path.line_to(x, y);
+    }
+
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x, y) = self.point(x, y);
+        self.path.quad_to(x1, y1, x, y);
+    }
+
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x2, y2) = self.point(x2, y2);
+        let (x, y) = self.point(x, y);
+        self.path.cubic_to(x1, y1, x2, y2, x, y);
+    }
+
+    fn close(&mut self) {
+        self.path.close();
+    }
 }
 
 fn estimate_run_px_width(run: &PositionedGlyphRun, scale: f32) -> i32 {

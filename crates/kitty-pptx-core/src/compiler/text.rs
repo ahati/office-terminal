@@ -1,9 +1,11 @@
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use super::math::{self, MathParams};
 use super::style::parse_hex_color;
+use super::text_warp::{build_warp_envelope, follow_path_u_scale};
 use crate::contracts::{
-    AffineTransform, FidelityClass, PositionedGlyph, PositionedGlyphRun, VectorCommand,
+    AffineTransform, FidelityClass, PositionedGlyph, PositionedGlyphRun, RunWarp, VectorCommand,
     WarningEvent,
 };
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
@@ -52,6 +54,7 @@ fn shape_text_run(
                     x: glyph.x * 12700.0,
                     y: 0.0,
                     advance: glyph.w * 12700.0,
+                    warp_u: None,
                 });
             }
         }
@@ -60,85 +63,6 @@ fn shape_text_run(
             width: width * 12700.0,
         }
     })
-}
-
-fn quad_bezier(p0: f32, p1: f32, p2: f32, t: f32) -> f32 {
-    let mt = 1.0 - t;
-    mt * mt * p0 + 2.0 * mt * t * p1 + t * t * p2
-}
-
-fn cubic_bezier(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
-    let mt = 1.0 - t;
-    mt * mt * mt * p0 + 3.0 * mt * mt * t * p1 + 3.0 * mt * t * t * p2 + t * t * t * p3
-}
-
-/// Return the top and bottom envelope y-coordinates at horizontal fraction `u`.
-///
-/// This is a first-pass implementation for the two common WordArt envelopes
-/// used by the LibreOffice fixtures. Other presets stay flat and emit a
-/// degraded-fidelity warning.
-fn warp_edges(preset: &str, adj: &[i64], h: f32, u: f32) -> Option<(f32, f32)> {
-    let u = u.clamp(0.0, 1.0);
-    match preset.to_ascii_lowercase().as_str() {
-        "textdeflate" => {
-            let a = adj.first().copied().unwrap_or(18750).clamp(0, 37500) as f32;
-            let dy = a * h / 100000.0;
-            let control = dy * 4.0 / 3.0;
-            let top = cubic_bezier(0.0, control, control, 0.0, u);
-            let bottom = cubic_bezier(h, h - control, h - control, h, u);
-            Some((top, bottom))
-        }
-        "textinflatetop" => {
-            let a = adj.first().copied().unwrap_or(40000).clamp(0, 50000) as f32;
-            let dy = a * h / 100000.0;
-            let top = quad_bezier(dy, 0.0, dy, u);
-            Some((top, h))
-        }
-        _ => None,
-    }
-}
-
-fn warp_run(
-    run: &PositionedGlyphRun,
-    preset: &str,
-    adj: &[i64],
-    w: f32,
-    h: f32,
-) -> Option<Vec<PositionedGlyphRun>> {
-    if w <= 0.0 || h <= 0.0 || run.text.is_empty() {
-        return None;
-    }
-    let chars: Vec<char> = run.text.chars().collect();
-    if chars.len() != run.glyphs.len() {
-        return None;
-    }
-
-    let mut warped = Vec::with_capacity(chars.len());
-    for (ch, glyph) in chars.into_iter().zip(run.glyphs.iter()) {
-        let u = (glyph.x / w).clamp(0.0, 1.0);
-        let (top, bottom) = warp_edges(preset, adj, h, u)?;
-        let v = (glyph.y / h).clamp(0.0, 1.0);
-        let warped_y = top + v * (bottom - top);
-        let gap = (bottom - top).abs();
-        let scale = (gap / h).clamp(0.25, 3.0);
-        warped.push(PositionedGlyphRun {
-            text: ch.to_string(),
-            font_family: run.font_family.clone(),
-            font_size_pt: run.font_size_pt * scale,
-            color: run.color,
-            bold: run.bold,
-            italic: run.italic,
-            glyphs: vec![PositionedGlyph {
-                glyph_id: glyph.glyph_id,
-                x: glyph.x,
-                y: warped_y,
-                advance: glyph.advance,
-            }],
-            underline: run.underline,
-            strikethrough: run.strikethrough,
-        });
-    }
-    Some(warped)
 }
 
 pub fn compile_text_body(
@@ -159,6 +83,9 @@ pub fn compile_text_body(
 
     let font_scale = text_body.font_scale.unwrap_or(1.0) as f32;
     let text_warp = text_body.text_warp.as_ref();
+    let warp_envelope = text_warp
+        .and_then(|warp| build_warp_envelope(&warp.preset, &warp.adj, box_w as f32, box_h as f32))
+        .map(Arc::new);
     if text_warp.is_some() {
         let _ = warning_sink.send(WarningEvent::FidelityDegraded {
             element_id: "text-warp".to_string(),
@@ -247,6 +174,7 @@ pub fn compile_text_body(
                 glyphs,
                 underline: false,
                 strikethrough: false,
+                warp: None,
             });
             cur_line_w += shaped.width;
         }
@@ -304,6 +232,7 @@ pub fn compile_text_body(
                         glyphs,
                         underline: data.underline,
                         strikethrough: data.strikethrough,
+                        warp: None,
                     });
                     cur_line_w += shaped.width;
                 }
@@ -432,7 +361,8 @@ pub fn compile_text_body(
     let mut final_runs = Vec::new();
     let mut final_paths: Vec<VectorCommand> = Vec::new();
 
-    for line in lines {
+    let line_count = lines.len().max(1);
+    for (line_index, line) in lines.into_iter().enumerate() {
         let align_offset = match line.alignment.as_str() {
             "ctr" => ((line.avail_w - line.line_w) / 2.0).max(0.0),
             "r" => (line.avail_w - line.line_w).max(0.0),
@@ -441,18 +371,59 @@ pub fn compile_text_body(
 
         let line_x = l_ins as f32 + line.mar_l + align_offset;
         let baseline_y = cur_y + line.line_h * 0.75;
+        let line_w = line.line_w.max(1.0);
+        let max_size = line
+            .runs
+            .iter()
+            .map(|run| run.font_size_pt)
+            .fold(0.0f32, f32::max)
+            .max(1.0);
+        let ink_h = max_size * 12700.0;
 
+        let (band_frac, warp_box_h, h_scale, follow, follow_offset) =
+            if let Some(envelope) = &warp_envelope {
+                if envelope.single_edge {
+                    let follow = follow_path_u_scale(envelope, line_w);
+                    let offset = match line.alignment.as_str() {
+                        "r" => 1.0,
+                        "ctr" => 0.5,
+                        _ => 0.0,
+                    } * (1.0 - follow);
+                    (0.8, ink_h, 1.0, follow, offset)
+                } else {
+                    let v0 = line_index as f32 / line_count as f32;
+                    let v1 = (line_index + 1) as f32 / line_count as f32;
+                    let band_frac = v0 + 0.8 * (v1 - v0);
+                    let band_height = (v1 - v0).max(f32::EPSILON);
+                    let h_scale = box_w as f32 / line_w;
+                    (band_frac, ink_h / band_height, h_scale, 1.0, 0.0)
+                }
+            } else {
+                (0.8, ink_h, 1.0, 1.0, 0.0)
+            };
+        let line_warp = warp_envelope.as_ref().map(|envelope| {
+            Arc::new(RunWarp {
+                envelope: Arc::clone(envelope),
+                band_frac,
+                warp_box_h,
+                h_scale,
+                line_w,
+            })
+        });
+        let mut pen_w = 0.0f32;
         for mut run in line.runs {
             for g in &mut run.glyphs {
                 g.x += line_x;
                 g.y += baseline_y;
             }
-            if let Some(warp) = text_warp {
-                if let Some(warped) =
-                    warp_run(&run, &warp.preset, &warp.adj, box_w as f32, box_h as f32)
-                {
-                    final_runs.extend(warped);
-                    continue;
+            if line_warp.is_some() {
+                run.warp = line_warp.clone();
+                for glyph in &mut run.glyphs {
+                    let advance = glyph.advance.max(0.0);
+                    let u = (follow_offset + ((pen_w + advance * 0.5) / line_w) * follow)
+                        .clamp(0.0, 1.0);
+                    glyph.warp_u = Some(u);
+                    pen_w += advance;
                 }
             }
             final_runs.push(run);
