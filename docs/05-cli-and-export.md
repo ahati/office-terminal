@@ -22,7 +22,7 @@ kitty-pptx info <FILE>                   # Deck structure & metadata summary
 `kitty-pptx deck.pptx` launches the full-screen interactive presenter ([PRD 04](./04-interactive-tui-presenter.md)).
 - `--slide <N>`: Start presentation directly on slide $N$ (1-based).
 - `--presenter`: Launch directly in split-pane presenter console mode.
-- `--protocol <DRIVER>`: Force driver override (`auto`, `kitty`, `sixel`, `iterm2`, `halfblock`).
+- `KITTY_PPTX_PROTOCOL=kitty`: Bypass the capability query for debugging. No other protocol is supported.
 
 ### 2.2 Subcommand: `view` (One-Shot Inline Pager)
 Prints slides directly into the terminal scrollback buffer and terminates immediately:
@@ -37,11 +37,10 @@ kitty-pptx view presentation.pptx --all       # Renders all slides sequentially
 | `-n, --slide <INDEX>` | `usize` | 1-based slide index (default: 1) |
 | `-a, --all` | `bool` | Sequentially emits all slides separated by header lines |
 | `--fit <contain\|width>` | `enum` | Scaling fit mode (default: `contain`) |
-| `--payload <png\|raw>` | `enum` | Kitty payload override (default: `png`) |
 
 **Contract Rules**:
 1. **TTY Requirement**: `view` requires a graphics-capable TTY on stdout. If `isatty(stdout) == false`, it exits with code `3` immediately before emitting any bytes.
-2. **Scrollback Preservation**: Emits images using Unicode Placeholders (`U=1`, [PRD 03a](./03a-kitty-graphics-protocol-driver.md) §4) on Kitty protocol terminals, allowing images to scroll naturally with shell output.
+2. **Scrollback Preservation**: Emits images with direct Kitty placement (`a=p`) at the current cursor, allowing images to scroll naturally with shell output.
 
 ### 2.3 Subcommand: `export` (Headless Batch Exporter)
 Renders slides directly into PNG raster images or clean vector SVG files without any display dependencies (CI/CD, web documentation, thumbnails, LLM indexing).
@@ -108,9 +107,7 @@ Loaded from `$XDG_CONFIG_HOME/kitty-pptx/config.toml` (default `~/.config/kitty-
 
 ```toml
 [display]
-default_protocol = "auto"     # auto | kitty | sixel | iterm2 | halfblock
 fit = "contain"               # contain | width
-payload = "png"               # png | raw
 render_scale = 2.0            # default 2.0x supersampling (1920x1080)
 
 [export]

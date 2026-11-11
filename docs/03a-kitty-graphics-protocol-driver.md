@@ -1,12 +1,12 @@
 # PRD 03a: Kitty Graphics Protocol Driver
 
-> Part of the PRD 03 split (03a/03b). Specifies the primary reference driver implementing the **Kitty Graphics Protocol** (block B15) and terminal image lifecycle (block B16). Fallback drivers and capability probing are specified in [PRD 03b](./03b-display-fallbacks-and-probing.md). Interfaces live in [PRD 06](./06-component-interface-contracts.md).
+> Specifies the **Kitty Graphics Protocol** driver (block B15) and terminal image lifecycle (block B16). `kitty-pptx` is Kitty-only: there are no fallback drivers. Interfaces live in [PRD 06](./06-component-interface-contracts.md).
 
 ## 1. Role & Architectural Seam
 
-The Kitty Graphics Driver bridges straight-alpha `RgbaSlide` frames into terminal graphics for Kitty, Ghostty, and WezTerm.
+The Kitty Graphics Driver bridges straight-alpha `RgbaSlide` frames into terminal graphics.
 - **Seam Rule**: The driver consumes `RgbaSlide` and `Placement`. It has zero knowledge of slides, shapes, fonts, or tiny-skia.
-- **TtyWriter Funnel**: All bytes pass through the process-wide `TtyWriter` ([PRD 06](./06-component-interface-contracts.md) §10).
+- **TtyWriter Funnel**: All bytes pass through the process-wide `TtyWriter` ([PRD 06](./06-component-interface-contracts.md) §10). There is no multiplexer-specific wrapping.
 
 ---
 
@@ -27,21 +27,20 @@ The Kitty graphics escape sequence syntax:
 | Key | Name | Values / Purpose |
 | :--- | :--- | :--- |
 | `a` | Action | `t` (transmit/stage only), `p` (display resident image), `d` (delete image) |
-| `f` | Format | `100` (PNG, default), `32` (32-bit straight RGBA), `24` (24-bit RGB) |
-| `i` | Image ID | Integer slot `1..=8` from driver image pool |
-| `s`, `v` | Source Dimensions | Pixel width (`s`) and height (`v`) — mandatory for `f=32` |
-| `c`, `r` | Cell Dimensions | Target columns (`c`) and rows (`r`) for terminal-side client scaling |
-| `U` | Unicode Placeholder | `1` — place image via Unicode placeholder grid (`U+10EEEE`) |
+| `f` | Format | `100` (PNG) |
+| `i` | Image ID | Integer slot `1..=8` from the driver image pool |
+| `s`, `v` | Source Dimensions | Pixel width (`s`) and height (`v`) |
+| `c`, `r` | Cell Dimensions | Target columns (`c`) and rows (`r`) for direct placement |
 | `m` | More Chunks | `1` (more chunks follow), `0` (final chunk) |
 | `q` | Quietness | `1` (suppress OK responses), `2` (suppress all responses) |
+| `z` | Z-Index | `-1` keeps the image behind TUI text and overlays |
 
 ---
 
 ## 3. Payload Encoding & Adaptive Slicing
 
 ### 3.1 Format Selection
-- **PNG (`f=100`, Default)**: Encoded once during idle staging off the UI thread. Payload size is $\approx 0.5\dots 1.8\text{ MB}$ for 1080p, minimizing transmission overhead over SSH and local PTYs.
-- **Raw RGBA (`f=32`, Optional)**: Zero CPU encode overhead, but transmits $\approx 8.3\text{ MB}$ uncompressed. Enabled via `--payload raw`.
+- **PNG (`f=100`)**: Encoded once during idle staging off the UI thread. Payload size is typically $0.5\dots 1.8\text{ MB}$ for 1080p.
 
 ### 3.2 Chunking Protocol (4096-Byte Slices)
 Terminal buffers cap single escape sequence payloads. Base64 data is sliced into chunks of $\le 4096$ characters:
@@ -55,31 +54,16 @@ If the entire payload fits within 4096 characters, it is emitted in a single seq
 
 ---
 
-## 4. Unicode Placeholder Grid (`U=1`)
+## 4. Direct Cell Placement (`a=p`)
 
-For interactive presentation in Ratatui ([PRD 04](./04-interactive-tui-presenter.md)) and scrollback preservation ([PRD 05](./05-cli-and-export.md) §2.2), `kitty-pptx` uses the Kitty Unicode Placeholder protocol:
-
-### 4.1 Staging with `U=1`
-The frame is staged into terminal memory with the `U=1` flag:
+The TUI reserves a rectangular cell region with blank cells and the driver presents the image there:
 ```
-\x1b_Ga=t,f=100,i=<id>,s=1920,v=1080,U=1,q=2,m=1;<chunk>\x1b\
+\x1b[<row+1>;<col+1>H\x1b_Ga=p,i=<id>,p=1,c=<cols>,r=<rows>,z=-1,q=2\x1b\
 ```
-The terminal allocates the image in GPU memory but displays nothing.
-
-### 4.2 Display via Cell Grid Characters
-To present the staged image over a cell area of $C$ columns by $R$ rows:
-The driver/TUI writes the private-use Unicode character `\u{10EEEE}` into each cell of the rectangular area.
-For each cell at 0-indexed column $c \in [0, C-1]$ and row $r \in [0, R-1]$:
-- **Character**: `\u{10EEEE}` (Private Use Area 17).
-- **Foreground Color**: Encodes the 24-bit Image ID:
-  $$\text{FG RGB} = (\text{id} \pmod{256},\; (\text{id} \gg 8) \pmod{256},\; (\text{id} \gg 16) \pmod{256})$$
-- **Background Color**: Encodes cell offsets $(c, r)$:
-  $$\text{BG RGB} = (c \pmod{256},\; \lfloor c / 256 \rfloor,\; r \pmod{256})$$
-
-### 4.3 Why `U=1` is Structurally Superior
-1. **Ratatui Compatibility**: The slide canvas is a standard Ratatui widget writing placeholder characters into `ratatui::buffer::Buffer`.
-2. **Zero-Glitch Overlays**: When a help modal (`?`), warning drawer (`W`), or comments drawer (`c`) opens, Ratatui's cell diffing simply overwrites placeholder cells with modal box-drawing characters and text. The GPU hardware image never clips through or corrupts the modal!
-3. **Scrollback Persistence**: In one-shot `view` mode, placeholder characters flow with the text stream, preserving slides in terminal scrollback buffers.
+- `c`/`r` scale the image to the fitted slide rectangle.
+- `z=-1` keeps the image behind text, so help modals, warning drawers, and the presenter UI composite above it.
+- Repositioning uses the same sequence with a new cursor position and cell rectangle.
+- Unicode placeholder cells (`U=1`, `U+10EEEE`) are not used.
 
 ---
 
@@ -90,13 +74,12 @@ Idle Time (Pipeline Worker)                 Flip Time (UI Keypress)
 ───────────────────────────                 ───────────────────────
 1. Rasterize RgbaSlide                      1. Keypress event (Space/Enter)
 2. stage(bmp, id=1)                         2. present(id=1, Cells(rect))
-   └─ Transmits a=t,U=1 chunks                 └─ Emits 1 sequence / placeholder write
+   └─ Transmits a=t,f=100 chunks               └─ Emits a=p sequence
    └─ Decoded into GPU memory                  └─ Flip latency < 16 ms (O(1))
 ```
 
 ### 5.1 The 8-Slot Image ID Pool
-The driver maintains a pool of 8 numeric IDs (`1..=8`):
-- Managed via an LRU policy by the pipeline scheduler.
+The driver maintains a pool of 8 numeric IDs (`1..=8`) for current-slide images. Presenter previews use a separate `9..=16` range so releasing a preview cannot delete the current slide's image.
 - **Idempotent Replacement**: Staging a new frame with an existing active `id` atomically overwrites the slot in terminal memory without screen flicker.
 - Maximum terminal memory residency is bounded to 8 slides ($\approx 12\text{ MB}$ GPU VRAM).
 
@@ -104,10 +87,20 @@ The driver maintains a pool of 8 numeric IDs (`1..=8`):
 
 | Method | Escape Sequence Form | Latency Cost |
 | :--- | :--- | :--- |
-| `stage(bmp, id)` | `\x1b_Ga=t,f=100,i=<id>,U=1,m=...;...\x1b\` | Idle time (amortized) |
-| `present(id, rect)` | Write placeholder grid $\mathbf{U+10EEEE}$ to buffer | $< 16\text{ ms}$ ($O(1)$) |
-| `reposition(id, rect)` | Recompute cell grid bounds and update placeholder buffer | $< 5\text{ ms}$ ($O(1)$) |
+| `stage(bmp, id)` | `\x1b_Ga=t,f=100,i=<id>,m=...;...\x1b\` | Idle time (amortized) |
+| `present(id, rect)` | Cursor position + `a=p,c=...,r=...,z=-1` | $< 16\text{ ms}$ ($O(1)$) |
+| `reposition(id, rect)` | Re-emit `a=p` at the new cell rect | $< 5\text{ ms}$ ($O(1)$) |
 | `release(id)` | `\x1b_Ga=d,d=i,i=<id>\x1b\` | Instantaneous |
 | `release_all()` | `\x1b_Ga=d,d=a\x1b\` | Single sequence |
 
 > **Critical Fix**: Cleanup uses lowercase `d=a`. Uppercase `d=A` targets named image namespaces rather than deleting all images.
+
+---
+
+## 6. Capability Probing
+
+There is no fallback renderer. Startup must fail with `DisplayError::NoCapableTerminal` unless:
+1. `KITTY_WINDOW_ID`/`KITTY_PID`, `TERM_PROGRAM=kitty`, or a `TERM` containing `kitty` identifies the terminal, or
+2. the active Kitty graphics query (`a=q`) receives a valid response.
+
+`KITTY_PPTX_PROTOCOL=kitty` bypasses the probe for debugging. Any other override is an error.

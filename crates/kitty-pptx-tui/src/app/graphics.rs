@@ -1,13 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline};
-use kitty_pptx_display::{
-    map_slide_links_to_cells, CellRect, ImageId, Placement, TerminalGraphicsDriver,
-};
+use kitty_pptx_display::{CellRect, ImageId, Placement, TerminalGraphicsDriver};
 
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
-use crate::widget::SlideRenderMode;
 
 /// Identity of the bitmap currently staged on the terminal for a slot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -28,15 +25,6 @@ struct PlacedImage {
     id: ImageId,
     rect: CellRect,
     epoch: u64,
-}
-
-/// Chooses the slide rendering strategy that a driver can actually display.
-pub(crate) fn render_mode_for(driver: &dyn TerminalGraphicsDriver) -> SlideRenderMode {
-    if driver.supports_placeholders() {
-        SlideRenderMode::Placeholder
-    } else {
-        SlideRenderMode::DirectPositioning
-    }
 }
 
 /// Keeps terminal graphics in sync with the rects recorded by the last frame.
@@ -85,14 +73,18 @@ impl GraphicsSyncer {
             Some(rect) => {
                 let id = state.current_image_id();
                 if self.ensure_staged(state.current_slide(), id, pipeline, driver, false)? {
-                    self.place_current(state, id, rect, driver)?;
+                    self.place_current(id, rect, driver)?;
                 }
             }
             None => self.release_current(driver)?,
         }
 
         let preview = if state.mode() == AppMode::PresenterConsole {
-            match (state.next_slide_index(), state.next_image_id(), preview_rect) {
+            match (
+                state.next_slide_index(),
+                state.next_image_id(),
+                preview_rect,
+            ) {
                 (Some(slide), Some(id), Some(rect)) => Some((slide, id, rect)),
                 _ => None,
             }
@@ -134,10 +126,7 @@ impl GraphicsSyncer {
             return Ok(staged.is_some_and(|s| s.id == id && s.slide == slide));
         };
         if staged.is_some_and(|s| {
-            s.id == id
-                && s.slide == slide
-                && s.width == bitmap.width
-                && s.height == bitmap.height
+            s.id == id && s.slide == slide && s.width == bitmap.width && s.height == bitmap.height
         }) {
             return Ok(true);
         }
@@ -162,7 +151,6 @@ impl GraphicsSyncer {
 
     fn place_current(
         &mut self,
-        state: &PresentationState,
         id: ImageId,
         rect: CellRect,
         driver: &mut dyn TerminalGraphicsDriver,
@@ -175,14 +163,14 @@ impl GraphicsSyncer {
                 }
                 // Same id: re-place for new data/rect; kitty wipes the old
                 // placement when the same image id is placed again.
-                self.present_current(state, id, rect, driver, true)?;
+                self.present_current(id, rect, driver, true)?;
                 self.current_placed = Some(PlacedImage { id, rect, epoch });
                 return Ok(());
             }
             self.release_current(driver)?;
         }
 
-        self.present_current(state, id, rect, driver, false)?;
+        self.present_current(id, rect, driver, false)?;
         self.current_placed = Some(PlacedImage { id, rect, epoch });
         Ok(())
     }
@@ -213,7 +201,6 @@ impl GraphicsSyncer {
 
     fn present_current(
         &mut self,
-        state: &PresentationState,
         id: ImageId,
         rect: CellRect,
         driver: &mut dyn TerminalGraphicsDriver,
@@ -221,28 +208,17 @@ impl GraphicsSyncer {
     ) -> Result<(), DisplayError> {
         let placement = Placement::Cells(rect);
         if reposition {
-            return driver.reposition(id, placement);
-        }
-
-        if state.slide_render_mode() == SlideRenderMode::Placeholder {
-            // Placeholder cells can carry OSC 8 hyperlinks; map slide links to
-            // the placed cell rect (only validated external URIs are returned).
-            let (width_emu, height_emu) = state.slide_dimensions();
-            let links = map_slide_links_to_cells(
-                state.current_slide_links(),
-                width_emu,
-                height_emu,
-                rect,
-                1,
-            );
-            driver.present_with_hyperlinks(id, placement, &links)
+            driver.reposition(id, placement)
         } else {
             driver.present(id, placement)
         }
     }
 
     /// Releases the current image and invalidates its staged key.
-    fn release_current(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
+    fn release_current(
+        &mut self,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
         let Some(previous) = self.current_placed.take() else {
             return Ok(());
         };
@@ -254,7 +230,10 @@ impl GraphicsSyncer {
     }
 
     /// Releases the preview image and invalidates its staged key.
-    fn release_preview(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
+    fn release_preview(
+        &mut self,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
         let Some(previous) = self.preview_placed.take() else {
             return Ok(());
         };
@@ -266,7 +245,10 @@ impl GraphicsSyncer {
     }
 
     /// Empty deck: nothing may remain on screen.
-    fn clear_everything(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
+    fn clear_everything(
+        &mut self,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
         if self.current_placed.is_none() && self.preview_placed.is_none() {
             return Ok(());
         }
@@ -290,18 +272,6 @@ impl GraphicsSyncer {
 /// Terminal-graphics placement state accessors.
 impl PresentationState {
     // ─── Terminal graphics placement ───────────────────────────────
-
-    /// Rendering strategy used for slide canvases.
-    ///
-    /// `DirectPositioning` is the safe default for terminals without
-    /// dependable Kitty Unicode placeholder support.
-    pub fn slide_render_mode(&self) -> SlideRenderMode {
-        self.slide_render_mode
-    }
-
-    pub fn set_slide_render_mode(&mut self, mode: SlideRenderMode) {
-        self.slide_render_mode = mode;
-    }
 
     /// Shared sink where the current slide view records its screen rect.
     pub fn placement_sink(&self) -> Arc<Mutex<Option<CellRect>>> {

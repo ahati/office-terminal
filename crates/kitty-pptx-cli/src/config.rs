@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -11,17 +11,13 @@ pub struct Config {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DisplayConfig {
-    pub default_protocol: String,
     pub fit: String,
-    pub payload: String,
 }
 
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
-            default_protocol: "auto".to_string(),
             fit: "contain".to_string(),
-            payload: "png".to_string(),
         }
     }
 }

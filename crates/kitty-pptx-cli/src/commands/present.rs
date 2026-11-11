@@ -1,10 +1,10 @@
-use std::path::PathBuf;
-use std::process::ExitCode;
-use std::sync::Arc;
+use crate::commands::source_from_path;
 use kitty_pptx_core::*;
 use kitty_pptx_display::*;
 use kitty_pptx_tui::*;
-use crate::commands::source_from_path;
+use std::path::PathBuf;
+use std::process::ExitCode;
+use std::sync::Arc;
 
 pub fn run_interactive(
     file_path: Option<PathBuf>,
@@ -36,18 +36,18 @@ pub fn run_interactive(
         rasterizer,
     ));
 
-    let detected = CapabilityProbe::probe().unwrap_or(DetectedProtocol::HalfBlock);
-    let driver = CapabilityProbe::instantiate_driver(detected, PlacementMode::Interactive);
+    let driver = match CapabilityProbe::probe_driver(PlacementMode::Interactive) {
+        Ok(driver) => driver,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return ExitCode::from(3);
+        }
+    };
 
     let notes: Vec<Option<String>> = pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
-    let mut app = PresentationApp::new(
-        pipeline,
-        driver,
-        pres_arc.slides.len(),
-        notes,
-    )
-    .with_slides(pres_arc.slides.clone())
-    .with_slide_dimensions(pres_arc.slide_width, pres_arc.slide_height);
+    let mut app = PresentationApp::new(pipeline, driver, pres_arc.slides.len(), notes)
+        .with_slides(pres_arc.slides.clone())
+        .with_slide_dimensions(pres_arc.slide_width, pres_arc.slide_height);
 
     if let Err(e) = app.run() {
         eprintln!("TUI Presentation Error: {}", e);

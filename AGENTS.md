@@ -9,12 +9,7 @@ Welcome to the **kitty-pptx** codebase! This document serves as the primary orie
 **kitty-pptx** is a high-fidelity, high-performance terminal slide deck presenter and vector export engine for Microsoft PowerPoint (`.pptx`) presentations. It brings modern presentation rendering directly to the terminal while supporting native vector exports (such as SVG and PNG).
 
 ### Key Capabilities
-- **Kitty Graphics Protocol Native**: Utilizes the modern Kitty graphics protocol (RGB/RGBA transfer, z-indexing, direct placement, and virtual placement) for crisp, GPU-accelerated terminal graphics.
-- **Universal Terminal Fallbacks**: Graceful fallback ladder for other terminal environments:
-  1. Kitty Graphics Protocol
-  2. Sixel Graphics
-  3. iTerm2 Inline Images
-  4. Unicode Halfblock Characters (24-bit ANSI truecolor)
+- **Kitty Graphics Protocol Native**: Uses the Kitty graphics protocol (PNG transmission, z-indexing, and direct placement) for crisp, GPU-accelerated terminal graphics. Terminals without Kitty graphics support are rejected at startup; there is no fallback renderer.
 - **Vector-First Two-Stage Architecture**: Converts OOXML / PowerPoint shapes, text runs, and styling into an intermediate, resolution-independent vector display list (`VectorSlide`). This enables infinite scalability, native SVG export with selectable text, and pixel-perfect rasterization at arbitrary DPI/cell dimensions.
 - **Dual-Mode Interactive TUI**: Built with [Ratatui](https://ratatui.rs), featuring:
   - **Normal View**: Full-bleed slide rendering centered to terminal dimensions.
@@ -39,7 +34,6 @@ kitty-pptx/
 │   ├── 02c-typography-and-text-layout.md
 │   ├── 02d-element-renderers-and-fidelity-policy.md
 │   ├── 03a-kitty-graphics-protocol-driver.md
-│   ├── 03b-display-fallbacks-and-probing.md
 │   ├── 04-interactive-tui-presenter.md
 │   ├── 05-cli-and-export.md
 │   ├── 06-component-interface-contracts.md
@@ -60,8 +54,8 @@ kitty-pptx/
 | Crate | Role & Key Components |
 | :--- | :--- |
 | **`kitty-pptx-core`** | **Display List & Render Core**: Defines `VectorSlide`, `DrawCommand`, `GeometryPath`, `Paint`, and `TextRun`. Compiles `pptx-model` slides into vector display lists. Rasterizes via `tiny-skia` into RGBA framebuffers. Exports native standalone SVG. Manages embedded media asset extraction (`AssetStore`). |
-| **`kitty-pptx-display`** | **Terminal Graphics Drivers**: Implements `TerminalDriver` trait for Kitty, Sixel, iTerm2, and Halfblock protocols. Detects terminal capabilities via DA1/DA2/Kitty queries and environment variables. Computes terminal cell-to-pixel aspect ratios. Handles cleanups. |
-| **`kitty-pptx-tui`** | **Interactive Presenter**: Ratatui-based TUI state machine (`PresenterApp`, `PresenterMode`). Handles keyboard navigation (Space/Enter/Arrows, 'p' presenter toggle, 't' thumbnail grid, 'b' blank screen). Manages slide timer, notes, and responsive layout widgets. |
+| **`kitty-pptx-display`** | **Kitty Graphics Driver**: Implements the `TerminalGraphicsDriver` trait for the Kitty graphics protocol, probes for Kitty support via environment variables and the active graphics query, computes cell-to-pixel aspect ratios, and handles cleanup. |
+| **`kitty-pptx-tui`** | **Interactive Presenter**: Ratatui-based TUI state machine (`PresenterApp`, `PresenterMode`). Handles keyboard navigation (Space/Enter/Arrows, 'p' presenter toggle, 't' thumbnail grid, 'b' blank screen). Manages slide timer, notes, and aspect-ratio-preserving layout widgets. |
 | **`kitty-pptx-cli`** | **CLI Entrypoint**: Implements commands via `clap`: `view`, `present`, `export` (SVG/PNG), `dump` (JSON/AST), and `info`. Loads configuration and coordinates pipeline execution. |
 | **Vendored Crates** | **Upstream Parser Stack**: `pptx-parser`, `pptx-model`, `ooxml-common`. Kept pristine in `crates/` to provide robust, spec-compliant PPTX parsing without network dependencies. Any essential fixes must be tracked in `crates/patches/` and recorded in `crates/VENDORED.md`. |
 
@@ -141,10 +135,9 @@ When implementing compilers, geometry calculations, or drivers, adhere to these 
 - **Terminal Cell Aspect Ratio**:
   - Monospace terminal character cells are rectangular, typically having a 1:2 width-to-height ratio (aspect factor $\approx 0.5$).
   - Layout algorithms must compensate using cell aspect ratios when mapping slide bounding boxes (`EmuRect`) to terminal character cells (`CellRect`).
-- **Kitty Unicode Placeholder Encoding**:
-  - Primary character: `\u{10EEEE}`.
-  - Foreground 24-bit color encodes `ImageId`: `RGB(id >> 16, (id >> 8) & 0xFF, id & 0xFF)`.
-  - Background 24-bit color encodes cell offset: `RGB(col, row, 0)`.
+- **Kitty Direct Placement**:
+  - Images are transmitted as PNG (`f=100`) and presented with `a=p,c=<cols>,r=<rows>,z=-1`.
+  - Unicode placeholder cells (`U=1`, `U+10EEEE`) are not used.
 
 ---
 

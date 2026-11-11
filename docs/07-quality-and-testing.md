@@ -19,8 +19,8 @@
 | **L1 — Unit** | Math, geometry equations, dash arrays, color parsing, chunk slicing | Standard `cargo test` | Blocking |
 | **L2a — Vector Scene Goldens** | `VectorSlide` display list AST structural snapshot comparison | JSON AST snapshots | Blocking |
 | **L2b — Composition Goldens** | Full-slide `RgbaSlide` rendered frames hashed/compared against committed PNG references | Pinned font & Skia baseline runner | Blocking |
-| **L3 — Protocol Goldens** | Byte-exact escape sequence snapshots per driver (`U=1` blocks, Sixel bands, `d=a` exits) | In-memory `TtyWriter` byte inspection | Blocking |
-| **L4 — Live Terminal Smoke** | Verification on physical terminals (Kitty, Ghostty, WezTerm, Foot): probe queries, scrollback survival, resize repositioning | Scripted PTY integration test suite | Release-blocking |
+| **L3 — Protocol Snapshots** | Kitty escape sequence unit snapshots (`a=t` chunks, `a=p` placement, `d=a` exits) | Driver unit tests | Blocking |
+| **L4 — Live Terminal Smoke** | Verification on Kitty-protocol terminals (Kitty, Ghostty, WezTerm, Alacritty Kitty-graphics forks): probe queries, scrollback survival, resize repositioning | Scripted PTY integration test suite | Release-blocking |
 | **L5 — CLI End-to-End** | CLI subcommands (`export --format png,svg`, `dump`, `info`, `view`), stdin piping, exit codes | Integration test suite executing binary | Blocking |
 
 ---
@@ -82,8 +82,5 @@ Every numeric NFR target from [PRD 00](./00-system-overview.md) §4 is verified 
 
 | Environment | TUI Presentation | Split Presenter View | Sorter Thumbnails | `view` Scrollback | Resize Scaling |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Kitty** (Linux/macOS) | Pass | Pass | Pass | Pass (U=1) | Pass (no re-render) |
-| **Ghostty** (Linux/macOS) | Pass | Pass | Pass | Pass (U=1) | Pass (no re-render) |
-| **WezTerm** (Linux/macOS) | Pass | Pass | Pass | Pass (U=1) | Pass (no re-render) |
-| **Foot** (Sixel) | Pass | Pass | Pass | Paged fallback | Pass (re-emit) |
-| **Plain VT100 / SSH** | Pass (Half-block) | Pass (Half-block) | Pass (Half-block) | Paged fallback | Pass (re-emit) |
+| **Kitty-protocol terminal** | Pass | Pass | Blank (direct placement) | Pass | Pass (re-render) |
+| **No Kitty graphics** | Fail with `NoCapableTerminal` | Fail with `NoCapableTerminal` | — | Fail with `NoCapableTerminal` | — |

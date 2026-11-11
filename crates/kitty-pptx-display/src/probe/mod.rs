@@ -1,97 +1,54 @@
 use std::time::Duration;
+
 use kitty_pptx_core::DisplayError;
-use crate::driver::*;
-use crate::drivers::{KittyDriver, HalfBlockDriver, SixelDriver, Iterm2Driver};
+
+use crate::driver::{PlacementMode, TerminalGraphicsDriver};
+use crate::drivers::KittyDriver;
 
 pub mod env;
 pub mod query;
 
-/// Parse the `KITTY_PPTX_PROTOCOL` override: kitty | kitty-full | kitty-compat |
-/// sixel | iterm2 | halfblock (case-insensitive). Invalid values are ignored
-/// with a stderr note so misconfiguration is visible but non-fatal.
-fn detect_protocol_override() -> Option<DetectedProtocol> {
-    let raw = std::env::var("KITTY_PPTX_PROTOCOL").ok()?;
-    let value = raw.trim().to_ascii_lowercase();
-    let proto = match value.as_str() {
-        "kitty" | "kitty-full" => DetectedProtocol::Kitty,
-        "kitty-compat" => DetectedProtocol::KittyCompat,
-        "sixel" => DetectedProtocol::Sixel,
-        "iterm2" => DetectedProtocol::Iterm2,
-        "halfblock" => DetectedProtocol::HalfBlock,
-        other => {
-            eprintln!("kitty-pptx: ignoring unknown KITTY_PPTX_PROTOCOL '{other}'");
-            return None;
-        }
-    };
-    Some(proto)
-}
-
-pub use env::{detect_protocol_from_env, detect_protocol_with, DetectedProtocol};
-pub use query::{query_terminal_device, parse_da1_has_sixel};
-
 pub struct CapabilityProbe;
 
 impl CapabilityProbe {
-    /// Probes the current terminal environment and hardware capabilities.
+    /// Verifies that the terminal implements the Kitty graphics protocol.
     ///
-    /// Priority:
-    /// 1. Environment variables (KITTY_WINDOW_ID, TERM_PROGRAM, etc.)
-    /// 2. Active terminal escape sequence query (Kitty query & DA1) with 50ms timeout.
-    /// 3. Fallback to `DetectedProtocol::HalfBlock`.
-    pub fn probe() -> Result<DetectedProtocol, DisplayError> {
+    /// There is intentionally no fallback: a terminal that does not answer the
+    /// Kitty query is unsupported and startup must fail.
+    pub fn probe() -> Result<(), DisplayError> {
         Self::probe_with_timeout(Duration::from_millis(50))
     }
 
-    /// Probes environment variables only.
-    pub fn probe_from_env() -> Option<DetectedProtocol> {
-        detect_protocol_from_env()
-    }
-
-    /// Probes with a custom timeout for terminal queries.
-    pub fn probe_with_timeout(timeout: Duration) -> Result<DetectedProtocol, DisplayError> {
-        // 0. Explicit user override (highest priority). Useful to force a
-        // protocol on terminals the heuristics misclassify and for testing.
-        if let Some(proto) = detect_protocol_override() {
-            return Ok(proto);
-        }
-
-        // 1. Check environment variables
-        if let Some(proto) = detect_protocol_from_env() {
-            return Ok(proto);
-        }
-
-        // 2. Query terminal device via escape sequences
-        if let Some(proto) = query_terminal_device(timeout) {
-            return Ok(proto);
-        }
-
-        // 3. Fallback to universal HalfBlock
-        Ok(DetectedProtocol::HalfBlock)
-    }
-
-    /// Instantiates the appropriate graphics driver for the detected protocol.
+    /// Probes with a custom timeout.
     ///
-    /// Unicode placeholders are only enabled for genuine kitty in interactive
-    /// mode; partial protocol implementations use raw RGBA + direct placement.
-    pub fn instantiate_driver(
-        protocol: DetectedProtocol,
-        mode: PlacementMode,
-    ) -> Box<dyn TerminalGraphicsDriver> {
-        match protocol {
-            DetectedProtocol::Kitty => {
-                let driver = KittyDriver::new_full(mode);
-                if mode == PlacementMode::Interactive {
-                    Box::new(driver.with_placeholder_mode(true))
-                } else {
-                    Box::new(driver)
-                }
+    /// `KITTY_PPTX_PROTOCOL=kitty` (or `kitty-full`) bypasses the probe for
+    /// debugging. Any other value is an error.
+    pub fn probe_with_timeout(timeout: Duration) -> Result<(), DisplayError> {
+        if let Ok(raw) = std::env::var("KITTY_PPTX_PROTOCOL") {
+            let value = raw.trim().to_ascii_lowercase();
+            if value == "kitty" || value == "kitty-full" {
+                return Ok(());
             }
-            DetectedProtocol::KittyCompat => {
-                Box::new(KittyDriver::new_compat(mode))
-            }
-            DetectedProtocol::Sixel => Box::new(SixelDriver::new(mode)),
-            DetectedProtocol::Iterm2 => Box::new(Iterm2Driver::new(mode)),
-            DetectedProtocol::HalfBlock => Box::new(HalfBlockDriver::new(mode)),
+            return Err(DisplayError::NoCapableTerminal);
         }
+
+        if env::kitty_from_env() || query::query_kitty_graphics(timeout) {
+            Ok(())
+        } else {
+            Err(DisplayError::NoCapableTerminal)
+        }
+    }
+
+    /// Creates the Kitty driver after a successful probe.
+    pub fn instantiate_driver(mode: PlacementMode) -> Box<dyn TerminalGraphicsDriver> {
+        Box::new(KittyDriver::new(mode))
+    }
+
+    /// Probes once and returns the Kitty driver.
+    pub fn probe_driver(
+        mode: PlacementMode,
+    ) -> Result<Box<dyn TerminalGraphicsDriver>, DisplayError> {
+        Self::probe()?;
+        Ok(Self::instantiate_driver(mode))
     }
 }

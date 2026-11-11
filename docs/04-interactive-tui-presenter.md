@@ -4,7 +4,7 @@
 
 ## 1. Architectural Role
 
-The TUI Presenter is a pure *consumer* of the Render Pipeline ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §5) and the Display Adapter ([PRD 03a](./03a-kitty-graphics-protocol-driver.md), [PRD 03b](./03b-display-fallbacks-and-probing.md)).
+The TUI Presenter is a pure *consumer* of the Render Pipeline ([PRD 02a](./02a-composition-core-and-render-pipeline.md) §5) and the Kitty Display Adapter ([PRD 03a](./03a-kitty-graphics-protocol-driver.md)).
 - It owns UI layouts, user input routing, presentation state machines, and timer states.
 - It **never** schedules worker rendering, manages Image IDs directly, or generates escape sequence bytes.
 
@@ -56,14 +56,11 @@ pub struct SlideWidget<'a> {
 }
 ```
 
-### 3.1 Dual-Path Rendering Logic
-1. **Kitty Unicode Placeholder Path (`U=1`, Preferred)**:
-   - When the driver supports Unicode placeholders (`caps.placeholders == true`), `SlideWidget::render` iterates over the allocated `CellRect` in `ratatui::buffer::Buffer`.
-   - It writes `\u{10EEEE}` with FG/BG colors encoding `(ImageId, col, row)` per [PRD 03a](./03a-kitty-graphics-protocol-driver.md) §4.
-   - **Benefit**: Any active overlay (e.g. `HelpModal` or `TocSearchModal`) drawn after the slide automatically overwrites placeholder cells in Ratatui's buffer, rendering completely glitch-free over the graphics.
-2. **Direct Placement Path (`a=p` / Fallback Drivers)**:
-   - For Sixel, iTerm2, or direct placement Kitty, `SlideWidget` clears the cell rect in Ratatui's buffer to blank cells.
-   - Immediately following `terminal.draw()`, the TUI triggers `driver.present(id, Placement::Cells(rect))` to position the graphic over the blank terminal region.
+### 3.1 Direct Placement Rendering
+- `SlideWidget::render` computes the aspect-preserving fitted rectangle inside the available area and clears those cells in `ratatui::buffer::Buffer`.
+- Immediately following `terminal.draw()`, the TUI triggers `driver.present(id, Placement::Cells(rect))` to position the Kitty image over the blank terminal region.
+- Any active overlay (e.g. `HelpModal` or `TocSearchModal`) is drawn after the slide and composites above the image because Kitty placement uses `z=-1`.
+- The layout is recomputed on every resize from the deck's original aspect ratio, so slides always best-fit without stretching.
 
 ---
 

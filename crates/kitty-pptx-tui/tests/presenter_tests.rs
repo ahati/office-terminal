@@ -1,9 +1,9 @@
-use ratatui::layout::Rect;
 use kitty_pptx_display::ImageId;
 use kitty_pptx_tui::app::state::PresentationState;
 use kitty_pptx_tui::widget::layout::{
     compute_slide_rect, ASPECT_16_9, ASPECT_4_3, DEFAULT_CELL_ASPECT_RATIO,
 };
+use ratatui::layout::Rect;
 
 #[test]
 fn test_aspect_ratio_16_9_letterbox() {
@@ -73,13 +73,13 @@ fn test_next_image_id_and_end_of_deck() {
     // On slide 0, next slide is slide 1
     assert_eq!(state.current_image_id(), ImageId(1));
     assert_eq!(state.next_slide_index(), Some(1));
-    assert_eq!(state.next_image_id(), Some(ImageId(2)));
+    assert_eq!(state.next_image_id(), Some(ImageId(10)));
 
     state.next_slide();
     // On slide 1, next slide is slide 2
     assert_eq!(state.current_image_id(), ImageId(2));
     assert_eq!(state.next_slide_index(), Some(2));
-    assert_eq!(state.next_image_id(), Some(ImageId(3)));
+    assert_eq!(state.next_image_id(), Some(ImageId(11)));
 
     state.next_slide();
     // On slide 2 (last slide), no next slide

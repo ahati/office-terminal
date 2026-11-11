@@ -1,9 +1,9 @@
-use kitty_pptx_core::{sanitize_hyperlink_url, DisplayError, HyperlinkTarget, RgbaSlide, SlideLink};
-
-pub use crate::geometry::*;
-pub use crate::drivers::{
-    HalfBlockDriver, Iterm2Driver, KittyDriver, KittyFlavor, SixelDriver, TransmissionFormat,
+use kitty_pptx_core::{
+    sanitize_hyperlink_url, DisplayError, HyperlinkTarget, RgbaSlide, SlideLink,
 };
+
+pub use crate::drivers::KittyDriver;
+pub use crate::geometry::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ImageId(pub u32);
@@ -55,11 +55,7 @@ pub fn map_slide_links_to_cells(
     placement: CellRect,
     first_id: u32,
 ) -> Vec<TerminalHyperlink> {
-    if slide_width_emu <= 0
-        || slide_height_emu <= 0
-        || placement.cols == 0
-        || placement.rows == 0
-    {
+    if slide_width_emu <= 0 || slide_height_emu <= 0 || placement.cols == 0 || placement.rows == 0 {
         return Vec::new();
     }
 
@@ -111,7 +107,6 @@ pub fn map_slide_links_to_cells(
 pub enum Placement {
     Cells(CellRect),
     ScrollbackBlock,
-    VirtualPlaceholder(CellRect),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -123,7 +118,6 @@ pub enum PlacementMode {
 #[derive(Clone, Debug)]
 pub struct DriverCaps {
     pub alpha: bool,
-    pub placeholders: bool,
     pub terminal_side_scaling: bool,
     pub resident_ids: u32,
 }
@@ -134,25 +128,6 @@ pub trait TerminalGraphicsDriver: Send {
     fn placement_mode(&self) -> PlacementMode;
     fn stage(&mut self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError>;
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError>;
-    /// Present an image, wrapping linked cell regions in OSC 8 hyperlinks.
-    /// Drivers without terminal hyperlink support simply ignore `links`.
-    fn present_with_hyperlinks(
-        &mut self,
-        id: ImageId,
-        p: Placement,
-        links: &[TerminalHyperlink],
-    ) -> Result<(), DisplayError> {
-        let _ = links;
-        self.present(id, p)
-    }
-    /// Whether Unicode placeholder rendering is active for this driver.
-    ///
-    /// Callers must only fill the screen with U+10EEEE cells when this returns
-    /// `true`; otherwise placeholder cells render as literal text on terminals
-    /// that do not implement the Kitty Unicode placeholder extension.
-    fn supports_placeholders(&self) -> bool {
-        self.caps().placeholders
-    }
     fn reposition(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError>;
     fn release(&mut self, id: ImageId) -> Result<(), DisplayError>;
     fn release_all(&mut self) -> Result<(), DisplayError>;

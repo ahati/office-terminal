@@ -1,11 +1,11 @@
+use crate::cli::FitMode;
+use crate::commands::source_from_path;
+use kitty_pptx_core::*;
+use kitty_pptx_display::*;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use kitty_pptx_core::*;
-use kitty_pptx_display::*;
-use crate::cli::{FitMode, PayloadMode};
-use crate::commands::source_from_path;
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_view(
@@ -13,7 +13,6 @@ pub fn run_view(
     slide: usize,
     all: bool,
     fit: FitMode,
-    _payload: PayloadMode,
     loader: &DefaultPresentationLoader,
     compiler: &Arc<DefaultSlideCompiler>,
     rasterizer: &Arc<TinySkiaRasterizer>,
@@ -50,25 +49,15 @@ pub fn run_view(
         vec![slide - 1]
     };
 
-    let detected = CapabilityProbe::probe().unwrap_or(DetectedProtocol::HalfBlock);
-    let mut driver = CapabilityProbe::instantiate_driver(detected, PlacementMode::Scrollback);
+    let mut driver = match CapabilityProbe::probe_driver(PlacementMode::Scrollback) {
+        Ok(driver) => driver,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return ExitCode::from(3);
+        }
+    };
 
-    let base_w = 1920;
-    let base_h = if presentation.slide_width > 0 {
-        ((base_w as f64 * presentation.slide_height as f64) / presentation.slide_width as f64).round() as u32
-    } else {
-        1080
-    };
-    let target = match fit {
-        FitMode::Contain => RenderTargetSpec {
-            width_px: base_w,
-            height_px: 1080.min(base_h),
-        },
-        FitMode::Width => RenderTargetSpec {
-            width_px: base_w,
-            height_px: base_h,
-        },
-    };
+    let target = fit_render_target(presentation.slide_width, presentation.slide_height, fit);
 
     let (tx, _rx) = crossbeam_channel::unbounded();
     for &idx in &slide_indices {
@@ -108,4 +97,63 @@ pub fn run_view(
     }
 
     ExitCode::SUCCESS
+}
+fn fit_render_target(slide_width: i64, slide_height: i64, fit: FitMode) -> RenderTargetSpec {
+    const MAX_WIDTH: u32 = 1920;
+    const MAX_HEIGHT: u32 = 1080;
+
+    if slide_width <= 0 || slide_height <= 0 {
+        return RenderTargetSpec {
+            width_px: MAX_WIDTH,
+            height_px: MAX_HEIGHT,
+        };
+    }
+
+    let aspect = slide_width as f64 / slide_height as f64;
+    let base_height = (MAX_WIDTH as f64 / aspect).round().max(1.0) as u32;
+    match fit {
+        FitMode::Contain => {
+            if base_height <= MAX_HEIGHT {
+                RenderTargetSpec {
+                    width_px: MAX_WIDTH,
+                    height_px: base_height,
+                }
+            } else {
+                RenderTargetSpec {
+                    width_px: (MAX_HEIGHT as f64 * aspect).round().max(1.0) as u32,
+                    height_px: MAX_HEIGHT,
+                }
+            }
+        }
+        FitMode::Width => RenderTargetSpec {
+            width_px: MAX_WIDTH,
+            height_px: base_height,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contain_preserves_slide_aspect_ratio() {
+        let sixteen_nine = fit_render_target(12_192_000, 6_858_000, FitMode::Contain);
+        assert_eq!(
+            (sixteen_nine.width_px, sixteen_nine.height_px),
+            (1920, 1080)
+        );
+
+        let four_three = fit_render_target(9_144_000, 6_858_000, FitMode::Contain);
+        assert_eq!((four_three.width_px, four_three.height_px), (1440, 1080));
+
+        let three_two = fit_render_target(12_192_000, 8_128_000, FitMode::Contain);
+        assert_eq!((three_two.width_px, three_two.height_px), (1620, 1080));
+    }
+
+    #[test]
+    fn width_fit_keeps_full_slide_height() {
+        let four_three = fit_render_target(9_144_000, 6_858_000, FitMode::Width);
+        assert_eq!((four_three.width_px, four_three.height_px), (1920, 1440));
+    }
 }
