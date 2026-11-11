@@ -74,6 +74,8 @@ fn test_svg_export_modes_and_image_embedding() {
                 font_family: "DejaVu Sans".to_string(),
                 font_size_pt: 20.0,
                 color: [10, 20, 30, 255],
+                bold: false,
+                italic: false,
                 glyphs: vec![
                     PositionedGlyph { glyph_id: 0, x: 200000.0, y: 300000.0, advance: 50000.0 },
                 ],

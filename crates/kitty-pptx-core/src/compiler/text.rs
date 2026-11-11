@@ -1,9 +1,145 @@
-use crossbeam_channel::Sender;
-use crate::contracts::{
-    AffineTransform, PositionedGlyph, PositionedGlyphRun, VectorCommand, WarningEvent,
-};
+use std::cell::RefCell;
+
 use super::math::{self, MathParams};
 use super::style::parse_hex_color;
+use crate::contracts::{
+    AffineTransform, FidelityClass, PositionedGlyph, PositionedGlyphRun, VectorCommand,
+    WarningEvent,
+};
+use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
+use crossbeam_channel::Sender;
+
+thread_local! {
+    static FONT_SYSTEM: RefCell<FontSystem> = RefCell::new(FontSystem::new());
+}
+
+struct ShapedText {
+    glyphs: Vec<PositionedGlyph>,
+    width: f32,
+}
+
+/// Shape one run with the same font stack used by the rasterizer so run
+/// advances are real font metrics, not per-character heuristics.
+fn shape_text_run(
+    text: &str,
+    font_family: &str,
+    font_size_emu: f32,
+    bold: bool,
+    italic: bool,
+) -> ShapedText {
+    FONT_SYSTEM.with(|cell| {
+        let font_system = &mut *cell.borrow_mut();
+        let size_px = (font_size_emu / 12700.0).max(1.0);
+        let mut buffer = Buffer::new(font_system, Metrics::new(size_px, size_px * 1.25));
+        buffer.set_size(font_system, None, None);
+        let mut attrs = Attrs::new().family(Family::Name(font_family));
+        if bold {
+            attrs = attrs.weight(cosmic_text::Weight::BOLD);
+        }
+        if italic {
+            attrs = attrs.style(cosmic_text::Style::Italic);
+        }
+        buffer.set_text(font_system, text, attrs, Shaping::Advanced);
+        buffer.shape_until_scroll(font_system, false);
+
+        let mut glyphs = Vec::new();
+        let mut width = 0.0f32;
+        for run in buffer.layout_runs() {
+            width = width.max(run.line_w);
+            for glyph in run.glyphs {
+                glyphs.push(PositionedGlyph {
+                    glyph_id: glyph.glyph_id,
+                    x: glyph.x * 12700.0,
+                    y: 0.0,
+                    advance: glyph.w * 12700.0,
+                });
+            }
+        }
+        ShapedText {
+            glyphs,
+            width: width * 12700.0,
+        }
+    })
+}
+
+fn quad_bezier(p0: f32, p1: f32, p2: f32, t: f32) -> f32 {
+    let mt = 1.0 - t;
+    mt * mt * p0 + 2.0 * mt * t * p1 + t * t * p2
+}
+
+fn cubic_bezier(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
+    let mt = 1.0 - t;
+    mt * mt * mt * p0 + 3.0 * mt * mt * t * p1 + 3.0 * mt * t * t * p2 + t * t * t * p3
+}
+
+/// Return the top and bottom envelope y-coordinates at horizontal fraction `u`.
+///
+/// This is a first-pass implementation for the two common WordArt envelopes
+/// used by the LibreOffice fixtures. Other presets stay flat and emit a
+/// degraded-fidelity warning.
+fn warp_edges(preset: &str, adj: &[i64], h: f32, u: f32) -> Option<(f32, f32)> {
+    let u = u.clamp(0.0, 1.0);
+    match preset.to_ascii_lowercase().as_str() {
+        "textdeflate" => {
+            let a = adj.first().copied().unwrap_or(18750).clamp(0, 37500) as f32;
+            let dy = a * h / 100000.0;
+            let control = dy * 4.0 / 3.0;
+            let top = cubic_bezier(0.0, control, control, 0.0, u);
+            let bottom = cubic_bezier(h, h - control, h - control, h, u);
+            Some((top, bottom))
+        }
+        "textinflatetop" => {
+            let a = adj.first().copied().unwrap_or(40000).clamp(0, 50000) as f32;
+            let dy = a * h / 100000.0;
+            let top = quad_bezier(dy, 0.0, dy, u);
+            Some((top, h))
+        }
+        _ => None,
+    }
+}
+
+fn warp_run(
+    run: &PositionedGlyphRun,
+    preset: &str,
+    adj: &[i64],
+    w: f32,
+    h: f32,
+) -> Option<Vec<PositionedGlyphRun>> {
+    if w <= 0.0 || h <= 0.0 || run.text.is_empty() {
+        return None;
+    }
+    let chars: Vec<char> = run.text.chars().collect();
+    if chars.len() != run.glyphs.len() {
+        return None;
+    }
+
+    let mut warped = Vec::with_capacity(chars.len());
+    for (ch, glyph) in chars.into_iter().zip(run.glyphs.iter()) {
+        let u = (glyph.x / w).clamp(0.0, 1.0);
+        let (top, bottom) = warp_edges(preset, adj, h, u)?;
+        let v = (glyph.y / h).clamp(0.0, 1.0);
+        let warped_y = top + v * (bottom - top);
+        let gap = (bottom - top).abs();
+        let scale = (gap / h).clamp(0.25, 3.0);
+        warped.push(PositionedGlyphRun {
+            text: ch.to_string(),
+            font_family: run.font_family.clone(),
+            font_size_pt: run.font_size_pt * scale,
+            color: run.color,
+            bold: run.bold,
+            italic: run.italic,
+            glyphs: vec![PositionedGlyph {
+                glyph_id: glyph.glyph_id,
+                x: glyph.x,
+                y: warped_y,
+                advance: glyph.advance,
+            }],
+            underline: run.underline,
+            strikethrough: run.strikethrough,
+        });
+    }
+    Some(warped)
+}
 
 pub fn compile_text_body(
     text_body: &pptx_model::TextBody,
@@ -22,6 +158,14 @@ pub fn compile_text_body(
     let avail_h = (box_h - t_ins - b_ins).max(0) as f32;
 
     let font_scale = text_body.font_scale.unwrap_or(1.0) as f32;
+    let text_warp = text_body.text_warp.as_ref();
+    if text_warp.is_some() {
+        let _ = warning_sink.send(WarningEvent::FidelityDegraded {
+            element_id: "text-warp".to_string(),
+            feature: "text_warp",
+            class: FidelityClass::Degraded,
+        });
+    }
 
     // First pass: lay out paragraphs into lines to calculate total block height
     struct LineLayout {
@@ -69,7 +213,9 @@ pub fn compile_text_body(
 
         // Process bullet if present
         let bullet_str = match &p.bullet {
-            pptx_model::Bullet::Char { ch, font_family, .. } => {
+            pptx_model::Bullet::Char {
+                ch, font_family, ..
+            } => {
                 let mapped = map_bullet_char(ch, font_family.as_deref());
                 Some(format!("{} ", mapped))
             }
@@ -83,20 +229,12 @@ pub fn compile_text_body(
         if let Some(ref b_text) = bullet_str {
             let b_sz = def_sz * font_scale;
             let b_sz_emu = b_sz * 12700.0;
-            let run_w = estimate_text_width(b_text, b_sz_emu);
+            let shaped = shape_text_run(b_text, "Carlito", b_sz_emu, false, false);
             let b_color = parse_hex_color(def_color);
 
-            let mut glyphs = Vec::new();
-            let mut gx = cur_line_w;
-            for (idx, ch) in b_text.chars().enumerate() {
-                let gw = estimate_char_width(ch, b_sz_emu);
-                glyphs.push(PositionedGlyph {
-                    glyph_id: idx as u16,
-                    x: gx,
-                    y: 0.0,
-                    advance: gw,
-                });
-                gx += gw;
+            let mut glyphs = shaped.glyphs;
+            for glyph in &mut glyphs {
+                glyph.x += cur_line_w;
             }
 
             current_line_runs.push(PositionedGlyphRun {
@@ -104,11 +242,13 @@ pub fn compile_text_body(
                 font_family: "Carlito".to_string(),
                 font_size_pt: b_sz,
                 color: b_color,
+                bold: false,
+                italic: false,
                 glyphs,
                 underline: false,
                 strikethrough: false,
             });
-            cur_line_w += run_w;
+            cur_line_w += shaped.width;
         }
 
         // Walk runs
@@ -137,19 +277,21 @@ pub fn compile_text_body(
                         .unwrap_or(def_color);
                     let color = parse_hex_color(color_hex);
 
-                    let run_w = estimate_text_width(&data.text, sz_emu);
+                    let bold = data
+                        .bold
+                        .or(p.def_bold)
+                        .or(text_body.default_bold)
+                        .unwrap_or(false);
+                    let italic = data
+                        .italic
+                        .or(p.def_italic)
+                        .or(text_body.default_italic)
+                        .unwrap_or(false);
 
-                    let mut glyphs = Vec::new();
-                    let mut gx = cur_line_w;
-                    for (idx, ch) in data.text.chars().enumerate() {
-                        let gw = estimate_char_width(ch, sz_emu);
-                        glyphs.push(PositionedGlyph {
-                            glyph_id: idx as u16,
-                            x: gx,
-                            y: 0.0,
-                            advance: gw,
-                        });
-                        gx += gw;
+                    let shaped = shape_text_run(&data.text, &font_family, sz_emu, bold, italic);
+                    let mut glyphs = shaped.glyphs;
+                    for glyph in &mut glyphs {
+                        glyph.x += cur_line_w;
                     }
 
                     current_line_runs.push(PositionedGlyphRun {
@@ -157,11 +299,13 @@ pub fn compile_text_body(
                         font_family,
                         font_size_pt: sz_pt,
                         color,
+                        bold,
+                        italic,
                         glyphs,
                         underline: data.underline,
                         strikethrough: data.strikethrough,
                     });
-                    cur_line_w += run_w;
+                    cur_line_w += shaped.width;
                 }
                 pptx_model::TextRun::Break { .. } => {
                     // Flush line
@@ -176,6 +320,7 @@ pub fn compile_text_body(
                         avail_w,
                     });
                     cur_line_w = 0.0;
+                    cur_line_h = def_sz * 12700.0 * 1.2 * font_scale;
                 }
                 pptx_model::TextRun::Math {
                     nodes,
@@ -302,6 +447,14 @@ pub fn compile_text_body(
                 g.x += line_x;
                 g.y += baseline_y;
             }
+            if let Some(warp) = text_warp {
+                if let Some(warped) =
+                    warp_run(&run, &warp.preset, &warp.adj, box_w as f32, box_h as f32)
+                {
+                    final_runs.extend(warped);
+                    continue;
+                }
+            }
             final_runs.push(run);
         }
         for mut run in line.math_runs {
@@ -380,21 +533,4 @@ pub fn map_bullet_char(ch: &str, font_family: Option<&str>) -> String {
     } else {
         ch.to_string()
     }
-}
-
-fn estimate_char_width(ch: char, font_size_emu: f32) -> f32 {
-    let em = font_size_emu;
-    if ch.is_ascii_punctuation() || ch == ' ' {
-        em * 0.3
-    } else if ch.is_ascii_digit() || ch.is_ascii_uppercase() {
-        em * 0.6
-    } else if ch.is_ascii_lowercase() {
-        em * 0.5
-    } else {
-        em * 1.0 // CJK or wide characters
-    }
-}
-
-fn estimate_text_width(text: &str, font_size_emu: f32) -> f32 {
-    text.chars().map(|c| estimate_char_width(c, font_size_emu)).sum()
 }

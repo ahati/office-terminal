@@ -37,7 +37,7 @@
       "sha256": "c44e46939a5f10e7d1c31693168a7f6da2d0fef69337f887a6acd42358285945",
       "slides": 1,
       "strict": true,
-      "note": "text box insets and vertical anchoring",
+      "note": "text box insets, vertical anchoring, approximate textInflateTop warp",
       "thresholds": {
         "min_cell_pass_ratio": 0.9,
         "max_global_mean_abs_diff": 8.0,
@@ -50,7 +50,7 @@
       "sha256": "5b4016ca717d6ca552e6bdf06f0b756f72c98c2ee3798a04d4de07baf9116d51",
       "slides": 1,
       "strict": true,
-      "note": "preset shapes, image fill, text warp",
+      "note": "preset shapes, image fill, approximate textDeflate warp",
       "thresholds": {
         "min_cell_pass_ratio": 0.9,
         "max_global_mean_abs_diff": 8.0,

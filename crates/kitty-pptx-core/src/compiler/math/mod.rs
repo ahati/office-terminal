@@ -317,6 +317,8 @@ fn glyph_run_to_placed(run: &MathGlyphRun, x: f32, up: f32) -> PositionedGlyphRu
         font_family: run.font_family.to_string(),
         font_size_pt: run.font_size_pt,
         color: run.color,
+        bold: false,
+        italic: false,
         glyphs,
         underline: false,
         strikethrough: false,

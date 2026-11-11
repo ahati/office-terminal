@@ -179,6 +179,8 @@ fn make_simple_run(text: &str, sz_pt: f32, color: [u8; 4], x_start: f32, y: f32)
         font_family: "Carlito".to_string(),
         font_size_pt: sz_pt,
         color,
+        bold: false,
+        italic: false,
         glyphs,
         underline: false,
         strikethrough: false,
