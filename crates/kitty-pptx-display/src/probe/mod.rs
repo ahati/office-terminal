@@ -6,6 +6,26 @@ use crate::drivers::{KittyDriver, HalfBlockDriver, SixelDriver, Iterm2Driver};
 pub mod env;
 pub mod query;
 
+/// Parse the `KITTY_PPTX_PROTOCOL` override: kitty | kitty-full | kitty-compat |
+/// sixel | iterm2 | halfblock (case-insensitive). Invalid values are ignored
+/// with a stderr note so misconfiguration is visible but non-fatal.
+fn detect_protocol_override() -> Option<DetectedProtocol> {
+    let raw = std::env::var("KITTY_PPTX_PROTOCOL").ok()?;
+    let value = raw.trim().to_ascii_lowercase();
+    let proto = match value.as_str() {
+        "kitty" | "kitty-full" => DetectedProtocol::Kitty,
+        "kitty-compat" => DetectedProtocol::KittyCompat,
+        "sixel" => DetectedProtocol::Sixel,
+        "iterm2" => DetectedProtocol::Iterm2,
+        "halfblock" => DetectedProtocol::HalfBlock,
+        other => {
+            eprintln!("kitty-pptx: ignoring unknown KITTY_PPTX_PROTOCOL '{other}'");
+            return None;
+        }
+    };
+    Some(proto)
+}
+
 pub use env::{detect_protocol_from_env, detect_protocol_with, DetectedProtocol};
 pub use query::{query_terminal_device, parse_da1_has_sixel};
 
@@ -29,6 +49,12 @@ impl CapabilityProbe {
 
     /// Probes with a custom timeout for terminal queries.
     pub fn probe_with_timeout(timeout: Duration) -> Result<DetectedProtocol, DisplayError> {
+        // 0. Explicit user override (highest priority). Useful to force a
+        // protocol on terminals the heuristics misclassify and for testing.
+        if let Some(proto) = detect_protocol_override() {
+            return Ok(proto);
+        }
+
         // 1. Check environment variables
         if let Some(proto) = detect_protocol_from_env() {
             return Ok(proto);
