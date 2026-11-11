@@ -1,7 +1,8 @@
-/* Generate pptxgenjs_sample.pptx — feature-rich deterministic deck for E2E
- * golden-image testing. Slides:
+/* Generate pptxgenjs_sample.pptx — feature-rich generated deck for E2E
+ * golden-image testing. Run normalize_pptx.py afterwards to make the archive
+ * byte-stable. Slides:
  *   1. title text + core shapes (rect/ellipse/roundRect/star/arrow/triangle)
- *   2. gradient background + extended presets (snip/callout/heart/cloud/teardrop)
+ *   2. solid background + extended presets (snip/callout/heart/cloud/teardrop)
  *   3. table + bullet list
  *   4. chart (bar) + chart (line)
  *   5. generated image (base64 PNG) + shape overlays
@@ -43,7 +44,7 @@ const EMU_IN = 914400;
   });
 }
 
-// ---- slide 2: gradient + extended presets -----------------------------
+// ---- slide 2: solid background + extended presets ---------------------
 {
   const s = pptx.addSlide();
   s.background = { color: "0F2027" };
@@ -123,7 +124,7 @@ const EMU_IN = 914400;
 {
   const s = pptx.addSlide();
   s.background = { color: "202124" };
-  // deterministic 128x128 RGBA rainbow/checker PNG (same recipe as gen_fixture.py)
+  // deterministic 128x128 RGBA rainbow/checker PNG
   const W = 128, H = 128;
   const rows = [];
   for (let y = 0; y < H; y++) {
@@ -168,7 +169,7 @@ const EMU_IN = 914400;
     chunk("IEND", Buffer.alloc(0)),
   ]);
   s.addImage({ data: "image/png;base64," + png.toString("base64"), x: 3.0, y: 1.5, w: 3.33, h: 3.33, sizing: { type: "crop", w: 3.33, h: 3.33 } });
-  s.addShape(pptx.ShapeType.rect, { x: 6.8, y: 1.5, w: 3.33, h: 3.33, fill: { color: "00000000" }, line: { color: "FFD966", width: 3 } });
+  s.addShape(pptx.ShapeType.rect, { x: 6.8, y: 1.5, w: 3.33, h: 3.33, fill: { type: "none" }, line: { color: "FFD966", width: 3 } });
   s.addText("Embedded picture", { x: 3.0, y: 5.2, w: 6.67, h: 1.0, fontSize: 20, color: "FFD966", align: "center", fontFace: "Calibri" });
 }
 

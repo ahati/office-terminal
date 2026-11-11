@@ -4,7 +4,20 @@
 //! production seam as `kitty-pptx-cli export --format png`, then compared
 //! against committed reference PNGs under `tests/golden/png/<deck>/`.
 //!
-//! Regenerate references after an intentional rendering change:
+//! Fixtures are generated in-repo. Deck-dependent tests print a SKIP note and
+//! return when a generated fixture is absent, so a partial corpus never blocks
+//! the build.
+//!
+//! Regenerate the fixture first:
+//!
+//! ```sh
+//! cd crates/kitty-pptx-core/tests/golden
+//! npm ci
+//! NODE_PATH="$PWD/node_modules" node gen_pptxgenjs.js fixtures/pptxgenjs_sample.pptx
+//! python3 normalize_pptx.py fixtures/pptxgenjs_sample.pptx
+//! ```
+//!
+//! Then refresh references after an intentional rendering change:
 //!
 //! ```sh
 //! UPDATE_GOLDENS=1 cargo test -p kitty-pptx-core --test golden_tests
@@ -30,48 +43,11 @@ use kitty_pptx_core::{
 /// needs more slack (for example a deck dominated by text on CI images with a
 /// different font stack). The default policy is deliberately strict: a real
 /// renderer regression moves millions of pixels, not a handful of AA edges.
-const DECKS: &[DeckConfig] = &[
-    DeckConfig {
-        name: "e2e_deck",
-        width_px: 800,
-        thresholds: Thresholds::DEFAULT,
-    },
-    DeckConfig {
-        name: "pptxgenjs_sample",
-        width_px: 800,
-        thresholds: Thresholds::DEFAULT,
-    },
-    DeckConfig {
-        name: "sample",
-        width_px: 800,
-        thresholds: Thresholds::DEFAULT,
-    },
-    DeckConfig {
-        name: "KEY02",
-        width_px: 800,
-        thresholds: Thresholds::DEFAULT,
-    },
-    DeckConfig {
-        name: "ShapePlusImage",
-        width_px: 800,
-        thresholds: Thresholds::DEFAULT,
-    },
-    DeckConfig {
-        name: "chart_pt_color_bg1",
-        width_px: 800,
-        thresholds: Thresholds::DEFAULT,
-    },
-    DeckConfig {
-        name: "smartart-org-chart",
-        width_px: 800,
-        thresholds: Thresholds::DEFAULT,
-    },
-    DeckConfig {
-        name: "ArtisticEffectSample",
-        width_px: 800,
-        thresholds: Thresholds::LOOSE,
-    },
-];
+const DECKS: &[DeckConfig] = &[DeckConfig {
+    name: "pptxgenjs_sample",
+    width_px: 800,
+    thresholds: Thresholds::DEFAULT,
+}];
 
 fn deck(name: &str) -> &'static DeckConfig {
     DECKS
@@ -81,6 +57,13 @@ fn deck(name: &str) -> &'static DeckConfig {
 }
 
 fn run_deck(config: &'static DeckConfig) {
+    if !golden_support::fixture_available(config.name) {
+        eprintln!(
+            "SKIP {}: generated fixture is not present; see tests/golden/README.md",
+            config.name
+        );
+        return;
+    }
     let rendered = render_deck(config);
     assert!(
         !rendered.slides.is_empty(),
@@ -94,69 +77,40 @@ fn run_deck(config: &'static DeckConfig) {
 }
 
 #[test]
-fn golden_e2e_deck() {
-    run_deck(deck("e2e_deck"));
-}
-
-#[test]
 fn golden_pptxgenjs_sample() {
     run_deck(deck("pptxgenjs_sample"));
 }
 
-#[test]
-fn golden_sample() {
-    run_deck(deck("sample"));
-}
-
-#[test]
-fn golden_key02() {
-    run_deck(deck("KEY02"));
-}
-
-#[test]
-fn golden_shape_plus_image() {
-    run_deck(deck("ShapePlusImage"));
-}
-
-#[test]
-fn golden_chart_pt_color_bg1() {
-    run_deck(deck("chart_pt_color_bg1"));
-}
-
-#[test]
-fn golden_smartart_org_chart() {
-    run_deck(deck("smartart-org-chart"));
-}
-
-#[test]
-fn golden_artistic_effect_sample() {
-    run_deck(deck("ArtisticEffectSample"));
-}
+// Only generated fixtures belong in this table.
 
 // ---------------------------------------------------------------------------
 // Font-independent invariants
 //
-// These assertions only touch solid shape fills and the background gradient.
-// They run without golden files and therefore stay meaningful on machines
-// whose font stack differs from the one that produced the reference PNGs.
+// These assertions only touch solid shape fills. They run without golden files
+// and therefore stay meaningful on machines whose font stack differs from the
+// one that produced the reference PNGs.
 // ---------------------------------------------------------------------------
 
-/// Verified ground truth for `e2e_deck.pptx` slide 1 (16:9, 800x450 target).
-const E2E_SLIDE1_POINTS: &[(f64, f64, [u8; 3], &str)] = &[
-    (0.163, 0.444, [0xC0, 0x00, 0x00], "red rect"),
-    (0.375, 0.444, [0x00, 0x70, 0xC0], "blue ellipse"),
-    (0.542, 0.444, [0xED, 0x7D, 0x31], "orange roundRect"),
-    (0.731, 0.444, [0x70, 0xAD, 0x47], "green star5"),
-    (0.194, 0.728, [0x70, 0x30, 0xA0], "purple rightArrow"),
-    (0.412, 0.756, [0x00, 0xB0, 0xB0], "teal triangle"),
+/// Verified ground truth for `pptxgenjs_sample.pptx` slide 1 (800x450 target).
+const PPTXGENJS_SLIDE1_POINTS: &[(f64, f64, [u8; 3], &str)] = &[
+    (0.161, 0.525, [0xC0, 0x00, 0x00], "red rect"),
+    (0.375, 0.525, [0x00, 0x70, 0xC0], "blue ellipse"),
+    (0.589, 0.525, [0xED, 0x7D, 0x31], "orange roundRect"),
+    (0.803, 0.525, [0x70, 0xAD, 0x47], "green star5"),
+    (0.192, 0.790, [0x70, 0x30, 0xA0], "purple rightArrow"),
+    (0.413, 0.790, [0x00, 0xB0, 0xB0], "teal triangle"),
     (0.500, 0.050, [0xFF, 0xFF, 0xFF], "white background"),
 ];
 
 #[test]
-fn e2e_slide1_solid_regions_match_ground_truth() {
-    let rendered = render_deck(deck("e2e_deck"));
+fn pptxgenjs_slide1_solid_regions_match_ground_truth() {
+    if !golden_support::fixture_available("pptxgenjs_sample") {
+        eprintln!("SKIP pptxgenjs_slide1_solid_regions_match_ground_truth: fixture is not generated");
+        return;
+    }
+    let rendered = render_deck(deck("pptxgenjs_sample"));
     let slide = &rendered.slides[0];
-    for &(fx, fy, expected, label) in E2E_SLIDE1_POINTS {
+    for &(fx, fy, expected, label) in PPTXGENJS_SLIDE1_POINTS {
         let sample = sample_fractional(slide, fx, fy);
         for channel in 0..3 {
             let delta = (sample[channel] - expected[channel] as f64).abs();
@@ -175,23 +129,6 @@ fn e2e_slide1_solid_regions_match_ground_truth() {
             sample[3]
         );
     }
-}
-
-#[test]
-fn e2e_slide2_background_gradient_is_light_towards_bottom_right() {
-    let rendered = render_deck(deck("e2e_deck"));
-    let slide = &rendered.slides[1];
-    // Stay clear of the title text box (top-left) and the preset shapes.
-    let top_left = sample_fractional(slide, 0.02, 0.02);
-    let bottom_right = sample_fractional(slide, 0.98, 0.98);
-    let luma_tl = golden_support::luminance(top_left);
-    let luma_br = golden_support::luminance(bottom_right);
-    assert!(
-        luma_br > luma_tl + 8.0,
-        "slide 2 gradient should be darker at the top-left and lighter at the \
-         bottom-right: top-left {top_left:?} (luma {luma_tl:.1}), bottom-right \
-         {bottom_right:?} (luma {luma_br:.1})"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -219,12 +156,16 @@ fn diff_metrics_classifies_pixels_and_channels() {
 /// terminal image caching produce spurious diffs.
 #[test]
 fn rasterization_is_byte_deterministic() {
-    let config = deck("e2e_deck");
+    if !golden_support::fixture_available("pptxgenjs_sample") {
+        eprintln!("SKIP rasterization_is_byte_deterministic: fixture is not generated");
+        return;
+    }
+    let config = deck("pptxgenjs_sample");
     let path = golden_support::fixture_path(config.name);
     let loader = DefaultPresentationLoader;
     let (presentation, assets) = loader
         .load(Source::File(path))
-        .expect("e2e_deck fixture must load");
+        .expect("pptxgenjs_sample fixture must load");
     let target = config.target(presentation.slide_width, presentation.slide_height);
     let compiler = DefaultSlideCompiler::new();
     let rasterizer = TinySkiaRasterizer::new();

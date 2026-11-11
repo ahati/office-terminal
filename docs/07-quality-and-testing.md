@@ -34,8 +34,10 @@ Generated deterministically via `tests/corpus/generate.rs`:
 3. **Fidelity Suite**: Dedicated slide for each DEGRADED and PLACEHOLDER matrix entry ([PRD 02d](./02d-element-renderers-and-fidelity-policy.md) §2).
 4. **Boundary Cases**: Zero-width shapes, off-slide elements, single-pixel lines, overlapping z-orders.
 
-### 3.2 Real-World Fidelity Corpus (`tests/corpus/fidelity/`)
-A curated set of 50 permissively licensed real-world presentations compared against upstream browser reference renders.
+### 3.2 Fidelity Corpus (`tests/corpus/fidelity/`)
+Generated fixtures (PptxGenJS) compared against upstream browser reference
+renders. A real-world deck may be added only when its license and attribution
+are recorded in the corpus manifest.
 
 ### 3.3 Robustness & Fuzz Corpus (`tests/corpus/robustness/`)
 - Seeded from upstream fuzz targets (`fuzz/fuzz_targets/fuzz_parse.rs`).
