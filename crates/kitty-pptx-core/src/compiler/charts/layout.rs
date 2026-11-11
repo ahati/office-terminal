@@ -406,6 +406,7 @@ pub fn make_simple_run(
             x: cur_x,
             y: y_pos,
             advance: gw,
+            warp_u: None,
         });
         cur_x += gw;
     }
@@ -420,5 +421,6 @@ pub fn make_simple_run(
         glyphs,
         underline: false,
         strikethrough: false,
+        warp: None,
     }
 }

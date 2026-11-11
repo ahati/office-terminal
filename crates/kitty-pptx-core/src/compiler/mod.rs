@@ -9,6 +9,7 @@ pub mod shapes;
 pub mod style;
 pub mod tables;
 pub mod text;
+pub mod text_warp;
 pub mod transform;
 
 pub use style::parse_hex_color;

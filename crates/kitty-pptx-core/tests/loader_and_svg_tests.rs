@@ -77,10 +77,17 @@ fn test_svg_export_modes_and_image_embedding() {
                 bold: false,
                 italic: false,
                 glyphs: vec![
-                    PositionedGlyph { glyph_id: 0, x: 200000.0, y: 300000.0, advance: 50000.0 },
+                    PositionedGlyph {
+                        glyph_id: 0,
+                        x: 200000.0,
+                        y: 300000.0,
+                        advance: 50000.0,
+                        warp_u: None,
+                    },
                 ],
                 underline: true,
                 strikethrough: false,
+                warp: None,
             },
         ],
         transform: AffineTransform::default(),

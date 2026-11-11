@@ -28,7 +28,7 @@ A PowerPoint renderer that silently omits unsupported features produces deceptiv
 | Inset Stroke (`algn="in"`) | **FULL** | Path clipping mask with double-width stroke ([PRD 02b](./02b-vector-style-and-geometry-engine.md) §3.2). |
 | Line-end Arrowheads | **DEGRADED** | Fixed-proportion arrowhead markers rendered at endpoints. |
 | Shape Effects (shadow, glow, 3-D) | **OMITTED** | Geometry and fill compile normally; effects omitted + warning. |
-| WordArt Text Warp | **DEGRADED** | Approximate per-glyph envelopes for the common inflate/deflate presets; other presets render flat and emit a warning. |
+| WordArt Text Warp | **DEGRADED** | Spec-driven ECMA-376 preset envelopes (40 definitions) mapped per glyph; parity with PowerPoint is still being refined. |
 
 ### 2.2 Picture & Image Features
 
