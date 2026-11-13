@@ -32,7 +32,76 @@ impl VectorSlide {
 pub enum VectorBackground {
     Solid([u8; 4]),
     Gradient(VectorGradient),
-    Image { rel_id: String },
+    /// `<a:blipFill>` slide background (ECMA-376 §20.1.8.14). The reference
+    /// paints an opaque white base, clips to the slide rectangle and only then
+    /// places the blip, honouring the `srcRect` crop, the `fillRect`
+    /// destination insets and `a:tile` repetition (ref renderer.ts:2218-2362).
+    Image {
+        rel_id: String,
+        /// `<a:srcRect>` source window as fractions of the native bitmap. Held
+        /// as the *logical* window (`x = l`, `y = t`, `w = 1-l-r`,
+        /// `h = 1-t-b`) so negative insets stay outside `[0, 1]` and a tiled
+        /// fill repeats the authored extent (`tileSourceExtent`,
+        /// ref renderer.ts:2408-2417). Renderers clamp it to the bitmap.
+        src_rect: NormalizedRect,
+        /// `<a:stretch><a:fillRect>` destination as fractions of the slide box
+        /// (`x = l`, `y = t`, `w = 1-l-r`, `h = 1-t-b`); negative insets
+        /// overscan past the slide edge (ref renderer.ts:2298-2306).
+        /// `None` = full-bleed.
+        fill_rect: Option<RectF32>,
+        /// `<a:tile>` repetition. `Some` selects the tiled placement and
+        /// ignores `fill_rect` (the parser keeps them mutually exclusive).
+        tile: Option<BackgroundTile>,
+        /// `<a:alphaModFix>` opacity multiplier, `1.0` = opaque
+        /// (ref renderer.ts:2315).
+        opacity: f32,
+    },
+}
+
+impl VectorBackground {
+    /// Full-bleed image background: no crop, no insets, no tiling, opaque.
+    /// The `Default` shape of [`VectorBackground::Image`].
+    pub fn full_bleed_image(rel_id: impl Into<String>) -> Self {
+        Self::Image {
+            rel_id: rel_id.into(),
+            src_rect: NormalizedRect::default(),
+            fill_rect: None,
+            tile: None,
+            opacity: 1.0,
+        }
+    }
+}
+
+/// `<a:tile>` placement facts for a tiled slide background
+/// (ECMA-376 §20.1.8.58 `CT_TileInfoProperties`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BackgroundTile {
+    /// `<a:tile @tx>` phase offset in EMU.
+    pub tx: i64,
+    /// `<a:tile @ty>` phase offset in EMU.
+    pub ty: i64,
+    /// `<a:tile @sx>` horizontal scale as a fraction (`1.0` = native size).
+    pub sx: f32,
+    /// `<a:tile @sy>` vertical scale as a fraction.
+    pub sy: f32,
+    /// `<a:tile @flip>`: `none` | `x` | `y` | `xy`.
+    pub flip: String,
+    /// `<a:tile @algn>` `ST_RectAlignment`; absence registers the grid at the
+    /// top-left (ref renderer.ts:2377-2403, `tile.algn ?? 'tl'`).
+    pub algn: String,
+}
+
+impl Default for BackgroundTile {
+    fn default() -> Self {
+        Self {
+            tx: 0,
+            ty: 0,
+            sx: 1.0,
+            sy: 1.0,
+            flip: "none".to_string(),
+            algn: "tl".to_string(),
+        }
+    }
 }
 
 /// Vector display command.

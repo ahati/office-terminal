@@ -4,7 +4,7 @@ use crate::contracts::{
     VectorStroke,
 };
 use crate::compiler::style::parse_hex_color;
-use super::layout::{axis_label_font_pt, make_simple_run, ChartLayout};
+use super::layout::{axis_label_font_pt, make_simple_run, AxisTitleBand, ChartLayout};
 use super::types::{get_category_label, ChartDataBounds, ChartFamily};
 
 pub fn compile_axes(
@@ -263,6 +263,8 @@ pub fn compile_axes(
         }
     }
 
+    commands.extend(compile_axis_titles(layout, transform));
+
     commands
 }
 
@@ -275,4 +277,63 @@ fn format_number_label(val: f64, is_percent: bool) -> String {
     } else {
         format!("{:.1}", val)
     }
+}
+
+/// Paint the authored category / value axis titles.
+///
+/// ref core/src/chart/layout.ts:392-524: the category title is centred under
+/// the plot, the value title is rotated bottom-to-top in the left gutter
+/// (`axisTitleRotationRad('left') = -PI/2`). The run contract has no rotation,
+/// so a stacked title is emitted as one glyph-per-line run, which the rasterizer
+/// and the SVG exporter both paint vertically.
+pub fn compile_axis_titles(layout: &ChartLayout, transform: AffineTransform) -> Vec<VectorCommand> {
+    let mut commands = Vec::new();
+    for band in [layout.cat_title.as_ref(), layout.val_title.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        if band.vertical {
+            commands.extend(stacked_axis_title(band, transform));
+        } else {
+            commands.push(VectorCommand::DrawText {
+                runs: vec![axis_title_run(band, band.text.clone(), band.x, band.y, "center")],
+                transform,
+            });
+        }
+    }
+    commands
+}
+
+fn stacked_axis_title(band: &AxisTitleBand, transform: AffineTransform) -> Vec<VectorCommand> {
+    let font = band.font_pt * 12700.0;
+    let count = band.text.chars().count() as f32;
+    // Centre the stack on the anchor, growing upward (bottom-to-top text).
+    let first = band.y + (count - 1.0) * font / 2.0;
+    band.text
+        .chars()
+        .enumerate()
+        .map(|(idx, ch)| VectorCommand::DrawText {
+            runs: vec![axis_title_run(
+                band,
+                ch.to_string(),
+                band.x,
+                first - idx as f32 * font,
+                "center",
+            )],
+            transform,
+        })
+        .collect()
+}
+
+fn axis_title_run(
+    band: &AxisTitleBand,
+    text: String,
+    x: f32,
+    y: f32,
+    alignment: &str,
+) -> crate::contracts::PositionedGlyphRun {
+    let mut run = make_simple_run(&text, band.font_pt, band.color, x, y, alignment);
+    run.bold = band.bold;
+    run.italic = band.italic;
+    run
 }

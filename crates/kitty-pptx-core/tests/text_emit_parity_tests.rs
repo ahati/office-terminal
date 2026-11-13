@@ -360,3 +360,181 @@ fn display_math_makes_a_taller_line_box_than_inline() {
         "display math ends below the inline denominator: inline={inline_bottom}, display={display_bottom}"
     );
 }
+
+// ── `rPr@baseline` superscript / subscript ──────────────────────────────────
+
+const EMU_PER_PT: f32 = 12_700.0;
+
+/// One single-run paragraph at `size_pt`, optionally carrying `rPr@baseline`
+/// (thousandths of a point; positive = superscript). The run is authored with
+/// an underline and a strike so the shrunk path can be checked to keep both.
+fn baseline_body(text: &str, size_pt: f32, baseline: Option<i32>) -> pptx_model::TextBody {
+    let baseline_field = baseline.map_or_else(String::new, |value| {
+        format!(r#", "baseline": {value}"#)
+    });
+    let json = format!(
+        r#"{{
+            "verticalAnchor": "t",
+            "defaultFontSize": {size_pt},
+            "lIns": 0, "rIns": 0, "tIns": 0, "bIns": 0,
+            "wrap": "none",
+            "vert": "horz",
+            "autoFit": "none",
+            "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false,
+            "anchorCtr": false,
+            "paragraphs": [{{
+                "alignment": "l",
+                "marL": 0, "marR": 0, "indent": 0,
+                "spaceBefore": null,
+                "lvl": 0,
+                "bullet": {{ "type": "none" }},
+                "defFontSize": {size_pt},
+                "tabStops": [],
+                "defTabSz": null,
+                "rtl": false,
+                "eaLnBrk": true,
+                "runs": [{{
+                    "type": "text",
+                    "text": "{text}",
+                    "bold": false, "italic": false,
+                    "underline": true, "strikethrough": true,
+                    "strikeDouble": false,
+                    "hyperlinkUsesTextFill": false,
+                    "fieldType": null,
+                    "fontSize": {size_pt},
+                    "color": "000000",
+                    "fontFamily": "Calibri"{baseline_field}
+                }}]
+            }}]
+        }}"#
+    );
+    serde_json::from_str(&json).expect("baseline text body fixture")
+}
+
+/// The body's one emitted run.
+fn only_run(commands: &[VectorCommand]) -> &PositionedGlyphRun {
+    let (runs, _) = draw_text(commands);
+    assert_eq!(runs.len(), 1, "expected a single run: {runs:?}");
+    &runs[0]
+}
+
+fn run_advance(run: &PositionedGlyphRun) -> f32 {
+    run.glyphs.iter().map(|glyph| glyph.advance).sum()
+}
+
+fn glyph_y(run: &PositionedGlyphRun) -> f32 {
+    run.glyphs.first().expect("a shaped glyph").y
+}
+
+/// ref renderer.ts:1549-1553 `baselineDrawSizePx` + `:5981`: a `+30000`
+/// baseline paints the 20 pt run at 13 pt and lifts it by
+/// `0.3 × 20 pt = 6 pt` (the canvas is y-down, so positive = up).
+#[test]
+fn positive_baseline_superscripts_at_65_percent() {
+    let plain_commands = compile(&baseline_body("x", POINTS, None), 4_000_000, 1_000_000);
+    let plain = only_run(&plain_commands);
+    let sup_commands = compile(
+        &baseline_body("x", POINTS, Some(30_000)),
+        4_000_000,
+        1_000_000,
+    );
+    let sup = only_run(&sup_commands);
+
+    close(sup.font_size_pt, 13.0, "superscript draw size");
+    close(
+        glyph_y(sup),
+        glyph_y(plain) - 6.0 * EMU_PER_PT,
+        "superscript lift",
+    );
+    // Authored face, weight, colour and decorations survive the shrink.
+    assert_eq!(sup.font_family, plain.font_family);
+    assert_eq!((sup.bold, sup.italic), (plain.bold, plain.italic));
+    assert_eq!(sup.color, plain.color);
+    assert!(sup.underline && sup.strikethrough, "decorations kept");
+
+    // The glyph advance is the 13 pt advance, not the authored 20 pt one.
+    let thirteen_commands = compile(&baseline_body("x", 13.0, None), 4_000_000, 1_000_000);
+    let thirteen = only_run(&thirteen_commands);
+    close(run_advance(sup), run_advance(thirteen), "advance at 0.65 size");
+    assert!(
+        run_advance(sup) < run_advance(plain),
+        "the shrunk run must advance less than the authored one: {} vs {}",
+        run_advance(sup),
+        run_advance(plain)
+    );
+}
+
+/// `baseline=-25000` on a 12.5 pt run: painted at `12.5 × 0.65 = 8.125 pt`,
+/// lowered by `0.25 × 12.5 pt = 3.125 pt`.
+#[test]
+fn negative_baseline_subscripts_below_the_baseline() {
+    let plain_commands = compile(&baseline_body("x", 12.5, None), 4_000_000, 1_000_000);
+    let plain = only_run(&plain_commands);
+    let sub_commands = compile(
+        &baseline_body("x", 12.5, Some(-25_000)),
+        4_000_000,
+        1_000_000,
+    );
+    let sub = only_run(&sub_commands);
+
+    close(sub.font_size_pt, 8.125, "subscript draw size");
+    close(
+        glyph_y(sub),
+        glyph_y(plain) + 3.125 * EMU_PER_PT,
+        "subscript drop",
+    );
+    assert!(
+        run_advance(sub) < run_advance(plain),
+        "the shrunk run must advance less: {} vs {}",
+        run_advance(sub),
+        run_advance(plain)
+    );
+}
+
+/// `baseline=0` is the same as an absent baseline: full authored size, no
+/// shift (the parser drops an explicit `0`, so both spellings reach the
+/// emitter as "not shifted").
+#[test]
+fn zero_and_absent_baseline_render_identically() {
+    let absent_commands = compile(&baseline_body("x", POINTS, None), 4_000_000, 1_000_000);
+    let absent = only_run(&absent_commands);
+    let zero_commands = compile(&baseline_body("x", POINTS, Some(0)), 4_000_000, 1_000_000);
+    let zero = only_run(&zero_commands);
+
+    close(zero.font_size_pt, POINTS, "authored size kept");
+    close(zero.font_size_pt, absent.font_size_pt, "size");
+    close(glyph_y(zero), glyph_y(absent), "baseline");
+    close(run_advance(zero), run_advance(absent), "advance");
+}
+
+/// ref renderer.ts:1550 `The authored size still owns line height`: the
+/// shrunk run keeps its full 1.2 em box, so the baseline a `+30000` run
+/// shares with a plain run of the same authored size is unchanged.
+#[test]
+fn baseline_run_keeps_the_authored_line_box() {
+    let plain_commands = compile(&baseline_body("x", POINTS, None), 4_000_000, 1_000_000);
+    let plain = only_run(&plain_commands);
+    let sup_commands = compile(
+        &baseline_body("x", POINTS, Some(30_000)),
+        4_000_000,
+        1_000_000,
+    );
+    let sup = only_run(&sup_commands);
+    // Top-anchored single line: the line's baseline sits at the box ascent, so
+    // removing the shift must land exactly on the plain 20 pt baseline.
+    close(
+        glyph_y(sup) + 6.0 * EMU_PER_PT,
+        glyph_y(plain),
+        "line box height",
+    );
+
+    // The line box follows the authored size, not the 13 pt draw size.
+    let thirteen_commands = compile(&baseline_body("x", 13.0, None), 4_000_000, 1_000_000);
+    let thirteen = only_run(&thirteen_commands);
+    assert!(
+        (glyph_y(plain) - glyph_y(thirteen)).abs() > 1_000.0,
+        "a 13 pt run must sit on a shorter line box: {} vs {}",
+        glyph_y(plain),
+        glyph_y(thirteen)
+    );
+}
