@@ -47,8 +47,18 @@ pub enum Commands {
         out: PathBuf,
         #[arg(short, long, value_enum, default_value = "png")]
         format: ExportFormat,
-        #[arg(long, default_value = "150")]
+        #[arg(
+            long,
+            default_value = "150",
+            help = "Render DPI for PNG exports (ignored when --width is given)"
+        )]
         dpi: u32,
+        #[arg(
+            long,
+            value_name = "PX",
+            help = "Explicit PNG width in pixels; height follows the slide aspect. Takes precedence over --dpi"
+        )]
+        width: Option<u32>,
         #[arg(short, long, help = "Slide range (e.g. '1-3,5,10-')")]
         slides: Option<String>,
     },

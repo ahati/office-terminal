@@ -19,11 +19,12 @@ fn test_cli_parse_export_subcommand() {
     .expect("parsing CLI failed");
 
     match args.command {
-        Some(Commands::Export { file, out, format, dpi, slides }) => {
+        Some(Commands::Export { file, out, format, dpi, width, slides }) => {
             assert_eq!(file.to_str().unwrap(), "test.pptx");
             assert_eq!(out.to_str().unwrap(), "/tmp/export_dir");
             assert_eq!(format, ExportFormat::Svg);
             assert_eq!(dpi, 300);
+            assert_eq!(width, None);
             assert_eq!(slides.as_deref(), Some("1-3,5"));
         }
         _ => panic!("Expected Export subcommand"),

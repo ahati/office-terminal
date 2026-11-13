@@ -1,22 +1,15 @@
-//! Optional cross-renderer comparison against pinned LibreOffice fixtures.
+//! Optional, self-skipping comparison against pinned LibreOffice fixtures.
 //!
-//! The fixtures are fetched into `target/external/fixtures/<commit>/` by
-//! `tests/golden/external/run.py`; the reference PNGs are rendered by
-//! `office-open-xml-viewer` through Playwright into
-//! `target/external/goldens/<commit>/`. Neither the fixtures nor the reference
-//! images are committed.
+//! `run.py` fills `target/external/{fixtures,goldens}/<commit>/`; neither is
+//! committed. Without a complete cache and matching `stamp.json` the test
+//! prints a one-line skip and returns; with the cache it compares. It is
+//! perceptual, not pixel-identical: another renderer and font stack differ.
 //!
-//! This is intentionally an opt-in, expensive test:
-//!
-//! ```sh
-//! python3 crates/kitty-pptx-core/tests/golden/external/run.py
-//! ```
-//!
-//! The normal `cargo test` run ignores it. The comparison is perceptual, not
-//! pixel-identical: another renderer and another font stack are expected to
-//! differ on glyphs and anti-aliasing.
+//!     python3 crates/kitty-pptx-core/tests/golden/external/run.py
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossbeam_channel::unbounded;
 use kitty_pptx_core::{
@@ -25,21 +18,25 @@ use kitty_pptx_core::{
 };
 use serde::Deserialize;
 
-const MANIFEST: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/golden/external/fixtures.json"
-);
+const MANIFEST_RELATIVE: &str = "tests/golden/external/fixtures.json";
+const CACHE_RELATIVE: &str = "target/external";
+const RUN_COMMAND: &str = "python3 crates/kitty-pptx-core/tests/golden/external/run.py";
 
-#[derive(Debug, Deserialize)]
+/// The committed manifest is the single source of truth for the corpus.
+#[derive(Deserialize)]
 struct Manifest {
+    upstream: String,
     commit: String,
+    license: String,
     render_width: u32,
     files: Vec<Fixture>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct Fixture {
     name: String,
+    path: String,
+    sha256: String,
     slides: usize,
     strict: bool,
     note: String,
@@ -61,8 +58,127 @@ impl Thresholds {
     };
 }
 
-struct RenderedDeck {
-    slides: Vec<RgbaSlide>,
+/// The subset of `stamp.json` that proves the cached pixels match the manifest.
+#[derive(Deserialize)]
+struct Stamp {
+    commit: String,
+    render_width: u32,
+    fixtures: Vec<StampFixture>,
+}
+
+#[derive(Deserialize)]
+struct StampFixture {
+    name: String,
+    sha256: String,
+    slides: usize,
+}
+
+/// A discovered, complete external corpus. This is the only place that reads
+/// the manifest and cache layout, so adding a fixture needs no test edit.
+struct ExternalCorpus {
+    manifest: Manifest,
+    fixtures_dir: PathBuf,
+    goldens_dir: PathBuf,
+}
+
+impl ExternalCorpus {
+    fn discover() -> Result<Self, String> {
+        let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(MANIFEST_RELATIVE);
+        let manifest = load_manifest(&manifest_path);
+        let commit = manifest.commit.clone();
+        let dir = |variable: &str, kind: &str| {
+            cache_dir(
+                variable,
+                repo_root().join(CACHE_RELATIVE).join(kind).join(&commit),
+            )
+        };
+        let fixtures_dir = dir("KITTY_PPTX_EXTERNAL_FIXTURES", "fixtures");
+        let goldens_dir = dir("KITTY_PPTX_EXTERNAL_GOLDENS", "goldens");
+
+        for fixture in &manifest.files {
+            let path = fixtures_dir.join(format!("{}.pptx", fixture.name));
+            if !path.is_file() {
+                return Err(unavailable(format!(
+                    "fixture cache is incomplete: {} is missing",
+                    path.display()
+                )));
+            }
+        }
+
+        let stamp = read_stamp(&goldens_dir)?;
+        check_stamp(&stamp, &manifest, &goldens_dir)?;
+
+        for fixture in &manifest.files {
+            for slide in 1..=fixture.slides {
+                let png = goldens_dir
+                    .join(&fixture.name)
+                    .join(format!("slide_{slide:03}.png"));
+                if png
+                    .metadata()
+                    .map(|metadata| metadata.len() == 0)
+                    .unwrap_or(true)
+                {
+                    return Err(unavailable(format!(
+                        "reference cache is incomplete: {} is missing or empty",
+                        png.display()
+                    )));
+                }
+            }
+        }
+
+        Ok(Self {
+            manifest,
+            fixtures_dir,
+            goldens_dir,
+        })
+    }
+}
+
+fn load_manifest(path: &Path) -> Manifest {
+    let text = std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    serde_json::from_str(&text)
+        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
+}
+
+fn unavailable(reason: String) -> String {
+    format!("{reason}; run `{RUN_COMMAND}`")
+}
+
+fn read_stamp(goldens_dir: &Path) -> Result<Stamp, String> {
+    let path = goldens_dir.join("stamp.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|_| unavailable(format!("reference cache is missing: {}", path.display())))?;
+    serde_json::from_str(&text).map_err(|error| {
+        unavailable(format!(
+            "{} is not a valid render stamp ({error})",
+            path.display()
+        ))
+    })
+}
+
+/// Requires the stamp's commit, width, and fixture identities to match.
+fn check_stamp(stamp: &Stamp, manifest: &Manifest, goldens_dir: &Path) -> Result<(), String> {
+    if stamp.commit != manifest.commit || stamp.render_width != manifest.render_width {
+        return Err(unavailable(format!(
+            "references are {} at {}px, fixtures.json pins {} at {}px",
+            stamp.commit, stamp.render_width, manifest.commit, manifest.render_width
+        )));
+    }
+    let matches = |fixture: &Fixture| {
+        stamp.fixtures.iter().any(|entry| {
+            entry.name == fixture.name
+                && entry.sha256 == fixture.sha256
+                && entry.slides == fixture.slides
+        })
+    };
+    if stamp.fixtures.len() != manifest.files.len() || !manifest.files.iter().all(matches) {
+        return Err(unavailable(format!(
+            "references in {} do not match fixtures.json",
+            goldens_dir.display()
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -78,14 +194,17 @@ impl RgbImage {
     }
 
     fn from_raw_rgba(width: u32, height: u32, data: &[u8]) -> Self {
-        let mut pixels = Vec::with_capacity(width as usize * height as usize * 3);
-        for pixel in data.as_chunks::<4>().0 {
-            let alpha = f64::from(pixel[3]) / 255.0;
-            for channel in &pixel[..3] {
-                let value = f64::from(*channel) * alpha + 255.0 * (1.0 - alpha);
-                pixels.push(value.round() as u8);
-            }
-        }
+        let pixels = data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|pixel| {
+                let alpha = f64::from(pixel[3]) / 255.0;
+                pixel[..3].iter().map(move |channel| {
+                    (f64::from(*channel) * alpha + 255.0 * (1.0 - alpha)).round() as u8
+                })
+            })
+            .collect();
         Self {
             width,
             height,
@@ -115,7 +234,7 @@ struct DiffMetrics {
     cells_y: u32,
 }
 
-fn mainline_thresholds(fixture: &Fixture) -> Thresholds {
+fn thresholds_for(fixture: &Fixture) -> Thresholds {
     fixture.thresholds.unwrap_or(Thresholds::DEFAULT)
 }
 
@@ -133,7 +252,7 @@ fn cache_dir(variable: &str, fallback: PathBuf) -> PathBuf {
         .unwrap_or(fallback)
 }
 
-fn render_fixture(path: &Path, width_px: u32) -> RenderedDeck {
+fn render_fixture(path: &Path, width_px: u32) -> Vec<RgbaSlide> {
     let loader = DefaultPresentationLoader;
     let (presentation, assets) = loader
         .load(Source::File(path.to_path_buf()))
@@ -160,25 +279,13 @@ fn render_fixture(path: &Path, width_px: u32) -> RenderedDeck {
                 presentation.slide_height,
                 &tx,
             )
-            .unwrap_or_else(|error| {
-                panic!(
-                    "{} slide {} failed to compile: {error}",
-                    path.display(),
-                    index + 1
-                )
-            });
+            .unwrap_or_else(|error| panic!("{} slide {}: {error}", path.display(), index + 1));
         let rendered = rasterizer
             .rasterize(&vector, &target, assets.as_ref())
-            .unwrap_or_else(|error| {
-                panic!(
-                    "{} slide {} failed to rasterize: {error}",
-                    path.display(),
-                    index + 1
-                )
-            });
+            .unwrap_or_else(|error| panic!("{} slide {}: {error}", path.display(), index + 1));
         slides.push(rendered);
     }
-    RenderedDeck { slides }
+    slides
 }
 
 fn resize_box(input: &RgbImage, width: u32, height: u32) -> RgbImage {
@@ -251,11 +358,7 @@ fn compare(actual: &RgbImage, reference: &RgbImage, tolerance: f64) -> DiffMetri
             let delta = actual_sum
                 .iter()
                 .zip(reference_sum.iter())
-                .map(|(actual_sum, reference_sum)| {
-                    let actual_mean = *actual_sum as f64 / count as f64;
-                    let reference_mean = *reference_sum as f64 / count as f64;
-                    (actual_mean - reference_mean).abs()
-                })
+                .map(|(a, r)| (*a as f64 / count as f64 - *r as f64 / count as f64).abs())
                 .sum::<f64>()
                 / 3.0;
             sum += delta;
@@ -286,57 +389,26 @@ fn load_reference(path: &Path) -> RgbImage {
     RgbImage::from_raw_rgba(image.width(), image.height(), image.as_raw())
 }
 
-#[test]
-#[ignore = "expensive external renderer; run crates/kitty-pptx-core/tests/golden/external/run.py"]
-fn external_libreoffice_renderer_comparison() {
-    let manifest_text =
-        std::fs::read_to_string(MANIFEST).expect("external fixture manifest must be readable");
-    let manifest: Manifest =
-        serde_json::from_str(&manifest_text).expect("external fixture manifest must parse");
-
-    let fixtures_dir = cache_dir(
-        "KITTY_PPTX_EXTERNAL_FIXTURES",
-        repo_root()
-            .join("target/external/fixtures")
-            .join(&manifest.commit),
-    );
-    let goldens_dir = cache_dir(
-        "KITTY_PPTX_EXTERNAL_GOLDENS",
-        repo_root()
-            .join("target/external/goldens")
-            .join(&manifest.commit),
-    );
-
-    assert!(
-        fixtures_dir.is_dir(),
-        "missing external fixtures at {}; run \
-         `python3 crates/kitty-pptx-core/tests/golden/external/run.py` first",
-        fixtures_dir.display()
-    );
-    assert!(
-        goldens_dir.is_dir(),
-        "missing external references at {}; run \
-         `python3 crates/kitty-pptx-core/tests/golden/external/run.py` first",
-        goldens_dir.display()
-    );
-
+/// Renders every manifest fixture and compares it against the cached references.
+fn compare_corpus(corpus: &ExternalCorpus) {
     let mut failures = Vec::new();
-    for fixture in &manifest.files {
-        let path = fixtures_dir.join(format!("{}.pptx", fixture.name));
-        let rendered = render_fixture(&path, manifest.render_width);
-        if rendered.slides.len() != fixture.slides {
+    for fixture in &corpus.manifest.files {
+        let path = corpus.fixtures_dir.join(format!("{}.pptx", fixture.name));
+        let rendered = render_fixture(&path, corpus.manifest.render_width);
+        if rendered.len() != fixture.slides {
             failures.push(format!(
                 "{}: expected {} slide(s), rendered {}",
                 fixture.name,
                 fixture.slides,
-                rendered.slides.len()
+                rendered.len()
             ));
             continue;
         }
 
-        let thresholds = mainline_thresholds(fixture);
-        for (index, actual) in rendered.slides.iter().enumerate() {
-            let reference_path = goldens_dir
+        let thresholds = thresholds_for(fixture);
+        for (index, actual) in rendered.iter().enumerate() {
+            let reference_path = corpus
+                .goldens_dir
                 .join(&fixture.name)
                 .join(format!("slide_{:03}.png", index + 1));
             let reference = load_reference(&reference_path);
@@ -400,9 +472,121 @@ fn external_libreoffice_renderer_comparison() {
     assert!(
         failures.is_empty(),
         "external renderer comparison failed:\n  {}\n\
-         Regenerate references with `python3 \
-         crates/kitty-pptx-core/tests/golden/external/run.py --force-render` \
+         Regenerate references with `{RUN_COMMAND} --force-render` \
          and review the metric drift before changing budgets.",
         failures.join("\n  ")
     );
+}
+
+fn run_external_comparison() {
+    // `--include-ignored` selects both entry points; render once per process.
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::SeqCst) {
+        println!("external corpus comparison already ran; skipping duplicate");
+        return;
+    }
+    match ExternalCorpus::discover() {
+        Ok(corpus) => compare_corpus(&corpus),
+        Err(reason) => println!("skipping external corpus comparison: {reason}"),
+    }
+}
+
+#[test]
+fn external_libreoffice_renderer_comparison() {
+    run_external_comparison();
+}
+
+/// Alias for `run.py`'s `--ignored` filter; drop it when `run.py` passes
+/// `--include-ignored`.
+#[test]
+#[ignore = "alias for run.py's --ignored filter; the main test is self-skipping"]
+fn external_libreoffice_renderer_comparison_via_run_py() {
+    run_external_comparison();
+}
+
+#[test]
+fn manifest_is_internally_consistent() {
+    let manifest = load_manifest(&Path::new(env!("CARGO_MANIFEST_DIR")).join(MANIFEST_RELATIVE));
+
+    assert!(
+        manifest.upstream.starts_with("https://"),
+        "upstream must be https"
+    );
+    assert!(
+        !manifest.license.trim().is_empty(),
+        "license must be recorded"
+    );
+    assert!(
+        is_lower_hex(&manifest.commit, 40),
+        "commit must be 40 lowercase hex characters"
+    );
+    assert!(
+        (1..=10_000).contains(&manifest.render_width),
+        "render_width out of range"
+    );
+    assert!(
+        !manifest.files.is_empty(),
+        "manifest must list at least one fixture"
+    );
+
+    let mut names = BTreeSet::new();
+    for fixture in &manifest.files {
+        assert!(
+            names.insert(fixture.name.as_str()),
+            "duplicate fixture name {:?}",
+            fixture.name
+        );
+        assert_fixture_consistent(fixture);
+    }
+    assert!(
+        manifest.files.iter().any(|fixture| fixture.strict),
+        "at least one fixture must be strict so the comparison can fail"
+    );
+}
+
+fn assert_fixture_consistent(fixture: &Fixture) {
+    let name = &fixture.name;
+    assert!(is_safe_name(name), "unsafe fixture name {name:?}");
+    assert!(
+        is_lower_hex(&fixture.sha256, 64),
+        "{name}: sha256 must be 64 lowercase hex characters"
+    );
+    assert!(fixture.slides > 0, "{name}: slide count must be > 0");
+    assert!(
+        fixture.path.starts_with("sd/qa/unit/data/pptx/"),
+        "{name}: path must be LibreOffice pptx QA data"
+    );
+    assert!(
+        fixture.path.ends_with(".pptx") && !fixture.path.contains(".."),
+        "{name}: invalid path {:?}",
+        fixture.path
+    );
+    assert!(
+        !fixture.note.trim().is_empty(),
+        "{name}: note must describe what the fixture covers"
+    );
+    let thresholds = thresholds_for(fixture);
+    assert!(
+        thresholds.min_cell_pass_ratio > 0.0
+            && thresholds.min_cell_pass_ratio <= 1.0
+            && thresholds.max_global_mean_abs_diff > 0.0
+            && thresholds.max_global_mean_abs_diff <= 255.0
+            && thresholds.max_ink_fraction_delta > 0.0
+            && thresholds.max_ink_fraction_delta <= 1.0,
+        "{name}: thresholds {thresholds:?} out of range"
+    );
+}
+
+fn is_lower_hex(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn is_safe_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
