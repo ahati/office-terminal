@@ -30,21 +30,32 @@ fn image_fill(mode: Value) -> Value {
 ///
 /// §20.1.8.14 EG_FillModeProperties: an omitted mode has no schema default, so
 /// nothing is decoded or painted — but the shape's own outline still is.
-/// Asserted through the compiled display list: zero `DrawImage`, one stroked
-/// `DrawPath` with the fixture's 1 pt black line and no invented fill.
+/// Asserted through the compiled display list (the fill stays visible as an
+/// unpaintable brush) and through a raster pass (no blip pixels).
 #[test]
 fn image_fill_fails_closed_when_the_fill_mode_is_omitted() {
     let mut element = shape("ellipse");
     element["fill"] = image_fill(json!({}));
-    let commands = compile_elements(vec![element]);
+    let slide = compile_slide(vec![element]);
 
-    assert_eq!(draw_image_count(&commands), 0, "no blip may be painted");
-    assert_eq!(commands.len(), 1, "the stroked silhouette survives");
-    let strokes = shape_strokes(&commands);
-    assert_eq!(strokes.len(), 1);
+    let fills = image_fills(&slide.commands);
+    assert_eq!(fills.len(), 1, "the authored fill is retained as evidence");
+    assert!(!fills[0].mode_is_paintable(), "no authored fill mode");
+    assert_eq!(draw_image_count(&slide.commands), 0, "no blip decode command");
+
+    let strokes = shape_strokes(&slide.commands);
+    assert_eq!(strokes.len(), 1, "the stroked silhouette survives");
     let stroke = strokes[0].as_ref().expect("stroke retained");
     assert_eq!((stroke.width_emu, stroke.color), (EMU, [0, 0, 0, 255]));
-    assert_eq!(shape_fills(&commands), vec![None]);
+
+    // ref `expect(calls.some(drawImage)).toBe(false)`: the blip is not painted.
+    let store = RecordingStore::new(vec![(
+        Image::solid("ppt/media/mode.png", 2, 1, [0, 0, 0, 255]),
+        2,
+        1,
+    )]);
+    let rendered = rasterize(&slide, &store);
+    assert_eq!(pixel(&rendered, 20, 140), [255, 255, 255, 255], "no blip");
 }
 
 /// `it.each` "fails closed when the fill mode is %s" — `conflicting`
@@ -59,13 +70,28 @@ fn image_fill_fails_closed_when_tile_and_stretch_conflict() {
         "stretch": true,
         "tile": {"algn": "tl", "tx": 0, "ty": 0, "sx": 1.0, "sy": 1.0, "flip": "none"},
     }));
-    let commands = compile_elements(vec![element]);
+    let slide = compile_slide(vec![element]);
 
-    assert_eq!(draw_image_count(&commands), 0, "no blip may be painted");
-    assert_eq!(shape_fills(&commands), vec![None]);
-    let strokes = shape_strokes(&commands);
+    let fills = image_fills(&slide.commands);
+    assert_eq!(fills.len(), 1);
+    assert!(!fills[0].mode_is_paintable(), "tile + stretch is invalid");
+    assert_eq!(draw_image_count(&slide.commands), 0);
+    let strokes = shape_strokes(&slide.commands);
     assert_eq!(strokes.len(), 1);
     assert_eq!(strokes[0].as_ref().map(|s| s.width_emu), Some(EMU));
+
+    let store = RecordingStore::new(vec![(
+        Image::solid("ppt/media/mode.png", 2, 1, [0, 0, 0, 255]),
+        2,
+        1,
+    )]);
+    let rendered = rasterize(&slide, &store);
+    assert_eq!(pixel(&rendered, 20, 140), [255, 255, 255, 255], "no blip");
+    assert!(
+        store.requests().is_empty(),
+        "a failed-closed fill must not decode: {:?}",
+        store.requests()
+    );
 }
 
 /// "contains an ordinary decode failure while retaining shape stroke and text"
@@ -110,12 +136,12 @@ fn image_fill_failure_retains_stroke_and_text() {
 mod support_checks {
     use super::*;
 
-    /// `renderer-shape-image-fill.test.ts` (all 18 BLOCKED rows) and
-    /// `pattern-thumbnail.test.ts`: a `Fill::Image` or `Fill::Pattern` shape fill
-    /// never reaches the display list. Pinned so a future image-fill/pattern
-    /// implementation must come back here deliberately.
+    /// `renderer-shape-image-fill.test.ts` and `pattern-thumbnail.test.ts`:
+    /// `Fill::Pattern` compiles to a tiled bitmap brush (§20.1.8.40) and
+    /// `Fill::Image` to a blip brush (§20.1.8.14). A preset outside
+    /// ST_PresetPatternVal keeps the reference's solid-foreground fallback.
     #[test]
-    fn compile_fill_projects_pattern_and_image_fills_as_documented() {
+    fn compile_fill_projects_pattern_and_image_fills() {
         let pattern: pptx_model::Fill = serde_json::from_value(json!({
             "fillType": "pattern", "preset": "pct50",
             "fg": "D21D54", "bg": "12CED4",
@@ -123,6 +149,20 @@ mod support_checks {
         .expect("pattern fill");
         assert_eq!(
             compile_fill(&pattern, 1.0),
+            Some(VectorPaint::Pattern(crate::shapes_a_support::pattern_fill(
+                "pct50",
+                [0xd2, 0x1d, 0x54, 255],
+                [0x12, 0xce, 0xd4, 255],
+            )))
+        );
+
+        let unknown: pptx_model::Fill = serde_json::from_value(json!({
+            "fillType": "pattern", "preset": "notAPreset",
+            "fg": "D21D54", "bg": "12CED4",
+        }))
+        .expect("pattern fill");
+        assert_eq!(
+            compile_fill(&unknown, 1.0),
             Some(VectorPaint::Solid([0xd2, 0x1d, 0x54, 255]))
         );
 
@@ -131,13 +171,18 @@ mod support_checks {
             "mimeType": "image/png", "stretch": true,
         }))
         .expect("image fill");
-        assert_eq!(compile_fill(&image, 1.0), None);
+        let Some(VectorPaint::Image(fill)) = compile_fill(&image, 1.0) else {
+            panic!("image fill must compile to a blip brush");
+        };
+        assert_eq!(fill.rel_id, "ppt/media/a.png");
+        assert!(fill.mode_is_paintable(), "one authored mode");
+        assert_eq!(fill.alpha, 1.0);
     }
 
-    /// `renderer.gradient.test.ts:52-68` wants the authored gradient line;
-    /// `VectorStroke` has no paint slot, so the flat `color` wins.
+    /// `renderer.gradient.test.ts:52-68`: the authored gradient line must keep its
+    /// complete paint (`VectorStroke::paint`), with the flat `color` as fallback.
     #[test]
-    fn stroke_gradient_fill_is_dropped_by_compile_stroke() {
+    fn compile_stroke_keeps_the_gradient_line_paint() {
         let stroke: pptx_model::Stroke = serde_json::from_value(json!({
             "color": "FF0000",
             "width": EMU,
@@ -153,7 +198,19 @@ mod support_checks {
         }))
         .expect("stroke");
         let compiled = compile_stroke(&stroke).expect("stroke");
+        // The flat authored colour stays as the fallback; the complete gradient
+        // paint travels beside it (ref renderer.ts:7542-7565).
         assert_eq!(compiled.color, [255, 0, 0, 255]);
+        match compiled.paint.as_deref() {
+            Some(VectorPaint::LinearGradient(gradient)) => {
+                assert_eq!(gradient.angle_deg, 0.0);
+                assert_eq!(
+                    gradient.stops,
+                    vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]
+                );
+            }
+            other => panic!("the line's gradient paint must survive, got {other:?}"),
+        }
     }
 
     /// ref `geometry.ts:349-399`: `darken` composites black at 102/255, i.e. each

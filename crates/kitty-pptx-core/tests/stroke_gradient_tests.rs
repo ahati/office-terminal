@@ -249,6 +249,7 @@ fn hairline_stroke_floors_at_half_a_pixel() {
                 dash_segments: None,
                 line_cap: LineCap::Butt,
                 line_join: kitty_pptx_core::LineJoin::Miter,
+                paint: None,
             }),
             transform: AffineTransform::default(),
             effects: Box::default(),
@@ -300,6 +301,7 @@ fn sharp_miter_join_is_not_clipped_at_the_reference_limit() {
                 dash_segments: None,
                 line_cap: LineCap::Butt,
                 line_join: kitty_pptx_core::LineJoin::Miter,
+                paint: None,
             }),
             transform: AffineTransform::default(),
             effects: Box::default(),
@@ -398,13 +400,10 @@ fn single_stop_gradient_paints_solid_and_empty_gradient_paints_nothing() {
 #[test]
 fn svg_and_raster_agree_on_linear_axis_endpoints() {
     let path = rect_path(300.0, 150.0);
-    let fill = VectorPaint::LinearGradient(VectorGradient {
-        angle_deg: 0.0,
-        stops: vec![
-            (0.0, [0, 0, 0, 255]),
-            (1.0, [255, 255, 255, 255]),
-        ],
-    });
+    let fill = VectorPaint::LinearGradient(VectorGradient::new(
+        0.0,
+        vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])],
+    ));
     let slide = slide_with(300, 150, path, Some(fill));
     let markup = svg(&slide);
 
@@ -440,13 +439,10 @@ fn svg_and_raster_agree_on_linear_axis_endpoints() {
 #[test]
 fn svg_and_raster_agree_on_the_radial_frame() {
     let path = rect_path(300.0, 150.0);
-    let fill = VectorPaint::RadialGradient(VectorGradient {
-        angle_deg: 0.0,
-        stops: vec![
-            (0.0, [0, 0, 0, 255]),
-            (1.0, [255, 255, 255, 255]),
-        ],
-    });
+    let fill = VectorPaint::RadialGradient(VectorGradient::new(
+        0.0,
+        vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])],
+    ));
     let slide = slide_with(300, 150, path, Some(fill));
     let markup = svg(&slide);
 

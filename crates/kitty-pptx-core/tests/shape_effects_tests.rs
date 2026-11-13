@@ -341,6 +341,8 @@ fn rasterizer_scene_camera_projects_the_path() {
     let scene = VectorScene3d {
         camera_type: "isometricTopUp".to_string(),
         fov_deg: 0.0,
+        zoom: 1.0,
+        rot: None,
         light_rig_type: "threePt".to_string(),
         light_direction_deg: 225.0,
     };
@@ -395,6 +397,10 @@ fn rasterizer_extrusion_layers_below_the_shape() {
             bevel_top_width_emu: 0,
             bevel_top_height_emu: 0,
             bevel_top_type: String::new(),
+            bevel_bottom_width_emu: 0,
+            bevel_bottom_height_emu: 0,
+            bevel_bottom_type: String::new(),
+            prst_material: String::new(),
         }),
         ..Default::default()
     };

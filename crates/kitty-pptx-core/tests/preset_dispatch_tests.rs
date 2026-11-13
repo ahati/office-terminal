@@ -323,10 +323,10 @@ fn fill_modes_tint_solid_paints_like_the_reference() {
     assert_eq!(apply_path_fill_mode(None, PathFill::Norm), None);
 
     // Gradients cannot carry a tinted stop list here, so they stay untinted.
-    let gradient = VectorPaint::LinearGradient(VectorGradient {
-        angle_deg: 90.0,
-        stops: vec![(0.0, [1, 2, 3, 255]), (1.0, [4, 5, 6, 255])],
-    });
+    let gradient = VectorPaint::LinearGradient(VectorGradient::new(
+        90.0,
+        vec![(0.0, [1, 2, 3, 255]), (1.0, [4, 5, 6, 255])],
+    ));
     assert_eq!(
         apply_path_fill_mode(Some(&gradient), PathFill::Darken),
         Some(gradient)

@@ -5,22 +5,24 @@
 //!
 //! Every case is either ported with the reference's own numbers against a Rust
 //! API (EXACT), asserted through the compiled `VectorSlide` (BEHAVIOURAL), or
-//! marked `#[ignore]` with the exact missing symbol when the production API does
-//! not exist yet (BLOCKED). Canvas-only cases are listed in the coverage report
-//! (`tests/parity/coverage/shapes-a.md`) as N/A.
+//! archived (not compiled) with the exact missing symbol when the production
+//! API does not exist yet (BLOCKED). Canvas-only cases are listed in the
+//! coverage report (`tests/parity/coverage/shapes-a.md`) as N/A.
 //!
 //! Layout: this target file holds the custGeom / frame / gradient / pattern
 //! ports; `shapes_a_support/` holds the shared fixtures and the image-fill
 //! cases, loaded as modules so the whole port stays one `--test` target while
 //! every file stays under 600 lines.
+//!
+//! Blocked cases (no production API yet) are archived, not compiled, in
+//! `tests/parity/pending/parity_shapes_a_tests.rs.txt`; the
+//! ledger keeps their rows.
 
-use kitty_pptx_core::compiler::style::linear_gradient_axis;
 use kitty_pptx_core::compiler::transform::compute_shape_transform;
-use kitty_pptx_core::compiler::tables::compile_table_element;
 use kitty_pptx_core::contracts::{
     AffineTransform, PathSegment, VectorCommand, VectorPaint, VectorStroke,
 };
-use pptx_model::TableElement;
+use kitty_pptx_core::svg::SlideSvgSerializer;
 use serde_json::json;
 
 mod shapes_a_support;
@@ -28,7 +30,13 @@ mod shapes_a_support;
 #[path = "shapes_a_support/image_fill_cases.rs"]
 mod image_fill_cases;
 
-use shapes_a_support::{compile_elements, contour, shape, square, EMU};
+#[path = "shapes_a_support/image_fill_paint_cases.rs"]
+mod image_fill_paint_cases;
+
+#[path = "shapes_a_support/gradient_cases.rs"]
+mod gradient_cases;
+
+use shapes_a_support::{compile_elements, compile_slide, contour, shape, square, EMU};
 
 // ---------------------------------------------------------------------------
 // custgeom-path-paint.test.ts
@@ -90,36 +98,6 @@ fn custgeom_combined_path_fills_and_strokes_once() {
             ty: 914_400.0,
         }
     );
-}
-
-/// Case 2 — "honours unfilled, unstroked and shaded paths individually".
-///
-/// BLOCKED: `pptx_model::ShapeElement::cust_geom_paint`
-/// (`pptx_model::PathPaint`) is parsed but never read —
-/// `compiler::shapes::build_shape_paths` hard-codes `PathFill::Norm` /
-/// `stroke: true` for `custGeom`, so every path is filled and stroked once.
-/// The same contract *is* threaded for presets; see
-/// `preset_path_flags_shade_and_stroke_per_path` below.
-#[test]
-#[ignore = "BLOCKED: ShapeElement::cust_geom_paint (pptx_model::PathPaint) is not \
-            consumed by compiler::shapes::build_shape_paths"]
-fn custgeom_per_path_fill_and_stroke_flags() {
-    let mut element = shape("custGeom");
-    element["custGeom"] = json!([square(), square(), square()]);
-    element["custGeomPaint"] = json!([
-        {"fill": null, "stroke": false},
-        {"fill": "none", "stroke": true},
-        {"fill": "darken", "stroke": true},
-    ]);
-    let commands = compile_elements(vec![element]);
-
-    // ref: path 1 paints the base fill, path 2 only its stroke, path 3 the base
-    // fill plus a darkening overlay and then its stroke.
-    let fills = shapes_a_support::shape_fills(&commands);
-    let strokes = shapes_a_support::shape_strokes(&commands);
-    assert_eq!(strokes.iter().filter(|s| s.is_some()).count(), 2);
-    assert_eq!(fills.iter().filter(|f| f.is_some()).count(), 3);
-    assert_eq!(fills[2], Some(VectorPaint::Solid([31, 61, 92, 255])));
 }
 
 /// Supplementary (not a reference case): the same per-path paint contract,
@@ -212,142 +190,71 @@ fn frame_transform_applies_rotation_and_both_flips() {
 }
 
 // ---------------------------------------------------------------------------
-// renderer.gradient.test.ts
-// ---------------------------------------------------------------------------
-
-/// Case 1 — "counter-rotates rotWithShape=false fills using the authored shape
-/// rotation" (`renderer.gradient.test.ts:37-50`).
-///
-/// The reference projects the authored 90° gradient onto the horizontal axis
-/// `(0,50) → (100,50)` because a `rotWithShape="0"` fill must not inherit the
-/// shape's 90° rotation. BLOCKED: `Fill::Gradient::rot_with_shape` is dropped by
-/// `compiler::style::compile_fill` and `VectorGradient` has no rotation slot, so
-/// the gradient always rotates with the shape.
-#[test]
-#[ignore = "BLOCKED: VectorGradient has no rot_with_shape / counter-rotation; \
-            compiler::style::compile_fill drops Fill::Gradient.rot_with_shape"]
-fn rot_with_shape_false_counter_rotates_the_gradient() {
-    let mut element = shape("rect");
-    element["width"] = json!(100);
-    element["height"] = json!(100);
-    element["rotation"] = json!(90.0);
-    element["fill"] = json!({
-        "fillType": "gradient",
-        "stops": [
-            {"position": 0.0, "color": "000000"},
-            {"position": 1.0, "color": "FFFFFF"}
-        ],
-        "angle": 90.0,
-        "gradType": "linear",
-        "rotWithShape": false,
-    });
-
-    let commands = compile_elements(vec![element]);
-    let fills = shapes_a_support::shape_fills(&commands);
-    let Some(Some(VectorPaint::LinearGradient(gradient))) = fills.first() else {
-        panic!("expected a linear gradient fill, got {fills:?}");
-    };
-    // Counter-rotated by the authored 90° shape rotation.
-    assert!(
-        gradient.angle_deg.abs() < 1e-6,
-        "angle: {}",
-        gradient.angle_deg
-    );
-    let (start, end) = linear_gradient_axis(gradient.angle_deg, 0.0, 0.0, 100.0, 100.0);
-    assert!(
-        (start.0 - 0.0).abs() < 1e-4 && (start.1 - 50.0).abs() < 1e-4,
-        "{start:?}"
-    );
-    assert!(
-        (end.0 - 100.0).abs() < 1e-4 && (end.1 - 50.0).abs() < 1e-4,
-        "{end:?}"
-    );
-}
-
-// Case 2 — "uses the complete gradient line paint instead of its flat fallback
-// color" (`renderer.gradient.test.ts:52-68`). BLOCKED: `VectorStroke` carries one
-// flat `[u8; 4]` colour and `compiler::style::compile_stroke` ignores
-// `pptx_model::Stroke::fill`, so a gradient line keeps its flat fallback — the
-// exact behaviour the reference case forbids. No Rust symbol can express the
-// gradient stroke yet, so the case cannot even be encoded as a failing test.
-// (Pinned by `image_fill_cases::support_checks::stroke_gradient_fill_is_dropped_by_compile_stroke`.)
-
-/// Case 3 — "uses the complete gradient paint for table cells"
-/// (`renderer.gradient.test.ts:70-110`).
-///
-/// The reference asserts exactly one `createLinearGradient` call for the cell
-/// fill and that `fillRect` paints that gradient object rather than the flat
-/// fallback. The display-list equivalent: one `DrawPath` whose fill is the
-/// authored `LinearGradient` (never a `Solid`), framed on the cell box.
-#[test]
-fn table_cell_uses_the_authored_gradient_paint() {
-    let table_value = json!({
-        "x": 0, "y": 0, "width": 100, "height": 50,
-        "rotation": 0.0, "flipH": false, "flipV": false,
-        "background": null,
-        "cols": [100],
-        "rows": [{
-            "height": 50,
-            "cells": [{
-                "textBody": null,
-                "fill": {
-                    "fillType": "gradient",
-                    "stops": [
-                        {"position": 0.0, "color": "000000"},
-                        {"position": 1.0, "color": "FFFFFF"}
-                    ],
-                    "angle": 0.0,
-                    "gradType": "linear",
-                },
-                "borderL": null, "borderR": null, "borderT": null, "borderB": null,
-                "gridSpan": 1, "rowSpan": 1, "hMerge": false, "vMerge": false,
-            }],
-        }],
-        "rtl": false,
-    });
-    let table: TableElement = serde_json::from_value(table_value).expect("table JSON");
-    let (tx, _rx) = crossbeam_channel::unbounded();
-    let commands = compile_table_element(&table, &tx);
-
-    // ref `expect(linear).toHaveLength(1)`: exactly one gradient, no flat fill.
-    let paints = shapes_a_support::shape_fills(&commands);
-    assert_eq!(paints.len(), 1, "one cell fill, got {paints:?}");
-    let Some(VectorPaint::LinearGradient(gradient)) = &paints[0] else {
-        panic!("cell fill must stay a gradient, got {:?}", paints[0]);
-    };
-    assert_eq!(gradient.angle_deg, 0.0);
-    assert_eq!(
-        gradient.stops,
-        vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]
-    );
-
-    // The gradient spans the cell box `(0,0)-(100,50)` on its horizontal axis.
-    let (start, end) = linear_gradient_axis(gradient.angle_deg, 0.0, 0.0, 100.0, 50.0);
-    assert_eq!(start, (0.0, 25.0));
-    assert_eq!(end, (100.0, 25.0));
-
-    assert!(
-        !paints
-            .iter()
-            .any(|p| matches!(p, Some(VectorPaint::Solid(_)))),
-        "the flat fallback colour must not be painted"
-    );
-    // No border was authored, so the cell fill is the only command.
-    assert_eq!(commands.len(), 1);
-}
-
-// ---------------------------------------------------------------------------
 // pattern-thumbnail.test.ts
 // ---------------------------------------------------------------------------
 
-// "uses the same point cells in an actual chart and shape render"
-// (`pattern-thumbnail.test.ts:35-63`).
-//
-// BLOCKED: the display list has no pattern paint at all —
-// `compiler::style::compile_fill` maps `Fill::Pattern` onto
-// `VectorPaint::Solid(fg)`, and neither shape nor chart compilation emits the
-// `12700 / 8` EMU pattern cell scale (`(240/9144000) * 12700/8`) the reference
-// asserts for both fills. Symbols needed: a `VectorPaint::Pattern`
-// (preset + fg + bg) plus a pattern-cell scale in the shape and chart
-// compilers. The case also reads canvas matrices through
-// `createPattern().setTransform`, so it has no non-IR assertion target either.
+/// "uses the same point cells in an actual chart and shape render"
+/// (`pattern-thumbnail.test.ts:26-63`).
+///
+/// The reference registers one CanvasPattern per painted body and asserts both
+/// matrices carry the same point cell: `(canvasWidth / slideWidth) · 12700/8`,
+/// i.e. one bitmap pixel is 1/8 pt (ref core/src/shape/paint.ts:459-479).
+///
+/// Rust twin: `Fill::Pattern` compiles to `VectorPaint::Pattern` (both the shape
+/// body and a chart's cell/plot brush go through `compile_fill`), the cell step
+/// is the shared `PATTERN_CELL_EMU` constant, and the SVG twin emits the
+/// `<pattern>` cell at 8 pt = 12700 EMU. The reference's `chartFill` (chart-area
+/// background) has no `pptx-model` field, so only the shape body is exercised;
+/// the chart half is N/A.
+#[test]
+fn pattern_cells_use_the_shared_point_grid() {
+    let mut element = shape("rect");
+    element["x"] = json!(0);
+    element["y"] = json!(0);
+    element["width"] = json!(2_000_000);
+    element["height"] = json!(1_000_000);
+    element["fill"] = json!({
+        "fillType": "pattern", "preset": "pct50",
+        "fg": "D21D54", "bg": "12CED4",
+    });
+    let slide = compile_slide(vec![element]);
+
+    let fills = shapes_a_support::shape_fills(&slide.commands);
+    assert_eq!(
+        fills[0],
+        Some(VectorPaint::Pattern(shapes_a_support::pattern_fill(
+            "pct50",
+            [0xd2, 0x1d, 0x54, 255],
+            [0x12, 0xce, 0xd4, 255],
+        ))),
+        "the preset, not its foreground fallback"
+    );
+
+    // ref `matrices[0].a ≈ (240 / 9_144_000) * 12_700 / 8`.
+    let canvas_px = 240.0f64;
+    let reference = (canvas_px / 9_144_000.0) * 12_700.0 / 8.0;
+    let scale = (canvas_px / 9_144_000.0) as f32;
+    let rust_step = (kitty_pptx_core::contracts::PATTERN_CELL_EMU * scale) as f64;
+    // `toBeCloseTo` precision (2 decimals on the reference's own scale).
+    assert!(
+        (rust_step - reference).abs() < 1e-6,
+        "cell step {rust_step} vs reference {reference}"
+    );
+    assert_eq!(kitty_pptx_core::contracts::PATTERN_CELL_EMU, 12_700.0 / 8.0);
+
+    // The serialized twin keeps the same point grid: an 8 pt = 12700 EMU cell.
+    let store = shapes_a_support::RecordingStore::new(vec![]);
+    let svg = kitty_pptx_core::svg::DefaultSlideSvgSerializer::new()
+        .serialize_svg(
+            &slide,
+            &store,
+            kitty_pptx_core::contracts::SvgTextMode::SelectableText,
+        )
+        .expect("serialize svg");
+    assert!(
+        svg.contains(r#"width="12700" height="12700""#),
+        "8 pt pattern cell:\n{svg}"
+    );
+    assert!(svg.contains(r#"width="1587.5" height="1587.5""#), "1/8 pt pixel");
+    assert!(svg.contains("fill=\"url(#pattfill_1)\""), "the brush is referenced");
+}

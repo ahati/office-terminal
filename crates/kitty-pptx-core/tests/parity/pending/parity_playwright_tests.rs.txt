@@ -1,0 +1,92 @@
+// ARCHIVE — NOT COMPILED.  Blocked cases removed from
+// crates/kitty-pptx-core/tests/parity_playwright_tests.rs
+//
+// Rule: a test that is included must run, so no #[ignore] is left in the
+// compiled test tree. Every case below is blocked on a production API that
+// does not exist yet, so its source lives here instead of in the target.
+// The coverage ledger (tests/parity/COVERAGE.md plus the per-batch files in
+// tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
+// recorded there.
+//
+// Wave 3 reinstates each function below (with its doc comment and attributes)
+// into the compiled test file as soon as the named API lands.
+//
+// Missing API per blocked case:
+//   placeholder_text_matches_in_main_and_worker_mode           BLOCKED: no Slide::parse_error placeholder painting (compiler ignores it)
+//   table_image_fill_composites_in_authoring_order             BLOCKED: no table-only image-fill paint plan/order (cells emit VectorPaint::Image, the plan and srcRect cell clip are unwritten)
+//   table_pattern_fill_retains_both_colours                    BLOCKED: no table-only pattern fill plan (same seam as the image fill)
+//   pdf_pages_match_powerpoint                                 BLOCKED: no PDF export backend (CLI exports SVG/PNG only)
+//   rotated_tiles_cover_the_complete_shape                     BLOCKED: no rotated-tile coverage oracle over rasterizer::image_fill
+//   scroll_anchor_survives_a_zoom_settle                       BLOCKED: no viewer zoom (setScale/fitWidth and the scroll anchor model)
+//   inline_equation_falls_back_to_the_retained_branch          BLOCKED: no equation-fallback branch selection (ShapeElement::math_fallback unused)
+//   bevel_rim_brightness_stays_below_white                     BLOCKED: no bevel/homography compositor (only bevel inputs exist in scene3d)
+//   font_subset_requests_match_across_realms                   BLOCKED: no font-source demand facts (no LoadOptions.fonts analogue)
+//   worker_selection_and_find_match_main_mode                  BLOCKED: no selection/find/zoom realm (PptxTextRunInfo, PptxFindController)
+//   overlays_do_not_overflow_a_scaled_canvas                   N/A (DOM): the spec measures HTML overlay rects against a scroll container
+//   warp_strips_render_without_seams                           N/A (browser canvas): the pipeline rasterizes warped glyphs directly, there is no strip compositor to band
+
+// ============================================================================
+/// ref part-failure.spec.ts:8-34 — placeholder text identical in both modes.
+#[test]
+#[ignore = "BLOCKED: no Slide::parse_error placeholder painting (compiler ignores it)"]
+fn placeholder_text_matches_in_main_and_worker_mode() {}
+
+/// ref table-image-fill.spec.ts:19-40 — a table cell image fill composites with
+/// the two halves in authoring order.
+#[test]
+#[ignore = "BLOCKED: no table-only image-fill paint plan/order (cells emit VectorPaint::Image, \
+            the plan and srcRect cell clip are unwritten)"]
+fn table_image_fill_composites_in_authoring_order() {}
+
+/// ref table-image-fill.spec.ts:42-58 — a pattern cell fill retains both colours.
+#[test]
+#[ignore = "BLOCKED: no table-only pattern fill plan (same seam as the image fill)"]
+fn table_pattern_fill_retains_both_colours() {}
+
+/// ref pdf-acceptance.spec.ts:51-132 — rendered pages match a PowerPoint PDF.
+#[test]
+#[ignore = "BLOCKED: no PDF export backend (CLI exports SVG/PNG only)"]
+fn pdf_pages_match_powerpoint() {}
+
+/// ref rotated-tile-coverage.spec.ts:3-61 — rotated tiles cover the shape.
+#[test]
+#[ignore = "BLOCKED: no rotated-tile coverage oracle over rasterizer::image_fill"]
+fn rotated_tiles_cover_the_complete_shape() {}
+
+/// ref scroll-zoom-settle.spec.ts:3-26 — the scroll anchor survives a zoom settle.
+#[test]
+#[ignore = "BLOCKED: no viewer zoom (setScale/fitWidth and the scroll anchor model)"]
+fn scroll_anchor_survives_a_zoom_settle() {}
+
+/// ref inline-equation-fallback.spec.ts:5-89 — a failed equation renders its
+/// retained preview branch.
+#[test]
+#[ignore = "BLOCKED: no equation-fallback branch selection (ShapeElement::math_fallback unused)"]
+fn inline_equation_falls_back_to_the_retained_branch() {}
+
+/// ref bevel-ring.spec.ts:197-206 — the bevel rim never reaches white.
+#[test]
+#[ignore = "BLOCKED: no bevel/homography compositor (only bevel inputs exist in scene3d)"]
+fn bevel_rim_brightness_stays_below_white() {}
+
+/// ref font-source-worker-equivalence.spec.ts:80-127 — both realms request the
+/// same font subsets.
+#[test]
+#[ignore = "BLOCKED: no font-source demand facts (no LoadOptions.fonts analogue)"]
+fn font_subset_requests_match_across_realms() {}
+
+/// ref worker-selection-equivalence.spec.ts:31-95 — selection/find/zoom match.
+#[test]
+#[ignore = "BLOCKED: no selection/find/zoom realm (PptxTextRunInfo, PptxFindController)"]
+fn worker_selection_and_find_match_main_mode() {}
+
+/// ref responsive-overlay.spec.ts:22-61 — overlays never overflow the scroll area.
+#[test]
+#[ignore = "N/A (DOM): the spec measures HTML overlay rects against a scroll container"]
+fn overlays_do_not_overflow_a_scaled_canvas() {}
+
+/// ref warp-strip-quality.spec.ts:172-234 — warp strip seams / alpha banding.
+#[test]
+#[ignore = "N/A (browser canvas): the pipeline rasterizes warped glyphs directly, \
+            there is no strip compositor to band"]
+fn warp_strips_render_without_seams() {}

@@ -8,6 +8,10 @@
 //! reference tests' stub measurer (10 px per code point, 10 px space) and calls
 //! the production kernels directly, so a regression in the wrap, the
 //! justification gap mask, the tab pen or the line box fails here.
+//!
+//! Blocked cases (no production API yet) are archived, not compiled, in
+//! `tests/parity/pending/parity_text_tests.rs.txt`; the
+//! ledger keeps their rows.
 
 use kitty_pptx_core::text::justify::{justify_line, JustifyMode, JustifyPlan};
 use kitty_pptx_core::text::linebreak::{
@@ -546,20 +550,6 @@ fn negative_first_line_indent_expands_only_the_first_line() {
         lines.iter().map(|line| line.width).collect::<Vec<f32>>(),
         [200.0, 150.0, 50.0]
     );
-}
-
-/// `:71-85`: a BULLETED paragraph's first line must not be narrowed by
-/// `a:pPr@indent` — the bullet gutter lives in `marL`, so 18 kana (180 px) fit
-/// the 185.6 px text room even with a 50 px indent. Not expressible with the
-/// final API: [`BreakOptions`] has no bullet flag and the kernels must not
-/// guess; the caller (`text::emit`) owns the rule and currently forwards
-/// `p.indent` unconditionally.
-#[ignore = "not expressible: BreakOptions has no bullet flag (firstline-indent-autofit.test.ts:71-85)"]
-#[test]
-fn bulleted_first_line_ignores_the_positive_indent() {
-    let kana = "あ".repeat(18);
-    let lines = wrap_lines(&[text_item(&kana)], 185.6, 50.0, true);
-    assert_eq!(texts(&lines).len(), 1);
 }
 
 /// `tab.ts:43-52`: a reachable explicit stop always wins over `defTabSz` — the

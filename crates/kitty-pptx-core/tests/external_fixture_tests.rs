@@ -1,506 +1,370 @@
-//! Optional, self-skipping comparison against pinned LibreOffice fixtures.
+//! Opt-in, self-skipping comparison against the pinned LibreOffice corpus.
 //!
 //! `run.py` fills `target/external/{fixtures,goldens}/<commit>/`; neither is
-//! committed. Without a complete cache and matching `stamp.json` the test
-//! prints a one-line skip and returns; with the cache it compares. It is
-//! perceptual, not pixel-identical: another renderer and font stack differ.
+//! committed. Without a usable cache the test prints a one-line skip and
+//! returns, so plain `cargo test` passes in milliseconds on a machine that
+//! never opted in. With the cache it renders every deck that has reference
+//! PNGs and prints a summary with decks compared, strict pass/fail,
+//! diagnostics, and missing goldens. It is perceptual, not pixel-identical:
+//! another renderer and font stack differ.
+//!
+//! The reference viewer is never invoked here; only the cached PNGs are read.
+//! Strict fixtures enforce their thresholds. Diagnostic (`strict: false`)
+//! fixtures print their metrics but never fail: the 419-deck corpus
+//! deliberately includes fuzz/malformed decks and cross-renderer differences.
+//! See `tests/golden/external/README.md` for the corpus policy.
 //!
 //!     python3 crates/kitty-pptx-core/tests/golden/external/run.py
 
+mod external_fixture_support;
+
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
 
-use crossbeam_channel::unbounded;
-use kitty_pptx_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec,
-    RgbaSlide, SlideCompiler, SlideRasterizer, Source, TinySkiaRasterizer,
+use external_fixture_support::metrics::{compare_slide, DiffMetrics};
+use external_fixture_support::render::render_fixture;
+use external_fixture_support::{
+    load_manifest, Corpus, Fixture, Selection, MANIFEST_RELATIVE, MAX_LISTED, RUN_COMMAND,
 };
-use serde::Deserialize;
 
-const MANIFEST_RELATIVE: &str = "tests/golden/external/fixtures.json";
-const CACHE_RELATIVE: &str = "target/external";
-const RUN_COMMAND: &str = "python3 crates/kitty-pptx-core/tests/golden/external/run.py";
-
-/// The committed manifest is the single source of truth for the corpus.
-#[derive(Deserialize)]
-struct Manifest {
-    upstream: String,
-    commit: String,
-    license: String,
-    render_width: u32,
-    files: Vec<Fixture>,
-}
-
-#[derive(Deserialize)]
-struct Fixture {
-    name: String,
-    path: String,
-    sha256: String,
+#[derive(Default)]
+struct Report {
+    decks: usize,
     slides: usize,
-    strict: bool,
-    note: String,
-    thresholds: Option<Thresholds>,
+    strict_pass: usize,
+    strict_fail: usize,
+    diagnostics: usize,
+    diagnostic_errors: usize,
+    errors: Vec<String>,
+    failures: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
-struct Thresholds {
-    min_cell_pass_ratio: f64,
-    max_global_mean_abs_diff: f64,
-    max_ink_fraction_delta: f64,
-}
-
-impl Thresholds {
-    const DEFAULT: Self = Self {
-        min_cell_pass_ratio: 0.90,
-        max_global_mean_abs_diff: 8.0,
-        max_ink_fraction_delta: 0.03,
-    };
-}
-
-/// The subset of `stamp.json` that proves the cached pixels match the manifest.
-#[derive(Deserialize)]
-struct Stamp {
-    commit: String,
-    render_width: u32,
-    fixtures: Vec<StampFixture>,
-}
-
-#[derive(Deserialize)]
-struct StampFixture {
-    name: String,
-    sha256: String,
-    slides: usize,
-}
-
-/// A discovered, complete external corpus. This is the only place that reads
-/// the manifest and cache layout, so adding a fixture needs no test edit.
-struct ExternalCorpus {
-    manifest: Manifest,
-    fixtures_dir: PathBuf,
-    goldens_dir: PathBuf,
-}
-
-impl ExternalCorpus {
-    fn discover() -> Result<Self, String> {
-        let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(MANIFEST_RELATIVE);
-        let manifest = load_manifest(&manifest_path);
-        let commit = manifest.commit.clone();
-        let dir = |variable: &str, kind: &str| {
-            cache_dir(
-                variable,
-                repo_root().join(CACHE_RELATIVE).join(kind).join(&commit),
-            )
-        };
-        let fixtures_dir = dir("KITTY_PPTX_EXTERNAL_FIXTURES", "fixtures");
-        let goldens_dir = dir("KITTY_PPTX_EXTERNAL_GOLDENS", "goldens");
-
-        for fixture in &manifest.files {
-            let path = fixtures_dir.join(format!("{}.pptx", fixture.name));
-            if !path.is_file() {
-                return Err(unavailable(format!(
-                    "fixture cache is incomplete: {} is missing",
-                    path.display()
-                )));
-            }
-        }
-
-        let stamp = read_stamp(&goldens_dir)?;
-        check_stamp(&stamp, &manifest, &goldens_dir)?;
-
-        for fixture in &manifest.files {
-            for slide in 1..=fixture.slides {
-                let png = goldens_dir
-                    .join(&fixture.name)
-                    .join(format!("slide_{slide:03}.png"));
-                if png
-                    .metadata()
-                    .map(|metadata| metadata.len() == 0)
-                    .unwrap_or(true)
-                {
-                    return Err(unavailable(format!(
-                        "reference cache is incomplete: {} is missing or empty",
-                        png.display()
-                    )));
-                }
-            }
-        }
-
-        Ok(Self {
-            manifest,
-            fixtures_dir,
-            goldens_dir,
-        })
-    }
-}
-
-fn load_manifest(path: &Path) -> Manifest {
-    let text = std::fs::read_to_string(path)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
-}
-
-fn unavailable(reason: String) -> String {
-    format!("{reason}; run `{RUN_COMMAND}`")
-}
-
-fn read_stamp(goldens_dir: &Path) -> Result<Stamp, String> {
-    let path = goldens_dir.join("stamp.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|_| unavailable(format!("reference cache is missing: {}", path.display())))?;
-    serde_json::from_str(&text).map_err(|error| {
-        unavailable(format!(
-            "{} is not a valid render stamp ({error})",
-            path.display()
-        ))
-    })
-}
-
-/// Requires the stamp's commit, width, and fixture identities to match.
-fn check_stamp(stamp: &Stamp, manifest: &Manifest, goldens_dir: &Path) -> Result<(), String> {
-    if stamp.commit != manifest.commit || stamp.render_width != manifest.render_width {
-        return Err(unavailable(format!(
-            "references are {} at {}px, fixtures.json pins {} at {}px",
-            stamp.commit, stamp.render_width, manifest.commit, manifest.render_width
-        )));
-    }
-    let matches = |fixture: &Fixture| {
-        stamp.fixtures.iter().any(|entry| {
-            entry.name == fixture.name
-                && entry.sha256 == fixture.sha256
-                && entry.slides == fixture.slides
-        })
-    };
-    if stamp.fixtures.len() != manifest.files.len() || !manifest.files.iter().all(matches) {
-        return Err(unavailable(format!(
-            "references in {} do not match fixtures.json",
-            goldens_dir.display()
-        )));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug)]
-struct RgbImage {
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
-}
-
-impl RgbImage {
-    fn from_rgba(rgba: &RgbaSlide) -> Self {
-        Self::from_raw_rgba(rgba.width, rgba.height, &rgba.pixels)
-    }
-
-    fn from_raw_rgba(width: u32, height: u32, data: &[u8]) -> Self {
-        let pixels = data
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|pixel| {
-                let alpha = f64::from(pixel[3]) / 255.0;
-                pixel[..3].iter().map(move |channel| {
-                    (f64::from(*channel) * alpha + 255.0 * (1.0 - alpha)).round() as u8
-                })
-            })
-            .collect();
-        Self {
-            width,
-            height,
-            pixels,
+impl Report {
+    fn record_error(&mut self, fixture: &Fixture, error: String) {
+        let line = format!("{}: {error}", fixture.name);
+        println!("  error {line}");
+        if fixture.strict {
+            self.strict_fail += 1;
+            self.errors.push(line.clone());
+            self.failures.push(line);
+        } else {
+            self.diagnostics += 1;
+            self.diagnostic_errors += 1;
         }
     }
-
-    fn ink_fraction(&self) -> f64 {
-        let ink = self
-            .pixels
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .filter(|pixel| pixel.iter().any(|channel| *channel < 250))
-            .count();
-        ink as f64 / (self.width as f64 * self.height as f64)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct DiffMetrics {
-    cell_pass_ratio: f64,
-    global_mean_abs_diff: f64,
-    worst_cell_diff: f64,
-    ink_fraction_delta: f64,
-    cells_x: u32,
-    cells_y: u32,
-}
-
-fn thresholds_for(fixture: &Fixture) -> Thresholds {
-    fixture.thresholds.unwrap_or(Thresholds::DEFAULT)
-}
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("core crate must live under <repo>/crates")
-        .to_path_buf()
-}
-
-fn cache_dir(variable: &str, fallback: PathBuf) -> PathBuf {
-    std::env::var_os(variable)
-        .map(PathBuf::from)
-        .unwrap_or(fallback)
-}
-
-fn render_fixture(path: &Path, width_px: u32) -> Vec<RgbaSlide> {
-    let loader = DefaultPresentationLoader;
-    let (presentation, assets) = loader
-        .load(Source::File(path.to_path_buf()))
-        .unwrap_or_else(|error| panic!("failed to load {}: {error}", path.display()));
-    let height_px = (width_px as f64 * presentation.slide_height as f64
-        / presentation.slide_width as f64)
-        .round()
-        .max(1.0) as u32;
-    let target = RenderTargetSpec {
-        width_px,
-        height_px,
-    };
-    let compiler = DefaultSlideCompiler::new();
-    let rasterizer = TinySkiaRasterizer::new();
-    let (tx, _rx) = unbounded();
-
-    let mut slides = Vec::with_capacity(presentation.slides.len());
-    for (index, slide) in presentation.slides.iter().enumerate() {
-        let vector = compiler
-            .compile_in_deck(
-                slide,
-                &presentation.slides,
-                presentation.slide_width,
-                presentation.slide_height,
-                &tx,
-            )
-            .unwrap_or_else(|error| panic!("{} slide {}: {error}", path.display(), index + 1));
-        let rendered = rasterizer
-            .rasterize(&vector, &target, assets.as_ref())
-            .unwrap_or_else(|error| panic!("{} slide {}: {error}", path.display(), index + 1));
-        slides.push(rendered);
-    }
-    slides
-}
-
-fn resize_box(input: &RgbImage, width: u32, height: u32) -> RgbImage {
-    let mut pixels = vec![0u8; width as usize * height as usize * 3];
-    let scale_x = input.width as f64 / width as f64;
-    let scale_y = input.height as f64 / height as f64;
-
-    for y in 0..height {
-        let y0 = (y as f64 * scale_y).floor() as u32;
-        let y1 = (((y + 1) as f64 * scale_y).floor() as u32)
-            .max(y0 + 1)
-            .min(input.height);
-        for x in 0..width {
-            let x0 = (x as f64 * scale_x).floor() as u32;
-            let x1 = (((x + 1) as f64 * scale_x).floor() as u32)
-                .max(x0 + 1)
-                .min(input.width);
-            let mut sums = [0u64; 3];
-            let mut count = 0u64;
-            for source_y in y0..y1 {
-                for source_x in x0..x1 {
-                    let offset = ((source_y * input.width + source_x) * 3) as usize;
-                    for (channel, sum) in sums.iter_mut().enumerate() {
-                        *sum += u64::from(input.pixels[offset + channel]);
-                    }
-                    count += 1;
-                }
-            }
-            let target = ((y * width + x) * 3) as usize;
-            for (channel, value) in pixels[target..target + 3].iter_mut().enumerate() {
-                *value = (sums[channel] / count) as u8;
-            }
-        }
-    }
-    RgbImage {
-        width,
-        height,
-        pixels,
-    }
-}
-
-fn compare(actual: &RgbImage, reference: &RgbImage, tolerance: f64) -> DiffMetrics {
-    let cell = 10u32;
-    let columns = actual.width.div_ceil(cell);
-    let rows = actual.height.div_ceil(cell);
-    let mut sum = 0.0;
-    let mut cells = 0u64;
-    let mut passing = 0u64;
-    let mut worst: f64 = 0.0;
-
-    for cell_y in 0..rows {
-        for cell_x in 0..columns {
-            let mut actual_sum = [0u64; 3];
-            let mut reference_sum = [0u64; 3];
-            let mut count = 0u64;
-            for y in cell_y * cell..((cell_y + 1) * cell).min(actual.height) {
-                for x in cell_x * cell..((cell_x + 1) * cell).min(actual.width) {
-                    let offset = ((y * actual.width + x) * 3) as usize;
-                    for (channel, (actual_sum, reference_sum)) in actual_sum
-                        .iter_mut()
-                        .zip(reference_sum.iter_mut())
-                        .enumerate()
-                    {
-                        *actual_sum += u64::from(actual.pixels[offset + channel]);
-                        *reference_sum += u64::from(reference.pixels[offset + channel]);
-                    }
-                    count += 1;
-                }
-            }
-            let delta = actual_sum
-                .iter()
-                .zip(reference_sum.iter())
-                .map(|(a, r)| (*a as f64 / count as f64 - *r as f64 / count as f64).abs())
-                .sum::<f64>()
-                / 3.0;
-            sum += delta;
-            cells += 1;
-            if delta <= tolerance {
-                passing += 1;
-            }
-            worst = worst.max(delta);
-        }
-    }
-
-    let ink_actual = actual.ink_fraction();
-    let ink_reference = reference.ink_fraction();
-    DiffMetrics {
-        cell_pass_ratio: passing as f64 / cells as f64,
-        global_mean_abs_diff: sum / cells as f64,
-        worst_cell_diff: worst,
-        ink_fraction_delta: (ink_actual - ink_reference).abs(),
-        cells_x: columns,
-        cells_y: rows,
-    }
-}
-
-fn load_reference(path: &Path) -> RgbImage {
-    let image = image::open(path)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
-        .to_rgba8();
-    RgbImage::from_raw_rgba(image.width(), image.height(), image.as_raw())
-}
-
-/// Renders every manifest fixture and compares it against the cached references.
-fn compare_corpus(corpus: &ExternalCorpus) {
-    let mut failures = Vec::new();
-    for fixture in &corpus.manifest.files {
-        let path = corpus.fixtures_dir.join(format!("{}.pptx", fixture.name));
-        let rendered = render_fixture(&path, corpus.manifest.render_width);
-        if rendered.len() != fixture.slides {
-            failures.push(format!(
-                "{}: expected {} slide(s), rendered {}",
-                fixture.name,
-                fixture.slides,
-                rendered.len()
-            ));
-            continue;
-        }
-
-        let thresholds = thresholds_for(fixture);
-        for (index, actual) in rendered.iter().enumerate() {
-            let reference_path = corpus
-                .goldens_dir
-                .join(&fixture.name)
-                .join(format!("slide_{:03}.png", index + 1));
-            let reference = load_reference(&reference_path);
-            let actual = RgbImage::from_rgba(actual);
-            let compare_width = 400;
-            let compare_height = ((compare_width as f64 * actual.height as f64
-                / actual.width as f64)
-                .round() as u32)
-                .max(1);
-            let actual = resize_box(&actual, compare_width, compare_height);
-            let reference = resize_box(&reference, compare_width, compare_height);
-            let metrics = compare(&actual, &reference, 40.0);
-            println!(
-                "{} slide {}: cells={}x{} pass={:.3} global={:.2} worst={:.2} \
-                 ink_delta={:.4} ({})",
-                fixture.name,
-                index + 1,
-                metrics.cells_x,
-                metrics.cells_y,
-                metrics.cell_pass_ratio,
-                metrics.global_mean_abs_diff,
-                metrics.worst_cell_diff,
-                metrics.ink_fraction_delta,
-                fixture.note,
-            );
-
-            if !fixture.strict {
-                println!("  known gap: {} (not enforced)", fixture.name);
-                continue;
-            }
-            if metrics.cell_pass_ratio < thresholds.min_cell_pass_ratio {
-                failures.push(format!(
-                    "{} slide {}: {:.1}% of cells within 40/255 (need {:.1}%)",
-                    fixture.name,
-                    index + 1,
-                    metrics.cell_pass_ratio * 100.0,
-                    thresholds.min_cell_pass_ratio * 100.0
-                ));
-            }
-            if metrics.global_mean_abs_diff > thresholds.max_global_mean_abs_diff {
-                failures.push(format!(
-                    "{} slide {}: global mean abs diff {:.2} > {:.2}",
-                    fixture.name,
-                    index + 1,
-                    metrics.global_mean_abs_diff,
-                    thresholds.max_global_mean_abs_diff
-                ));
-            }
-            if metrics.ink_fraction_delta > thresholds.max_ink_fraction_delta {
-                failures.push(format!(
-                    "{} slide {}: ink coverage differs by {:.1}pp > {:.1}pp",
-                    fixture.name,
-                    index + 1,
-                    metrics.ink_fraction_delta * 100.0,
-                    thresholds.max_ink_fraction_delta * 100.0
-                ));
-            }
-        }
-    }
-
-    assert!(
-        failures.is_empty(),
-        "external renderer comparison failed:\n  {}\n\
-         Regenerate references with `{RUN_COMMAND} --force-render` \
-         and review the metric drift before changing budgets.",
-        failures.join("\n  ")
-    );
 }
 
 fn run_external_comparison() {
-    // `--include-ignored` selects both entry points; render once per process.
+    // `run.py` may select several test entry points; render once per process.
     static STARTED: AtomicBool = AtomicBool::new(false);
     if STARTED.swap(true, Ordering::SeqCst) {
         println!("external corpus comparison already ran; skipping duplicate");
         return;
     }
-    match ExternalCorpus::discover() {
-        Ok(corpus) => compare_corpus(&corpus),
-        Err(reason) => println!("skipping external corpus comparison: {reason}"),
+
+    let corpus = match Corpus::discover() {
+        Ok(corpus) => corpus,
+        Err(reason) => {
+            println!("skipping external corpus comparison: {reason}");
+            return;
+        }
+    };
+    let selection = corpus.select();
+    print_selection(&corpus, &selection);
+
+    if selection.compare.is_empty() {
+        println!(
+            "skipping external corpus comparison: no complete reference PNGs in \
+             {}; run `{RUN_COMMAND}`",
+            corpus.goldens_dir.display()
+        );
+        return;
     }
+
+    let report = compare_corpus(&corpus, &selection);
+    print_summary(&report, &corpus, &selection);
+
+    assert!(
+        report.failures.is_empty() && report.errors.is_empty(),
+        "external renderer comparison failed:\n  {}\n\
+         Regenerate references with `{RUN_COMMAND} --force-render` \
+         and review the metric drift before changing budgets.",
+        report
+            .failures
+            .iter()
+            .chain(report.errors.iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+}
+
+fn compare_corpus(corpus: &Corpus, selection: &Selection) -> Report {
+    let workers = worker_count(selection.compare.len());
+    println!(
+        "comparing {} deck(s) with {workers} worker(s) at {}px",
+        selection.compare.len(),
+        corpus.manifest.render_width
+    );
+    let next = AtomicUsize::new(0);
+    let collected = Mutex::new(Vec::with_capacity(selection.compare.len()));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let position = next.fetch_add(1, Ordering::Relaxed);
+                let Some(&index) = selection.compare.get(position) else {
+                    break;
+                };
+                let fixture = &corpus.manifest.files[index];
+                let result = compare_deck(corpus, fixture);
+                collected.lock().expect("result mutex poisoned").push((position, result));
+            });
+        }
+    });
+
+    let mut outcomes = collected.into_inner().expect("result mutex poisoned");
+    outcomes.sort_by_key(|(position, _)| *position);
+    let mut report = Report::default();
+    for (position, outcome) in outcomes {
+        let fixture = &corpus.manifest.files[selection.compare[position]];
+        fold_deck(fixture, outcome, &mut report);
+    }
+    report
+}
+
+fn worker_count(decks: usize) -> usize {
+    let available = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1);
+    available.min(16).min(decks).max(1)
+}
+
+/// Per-deck metrics, computed off-thread so printing stays in manifest order.
+enum DeckResult {
+    Rendered {
+        rendered_slides: usize,
+        metrics: Vec<Result<DiffMetrics, String>>,
+    },
+    Error(String),
+}
+
+fn compare_deck(corpus: &Corpus, fixture: &Fixture) -> DeckResult {
+    let deck = corpus.fixtures_dir.join(format!("{}.pptx", fixture.name));
+    let rendered = match render_fixture(&deck, corpus.manifest.render_width) {
+        Ok(slides) => slides,
+        Err(error) => return DeckResult::Error(error),
+    };
+    let compared = rendered.len().min(fixture.slides);
+    let metrics = (1..=compared)
+        .map(|slide| compare_slide(&rendered[slide - 1], &fixture.golden(&corpus.goldens_dir, slide)))
+        .collect();
+    DeckResult::Rendered {
+        rendered_slides: rendered.len(),
+        metrics,
+    }
+}
+
+fn fold_deck(fixture: &Fixture, outcome: DeckResult, report: &mut Report) {
+    let (rendered_slides, metrics) = match outcome {
+        DeckResult::Error(error) => {
+            report.record_error(fixture, error);
+            return;
+        }
+        DeckResult::Rendered {
+            rendered_slides,
+            metrics,
+        } => (rendered_slides, metrics),
+    };
+    report.decks += 1;
+    report.slides += rendered_slides;
+    if fixture.strict {
+        if compare_strict(fixture, rendered_slides, metrics, report) {
+            report.strict_pass += 1;
+        } else {
+            report.strict_fail += 1;
+        }
+    } else {
+        report.diagnostics += 1;
+        compare_diagnostic(fixture, rendered_slides, metrics, report);
+    }
+}
+
+/// Returns whether the fixture met every strict threshold.
+fn compare_strict(
+    fixture: &Fixture,
+    rendered_slides: usize,
+    metrics: Vec<Result<DiffMetrics, String>>,
+    report: &mut Report,
+) -> bool {
+    let mut passed = true;
+    if rendered_slides != fixture.slides {
+        passed = false;
+        report.failures.push(format!(
+            "{}: expected {} slide(s), rendered {}",
+            fixture.name, fixture.slides, rendered_slides
+        ));
+    }
+    let thresholds = fixture.thresholds();
+    for (index, metrics) in metrics.into_iter().enumerate() {
+        let metrics = match metrics {
+            Ok(metrics) => metrics,
+            Err(error) => {
+                passed = false;
+                report.failures.push(format!("{}: {error}", fixture.name));
+                continue;
+            }
+        };
+        println!(
+            "strict {} slide {}: {} ({})",
+            fixture.name,
+            index + 1,
+            describe(&metrics),
+            fixture.note
+        );
+        for failure in threshold_failures(fixture, index + 1, &metrics, &thresholds) {
+            passed = false;
+            report.failures.push(failure);
+        }
+    }
+    passed
+}
+
+fn compare_diagnostic(
+    fixture: &Fixture,
+    rendered_slides: usize,
+    metrics: Vec<Result<DiffMetrics, String>>,
+    report: &mut Report,
+) {
+    if rendered_slides != fixture.slides {
+        println!(
+            "diagnostic {}: expected {} slide(s), rendered {} (not enforced)",
+            fixture.name, fixture.slides, rendered_slides
+        );
+    }
+    for (index, metrics) in metrics.into_iter().enumerate() {
+        match metrics {
+            Ok(metrics) => println!(
+                "diagnostic {} slide {}: {} ({})",
+                fixture.name,
+                index + 1,
+                describe(&metrics),
+                fixture.note
+            ),
+            Err(error) => {
+                println!("diagnostic {} slide {}: {error}", fixture.name, index + 1);
+                report.diagnostic_errors += 1;
+            }
+        }
+    }
+}
+
+fn threshold_failures(
+    fixture: &Fixture,
+    slide: usize,
+    metrics: &DiffMetrics,
+    thresholds: &external_fixture_support::Thresholds,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    if metrics.cell_pass_ratio < thresholds.min_cell_pass_ratio {
+        failures.push(format!(
+            "{} slide {slide}: {:.1}% of cells within 40/255 (need {:.1}%)",
+            fixture.name,
+            metrics.cell_pass_ratio * 100.0,
+            thresholds.min_cell_pass_ratio * 100.0
+        ));
+    }
+    if metrics.global_mean_abs_diff > thresholds.max_global_mean_abs_diff {
+        failures.push(format!(
+            "{} slide {slide}: global mean abs diff {:.2} > {:.2}",
+            fixture.name, metrics.global_mean_abs_diff, thresholds.max_global_mean_abs_diff
+        ));
+    }
+    if metrics.ink_fraction_delta > thresholds.max_ink_fraction_delta {
+        failures.push(format!(
+            "{} slide {slide}: ink coverage differs by {:.1}pp > {:.1}pp",
+            fixture.name,
+            metrics.ink_fraction_delta * 100.0,
+            thresholds.max_ink_fraction_delta * 100.0
+        ));
+    }
+    failures
+}
+
+fn describe(metrics: &DiffMetrics) -> String {
+    format!(
+        "cells={}x{} pass={:.3} global={:.2} worst={:.2} ink_delta={:.4}",
+        metrics.cells_x,
+        metrics.cells_y,
+        metrics.cell_pass_ratio,
+        metrics.global_mean_abs_diff,
+        metrics.worst_cell_diff,
+        metrics.ink_fraction_delta
+    )
+}
+
+fn print_selection(corpus: &Corpus, selection: &Selection) {
+    let strict = corpus
+        .manifest
+        .files
+        .iter()
+        .filter(|fixture| fixture.strict)
+        .count();
+    println!(
+        "external corpus: manifest={} ({strict} strict, {} diagnostic), comparable={}, \
+         missing_goldens={}, missing_fixtures={}",
+        corpus.manifest.files.len(),
+        corpus.manifest.files.len() - strict,
+        selection.compare.len(),
+        selection.missing_goldens.len(),
+        selection.missing_fixtures.len()
+    );
+    print_names("missing goldens", &selection.missing_goldens);
+    print_names("missing fixtures", &selection.missing_fixtures);
+    let unrenderable = corpus.unrenderable(&selection.missing_goldens);
+    for name in &unrenderable {
+        if let Some(reason) = corpus.failures.get(*name) {
+            println!("  unrenderable {name}: {reason}");
+        }
+    }
+}
+
+fn print_names(label: &str, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    let shown = names.iter().take(MAX_LISTED).cloned().collect::<Vec<_>>();
+    let suffix = if names.len() > shown.len() {
+        format!(" ... +{} more", names.len() - shown.len())
+    } else {
+        String::new()
+    };
+    println!("  {label} ({}): {}{suffix}", names.len(), shown.join(", "));
+}
+
+fn print_summary(report: &Report, corpus: &Corpus, selection: &Selection) {
+    let unrenderable = corpus.unrenderable(&selection.missing_goldens);
+    println!(
+        "external corpus summary: compared={} slides={} strict={} (pass={} fail={}) \
+         diagnostics={} missing_goldens={} missing_fixtures={} errors={} \
+         diagnostic_errors={} known_unrenderable={}",
+        report.decks,
+        report.slides,
+        report.strict_pass + report.strict_fail,
+        report.strict_pass,
+        report.strict_fail,
+        report.diagnostics,
+        selection.missing_goldens.len(),
+        selection.missing_fixtures.len(),
+        report.errors.len(),
+        report.diagnostic_errors,
+        unrenderable.len()
+    );
 }
 
 #[test]
 fn external_libreoffice_renderer_comparison() {
-    run_external_comparison();
-}
-
-/// Alias for `run.py`'s `--ignored` filter; drop it when `run.py` passes
-/// `--include-ignored`.
-#[test]
-#[ignore = "alias for run.py's --ignored filter; the main test is self-skipping"]
-fn external_libreoffice_renderer_comparison_via_run_py() {
     run_external_comparison();
 }
 
@@ -542,6 +406,31 @@ fn manifest_is_internally_consistent() {
         manifest.files.iter().any(|fixture| fixture.strict),
         "at least one fixture must be strict so the comparison can fail"
     );
+
+    let mut skipped = BTreeSet::new();
+    for entry in &manifest.skipped {
+        assert!(
+            is_safe_name(&entry.name),
+            "unsafe skipped name {:?}",
+            entry.name
+        );
+        assert!(skipped.insert(entry.name.as_str()), "duplicate skip");
+        assert!(
+            !names.contains(entry.name.as_str()),
+            "{} is both rendered and skipped",
+            entry.name
+        );
+        assert!(
+            entry.path.starts_with("sd/qa/unit/data/pptx/") && entry.path.ends_with(".pptx"),
+            "{}: skipped path must be LibreOffice pptx QA data",
+            entry.name
+        );
+        assert!(
+            !entry.reason.trim().is_empty(),
+            "{}: skip must record a reason",
+            entry.name
+        );
+    }
 }
 
 fn assert_fixture_consistent(fixture: &Fixture) {
@@ -557,15 +446,15 @@ fn assert_fixture_consistent(fixture: &Fixture) {
         "{name}: path must be LibreOffice pptx QA data"
     );
     assert!(
-        fixture.path.ends_with(".pptx") && !fixture.path.contains(".."),
-        "{name}: invalid path {:?}",
+        fixture.path.ends_with(&format!("{name}.pptx")) && !fixture.path.contains(".."),
+        "{name}: path {:?} must end with {name}.pptx",
         fixture.path
     );
     assert!(
         !fixture.note.trim().is_empty(),
         "{name}: note must describe what the fixture covers"
     );
-    let thresholds = thresholds_for(fixture);
+    let thresholds = fixture.thresholds();
     assert!(
         thresholds.min_cell_pass_ratio > 0.0
             && thresholds.min_cell_pass_ratio <= 1.0

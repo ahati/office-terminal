@@ -1,0 +1,58 @@
+// ARCHIVE — NOT COMPILED.  Blocked cases removed from
+// crates/kitty-pptx-core/tests/parity_viewer_lifecycle_tests.rs
+//
+// Rule: a test that is included must run, so no #[ignore] is left in the
+// compiled test tree. Every case below is blocked on a production API that
+// does not exist yet, so its source lives here instead of in the target.
+// The coverage ledger (tests/parity/COVERAGE.md plus the per-batch files in
+// tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
+// recorded there.
+//
+// Wave 3 reinstates each function below (with its doc comment and attributes)
+// into the compiled test file as soon as the named API lands.
+//
+// Missing API per blocked case:
+//   cfb_containers_are_rejected_with_a_typed_code              BLOCKED: no assert_not_cfb_container (pptx-parser reports a CFB payload as ParseError::ArchiveError; ParseError::PasswordProtected is never produced)
+//   encrypted_decks_require_the_right_password                 BLOCKED: no decrypt_ooxml (no [MS-OFFCRYPTO] Agile decryption)
+//   preflight_unions_fonts_across_slides                       BLOCKED: no PresentationPreflightBuilder / collect_deck_fonts (no deck-level font union or structural projection)
+//   broken_slide_paints_the_error_placeholder                  BLOCKED: compiler ignores Slide::parse_error (no error placeholder emission)
+//   unreadable_media_degrades_with_a_warning                   BLOCKED: WarningEvent::MediaFailed is never emitted by the compiler
+//   a_hanging_worker_init_times_out                            BLOCKED: no worker init timeout (WorkerPool spawns OS threads with no hang bound)
+
+// ============================================================================
+/// ref presentation-cfb-guard.test.ts:12-28 — a CFB container is rejected with a
+/// typed `encrypted` / `legacy-binary-format` / `not-ooxml` code.
+#[test]
+#[ignore = "BLOCKED: no assert_not_cfb_container (pptx-parser reports a CFB payload as \
+            ParseError::ArchiveError; ParseError::PasswordProtected is never produced)"]
+fn cfb_containers_are_rejected_with_a_typed_code() {}
+
+/// ref presentation-decrypt.test.ts:19-49 — wrong/absent password handling.
+#[test]
+#[ignore = "BLOCKED: no decrypt_ooxml (no [MS-OFFCRYPTO] Agile decryption)"]
+fn encrypted_decks_require_the_right_password() {}
+
+/// ref presentation-preflight.test.ts:126-143 — the preflight aggregates exactly
+/// the deck's font names.
+#[test]
+#[ignore = "BLOCKED: no PresentationPreflightBuilder / collect_deck_fonts (no deck-level \
+            font union or structural projection)"]
+fn preflight_unions_fonts_across_slides() {}
+
+/// ref presentation-part-failures.test.ts:112-145 — the broken slide paints a
+/// part-tagged placeholder instead of its content.
+#[test]
+#[ignore = "BLOCKED: compiler ignores Slide::parse_error (no error placeholder emission)"]
+fn broken_slide_paints_the_error_placeholder() {}
+
+/// ref presentation-handle-media-errors.test.ts:20-60 — an unreadable media part
+/// degrades to a warning.
+#[test]
+#[ignore = "BLOCKED: WarningEvent::MediaFailed is never emitted by the compiler"]
+fn unreadable_media_degrades_with_a_warning() {}
+
+/// ref worker-init-hang.test.ts:1-327 — a worker that never answers init is
+/// bounded by a timeout.
+#[test]
+#[ignore = "BLOCKED: no worker init timeout (WorkerPool spawns OS threads with no hang bound)"]
+fn a_hanging_worker_init_times_out() {}

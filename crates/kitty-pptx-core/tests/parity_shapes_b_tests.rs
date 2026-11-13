@@ -19,6 +19,11 @@ use crossbeam_channel::unbounded;
 use kitty_pptx_core::*;
 use pptx_model::Slide;
 
+#[path = "shapes_b_support/bevel_effect_geometry.rs"]
+mod bevel_effect_geometry;
+#[path = "shapes_b_support/line_end_cases.rs"]
+mod line_end_cases;
+
 struct NoAssets;
 
 impl AssetStore for NoAssets {
@@ -429,6 +434,7 @@ fn leader(with_stroke: bool) -> VectorSlide {
             dash_segments: None,
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
+            paint: None,
         }),
         transform: AffineTransform::identity(),
         effects: Box::new(effects),
@@ -496,6 +502,8 @@ fn partly_off_viewport_shape_stays_in_the_projection_path() {
             scene_3d: Some(VectorScene3d {
                 camera_type: "isometricLeftUp".to_string(),
                 fov_deg: 0.0,
+                zoom: 1.0,
+                rot: None,
                 light_rig_type: "threePt".to_string(),
                 light_direction_deg: 270.0,
             }),
