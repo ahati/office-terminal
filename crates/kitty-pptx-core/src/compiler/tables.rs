@@ -8,13 +8,17 @@
 //! between the two facing strokes with a deterministic rule
 //! (`table-border-conflict.ts:79`).
 //!
-//! Out of IR scope (reported, not painted): `cmpd` compound rails
-//! (`double-border.ts:47`), `miter_limit`, device-pixel crisp nudging
-//! (`renderer.ts:7921`) and cell horizontal clipping.
+//! Cell text is clipped to the cell's x interval unless the model asks for
+//! `horzOverflow="overflow"` (`clip.rs`, ref renderer.ts:7843-7898). `cmpd`
+//! compound borders paint as rails (`compound.rs`, ref renderer.ts:7951-7973).
+//!
+//! Out of IR scope (reported, not painted): `miter_limit` and device-pixel
+//! crisp nudging (`renderer.ts:7921`).
 
 mod border_conflict;
-
-use std::borrow::Cow;
+mod clip;
+mod compound;
+mod growth;
 
 use border_conflict::resolve_border_conflict;
 use crossbeam_channel::Sender;
@@ -23,7 +27,7 @@ use super::style::{compile_fill, compile_stroke};
 use super::text::compile_text_body;
 use super::transform::compute_shape_transform;
 use crate::contracts::{
-    AffineTransform, FillRule, PathSegment, VectorCommand, VectorPath, WarningEvent,
+    AffineTransform, FidelityClass, FillRule, PathSegment, VectorCommand, VectorPath, WarningEvent,
 };
 
 /// One non-continuation `<a:tc>` with its physical box on the grown grid.
@@ -190,149 +194,15 @@ pub fn compile_table_element(
         tbl.flip_v,
     );
 
-    let row_h = grown_row_heights(tbl, warning_sink);
+    let row_h = growth::grown_row_heights(tbl, warning_sink);
     let grid = Grid::new(tbl, row_h);
 
     let mut commands = Vec::new();
     // tblBg uses the full grown table rectangle, once, below alpha cell fills.
     paint_table_background(tbl, &grid, &transform, &mut commands);
     paint_cell_fills_and_text(&grid, &transform, warning_sink, &mut commands);
-    paint_cell_borders(&grid, &transform, &mut commands);
+    paint_cell_borders(&grid, &transform, warning_sink, &mut commands);
     commands
-}
-
-/// ECMA-376 §21.1.3.18 / [MS-OE376] §2.1.1347: `a:tr@h` is a MINIMUM row
-/// height; PowerPoint grows a row to fit its tallest laid-out cell text.
-/// ref renderer.ts:7645-7723
-fn grown_row_heights(
-    tbl: &pptx_model::TableElement,
-    warning_sink: &Sender<WarningEvent>,
-) -> Vec<f32> {
-    let mut row_h: Vec<f32> = tbl.rows.iter().map(|r| r.height as f32).collect();
-    let authored_total: i64 = tbl.rows.iter().map(|r| r.height).sum();
-    // Slack between the authored frame and the sum of the positive `a:tr@h`
-    // minima signals that text-driven growth was present when authored. When
-    // the minima already fill the frame, do not invent growth just because the
-    // font stack wraps differently. ref renderer.ts:7654-7658
-    let growth_signal = tbl.height > authored_total;
-    let cols: Vec<f32> = tbl.cols.iter().map(|w| *w as f32).collect();
-    let width_of = |ci: usize, span: usize| -> f32 {
-        (0..span).filter_map(|s| cols.get(ci + s)).sum()
-    };
-
-    // Pass 1: single-row cells set their own row's minimum.
-    for (ri, row) in tbl.rows.iter().enumerate() {
-        for (ci, cell) in row.cells.iter().enumerate() {
-            if cell.h_merge || cell.v_merge || cell.row_span.max(1) > 1 {
-                continue;
-            }
-            let Some(body) = table_cell_body(cell) else {
-                continue;
-            };
-            if row.height > 0 && !growth_signal {
-                continue;
-            }
-            let Some(slot) = row_h.get_mut(ri) else {
-                continue;
-            };
-            let needed = measure_cell_text(&body, width_of(ci, cell.grid_span.max(1) as usize), warning_sink);
-            if needed > *slot {
-                *slot = needed;
-            }
-        }
-    }
-
-    // Pass 2: a rowSpan cell distributes its deficit across the rows it covers
-    // so the merged area grows without inflating any single row beyond what its
-    // own content needs. ref renderer.ts:7682-7710
-    for (ri, row) in tbl.rows.iter().enumerate() {
-        for (ci, cell) in row.cells.iter().enumerate() {
-            if cell.h_merge || cell.v_merge {
-                continue;
-            }
-            let span = cell.row_span.max(1) as usize;
-            if span <= 1 {
-                continue;
-            }
-            let Some(body) = table_cell_body(cell) else {
-                continue;
-            };
-            let end = (ri + span).min(tbl.rows.len());
-            let has_auto_row = tbl.rows[ri..end].iter().any(|r| r.height == 0);
-            if !has_auto_row && !growth_signal {
-                continue;
-            }
-            let needed = measure_cell_text(&body, width_of(ci, cell.grid_span.max(1) as usize), warning_sink);
-            let covered = (ri..(ri + span).min(row_h.len())).collect::<Vec<_>>();
-            let have: f32 = covered.iter().map(|r| row_h[*r]).sum();
-            if needed > have {
-                let extra = (needed - have) / span as f32;
-                for r in covered {
-                    row_h[r] += extra;
-                }
-            }
-        }
-    }
-    row_h
-}
-
-/// Content height (EMU) a cell's text body needs at `width_emu` — the parity
-/// stand-in for the reference's `renderTextBody(..., measureOnly=true)` return
-/// value `tPad + requiredHeight + bPad`. ref renderer.ts:5554-5556, 7659-7668
-///
-/// `crate::text::emit` exposes no measure-only seam (and must not change), so
-/// the laid-out block height is read off the real layout: the same body
-/// compiled at `box_h = 0` starts its block at `tIns` under `anchor="t"`, while
-/// `anchor="ctr"` centres that block about the same inset, so the first
-/// baseline shifts by exactly half the laid-out height
-/// (`metrics::block_top`, ref core/src/drawingml-text/metrics.ts:133).
-fn measure_cell_text(
-    body: &pptx_model::TextBody,
-    width_emu: f32,
-    warning_sink: &Sender<WarningEvent>,
-) -> f32 {
-    let insets = (body.t_ins + body.b_ins) as f32;
-    let box_w = width_emu.max(0.0).round() as i64;
-    let transform = AffineTransform::identity();
-    let baseline_at = |anchor: &str| -> Option<f32> {
-        let mut probe = body.clone();
-        probe.vertical_anchor = anchor.to_string();
-        first_baseline(&compile_text_body(&probe, box_w, 0, &transform, None, warning_sink))
-    };
-    match (baseline_at("t"), baseline_at("ctr")) {
-        (Some(top), Some(ctr)) => (insets + 2.0 * (top - ctr)).max(0.0),
-        // No glyphs (empty body, or a warp body the probe cannot read):
-        // the reference returns the padding alone.
-        _ => insets,
-    }
-}
-
-/// First (topmost) glyph baseline of a compiled body, in EMU.
-fn first_baseline(commands: &[VectorCommand]) -> Option<f32> {
-    let mut min_y: Option<f32> = None;
-    for cmd in commands {
-        if let VectorCommand::DrawText { runs, .. } = cmd {
-            for glyph in runs.iter().flat_map(|run| run.glyphs.iter()) {
-                min_y = Some(min_y.map_or(glyph.y, |m: f32| m.min(glyph.y)));
-            }
-        }
-    }
-    min_y
-}
-
-/// PowerPoint ignores the `spcFirstLastPara` edge exception inside `a:tc`:
-/// a first paragraph's `spcBef` and a last paragraph's `spcAft` still move
-/// glyphs. Applied to BOTH measurement and paint.
-/// ref renderer.ts:7591-7602
-fn table_cell_body(cell: &pptx_model::TableCell) -> Option<Cow<'_, pptx_model::TextBody>> {
-    let body = cell.text_body.as_ref()?;
-    if body.spc_first_last_para {
-        let mut owned = body.clone();
-        owned.spc_first_last_para = false;
-        Some(Cow::Owned(owned))
-    } else {
-        Some(Cow::Borrowed(body))
-    }
 }
 
 fn rect_path(x: f32, y: f32, w: f32, h: f32) -> VectorPath {
@@ -367,8 +237,9 @@ fn paint_table_background(
     out.push(VectorCommand::draw_path(rect, Some(paint), None, *transform));
 }
 
-/// Pass 1: every cell's fill, then its text body. No border is painted here.
-/// ref renderer.ts:7793-7838
+/// Pass 1: every cell's fill, then its text body — wrapped in the cell's
+/// horizontal clip when the model does not opt out. No border is painted here.
+/// ref renderer.ts:7793-7838, 7879-7899
 fn paint_cell_fills_and_text(
     grid: &Grid<'_>,
     transform: &AffineTransform,
@@ -380,7 +251,12 @@ fn paint_cell_fills_and_text(
             let rect = rect_path(job.col_x, job.row_y, job.cell_w, job.cell_h);
             out.push(VectorCommand::draw_path(rect, Some(paint), None, *transform));
         }
-        if let Some(body) = table_cell_body(job.cell) {
+        if let Some(body) = growth::table_cell_body(job.cell) {
+            // ctx.save() / clip / restore is PushClip / PopClip around the body.
+            let clip = clip::cell_clip(job, grid, transform);
+            if let Some(path) = &clip {
+                out.push(VectorCommand::PushClip(path.clone()));
+            }
             let cell_transform =
                 transform.post_concat(&AffineTransform::translate(job.col_x, job.row_y));
             out.extend(compile_text_body(
@@ -391,13 +267,21 @@ fn paint_cell_fills_and_text(
                 job.cell.text_color.as_deref(),
                 warning_sink,
             ));
+            if clip.is_some() {
+                out.push(VectorCommand::PopClip);
+            }
         }
     }
 }
 
 /// Pass 2: borders on top of every fill. Gated by single ownership so each
 /// gridline is painted once. ref renderer.ts:7842-7985
-fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Vec<VectorCommand>) {
+fn paint_cell_borders(
+    grid: &Grid<'_>,
+    transform: &AffineTransform,
+    warning_sink: &Sender<WarningEvent>,
+    out: &mut Vec<VectorCommand>,
+) {
     let num_cols = grid.num_cols();
     let num_rows = grid.row_h.len();
     for job in &grid.jobs {
@@ -432,7 +316,14 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
         if job.ri == 0 {
             if let Some(spec) = cell.border_t.as_ref() {
                 let y = job.row_y;
-                stroke_segment(out, transform, spec, (job.col_x, y), (job.col_x + job.cell_w, y));
+                stroke_segment(
+                    out,
+                    transform,
+                    spec,
+                    warning_sink,
+                    (job.col_x, y),
+                    (job.col_x + job.cell_w, y),
+                );
             }
         }
         // PHYSICAL LEFT: outer columns only; interior lefts are owned by the
@@ -440,7 +331,14 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
         if left_outer {
             if let Some(spec) = phys_left {
                 let x = job.col_x;
-                stroke_segment(out, transform, spec, (x, job.row_y), (x, job.row_y + job.cell_h));
+                stroke_segment(
+                    out,
+                    transform,
+                    spec,
+                    warning_sink,
+                    (x, job.row_y),
+                    (x, job.row_y + job.cell_h),
+                );
             }
         }
         // BOTTOM: outer bottom row draws its own spec; interior edges are
@@ -454,6 +352,7 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
                     out,
                     transform,
                     spec,
+                    warning_sink,
                     (job.col_x, bottom_y),
                     (job.col_x + job.cell_w, bottom_y),
                 );
@@ -473,7 +372,14 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
                 if let Some(spec) = resolve_border_conflict(cell.border_b.as_ref(), facing) {
                     let left = grid.spanned_left(cj, c_end - cj);
                     let width = grid.spanned_width(cj, c_end - cj);
-                    stroke_segment(out, transform, spec, (left, bottom_y), (left + width, bottom_y));
+                    stroke_segment(
+                        out,
+                        transform,
+                        spec,
+                        warning_sink,
+                        (left, bottom_y),
+                        (left + width, bottom_y),
+                    );
                 }
                 cj = c_end;
             }
@@ -484,7 +390,14 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
         let right_x = job.col_x + job.cell_w;
         if right_outer {
             if let Some(spec) = phys_right {
-                stroke_segment(out, transform, spec, (right_x, job.row_y), (right_x, job.row_y + job.cell_h));
+                stroke_segment(
+                    out,
+                    transform,
+                    spec,
+                    warning_sink,
+                    (right_x, job.row_y),
+                    (right_x, job.row_y + job.cell_h),
+                );
             }
         } else {
             let mut rj = job.ri;
@@ -501,7 +414,14 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
                 if let Some(spec) = resolve_border_conflict(phys_right, facing) {
                     let top = grid.row_top[rj];
                     let bottom = grid.row_top[r_end] + grid.row_h[r_end];
-                    stroke_segment(out, transform, spec, (right_x, top), (right_x, bottom));
+                    stroke_segment(
+                        out,
+                        transform,
+                        spec,
+                        warning_sink,
+                        (right_x, top),
+                        (right_x, bottom),
+                    );
                 }
                 rj = r_end + 1;
             }
@@ -514,6 +434,7 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
                 out,
                 transform,
                 spec,
+                warning_sink,
                 (job.col_x, job.row_y),
                 (job.col_x + job.cell_w, job.row_y + job.cell_h),
             );
@@ -523,6 +444,7 @@ fn paint_cell_borders(grid: &Grid<'_>, transform: &AffineTransform, out: &mut Ve
                 out,
                 transform,
                 spec,
+                warning_sink,
                 (job.col_x + job.cell_w, job.row_y),
                 (job.col_x, job.row_y + job.cell_h),
             );
@@ -534,12 +456,27 @@ fn stroke_segment(
     out: &mut Vec<VectorCommand>,
     transform: &AffineTransform,
     spec: &pptx_model::Stroke,
+    warning_sink: &Sender<WarningEvent>,
     from: (f32, f32),
     to: (f32, f32),
 ) {
     let Some(stroke) = compile_stroke(spec) else {
         return;
     };
+    // `cmpd="sng"` is the schema default and means a single line, so only a
+    // real compound style takes the rail leg. ref renderer.ts:7951-7973
+    let compound = spec.cmpd.as_deref().is_some_and(|cmpd| cmpd != "sng");
+    if compound && compound::paint_rails(out, transform, spec, &stroke, from, to) {
+        return;
+    }
+    if compound {
+        // Dashed, non-solid or diagonal compound rules keep the plain stroke.
+        let _ = warning_sink.send(WarningEvent::FidelityDegraded {
+            element_id: "a:tbl".to_string(),
+            feature: "compound_border",
+            class: FidelityClass::Degraded,
+        });
+    }
     let path = VectorPath::new(
         vec![
             PathSegment::MoveTo { x: from.0, y: from.1 },

@@ -81,9 +81,40 @@ pub struct VectorSoftEdge {
 pub struct VectorReflection {
     pub blur_radius_emu: i64,
     pub start_opacity: f32,
+    /// `stPos` — where the fade starts, as a fraction (0..1) of the mirrored
+    /// band measured from the edge touching the shape (ref effects.ts:612).
+    pub start_pos: f32,
     pub end_opacity: f32,
+    /// `endPos` — where the fade reaches `end_opacity`, same measure as `start_pos`.
+    pub end_pos: f32,
     pub distance_emu: i64,
+    /// `dir` in degrees clockwise from East; 90° mirrors below the shape.
     pub direction_deg: f64,
+    /// `sx` magnitude: width of the mirrored copy relative to the shape.
+    pub scale_x: f32,
+    /// `sy` magnitude: height of the mirrored copy relative to the shape.
+    pub scale_y: f32,
+    /// `algn` (`ST_RectAlignment`) pivot for the mirrored copy; `b` default.
+    pub align: String,
+}
+
+impl Default for VectorReflection {
+    fn default() -> Self {
+        Self {
+            blur_radius_emu: 0,
+            start_opacity: 1.0,
+            start_pos: 0.0,
+            end_opacity: 0.0,
+            end_pos: 1.0,
+            distance_emu: 0,
+            // The reference mirrors downward and treats 90° as its default
+            // (ref packages/core/src/shape/effects.ts:553-559).
+            direction_deg: 90.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            align: "b".to_string(),
+        }
+    }
 }
 
 /// 3D Scene camera and lighting rig parameters.

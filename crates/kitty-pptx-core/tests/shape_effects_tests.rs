@@ -249,6 +249,7 @@ fn svg_reflection_emits_mirrored_use_with_mask() {
             end_opacity: 0.0,
             distance_emu: 19050,
             direction_deg: 90.0,
+            ..VectorReflection::default()
         }),
         ..Default::default()
     };

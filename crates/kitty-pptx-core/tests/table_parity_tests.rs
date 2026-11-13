@@ -1,325 +1,15 @@
 //! Table rendering parity: shared-gridline ownership, two-pass paint order,
-//! RTL geometry, spanned-edge subdivision and Office minimum-row growth.
+//! RTL geometry, spanned-edge subdivision, Office minimum-row growth, cell
+//! horizontal clipping and `cmpd` compound borders.
 //! ref `renderer.ts:7591-8110`, `table-border-conflict.test.ts`,
-//! `table-border-single-draw.test.ts:204-535`.
+//! `table-border-single-draw.test.ts:204-535`, `renderer.ts:7843-7973`.
 
-use crossbeam_channel::unbounded;
-use kitty_pptx_core::compiler::tables::compile_table_element;
-use kitty_pptx_core::contracts::{PathSegment, VectorCommand, VectorPath, VectorPaint};
-use pptx_model::TableElement;
+mod table_support;
+
+use kitty_pptx_core::contracts::{VectorCommand, VectorPath};
 use serde_json::{json, Value};
+use table_support::*;
 
-const EMU: i64 = 12700;
-
-#[derive(Clone, Default)]
-struct Cell {
-    text: Option<Value>,
-    fill: Option<Value>,
-    border_l: Option<Value>,
-    border_r: Option<Value>,
-    border_t: Option<Value>,
-    border_b: Option<Value>,
-    grid_span: u32,
-    row_span: u32,
-    h_merge: bool,
-    v_merge: bool,
-}
-
-impl Cell {
-    fn new() -> Self {
-        Self {
-            grid_span: 1,
-            row_span: 1,
-            ..Self::default()
-        }
-    }
-
-    fn text(mut self, body: Value) -> Self {
-        self.text = Some(body);
-        self
-    }
-
-    fn fill(mut self, color: &str) -> Self {
-        self.fill = Some(json!({"fillType": "solid", "color": color}));
-        self
-    }
-
-    fn border(mut self, side: &str, color: &str, width_pt: i64) -> Self {
-        let spec = json!({"color": color, "width": width_pt * EMU});
-        match side {
-            "l" => self.border_l = Some(spec),
-            "r" => self.border_r = Some(spec),
-            "t" => self.border_t = Some(spec),
-            "b" => self.border_b = Some(spec),
-            _ => unreachable!(),
-        }
-        self
-    }
-
-    fn span(mut self, grid: u32, rows: u32) -> Self {
-        self.grid_span = grid;
-        self.row_span = rows;
-        self
-    }
-
-    fn merge(mut self, horizontal: bool) -> Self {
-        if horizontal {
-            self.h_merge = true;
-        } else {
-            self.v_merge = true;
-        }
-        self
-    }
-
-    fn json(&self) -> Value {
-        json!({
-            "textBody": self.text,
-            "fill": self.fill,
-            "borderL": self.border_l,
-            "borderR": self.border_r,
-            "borderT": self.border_t,
-            "borderB": self.border_b,
-            "gridSpan": self.grid_span,
-            "rowSpan": self.row_span,
-            "hMerge": self.h_merge,
-            "vMerge": self.v_merge,
-        })
-    }
-}
-
-/// One run of a text body. Mirrors the compiler-facing `TextRun::Text` JSON.
-fn text_run(text: &str) -> Value {
-    json!({
-        "type": "text",
-        "text": text,
-        "bold": false,
-        "italic": false,
-        "underline": false,
-        "strikeDouble": false,
-        "hyperlinkUsesTextFill": false,
-        "fieldType": null,
-        "strikethrough": false,
-        "fontSize": 18.0,
-        "color": null,
-        "fontFamily": "Arial",
-    })
-}
-
-fn line_break() -> Value {
-    json!({"type": "break"})
-}
-
-/// Three explicit lines (`one`, `two`, `three`) in one paragraph, 100 % line
-/// spacing, top/bottom inset 3.6 pt. The trailing 12 pt `spcAft` is suppressed
-/// inside a cell even with `spcFirstLastPara=1`
-/// (`table-border-single-draw.test.ts:133-202`). The reference case expects
-/// 72 pt of content: 3 × 21.6 pt line boxes + 7.2 pt insets
-/// (`table-border-single-draw.test.ts:319-348`).
-fn three_line_body() -> Value {
-    json!({
-        "verticalAnchor": "ctr",
-        "lIns": 0,
-        "rIns": 0,
-        "tIns": 36 * EMU / 10,
-        "bIns": 36 * EMU / 10,
-        "wrap": "square",
-        "vert": "horz",
-        "autoFit": "none",
-        "fontScale": null,
-        "numCol": 1,
-        "spcCol": 0,
-        "rtlCol": false,
-        "spcFirstLastPara": true,
-        "anchorCtr": false,
-        "paragraphs": [{
-            "alignment": "l",
-            "marL": 0,
-            "marR": 0,
-            "indent": 0,
-            "spaceBefore": null,
-            "spaceAfter": 1200,
-            "spaceLine": {"type": "pct", "val": 100000},
-            "lvl": 0,
-            "bullet": {"type": "none"},
-            "defFontSize": 18.0,
-            "defColor": null,
-            "defBold": false,
-            "defFontFamily": "Arial",
-            "tabStops": [],
-            "rtl": false,
-            "eaLnBrk": true,
-            "runs": [
-                text_run("one"), line_break(),
-                text_run("two"), line_break(),
-                text_run("three"),
-            ],
-        }],
-    })
-}
-
-struct TableSpec {
-    rows: Vec<Vec<Cell>>,
-    row_heights_pt: Vec<i64>,
-    col_widths_pt: Vec<i64>,
-    height_pt: Option<i64>,
-    background: Option<Value>,
-    rtl: bool,
-}
-
-impl TableSpec {
-    fn new(rows: Vec<Vec<Cell>>, row_heights_pt: Vec<i64>, col_widths_pt: Vec<i64>) -> Self {
-        let height_pt = Some(row_heights_pt.iter().sum());
-        Self {
-            rows,
-            row_heights_pt,
-            col_widths_pt,
-            height_pt,
-            background: None,
-            rtl: false,
-        }
-    }
-
-    fn height(mut self, pt: i64) -> Self {
-        self.height_pt = Some(pt);
-        self
-    }
-
-    fn background(mut self, color: &str) -> Self {
-        self.background = Some(json!({"fillType": "solid", "color": color}));
-        self
-    }
-
-    fn rtl(mut self) -> Self {
-        self.rtl = true;
-        self
-    }
-
-    fn compile(&self) -> Vec<VectorCommand> {
-        let rows: Vec<Value> = self
-            .rows
-            .iter()
-            .zip(&self.row_heights_pt)
-            .map(|(cells, height)| {
-                json!({
-                    "height": height * EMU,
-                    "cells": cells.iter().map(Cell::json).collect::<Vec<_>>(),
-                })
-            })
-            .collect();
-        let value = json!({
-            "x": 0,
-            "y": 0,
-            "width": self.col_widths_pt.iter().sum::<i64>() * EMU,
-            "height": self.height_pt.unwrap_or_default() * EMU,
-            "rotation": 0.0,
-            "flipH": false,
-            "flipV": false,
-            "background": self.background,
-            "cols": self.col_widths_pt.iter().map(|w| w * EMU).collect::<Vec<_>>(),
-            "rows": rows,
-            "rtl": self.rtl,
-        });
-        let table: TableElement = serde_json::from_value(value).expect("table JSON");
-        let (tx, _rx) = unbounded();
-        compile_table_element(&table, &tx)
-    }
-}
-
-#[derive(Debug)]
-struct Seg {
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32,
-    width: i64,
-    color: [u8; 4],
-}
-
-fn segments(commands: &[VectorCommand]) -> Vec<Seg> {
-    let mut out = Vec::new();
-    for command in commands {
-        if let VectorCommand::DrawPath {
-            path,
-            stroke: Some(stroke),
-            ..
-        } = command
-        {
-            if let [PathSegment::MoveTo { x: x1, y: y1 }, PathSegment::LineTo { x: x2, y: y2 }] =
-                path.segments.as_slice()
-            {
-                out.push(Seg {
-                    x1: *x1,
-                    y1: *y1,
-                    x2: *x2,
-                    y2: *y2,
-                    width: stroke.width_emu,
-                    color: stroke.color,
-                });
-            }
-        }
-    }
-    out
-}
-
-fn vertical_at(segments: &[Seg], x: i64) -> Vec<&Seg> {
-    let x = x as f32;
-    segments
-        .iter()
-        .filter(|s| (s.x1 - s.x2).abs() < 0.01 && (s.x1 - x).abs() <= 1.0)
-        .collect()
-}
-
-fn horizontal_at(segments: &[Seg], y: i64) -> Vec<&Seg> {
-    let y = y as f32;
-    segments
-        .iter()
-        .filter(|s| (s.y1 - s.y2).abs() < 0.01 && (s.y1 - y).abs() <= 1.0)
-        .collect()
-}
-
-fn rect_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
-    let mut min_x = f32::INFINITY;
-    let mut min_y = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
-    for segment in &path.segments {
-        if let PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } = segment {
-            min_x = min_x.min(*x);
-            min_y = min_y.min(*y);
-            max_x = max_x.max(*x);
-            max_y = max_y.max(*y);
-        }
-    }
-    (max_x > min_x && max_y > min_y).then_some((min_x, min_y, max_x, max_y))
-}
-
-fn filled_rects(commands: &[VectorCommand]) -> Vec<(f32, f32, f32, f32, [u8; 4])> {
-    let mut out = Vec::new();
-    for command in commands {
-        if let VectorCommand::DrawPath {
-            path,
-            fill: Some(VectorPaint::Solid(color)),
-            ..
-        } = command
-        {
-            if let Some((x0, y0, x1, y1)) = rect_bounds(path) {
-                out.push((x0, y0, x1, y1, *color));
-            }
-        }
-    }
-    out
-}
-
-fn is_border(command: &VectorCommand) -> bool {
-    matches!(
-        command,
-        VectorCommand::DrawPath {
-            stroke: Some(_),
-            fill: None,
-            ..
-        }
-    )
-}
 
 // ── Case 1: one shared gridline, winner by all four conflict rules ─────────
 #[test]
@@ -553,4 +243,161 @@ fn authored_heights_preserved_when_frame_is_not_growing() {
     let bottom = horizontal_at(&segs, 20 * EMU);
     assert_eq!(bottom.len(), 1, "authored 20 pt row is preserved");
     assert!(horizontal_at(&segs, 72 * EMU).is_empty());
+}
+
+// ── Case 7: cells clip text to their own x span ───────────────────────────
+/// One paragraph, one unbreakable run, no insets, no wrapping — the
+/// horizontal-overflow probe. `vert` selects the body direction the
+/// reference's clip admits.
+fn one_word_body(word: &str, vert: &str) -> Value {
+    json!({
+        "verticalAnchor": "t", "lIns": 0, "rIns": 0, "tIns": 0, "bIns": 0,
+        "wrap": "none", "vert": vert, "autoFit": "none", "fontScale": null,
+        "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false,
+        "anchorCtr": false,
+        "paragraphs": [{
+            "alignment": "l", "marL": 0, "marR": 0, "indent": 0,
+            "spaceBefore": null, "spaceAfter": null, "spaceLine": null, "lvl": 0,
+            "bullet": {"type": "none"}, "defFontSize": 18.0, "defColor": null,
+            "defBold": false, "defFontFamily": "Arial", "tabStops": [],
+            "rtl": false, "eaLnBrk": true, "runs": [text_run(word)],
+        }],
+    })
+}
+
+/// Glyph x extent, in slide space, of every `DrawText` command in `slice`.
+fn glyph_span(slice: &[VectorCommand]) -> (f32, f32) {
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for command in slice {
+        if let VectorCommand::DrawText { runs, transform } = command {
+            for glyph in runs.iter().flat_map(|run| run.glyphs.iter()) {
+                let (x, _) = transform.transform_point(glyph.x, glyph.y);
+                lo = lo.min(x);
+                hi = hi.max(x);
+            }
+        }
+    }
+    (lo, hi)
+}
+
+/// The clip path wrapping the cell text plus the glyph span it encloses.
+fn text_clip(commands: &[VectorCommand]) -> Option<(VectorPath, f32, f32)> {
+    let push = commands
+        .iter()
+        .position(|c| matches!(c, VectorCommand::PushClip(_)))?;
+    let pop = commands
+        .iter()
+        .position(|c| matches!(c, VectorCommand::PopClip))?;
+    let VectorCommand::PushClip(path) = &commands[push] else {
+        return None;
+    };
+    let (lo, hi) = glyph_span(&commands[push + 1..pop]);
+    Some((path.clone(), lo, hi))
+}
+
+#[test]
+fn cell_text_clips_to_the_cell_x_span_by_default() {
+    // ref renderer.ts:7861-7879 — the schema default is clip.
+    let word = "W".repeat(200);
+    let cmds = TableSpec::new(
+        vec![vec![Cell::new().text(one_word_body(&word, "horz"))]],
+        vec![20],
+        vec![60],
+    )
+    .compile();
+    let (clip, lo, hi) = text_clip(&cmds).expect("default cells clip their text");
+    let (x0, y0, x1, y1) = rect_bounds(&clip).expect("clip is a rectangle");
+    assert_eq!((x0, x1), (0.0, 60.0 * EMU as f32), "clip is the cell x span");
+    assert!(hi > x1 && lo >= x0, "the word really overruns the cell: {lo}..{hi}");
+    // The band is taller than the cell so vertical overflow still shows
+    // (canvas-clip.ts:1-10 clips x only, over the whole viewport).
+    assert!(y0 < 0.0 && y1 > 20.0 * EMU as f32, "no vertical clipping");
+}
+
+#[test]
+fn overflow_and_non_horizontal_bodies_are_not_clipped() {
+    // `horzOverflow="overflow"` opts out. ref renderer.ts:7876-7878
+    let word = "W".repeat(200);
+    let cmds = TableSpec::new(
+        vec![vec![Cell::new().text(one_word_body(&word, "horz")).overflow()]],
+        vec![20],
+        vec![60],
+    )
+    .compile();
+    assert!(text_clip(&cmds).is_none(), "overflow keeps the text unclipped");
+    let (_, hi) = glyph_span(&cmds);
+    assert!(hi > 60.0 * EMU as f32, "and the word paints outside the cell");
+
+    // Only an effective horizontal body is admitted. ref renderer.ts:7870-7874
+    let cmds = TableSpec::new(
+        vec![vec![Cell::new().text(one_word_body(&word, "vert270"))]],
+        vec![20],
+        vec![60],
+    )
+    .compile();
+    assert!(text_clip(&cmds).is_none(), "rotated bodies keep their paint");
+}
+
+// ── Case 8: `cmpd` borders paint as rails, not as one thick line ──────────
+fn rails(cmds: &[VectorCommand], color: [u8; 4]) -> Vec<(f32, f32, f32, f32)> {
+    filled_rects(cmds)
+        .into_iter()
+        .filter(|r| r.4 == color)
+        .map(|r| (r.0, r.1, r.2, r.3))
+        .collect()
+}
+
+#[test]
+fn compound_double_border_paints_two_rails_with_a_gap() {
+    // ref renderer.ts:7951-7973 + double-border.ts:40-70.
+    let cmds = TableSpec::new(
+        vec![vec![Cell::new().border_cmpd("b", "112233", 3, "dbl")]],
+        vec![20],
+        vec![60],
+    )
+    .compile();
+    let grey = [0x11, 0x22, 0x33, 255];
+    let bands = rails(&cmds, grey);
+    assert_eq!(bands.len(), 2, "dbl paints two rails");
+    assert!(segments(&cmds).is_empty(), "and no plain stroke");
+    let (top, bottom) = (bands[0].1, bands[1].3);
+    let (rail, gap) = (bands[0].3 - bands[0].1, bands[1].1 - bands[0].3);
+    assert!((rail - EMU as f32).abs() < 1.0, "w/3 rail: {rail}");
+    assert!((gap - rail).abs() < 1.0, "gap equals the rail");
+    let edge = 20.0 * EMU as f32;
+    assert!((top + bottom - 2.0 * edge).abs() < 1.0, "centred on the edge");
+    assert_eq!(bands[0].0, 0.0);
+    assert_eq!(bands[0].2, 60.0 * EMU as f32);
+}
+
+#[test]
+fn compound_tri_border_paints_three_bands() {
+    let cmds = TableSpec::new(
+        vec![vec![Cell::new().border_cmpd("r", "112233", 5, "tri")]],
+        vec![20],
+        vec![60],
+    )
+    .compile();
+    let bands = rails(&cmds, [0x11, 0x22, 0x33, 255]);
+    assert_eq!(bands.len(), 3, "tri paints three bands");
+    assert!(segments(&cmds).is_empty(), "and no plain stroke");
+    let widths: Vec<f32> = bands.iter().map(|b| b.2 - b.0).collect();
+    let fifth = EMU as f32; // 5 pt / 5
+    assert!((widths[0] - fifth).abs() < 1.0, "w/5 band: {}", widths[0]);
+    assert!((widths[1] - 3.0 * fifth).abs() < 1.0, "3w/5 band: {}", widths[1]);
+    assert_eq!(bands[0].1, 0.0);
+    assert_eq!(bands[0].3, 20.0 * EMU as f32);
+}
+
+#[test]
+fn non_axis_aligned_compound_border_falls_back_to_a_stroke() {
+    // Rails are axis-aligned band fills; a diagonal keeps the plain stroke.
+    let cmds = TableSpec::new(
+        vec![vec![Cell::new().border_cmpd("tl", "112233", 3, "dbl")]],
+        vec![20],
+        vec![60],
+    )
+    .compile();
+    assert!(rails(&cmds, [0x11, 0x22, 0x33, 255]).is_empty());
+    assert_eq!(segments(&cmds).len(), 1, "one diagonal stroke");
 }

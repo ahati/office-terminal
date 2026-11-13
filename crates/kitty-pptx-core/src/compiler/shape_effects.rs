@@ -64,9 +64,16 @@ fn reflection(reflection: &ooxml_common::effect::Reflection) -> VectorReflection
     VectorReflection {
         blur_radius_emu: reflection.blur,
         start_opacity: reflection.st_a as f32,
+        start_pos: reflection.st_pos as f32,
         end_opacity: reflection.end_a as f32,
+        end_pos: reflection.end_pos as f32,
         distance_emu: reflection.dist,
         direction_deg: reflection.dir,
+        scale_x: reflection.sx as f32,
+        scale_y: reflection.sy as f32,
+        // CT_ReflectionEffect defaults `algn` to bottom centre; the parser does
+        // not carry the attribute yet.
+        align: "b".to_string(),
     }
 }
 
