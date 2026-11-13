@@ -89,12 +89,24 @@ fn test_text_layout_and_font_substitution() {
 
     match &vs.commands[1] {
         VectorCommand::DrawText { runs, .. } => {
-            assert_eq!(runs.len(), 2); // Bullet run + text run
+            // The body wraps at the box width (reference `layoutParagraph`),
+            // so one authored run becomes one run per broken line, after the
+            // bullet run.
+            assert!(runs.len() >= 2);
             // Bullet translated from Wingdings 'l' -> ●
             assert!(runs[0].text.contains('●'));
-            // Aptos substituted with Carlito
-            assert_eq!(runs[1].font_family, "Carlito");
-            assert!(runs[1].underline);
+            // Aptos substituted with Carlito; every text line keeps the style.
+            let text_runs = &runs[1..];
+            assert!(text_runs.iter().all(|r| r.font_family == "Carlito"));
+            assert!(text_runs.iter().all(|r| r.underline));
+            let joined: String = text_runs.iter().map(|r| r.text.as_str()).collect();
+            assert_eq!(joined.replace(' ', ""), "HelloAntigravity");
+            // More than one baseline: the paragraph really wrapped.
+            let baselines: std::collections::BTreeSet<i64> = text_runs
+                .iter()
+                .filter_map(|r| r.glyphs.first().map(|g| g.y.round() as i64))
+                .collect();
+            assert!(baselines.len() > 1, "expected wrapped lines, got {baselines:?}");
         }
         _ => panic!("Expected DrawText command"),
     }
