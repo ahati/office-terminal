@@ -19,7 +19,7 @@ pub use hyperlinks::{
 
 use crossbeam_channel::Sender;
 use crate::contracts::{
-    FidelityClass, VectorCommand, VectorSlide, WarningEvent,
+    FidelityClass, ShapeEffects, VectorCommand, VectorSlide, WarningEvent,
 };
 use crate::error::RenderError;
 
@@ -117,7 +117,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                         shape.adj5, shape.adj6, shape.adj7, shape.adj8,
                     ];
 
-                    let path = shapes::build_shape_path(
+                    let subpaths = shapes::build_shape_paths(
                         &shape.geometry,
                         shape.width as f32,
                         shape.height as f32,
@@ -128,14 +128,31 @@ impl SlideCompiler for DefaultSlideCompiler {
 
                     let fill = shape.fill.as_ref().and_then(|f| style::compile_fill(f, 1.0));
                     let stroke = shape.stroke.as_ref().and_then(style::compile_stroke);
+                    let effects = shape_effects::extract_shape_effects(shape);
 
-                    commands.push(VectorCommand::DrawPath {
-                        path,
-                        fill,
-                        stroke,
-                        transform,
-                        effects: Box::new(shape_effects::extract_shape_effects(shape)),
-                    });
+                    // ref `preset-geometry/index.ts:44-99`: one paint pass per
+                    // authored `<a:path>`; `fill` tints the base fill, `stroke`
+                    // decides whether the outline follows that subpath. The
+                    // reference clears the shadow after the first painted path
+                    // (`index.ts:71-77`), so only that subpath carries effects.
+                    let shadow_owner = subpaths
+                        .iter()
+                        .position(|subpath| subpath.fill.is_filled())
+                        .unwrap_or(0);
+
+                    for (index, subpath) in subpaths.iter().enumerate() {
+                        commands.push(VectorCommand::DrawPath {
+                            path: subpath.path.clone(),
+                            fill: shapes::apply_path_fill_mode(fill.as_ref(), subpath.fill),
+                            stroke: if subpath.stroke { stroke.clone() } else { None },
+                            transform,
+                            effects: Box::new(if index == shadow_owner {
+                                effects.clone()
+                            } else {
+                                ShapeEffects::default()
+                            }),
+                        });
+                    }
 
                     // Compile text body if present (supporting SmartArt explicit text_rect)
                     if let Some(ref text_body) = shape.text_body {

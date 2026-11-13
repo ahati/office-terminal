@@ -6,6 +6,7 @@ pub mod rasterizer;
 pub mod svg;
 pub mod pipeline;
 pub mod scene3d;
+pub mod text;
 
 #[allow(ambiguous_glob_reexports)] // `shape_effects` exists in both contracts and compiler
 pub use contracts::*;
