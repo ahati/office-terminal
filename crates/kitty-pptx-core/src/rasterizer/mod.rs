@@ -1,5 +1,6 @@
 pub mod effects;
 pub mod filters;
+mod background_image;
 mod bevel;
 mod image;
 mod mask;
@@ -98,22 +99,16 @@ impl SlideRasterizer for TinySkiaRasterizer {
                         dy,
                     );
                 }
-                VectorBackground::Image { rel_id } => {
-                    let dest = crate::contracts::RectF32::new(
-                        0.0,
-                        0.0,
-                        scene.width_emu as f32,
-                        scene.height_emu as f32,
-                    );
-                    image::render_image(
+                // §20.1.8.14 blipFill background: white base, slide clip,
+                // then srcRect crop + fillRect insets or a:tile repetition
+                // (ref renderer.ts:2218-2362).
+                image_bg @ VectorBackground::Image { .. } => {
+                    background_image::paint(
                         &mut pixmap,
                         assets,
-                        rel_id,
-                        &crate::contracts::NormalizedRect::default(),
-                        &dest,
-                        1.0,
-                        &crate::contracts::AffineTransform::default(),
-                        &[],
+                        image_bg,
+                        scene.width_emu as f32,
+                        scene.height_emu as f32,
                         s_f32,
                         dx,
                         dy,

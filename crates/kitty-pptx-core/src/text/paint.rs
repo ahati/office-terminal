@@ -9,7 +9,7 @@
 
 use crossbeam_channel::Sender;
 
-use super::emit::{build_paragraphs, LineLayout, Measurer, ParagraphLayout};
+use super::emit::{build_paragraphs, LineLayout, Measurer, ParagraphLayout, StyleDef};
 use crate::compiler::math::{self, MathPiece};
 use crate::contracts::{
     AffineTransform, PositionedGlyph, PositionedGlyphRun, RectF32, VectorCommand, WarningEvent,
@@ -24,6 +24,49 @@ use crate::text::vertical;
 /// Vertical space an equation claims per unit of its own ascent/descent
 /// (`compiler/text.rs:314`, PRD 09 §1.2).
 const MATH_BLOCK_SCALE: f32 = 1.4;
+
+/// `baselineDrawSizePx` (`renderer.ts:1549-1553`): PowerPoint paints a
+/// non-zero DrawingML `rPr@baseline` run at 65 % of its authored size. The
+/// authored size still owns the line height and the baseline offset.
+const BASELINE_DRAW_SCALE: f32 = 0.65;
+
+impl StyleDef {
+    /// A non-zero `rPr@baseline` enters the shrunk-glyph path.
+    fn shifted(&self) -> bool {
+        matches!(self.baseline, Some(value) if value != 0)
+    }
+
+    /// Glyph size the measurer and the painter shape with — the authored size
+    /// unless the run carries a non-zero baseline (`renderer.ts:1832`).
+    pub(super) fn draw_size_emu(&self) -> f32 {
+        if self.shifted() {
+            self.size_emu * BASELINE_DRAW_SCALE
+        } else {
+            self.size_emu
+        }
+    }
+
+    /// `fontSizePx` reported to the text layer: the draw size
+    /// (`renderer.ts:6233` emits `fontSize: drawSizePx`).
+    pub(super) fn draw_size_pt(&self) -> f32 {
+        if self.shifted() {
+            self.size_pt * BASELINE_DRAW_SCALE
+        } else {
+            self.size_pt
+        }
+    }
+
+    /// `baselineShift = -(baseline / 100000) * sizePx` (`renderer.ts:5981`):
+    /// a positive `baseline` moves the glyph baseline UP (the canvas y axis
+    /// points down), and the authored size, not the shrunk draw size, gives the
+    /// offset.
+    pub(super) fn baseline_shift_emu(&self) -> f32 {
+        match self.baseline {
+            Some(value) if value != 0 => -(value as f32 / 100_000.0) * self.size_emu,
+            _ => 0.0,
+        }
+    }
+}
 
 /// `powerPointNaturalLine` over the line's runs, then widened by any equation
 /// the line carries.
@@ -47,6 +90,8 @@ pub(super) fn natural_box(
             LineItem::Object { style, .. } => *style,
         };
         let def = measurer.style(style);
+        // Always the authored size: a baseline-shifted run is painted at 65 %
+        // but still owns its full 1.2 em line box (`renderer.ts:1549-1553`).
         sizes.push((
             def.size_emu,
             FaceMetrics {
@@ -236,6 +281,10 @@ fn place_text(
 }
 
 /// Shape and place one run at pen position `x` on `baseline_y`.
+///
+/// A run carrying a non-zero `rPr@baseline` shapes at 65 % of its authored
+/// size and rides the shifted baseline (`renderer.ts:1552`, `5981`); the line
+/// box itself still comes from the authored size (see [`natural_box`]).
 fn emit_run(
     measurer: &Measurer,
     text: &str,
@@ -245,14 +294,21 @@ fn emit_run(
     out: &mut Vec<PositionedGlyphRun>,
 ) {
     let def = measurer.style(style);
-    let shaped = shape::shape(text, &def.family, def.size_emu, def.bold, def.italic);
+    let shaped = shape::shape(
+        text,
+        &def.family,
+        def.draw_size_emu(),
+        def.bold,
+        def.italic,
+    );
+    let run_baseline = baseline_y + def.baseline_shift_emu();
     let glyphs: Vec<PositionedGlyph> = shaped
         .glyphs
         .iter()
         .map(|(id, glyph_x, advance)| PositionedGlyph {
             glyph_id: *id,
             x: x + *glyph_x,
-            y: baseline_y,
+            y: run_baseline,
             advance: *advance,
             warp_u: None,
         })
@@ -260,7 +316,7 @@ fn emit_run(
     out.push(PositionedGlyphRun {
         text: text.to_string(),
         font_family: def.family.clone(),
-        font_size_pt: def.size_pt,
+        font_size_pt: def.draw_size_pt(),
         color: def.color,
         bold: def.bold,
         italic: def.italic,

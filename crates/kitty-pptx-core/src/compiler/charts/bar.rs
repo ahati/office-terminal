@@ -1,7 +1,9 @@
 use pptx_model::ChartModel;
 use crate::contracts::{AffineTransform, VectorCommand, VectorPaint};
 use super::color::resolve_series_color;
-use super::layout::{make_simple_run, rect_path, series_data_label_font_pt, ChartLayout};
+use super::layout::{
+    data_label_position, make_simple_run, rect_path, series_data_label_font_pt, ChartLayout,
+};
 use super::types::{ChartDataBounds, ChartFamily};
 
 /// Bar cluster geometry resolved from the chart group's `gapWidth`/`overlap`.
@@ -149,8 +151,9 @@ fn compile_vertical_columns(
                     } else {
                         format_val(val)
                     };
+                    let pos = data_label_position(chart, s, "ctr");
                     let tx = cat_x + bar_w / 2.0;
-                    let ty = bar_y + bar_h / 2.0 + 30_000.0;
+                    let ty = vertical_label_baseline(bar_y, bar_y + bar_h, label_pt * 12700.0, &pos);
                     let run = make_simple_run(&lbl_text, label_pt, [255, 255, 255, 255], tx, ty, "center");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
@@ -192,8 +195,9 @@ fn compile_vertical_columns(
 
                 if chart.show_data_labels {
                     let lbl_text = format_val(val);
+                    let pos = data_label_position(chart, s, "outEnd");
                     let tx = bar_x + bar_w / 2.0;
-                    let ty = bar_y - 20_000.0;
+                    let ty = vertical_label_baseline(bar_y, bar_y + norm_h, label_pt * 12700.0, &pos);
                     let run = make_simple_run(&lbl_text, label_pt, [60, 60, 60, 255], tx, ty, "center");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
@@ -276,9 +280,10 @@ fn compile_horizontal_bars(
                     } else {
                         format_val(val)
                     };
-                    let tx = cum_x + bar_w / 2.0;
-                    let ty = cat_y + bar_h / 2.0 + 30_000.0;
-                    let run = make_simple_run(&lbl_text, label_pt, [255, 255, 255, 255], tx, ty, "center");
+                    let pos = data_label_position(chart, s, "ctr");
+                    let (tx, align) = horizontal_label_anchor(cum_x, cum_x + bar_w, label_pt * 12700.0, &pos);
+                    let ty = cat_y + bar_h / 2.0 + label_pt * 12700.0 * 0.35;
+                    let run = make_simple_run(&lbl_text, label_pt, [255, 255, 255, 255], tx, ty, align);
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
                         transform,
@@ -319,9 +324,10 @@ fn compile_horizontal_bars(
 
                 if chart.show_data_labels {
                     let lbl_text = format_val(val);
-                    let tx = bar_x + norm_w + 30_000.0;
-                    let ty = bar_y + bar_h / 2.0 + 30_000.0;
-                    let run = make_simple_run(&lbl_text, label_pt, [60, 60, 60, 255], tx, ty, "left");
+                    let pos = data_label_position(chart, s, "outEnd");
+                    let (tx, align) = horizontal_label_anchor(bar_x, bar_x + norm_w, label_pt * 12700.0, &pos);
+                    let ty = bar_y + bar_h / 2.0 + label_pt * 12700.0 * 0.35;
+                    let run = make_simple_run(&lbl_text, label_pt, [60, 60, 60, 255], tx, ty, align);
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
                         transform,
@@ -332,6 +338,31 @@ fn compile_horizontal_bars(
     }
 
     commands
+}
+
+/// Vertical-bar data-label baseline for an authored `dLblPos`.
+///
+/// ref core/src/chart/data-label-layout.ts:140-190 (`anchor.kind === 'bar'`):
+/// `outEnd` sits one half-em outside the bar end, `inEnd`/`inBase` inside with
+/// the same inset, `ctr` at the bar centre. The half-em of each box half is
+/// folded into the baseline (0.35 em above the box centre).
+fn vertical_label_baseline(top: f32, bottom: f32, font_emu: f32, pos: &str) -> f32 {
+    match pos {
+        "inBase" => bottom - font_emu * 0.65,
+        "inEnd" => top + font_emu * 1.35,
+        "ctr" => (top + bottom) / 2.0 + font_emu * 0.35,
+        _ => top - font_emu * 0.65,
+    }
+}
+
+/// Horizontal-bar data-label anchor for an authored `dLblPos` (same rule).
+fn horizontal_label_anchor(left: f32, right: f32, font_emu: f32, pos: &str) -> (f32, &'static str) {
+    match pos {
+        "inBase" => (left + font_emu * 0.5, "left"),
+        "inEnd" => (right - font_emu * 0.5, "right"),
+        "ctr" => ((left + right) / 2.0, "center"),
+        _ => (right + font_emu * 0.5, "left"),
+    }
 }
 
 fn format_val(v: f64) -> String {

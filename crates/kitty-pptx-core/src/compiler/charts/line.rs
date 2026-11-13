@@ -5,7 +5,7 @@ use crate::contracts::{
 };
 use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::{resolve_series_color, resolve_series_line_color};
-use super::layout::{make_simple_run, series_data_label_font_pt, ChartLayout};
+use super::layout::{data_label_position, make_simple_run, series_data_label_font_pt, ChartLayout};
 use super::types::ChartDataBounds;
 
 pub fn compile_lines(
@@ -100,20 +100,25 @@ pub fn compile_lines(
         // 3. Optional data labels
         let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
         if chart.show_data_labels {
+            let pos = data_label_position(chart, s, "r");
+            let font = label_pt * 12700.0;
+            // ref data-label-layout.ts:84-94 (`anchor.kind === 'point'`): one
+            // half-em inset in the label's direction, clear of the marker.
+            let gap = font * 0.5 + marker_r;
             for &(px, py, val) in &points {
                 let label_text = if (val - val.round()).abs() < 1e-4 {
                     format!("{:.0}", val.round())
                 } else {
                     format!("{:.1}", val)
                 };
-                let run = make_simple_run(
-                    &label_text,
-                    label_pt,
-                    [60, 60, 60, 255],
-                    px,
-                    py - marker_r - 20_000.0,
-                    "center",
-                );
+                let (lx, ly, align) = match pos.as_str() {
+                    "l" => (px - gap, py + font * 0.35, "right"),
+                    "t" => (px, py - gap, "center"),
+                    "b" => (px, py + gap + font * 0.8, "center"),
+                    "ctr" | "bestFit" => (px, py + font * 0.35, "center"),
+                    _ => (px + gap, py + font * 0.35, "left"),
+                };
+                let run = make_simple_run(&label_text, label_pt, [60, 60, 60, 255], lx, ly, align);
                 commands.push(VectorCommand::DrawText {
                     runs: vec![run],
                     transform,

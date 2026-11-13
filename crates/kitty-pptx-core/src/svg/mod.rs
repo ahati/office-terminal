@@ -1,3 +1,4 @@
+mod background_image;
 mod filters;
 mod image;
 mod path;
@@ -84,6 +85,19 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
             }
             _ => None,
         };
+
+        // Image background (§20.1.8.14): white base plus the stretch/tile
+        // body. A tiled fill registers its `<pattern>` in the shared defs
+        // buffer (ref renderer.ts:2218-2362).
+        let bg_image_body = scene.background.as_ref().and_then(|bg| {
+            background_image::emit(
+                assets,
+                bg,
+                scene.width_emu as f32,
+                scene.height_emu as f32,
+                &mut defs,
+            )
+        });
 
         // Command gradients, clip defs, and shape-effect filter graphs
         let mut effect_refs: Vec<Option<filters::EffectRefs>> = Vec::new();
@@ -172,20 +186,9 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                         .unwrap();
                     }
                 }
-                VectorBackground::Image { rel_id } => {
-                    let dest = crate::contracts::RectF32::new(0.0, 0.0, w as f32, h as f32);
-                    let img_svg = image::serialize_svg_image(
-                        assets,
-                        rel_id,
-                        &crate::contracts::NormalizedRect::default(),
-                        &dest,
-                        1.0,
-                        &crate::contracts::AffineTransform::default(),
-                        &[],
-                    );
-                    if !img_svg.is_empty() {
-                        svg.push_str(&img_svg);
-                        svg.push('\n');
+                VectorBackground::Image { .. } => {
+                    if let Some(ref body) = bg_image_body {
+                        svg.push_str(body);
                     }
                 }
             }

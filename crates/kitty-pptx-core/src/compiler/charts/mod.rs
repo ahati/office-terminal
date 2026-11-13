@@ -1,5 +1,6 @@
 pub mod area;
 pub mod axes;
+pub mod bands;
 pub mod bar;
 pub mod color;
 pub mod layout;

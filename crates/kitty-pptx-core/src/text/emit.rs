@@ -19,6 +19,7 @@ use super::paint;
 #[derive(Clone, Debug)]
 pub(super) struct StyleDef {
     pub(super) family: String,
+    /// Authored size in EMU: owns the line box (`natural_line_box`).
     pub(super) size_emu: f32,
     pub(super) size_pt: f32,
     pub(super) bold: bool,
@@ -26,6 +27,9 @@ pub(super) struct StyleDef {
     pub(super) color: [u8; 4],
     pub(super) underline: bool,
     pub(super) strikethrough: bool,
+    /// `rPr@baseline` in thousandths of a point: positive = superscript
+    /// (raised), negative = subscript (lowered). `0`/`None` = on the baseline.
+    pub(super) baseline: Option<i32>,
 }
 
 /// Measurement adapter: `advance()` shapes with the same face the painter uses.
@@ -59,7 +63,9 @@ impl TextMeasure for Measurer {
             return width;
         }
         let def = self.style(style);
-        let width = shape::measure(text, &def.family, def.size_emu, def.bold, def.italic);
+        // The breaker measures with the face the painter draws (`seg.font` is
+        // built from `drawSizePx`, `renderer.ts:1859-1877`).
+        let width = shape::measure(text, &def.family, def.draw_size_emu(), def.bold, def.italic);
         self.cache.borrow_mut().insert(key, width);
         width
     }
@@ -152,6 +158,7 @@ pub fn compile_text_body(
         color: default_color,
         underline: false,
         strikethrough: false,
+        baseline: None,
     });
 
     // `a:bodyPr@vert` dispatch (renderer.ts:5021-5035). Stacked WordArt is a
@@ -339,6 +346,7 @@ pub(super) fn build_paragraphs(
                 color: def_color,
                 underline: false,
                 strikethrough: false,
+                baseline: None,
             });
             items.push(BreakItem::Text {
                 text: label,
@@ -381,6 +389,11 @@ pub(super) fn build_paragraphs(
                         color,
                         underline: data.underline,
                         strikethrough: data.strikethrough,
+                        // Run-only: neither `TextBody` nor `Paragraph` carries a
+                        // baseline default, and the parser already cascaded
+                        // `lstStyle`/master `defRPr@baseline` into the run and
+                        // dropped an explicit `0` (`pptx-parser/src/text.rs:2557`).
+                        baseline: data.baseline,
                     });
                     push_text_items(&mut items, &data.text, id);
                 }
@@ -413,6 +426,7 @@ pub(super) fn build_paragraphs(
                         color: default_color,
                         underline: false,
                         strikethrough: false,
+                        baseline: None,
                     });
                     if *display {
                         // Display equations are their own centred block

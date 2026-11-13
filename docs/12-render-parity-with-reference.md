@@ -488,9 +488,12 @@ differently (see §8.1), not by paint.
 
 ### 8.1 Known remaining gaps
 
-1. **Placeholder/text-rect inheritance.** Slide 1's title box is wider than the reference's, so it
-   wraps into two lines instead of three. The geometry comes from layout/master placeholder
-   resolution, not from the text engine.
+1. **Reference PNGs use substituted fonts.** The demo PNGs render slide 1's title with Arial
+   metrics, not the deck's Nunito Sans: measured ink widths are 446.9 / 185.7 / 379.3 px for Arial
+   versus 435.5 / 186.8 / 359.2 px for Nunito Sans, and the PNG measures 448 / 186 / 380. Only the
+   Arial advance of `THE FOREST` (608.0 px) exceeds the 606 px text budget, which is exactly why the
+   reference wraps three lines. With the authored Nunito Sans our two-line wrap is correct, so this
+   is a font-substitution difference in the oracle, not a layout bug.
 2. **Vertical text `eaVert` upright substitution** is approximated (rotation, not per-glyph UAX#50).
 3. **Charts** only have the frame/axis/legend/bar/line/pie/area subset; other families still fall
    back to a column chart instead of the reference's "Unsupported chart" placeholder.
@@ -499,6 +502,13 @@ differently (see §8.1), not by paint.
    is not ported.
 6. **Table cell clipping**, `cmpd` double borders and device-pixel crisp snapping are not
    expressible in the current IR.
+
+### 8.1.1 Second slice
+
+Landed after the first commit: `rPr@baseline` super/subscript (0.65 size, `-(baseline/100000)*size`
+shift), background image fills (`srcRect`, `fillRect`, tile, alpha, white base), measured chart
+bands (title/legend/axis-title, elision, manual layout), and a font-metric investigation that
+explains the slide-1 wrap difference above.
 
 ### 8.2 Test entry points
 

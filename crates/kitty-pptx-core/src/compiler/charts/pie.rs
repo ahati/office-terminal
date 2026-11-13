@@ -5,7 +5,9 @@ use crate::contracts::{
 };
 use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::resolve_slice_color;
-use super::layout::{make_simple_run, series_data_label_font_pt, ChartLayout};
+use super::layout::{
+    data_label_position, make_simple_run, series_data_label_font_pt, ChartLayout,
+};
 
 pub fn compile_pie(
     chart: &ChartModel,
@@ -118,17 +120,35 @@ pub fn compile_pie(
             let mid_ang_deg = current_ang_deg + sweep_deg / 2.0;
             let mid_rad = mid_ang_deg.to_radians();
 
-            let r_label = if r_inner > 0.0 {
-                (r_inner + r_outer) / 2.0
+            // ref data-label-layout.ts:140-190: `outEnd`/`bestFit` labels sit
+            // outside the slice, `inEnd`/`ctr` stay on the slice body.
+            let pos = data_label_position(chart, first_series, "ctr");
+            let outside = matches!(pos.as_str(), "outEnd" | "bestFit");
+            // Inside labels paint white over the slice, moved-outside labels use
+            // the dark data-label ink (ref shared/data-labels.ts:187 default).
+            let label_color = if outside { [60, 60, 60, 255] } else { [255, 255, 255, 255] };
+            let font = slice_label_pt * 12700.0;
+            let r_label = if outside {
+                r_outer + font * 0.5
             } else {
-                r_outer * 0.65
+                match pos.as_str() {
+                    "inEnd" if r_inner > 0.0 => r_outer - font * 0.5,
+                    "inEnd" => r_outer * 0.75,
+                    _ => {
+                        if r_inner > 0.0 {
+                            (r_inner + r_outer) / 2.0
+                        } else {
+                            r_outer * 0.65
+                        }
+                    }
+                }
             };
 
             let lx = cx + r_label * mid_rad.cos();
-            let ly = cy + r_label * mid_rad.sin() + 25_000.0;
+            let ly = cy + r_label * mid_rad.sin() + font * 0.35;
 
             let label_text = format!("{:.0}%", fraction * 100.0);
-            let run = make_simple_run(&label_text, slice_label_pt, [255, 255, 255, 255], lx, ly, "center");
+            let run = make_simple_run(&label_text, slice_label_pt, label_color, lx, ly, "center");
             commands.push(VectorCommand::DrawText {
                 runs: vec![run],
                 transform,
