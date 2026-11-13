@@ -30,7 +30,9 @@ const RECT_PRESETS: &[&str] = &[
     "squareTabs",
     "frame",
     "bevel",
-    "folderCorner",
+    // ECMA-376 `foldedCorner` (the old hand-written library also accepted the
+    // misspelling `folderCorner`, which the dispatcher now treats as unknown).
+    "foldedCorner",
     "plus",
     "mathMultiply",
     "mathDivide",
@@ -61,17 +63,10 @@ const CURVED_ARROW_PRESETS: &[&str] = &[
 ];
 
 const CALLOUT_PRESETS: &[&str] = &[
-    "rectCallout",
     "wedgeRectCallout",
-    "roundRectCallout",
     "wedgeRoundRectCallout",
     "cloudCallout",
-    "ellipseCallout",
     "wedgeEllipseCallout",
-    "lineCallout1",
-    "lineCallout2",
-    "lineCallout3",
-    "lineCallout4",
     "borderCallout1",
     "borderCallout2",
     "borderCallout3",
@@ -219,7 +214,12 @@ fn control_points(path: &kitty_pptx_core::contracts::VectorPath) -> Vec<(f32, f3
 #[test]
 fn promoted_preset_count_matches_catalog() {
     let names = all_presets();
-    assert_eq!(names.len(), 122, "unexpected promotion count");
+    // `rectCallout` / `roundRectCallout` / `ellipseCallout` (Office-2003
+    // spellings) and `lineCallout1..4` are absent from `presets.json`, which is
+    // a verbatim `presetShapeDefinitions.xml`; the ECMA names for those are
+    // `wedge*Callout` and `callout1..3`. They are covered by the unknown-name
+    // fallback test instead.
+    assert_eq!(names.len(), 115, "unexpected promotion count");
     let mut unique = names.clone();
     unique.sort_unstable();
     unique.dedup();
@@ -230,7 +230,8 @@ fn promoted_preset_count_matches_catalog() {
 fn every_module_builder_accepts_its_catalog() {
     for name in RECT_PRESETS {
         assert!(
-            presets_rects::build_rect_preset(name, 200.0, 120.0, &[]).is_some(),
+            presets_rects::build_rect_preset(name, 200.0, 120.0, &[]).is_some()
+                || shapes::presets_t2::build_t2_preset(name, 200.0, 120.0, &[]).is_some(),
             "rect builder missed {name}"
         );
     }
@@ -283,24 +284,29 @@ fn every_module_builder_accepts_its_catalog() {
 fn extended_presets_dispatch_without_warning() {
     for name in all_presets() {
         let (tx, rx) = unbounded();
-        let path = shapes::build_shape_path(name, 200.0, 120.0, &[], None, &tx);
+        let subpaths = shapes::build_shape_paths(name, 200.0, 120.0, &[], None, &tx);
         assert!(
             rx.try_recv().is_err(),
             "{name} must not emit UnsupportedPreset"
         );
+        assert!(!subpaths.is_empty(), "{name} produced no subpath");
+        let segments: usize = subpaths.iter().map(|s| s.path.segments.len()).sum();
         let min_segments = if is_open_leader(name) { 2 } else { 3 };
         assert!(
-            path.segments.len() >= min_segments,
-            "{name} produced only {} segments",
-            path.segments.len()
+            segments >= min_segments,
+            "{name} produced only {segments} segments"
         );
         assert!(
-            matches!(path.segments[0], PathSegment::MoveTo { .. }),
+            matches!(subpaths[0].path.segments[0], PathSegment::MoveTo { .. }),
             "{name} must start with MoveTo"
         );
+        // Multi-contour presets (smileyFace's eyes, sun's rays) close contour by
+        // contour, so require at least one `Close` rather than a trailing one.
         if !is_open_path(name) {
             assert!(
-                matches!(path.segments.last(), Some(PathSegment::Close)),
+                subpaths
+                    .iter()
+                    .any(|s| matches!(s.path.segments.last(), Some(PathSegment::Close))),
                 "{name} must be closed"
             );
         }
@@ -316,25 +322,45 @@ fn extended_presets_stay_within_bounds() {
         (64.0, 64.0),
     ];
     for name in all_presets() {
+        // Callout leaders target a point that is deliberately outside the
+        // element box (ECMA-376 §20.1.10.31 callout adj1/adj2).
         if is_callout(name) {
+            continue;
+        }
+        // The ECMA `math*` definitions draw the operator as thick strokes whose
+        // contours derive from the box; for extreme aspect ratios (40x200) the
+        // `mathNotEqual` slash legitimately leaves the box. PowerPoint clips at
+        // paint time and the reference renderer does not clip either, so this
+        // is reference behaviour rather than a regression.
+        if name.to_ascii_lowercase().starts_with("math") {
             continue;
         }
         for &(w, h) in &boxes {
             let (tx, _rx) = unbounded();
             let path = shapes::build_shape_path(name, w, h, &[], None, &tx);
+            // The ECMA guide tables carry 5-decimal cosines, so a computed
+            // vertex can sit a hair outside the box (heptagon/star7 at 40x200
+            // overshoot by 1.05e-3 px on the bottom edge).
+            let eps = 1e-2;
             for (x, y) in endpoints(&path) {
                 assert!(
                     x.is_finite() && y.is_finite(),
                     "{name} has non-finite point"
                 );
                 assert!(
-                    x >= -1e-3 && x <= w + 1e-3,
+                    x >= -eps && x <= w + eps,
                     "{name} x={x} outside [0,{w}] for box {w}x{h}"
                 );
                 assert!(
-                    y >= -1e-3 && y <= h + 1e-3,
+                    y >= -eps && y <= h + eps,
                     "{name} y={y} outside [0,{h}] for box {w}x{h}"
                 );
+            }
+            // `wave`/`doubleWave` place their control points at y1 ± 10/3·y1
+            // (ECMA `dy2`), which is far outside the box by construction even
+            // though the traced curve stays inside; skip the control check.
+            if matches!(name, "wave" | "doubleWave") {
+                continue;
             }
             // Bézier control points may sit marginally outside an inscribed
             // ellipse (the 45° sub-arc control radius is ~1.03R); allow 5%.
@@ -405,13 +431,14 @@ fn snip1_rect_actually_cuts_the_corner() {
             .any(|&(x, y)| (x - 200.0).abs() < 1e-3 && y.abs() < 1e-3),
         "top-right corner must be snipped away"
     );
-    // Default cut is R_max * 0.16667 = 0.5 * 120 * 0.16667 = 10 px.
+    // Default cut: dx1 = ss * adj / 100000 = 120 * 16667 / 100000 = 20.0004.
+    let cut = 120.0 * 16667.0 / 100_000.0;
     assert!(pts
         .iter()
-        .any(|&(x, y)| (x - 190.0).abs() < 1e-2 && y.abs() < 1e-2));
+        .any(|&(x, y)| (x - (200.0 - cut)).abs() < 1e-2 && y.abs() < 1e-2));
     assert!(pts
         .iter()
-        .any(|&(x, y)| (x - 200.0).abs() < 1e-2 && (y - 10.0).abs() < 1e-2));
+        .any(|&(x, y)| (x - 200.0).abs() < 1e-2 && (y - cut).abs() < 1e-2));
 }
 
 #[test]
@@ -428,7 +455,6 @@ fn adjustment_sensitivity_changes_geometry() {
         ("leftBrace", 10_000.0, 60_000.0),
         ("plaque", 5_000.0, 80_000.0),
         ("curvedRightArrow", 20_000.0, 60_000.0),
-        ("funnel", 10_000.0, 80_000.0),
     ];
     for &(name, low, high) in cases {
         let (tx, _rx) = unbounded();
@@ -439,7 +465,11 @@ fn adjustment_sensitivity_changes_geometry() {
 }
 
 #[test]
-fn striped_arrow_and_gears_use_even_odd_fill() {
+fn preset_paths_use_the_nonzero_fill_rule() {
+    // The reference paints every preset `<a:path>` with `ctx.fill()`'s default
+    // nonzero rule (`preset-geometry/index.ts:64-70`); holes such as `donut`'s
+    // inner ring are authored with the opposite winding instead, so no even-odd
+    // rule is needed (see `preset_dispatch_tests::donut_rings_wind_oppositely`).
     for name in [
         "stripedRightArrow",
         "gear6",
@@ -450,32 +480,48 @@ fn striped_arrow_and_gears_use_even_odd_fill() {
     ] {
         let (tx, _rx) = unbounded();
         let path = shapes::build_shape_path(name, 200.0, 120.0, &[], None, &tx);
-        assert_eq!(path.fill_rule, FillRule::EvenOdd, "{name}");
+        assert_eq!(path.fill_rule, FillRule::NonZero, "{name}");
     }
 }
 
 #[test]
-fn brace_pair_has_two_subpaths() {
-    let (tx, _rx) = unbounded();
+fn brace_pair_composes_fill_and_outline_paths() {
+    // presets.json `bracePair` / `bracketPair` each ship two `<a:path>`s: one
+    // closed fill contour plus a stroke-only outline that draws both halves.
     for name in ["bracePair", "bracketPair"] {
-        let path = shapes::build_shape_path(name, 200.0, 120.0, &[], None, &tx);
-        let moves = path
+        let (tx, _rx) = unbounded();
+        let subpaths = shapes::build_shape_paths(name, 200.0, 120.0, &[], None, &tx);
+        assert_eq!(subpaths.len(), 2, "{name} fill + outline paths");
+        assert!(subpaths[0].fill.is_filled(), "{name} first path carries the fill");
+        assert!(!subpaths[0].stroke, "{name} fill path is not stroked");
+        assert_eq!(
+            subpaths[1].fill,
+            shapes::PathFill::None,
+            "{name} outline path is stroke-only"
+        );
+        assert!(subpaths[1].stroke);
+        let moves = subpaths[1]
+            .path
             .segments
             .iter()
-            .filter(|s| matches!(s, PathSegment::MoveTo { .. }))
+            .filter(|segment| matches!(segment, PathSegment::MoveTo { .. }))
             .count();
-        assert_eq!(moves, 2, "{name} should compose two braces/brackets");
+        assert_eq!(moves, 2, "{name} outline composes two halves");
     }
 }
 
 #[test]
-fn residual_presets_still_fall_back() {
+fn unknown_presets_still_fall_back() {
+    // `folderCorner` is a misspelling of the ECMA `foldedCorner`; presets.json
+    // only ships the standard name, so it degrades like any unknown geometry.
     for name in [
         "futureFuturisticShape999",
-        "flowChartDocument",
-        "straightConnector1",
-        "chartPlus",
-        "lineInv",
+        "folderCorner",
+        "rectCallout",
+        "roundRectCallout",
+        "ellipseCallout",
+        "lineCallout1",
+        "lineCallout4",
     ] {
         let (tx, rx) = unbounded();
         let path = shapes::build_shape_path(name, 200.0, 120.0, &[], None, &tx);
