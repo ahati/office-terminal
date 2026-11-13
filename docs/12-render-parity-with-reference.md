@@ -495,9 +495,9 @@ differently (see §8.1), not by paint.
    reference wraps three lines. With the authored Nunito Sans our two-line wrap is correct, so this
    is a font-substitution difference in the oracle, not a layout bug.
 2. **Vertical text `eaVert` upright substitution** is approximated (rotation, not per-glyph UAX#50).
-3. **Charts** only have the frame/axis/legend/bar/line/pie/area subset; other families still fall
-   back to a column chart instead of the reference's "Unsupported chart" placeholder.
-4. **Background image fills** still lack `srcRect`/tile geometry (picture fills are fixed).
+3. **Charts** only render the column/bar/line/area/pie/doughnut subset; other families now show the
+   labelled placeholder (parity with the reference's unsupported path) but are not drawn.
+4. **SVG reflection** still uses the simplified filter graph and ignores `dir`/`stPos`/`endPos`/`sx`/`sy`.
 5. **3-D bevel/extrusion** remains the previous approximation; the reference's material/rig shading
    is not ported.
 6. **Table cell clipping**, `cmpd` double borders and device-pixel crisp snapping are not
@@ -509,6 +509,11 @@ Landed after the first commit: `rPr@baseline` super/subscript (0.65 size, `-(bas
 shift), background image fills (`srcRect`, `fillRect`, tile, alpha, white base), measured chart
 bands (title/legend/axis-title, elision, manual layout), and a font-metric investigation that
 explains the slide-1 wrap difference above.
+
+Third slice: chart-family dispatch (unsupported families now draw the reference's labelled
+"Unsupported chart" placeholder with a warning instead of a silent column chart), reflection
+parameters (`dir`, `stPos`/`endPos`, `sx`/`sy`, `algn`, `dist`; vendored patch 0002 corrects the
+ECMA default `dir = 5400000`), and table cell clipping plus compound (`cmpd`) borders.
 
 ### 8.2 Test entry points
 

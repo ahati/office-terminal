@@ -205,7 +205,9 @@ pub fn parse_reflection_effect(node: Node<'_, '_>) -> Reflection {
     Reflection {
         blur: attr_i64(&node, "blurRad").unwrap_or(0),
         dist: attr_i64(&node, "dist").unwrap_or(0),
-        dir: attr_f64(&node, "dir").unwrap_or(0.0) / 60_000.0,
+        // ECMA-376 CT_ReflectionEffect@dir default is 5400000 (90°, mirror
+        // downward). Upstream defaulted to 0, which mirrors sideways.
+        dir: attr_f64(&node, "dir").unwrap_or(5_400_000.0) / 60_000.0,
         st_a: pct("stA", 1.0),
         st_pos: pct("stPos", 0.0),
         end_a: pct("endA", 0.0),
@@ -233,6 +235,21 @@ mod tests {
         assert_eq!((shadow.sx, shadow.sy), (Some(0.5), Some(-0.25)));
         let r = effects.reflection.unwrap();
         assert_eq!((r.st_a, r.end_a, r.sx, r.sy), (0.5, 0.25, 0.75, -1.0));
+    }
+
+    #[test]
+    fn reflection_direction_defaults_to_down_and_keeps_authored_zero() {
+        let bare = roxmltree::Document::parse(
+            r#"<a:reflection xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>"#,
+        )
+        .unwrap();
+        assert_eq!(parse_reflection_effect(bare.root_element()).dir, 90.0);
+
+        let authored = roxmltree::Document::parse(
+            r#"<a:reflection xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" dir="0"/>"#,
+        )
+        .unwrap();
+        assert_eq!(parse_reflection_effect(authored.root_element()).dir, 0.0);
     }
 
     struct FixtureResolver;
@@ -276,7 +293,8 @@ mod tests {
             Reflection {
                 blur: 0,
                 dist: 0,
-                dir: 0.0,
+                // CT_ReflectionEffect@dir default is 5400000 (90 degrees).
+                dir: 90.0,
                 st_a: 1.0,
                 st_pos: 0.0,
                 end_a: 0.0,

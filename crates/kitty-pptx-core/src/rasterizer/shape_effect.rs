@@ -13,9 +13,11 @@ use crate::contracts::{
 };
 use crate::rasterizer::bevel::apply_bevel_shading;
 use crate::rasterizer::filters;
-use crate::rasterizer::mask::{alpha_mask, pixmap_from_premultiplied, tint_mask};
+use crate::rasterizer::mask::{alpha_mask, tint_mask};
 use crate::rasterizer::path;
 use crate::scene3d;
+
+mod reflection;
 
 /// Upper bound on scratch-layer pixels to keep memory pressure predictable.
 /// This is the only blur guard kept: effect reaches are capped by the canvas
@@ -82,8 +84,6 @@ pub fn render_path_with_effects(
     if !(min_px.0.is_finite() && max_px.1.is_finite()) {
         return;
     }
-    let shape_h_px = (max_px.1 - min_px.1).max(1.0);
-
     let canvas_w = pixmap.width() as f32;
     let canvas_h = pixmap.height() as f32;
     let reach_cap = (canvas_w * canvas_w + canvas_h * canvas_h).sqrt();
@@ -92,7 +92,8 @@ pub fn render_path_with_effects(
     // grown by the stroke half width / contour extent so outlines are never
     // clipped by the effect crop.
     let painted_pad = painted_padding(stroke, effects, scale) + 2.0;
-    let padding = effect_padding(effects, scale, shape_h_px, reach_cap);
+    let shape_box = (min_px.0, min_px.1, max_px.0 - min_px.0, max_px.1 - min_px.1);
+    let padding = effect_padding(effects, scale, shape_box, reach_cap);
     let x0 = (min_px.0 - padding.0 - painted_pad).floor().max(0.0) as i32;
     let y0 = (min_px.1 - padding.1 - painted_pad).floor().max(0.0) as i32;
     let x1 = (max_px.0 + padding.2 + painted_pad).ceil().min(canvas_w) as i32;
@@ -155,17 +156,7 @@ pub fn render_path_with_effects(
     }
     // 2. Reflection (ref renderer.ts:3811-3817): above the shadow.
     if let Some(reflection) = effects.reflection.as_ref() {
-        composite_reflection(
-            pixmap,
-            &layer,
-            reflection,
-            scale,
-            reach_cap,
-            min_px,
-            max_px,
-            origin,
-            shape_h_px,
-        );
+        reflection::composite(pixmap, &layer, reflection, scale, reach_cap, origin, bbox);
     }
     // 3. Glow (ref renderer.ts:3818-3819): still behind the body.
     if let Some(glow) = effects.glow.as_ref() {
@@ -426,80 +417,6 @@ fn composite_inner_shadow(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn composite_reflection(
-    pixmap: &mut tiny_skia::Pixmap,
-    layer: &tiny_skia::Pixmap,
-    reflection: &crate::contracts::VectorReflection,
-    scale: f32,
-    reach_cap: f32,
-    min_px: (f32, f32),
-    max_px: (f32, f32),
-    origin: (f32, f32),
-    shape_h_px: f32,
-) {
-    if reflection.start_opacity <= 0.0 {
-        return;
-    }
-    let lw = layer.width() as usize;
-    let lh = layer.height() as usize;
-    let cx0 = (min_px.0 - origin.0).floor().clamp(0.0, lw as f32) as usize;
-    let cx1 = (max_px.0 - origin.0).ceil().clamp(0.0, lw as f32) as usize;
-    let cy0 = (min_px.1 - origin.1).floor().clamp(0.0, lh as f32) as usize;
-    let cy1 = (max_px.1 - origin.1).ceil().clamp(0.0, lh as f32) as usize;
-    let (tw, th) = (cx1.saturating_sub(cx0), cy1.saturating_sub(cy0));
-    if tw == 0 || th == 0 {
-        return;
-    }
-
-    let src = layer.data();
-    let mut tile = vec![0u8; tw * th * 4];
-    for row in 0..th {
-        let src_row = cy1 - 1 - row; // vertical mirror
-        let src_start = (src_row * lw + cx0) * 4;
-        let dst_start = row * tw * 4;
-        tile[dst_start..dst_start + tw * 4].copy_from_slice(&src[src_start..src_start + tw * 4]);
-    }
-
-    // ref effects.ts:applyReflection — `filter='blur(r)'`, sigma = r.
-    let radius_px = filters::clamp_reach_px(reflection.blur_radius_emu, scale, reach_cap);
-    if radius_px > 0.0 {
-        filters::gaussian_blur_premultiplied(&mut tile, tw, th, radius_px);
-    }
-
-    // Linear opacity ramp from the shape boundary down the reflection.
-    for row in 0..th {
-        let t = (row as f32 / shape_h_px.max(1.0)).clamp(0.0, 1.0);
-        let alpha = reflection.start_opacity
-            + (reflection.end_opacity - reflection.start_opacity) * t;
-        let factor = alpha.clamp(0.0, 1.0);
-        for x in 0..tw {
-            let base = (row * tw + x) * 4;
-            for channel in 0..4 {
-                tile[base + channel] = (tile[base + channel] as f32 * factor).round() as u8;
-            }
-        }
-    }
-
-    let Some(tile_pixmap) = pixmap_from_premultiplied(&tile, tw, th) else {
-        return;
-    };
-    // Mirror about the shape's bottom edge, then push along `dir` by `dist`
-    // (ref effects.ts:applyReflection step 3).
-    let distance_px = reflection.distance_emu as f32 * scale;
-    let (off_x, off_y) = filters::directional_offset(reflection.direction_deg, distance_px);
-    let dest_x = (min_px.0 + off_x).round() as i32;
-    let dest_y = (max_px.1 + off_y).round() as i32;
-    pixmap.draw_pixmap(
-        dest_x,
-        dest_y,
-        tile_pixmap.as_ref(),
-        &tiny_skia::PixmapPaint::default(),
-        tiny_skia::Transform::identity(),
-        None,
-    );
-}
-
 /// Feather the body symmetrically about the geometry
 /// (ref effects.ts:applySoftEdge, sigma = radius / 3, outward bleed of radius).
 #[allow(clippy::too_many_arguments)]
@@ -523,7 +440,7 @@ fn apply_soft_edge(
 fn effect_padding(
     effects: &ShapeEffects,
     scale: f32,
-    shape_h_px: f32,
+    shape_box: (f32, f32, f32, f32),
     reach_cap: f32,
 ) -> (f32, f32, f32, f32) {
     let mut left = 0.0f32;
@@ -567,10 +484,14 @@ fn effect_padding(
         bottom = bottom.max(pad);
     }
     if let Some(reflection) = effects.reflection.as_ref() {
+        // The mirrored copy can leave the box on any side once `dir`/`dist`
+        // point elsewhere (ref effects.ts:626-639).
         let blur = filters::clamp_reach_px(reflection.blur_radius_emu, scale, reach_cap);
-        bottom = bottom.max(
-            (reflection.distance_emu as f32 * scale).abs() + shape_h_px + 3.0 * blur + 2.0,
-        );
+        let (l, t, r, b) = reflection::padding(reflection, shape_box, scale, blur);
+        left = left.max(l);
+        top = top.max(t);
+        right = right.max(r);
+        bottom = bottom.max(b);
     }
     if let Some(shape_3d) = effects.shape_3d.as_ref() {
         let bevel = (shape_3d.bevel_top_width_emu.max(shape_3d.bevel_top_height_emu) as f32

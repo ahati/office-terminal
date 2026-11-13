@@ -16,6 +16,10 @@ The following crates in this directory are vendored from [`yukiyokotani/office-o
 
 1. `crates/patches/0001-fix-lexical-depth-test-include-path.patch`:
    - Adjusts `include!` path in `pptx-parser/src/lib.rs` for peer `crates/ooxml-common` directory layout.
+2. `crates/patches/0002-fix-reflection-default-direction.patch`:
+   - Fixes `parse_reflection_effect` to use the ECMA-376 default `dir = 5400000`
+     (90 degrees); the upstream default of 0 mirrored reflections sideways. The
+     defaults unit test is updated to the spec value.
 
 
 ## Bundled test/parity assets (not vendored crates)

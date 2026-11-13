@@ -165,6 +165,7 @@ fn layer_order_is_shadow_then_reflection_then_body() {
             end_opacity: 0.5,
             distance_emu: 0,
             direction_deg: 90.0,
+            ..VectorReflection::default()
         }),
         ..Default::default()
     };
@@ -281,3 +282,192 @@ fn rot_with_shape_controls_the_shadow_offset_frame() {
     assert!(black_alpha(&shape, 50, 75) < 0.05, "no shadow below the body");
 }
 
+
+// ---------------------------------------------------------------------------
+// Reflection — ECMA-376 §20.1.8.50, ref effects.ts:562-640 `applyReflection`.
+// The body is the rect x 10..90, y 10..50 px; the mirrored copy hangs off its
+// bottom edge (dir 90) with the band height h = 40 px, so the default copy
+// covers y 50..90. Every probe uses a black body, so R = 255·(1 - alpha).
+// ---------------------------------------------------------------------------
+
+fn refl(
+    st_a: f32,
+    end_a: f32,
+    st_pos: f32,
+    end_pos: f32,
+    dist_emu: i64,
+) -> VectorReflection {
+    VectorReflection {
+        blur_radius_emu: 0,
+        start_opacity: st_a,
+        start_pos: st_pos,
+        end_opacity: end_a,
+        end_pos,
+        distance_emu: dist_emu,
+        direction_deg: 90.0,
+        ..VectorReflection::default()
+    }
+}
+
+/// Rasterize a reflection-only scene and return it with the alpha probes.
+fn refl_image(r: VectorReflection) -> RgbaSlide {
+    let effects = ShapeEffects { reflection: Some(r), ..Default::default() };
+    raster_filled(effects, AffineTransform::default(), [0, 0, 0, 255])
+}
+
+fn close(actual: f32, expected: f32, tol: f32, what: &str) {
+    assert!(
+        (actual - expected).abs() <= tol,
+        "{what}: expected {expected} ± {tol}, got {actual}"
+    );
+}
+
+#[test]
+fn reflection_fades_to_zero_at_end_pos() {
+    // stPos=0, endPos=50% ⇒ the ramp spans the first half of the band and the
+    // band is fully transparent from half height down (effects.ts:612-622).
+    let img = refl_image(refl(1.0, 0.0, 0.0, 0.5, 0));
+
+    // y 55 → source row 45 → t = 5/40 = 0.125 ⇒ alpha = 1 - 0.125/0.5 = 0.75.
+    close(black_alpha(&img, 50, 55), 0.75, 0.05, "alpha at t=0.125");
+    // y 60 → t = 0.25 ⇒ 0.5.
+    close(black_alpha(&img, 50, 60), 0.5, 0.05, "alpha at t=0.25");
+    // y 69 → t = 0.475 ⇒ 0.05.
+    close(black_alpha(&img, 50, 69), 0.05, 0.05, "alpha at t=0.475");
+    // Half height and below: `endA` holds, so no ink at all.
+    for y in [70, 71, 75, 89] {
+        assert_eq!(px(&img, 50, y), [255, 255, 255, 255], "endPos=50% must clear row {y}");
+    }
+}
+
+#[test]
+fn reflection_end_alpha_zero_leaves_no_ink_past_the_fade() {
+    // Control: with the default endPos=100% the ramp keeps fading over the
+    // whole band, so row 75 still carries ink.
+    let full = refl_image(refl(1.0, 0.0, 0.0, 1.0, 0));
+    close(black_alpha(&full, 50, 75), 0.375, 0.05, "alpha at t=0.625");
+
+    // endA=0 with endPos=50%: nothing survives past the fade.
+    let cut = refl_image(refl(1.0, 0.0, 0.0, 0.5, 0));
+    assert_eq!(px(&cut, 50, 75), [255, 255, 255, 255]);
+    assert_eq!(px(&cut, 20, 80), [255, 255, 255, 255]);
+    // ... while the stA band right under the shape is still near-opaque (the
+    // ramp has only advanced by t = 1/40 at the first row).
+    assert!(
+        black_alpha(&cut, 50, 51) > 0.85,
+        "stA band at the shape edge must stay opaque"
+    );
+}
+
+#[test]
+fn reflection_direction_90_mirrors_below_the_body() {
+    // dir 90° (the reference default): mirror about the bottom edge y = 50.
+    let img = refl_image(refl(1.0, 1.0, 0.0, 1.0, 0));
+
+    // The mirrored silhouette keeps the body's x range and lands in y 50..90.
+    close(black_alpha(&img, 20, 60), 1.0, 0.02, "mirrored body below");
+    close(black_alpha(&img, 50, 88), 1.0, 0.02, "band bottom");
+    assert_eq!(px(&img, 5, 60), [255, 255, 255, 255], "nothing left of the body");
+    assert_eq!(px(&img, 95, 60), [255, 255, 255, 255], "nothing right of the body");
+    assert_eq!(px(&img, 50, 95), [255, 255, 255, 255], "nothing past the band");
+}
+
+#[test]
+fn reflection_direction_0_mirrors_to_the_right() {
+    // dir 0° turns the mirror axis a quarter turn, so the copy leaves through
+    // the shape's right side (effects.ts:626-639, generalised for dir != 90).
+    let mut r = refl(1.0, 1.0, 0.0, 1.0, 0);
+    r.direction_deg = 0.0;
+    let img = refl_image(r);
+
+    // The pivot is the bottom-centre anchor (50, 50); the copy covers
+    // x 50..90, y 10..90.
+    close(black_alpha(&img, 60, 70), 1.0, 0.02, "mirrored copy right of the pivot");
+    close(black_alpha(&img, 88, 20), 1.0, 0.02, "copy reaches the body's top");
+    assert_eq!(px(&img, 20, 70), [255, 255, 255, 255], "nothing left of the pivot");
+    assert_eq!(px(&img, 60, 95), [255, 255, 255, 255], "nothing past the copy");
+}
+
+#[test]
+fn reflection_scale_y_halves_the_copy() {
+    // sy = 0.5 ⇒ the mirrored copy is half the band height: y 50..70.
+    let mut r = refl(1.0, 1.0, 0.0, 1.0, 0);
+    r.scale_y = 0.5;
+    let img = refl_image(r);
+
+    close(black_alpha(&img, 50, 60), 1.0, 0.02, "inside the halved copy");
+    close(black_alpha(&img, 50, 68), 1.0, 0.02, "copy bottom edge");
+    assert_eq!(px(&img, 50, 72), [255, 255, 255, 255], "copy must stop at half height");
+    assert_eq!(px(&img, 50, 85), [255, 255, 255, 255], "copy must stop at half height");
+}
+
+#[test]
+fn reflection_scale_x_narrows_the_copy() {
+    // sx = 0.5 about the bottom-centre pivot ⇒ the copy spans x 30..70.
+    let mut r = refl(1.0, 1.0, 0.0, 1.0, 0);
+    r.scale_x = 0.5;
+    let img = refl_image(r);
+
+    close(black_alpha(&img, 40, 60), 1.0, 0.02, "inside the narrowed copy");
+    close(black_alpha(&img, 68, 60), 1.0, 0.02, "narrowed right edge");
+    assert_eq!(px(&img, 80, 60), [255, 255, 255, 255], "no ink right of the copy");
+    assert_eq!(px(&img, 20, 60), [255, 255, 255, 255], "no ink left of the copy");
+}
+
+#[test]
+fn reflection_distance_leaves_a_gap() {
+    // dist = 10 px along dir 90 ⇒ the copy starts at y 60, not y 50.
+    let img = refl_image(refl(1.0, 1.0, 0.0, 1.0, 100_000));
+
+    for y in [51, 55, 58] {
+        assert_eq!(px(&img, 50, y), [255, 255, 255, 255], "dist must leave a 10 px gap (y {y})");
+    }
+    close(black_alpha(&img, 50, 62), 1.0, 0.02, "copy starts after the gap");
+    close(black_alpha(&img, 50, 95), 1.0, 0.02, "copy shifted down by dist");
+}
+
+#[test]
+fn reflection_alpha_decreases_monotonically_down_the_band() {
+    // stA=1 → endA=0.1 between stPos=20% and endPos=80% (effects.ts:612-622).
+    let img = refl_image(refl(1.0, 0.1, 0.2, 0.8, 0));
+
+    // The stA plateau holds until t = 0.2 ⇒ y 58.
+    for y in [51, 54, 57] {
+        close(black_alpha(&img, 50, y), 1.0, 0.02, "stA plateau");
+    }
+    // t = 0.5 at y 70 ⇒ 1 - 0.9·(0.3/0.6) = 0.55.
+    close(black_alpha(&img, 50, 70), 0.55, 0.05, "mid-ramp");
+    // Past endPos the endA plateau holds.
+    for y in [86, 88] {
+        close(black_alpha(&img, 50, y), 0.1, 0.04, "endA plateau");
+    }
+
+    let mut previous = 2.0f32;
+    for y in 50..90 {
+        let alpha = black_alpha(&img, 50, y);
+        assert!(
+            alpha <= previous + 0.02,
+            "alpha must not increase down the band: row {y} is {alpha}, previous {previous}"
+        );
+        previous = alpha;
+    }
+}
+
+#[test]
+fn reflection_blur_uses_the_authored_radius_as_sigma() {
+    // ref effects.ts:601-604 — the aux is painted with `filter='blur(r)'`, so
+    // sigma is the authored radius: a 5 px blur inks past the band edge.
+    let mut blurry = refl(1.0, 1.0, 0.0, 1.0, 0);
+    blurry.blur_radius_emu = 50_000;
+    let img = refl_image(blurry);
+
+    let near = black_alpha(&img, 50, 91);
+    let mid = black_alpha(&img, 50, 94);
+    let far = black_alpha(&img, 50, 98);
+    assert!((0.25..0.7).contains(&near), "sigma=5 px must bleed past the edge, got {near}");
+    assert!(near > mid && mid > far, "the bleed must decay: {near} / {mid} / {far}");
+
+    // Control: no blur ⇒ a hard edge exactly at the band bottom.
+    let sharp = refl_image(refl(1.0, 1.0, 0.0, 1.0, 0));
+    assert_eq!(px(&sharp, 50, 91), [255, 255, 255, 255], "no bleed without blur");
+}
