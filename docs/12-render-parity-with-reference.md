@@ -530,3 +530,24 @@ cargo test -p kitty-pptx-core --test parity_fidelity_tests -- --nocapture
 cargo test -p kitty-pptx-core --test pixelmatch_tests
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+### 8.3 Test port status
+
+The reference suite is now ported file-for-file: **161 reference files** (the 150
+`packages/pptx/src` specs plus the 14 `tests/visual` Playwright specs, deduped
+across batches) are covered by **33 `parity_*` targets** — 32 under
+`crates/kitty-pptx-core/tests/` and one in `crates/kitty-pptx-tui/tests/` —
+holding 525 test functions, 422 passing, 103 `#[ignore]`d stubs, 0 failing,
+clippy clean. Of **1184 enumerated reference cases**, 214 are EXACT (the
+assertion is the reference's own number), 179 are BEHAVIOURAL (same state
+machine, expressed on the IR instead of canvas ops), 263 are N/A
+(DOM/canvas/`ImageBitmap` surfaces with no Rust analogue) and **528 are
+BLOCKED** — each with a stub whose ignore reason names the missing symbol. The
+blockers concentrate in four places: the installed-face metric catalogue
+(`powerPointFaceMetrics`/`powerPointAscentShare`, 50 cases), the 3-D bevel and
+reflection compositor (48), the viewer platform surface (zoom, hidden slides,
+selection/find, worker pull protocol, container guards — 247), and equation
+fallbacks, decode/placeholder plumbing, `rPr@spc` on the draw IR and the ICU
+Southeast-Asian dictionary break (the remaining 183). Per-batch ledgers live in
+`crates/kitty-pptx-core/tests/parity/COVERAGE.md`.
+
