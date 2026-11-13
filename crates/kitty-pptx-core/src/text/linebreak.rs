@@ -10,7 +10,7 @@
 //! are later phases. Atoms are extended grapheme clusters (break.ts:113-121).
 
 mod grapheme;
-mod rules;
+pub(crate) mod rules;
 
 use super::measure::{StyleId, TabAlign, TabStop, TextMeasure};
 use grapheme::grapheme_spans;

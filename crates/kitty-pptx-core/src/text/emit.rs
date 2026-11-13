@@ -180,6 +180,9 @@ pub fn compile_text_body(
     }
     let (layout_w, layout_h, frame) = vertical::layout_frame(mode, box_w, box_h);
     let transform = frame.map_or(*base_transform, |frame| base_transform.post_concat(&frame));
+    // `eaVert` per-glyph uprighting (`renderer.ts:5083` `eaVertUpright`); the
+    // upright cells are painted with the element transform instead of the frame.
+    let ea = vertical::ea_vert_frame(mode, box_w, box_h, base_transform);
     let avail_w = (layout_w - l_ins - r_ins).max(0.0);
 
     let paragraphs = build_paragraphs(
@@ -280,6 +283,7 @@ pub fn compile_text_body(
             line_x,
             baseline_y,
             &transform,
+            ea.as_ref(),
             justified.as_ref(),
             &mut final_runs,
             &mut commands,
