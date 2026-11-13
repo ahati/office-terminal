@@ -212,7 +212,6 @@ fn renderable_content_true_for_a_non_empty_text_run() {
 /// `:21` "is false for no runs at all". The observable is that no marker run is
 /// painted for the empty paragraph.
 #[test]
-#[ignore = "blocked: no text::emit::paragraph_has_renderable_content; an empty paragraph still emits its marker"]
 fn renderable_content_false_for_no_runs() {
     let runs = draw_runs(&compile(&bulleted(vec![], char_bullet("•")), None));
     assert!(runs.is_empty(), "no marker drawn: {runs:?}");
@@ -220,7 +219,6 @@ fn renderable_content_false_for_no_runs() {
 
 /// `:26` "is false for a single empty-string text run".
 #[test]
-#[ignore = "blocked: no text::emit::paragraph_has_renderable_content; an empty paragraph still emits its marker"]
 fn renderable_content_false_for_a_single_empty_run() {
     let runs = draw_runs(&compile(
         &bulleted(vec![text_run("")], char_bullet("•")),
@@ -231,7 +229,6 @@ fn renderable_content_false_for_a_single_empty_run() {
 
 /// `:31` "is false for a paragraph that is only a line break".
 #[test]
-#[ignore = "blocked: no text::emit::paragraph_has_renderable_content; a <a:br/>-only paragraph still emits its marker"]
 fn renderable_content_false_for_a_break_only_paragraph() {
     let runs = draw_runs(&compile(
         &bulleted(vec![break_run()], char_bullet("•")),
@@ -263,7 +260,6 @@ fn renderable_content_true_for_one_text_run_among_empties() {
 /// `:78` "suppresses a char bullet on an empty paragraph" (`[]` and `[brk]`
 /// both resolve to `''`).
 #[test]
-#[ignore = "blocked: emit::bullet_label has no empty-paragraph suppression (resolveBulletLabel coupling)"]
 fn resolve_bullet_label_suppresses_a_char_bullet_when_empty() {
     for runs in [vec![], vec![break_run()]] {
         let emitted = draw_runs(&compile(&bulleted(runs, char_bullet("•")), None));
@@ -273,7 +269,6 @@ fn resolve_bullet_label_suppresses_a_char_bullet_when_empty() {
 
 /// `:86` "suppresses an autoNum marker on an empty paragraph".
 #[test]
-#[ignore = "blocked: emit::bullet_label has no empty-paragraph suppression (resolveBulletLabel coupling)"]
 fn resolve_bullet_label_suppresses_an_autonum_marker_when_empty() {
     let emitted = draw_runs(&compile(&bulleted(vec![], autonum_bullet(None)), None));
     assert!(emitted.is_empty(), "no auto-number marker: {emitted:?}");
@@ -305,7 +300,6 @@ fn resolve_bullet_label_numbers_consecutive_paragraphs() {
 /// blank paragraph resolves to `''` and the sequence continues at `'2.'`, not
 /// `'3.'`.
 #[test]
-#[ignore = "blocked: bullet numbering is paragraph-index based, no per-level counter that skips empties"]
 fn resolve_bullet_label_continues_across_an_empty_line() {
     let paragraphs = vec![
         numbered(vec![text_run("foo")]),
@@ -318,7 +312,6 @@ fn resolve_bullet_label_continues_across_an_empty_line() {
 /// `:131` "continues the sequence across a line-break-only paragraph"
 /// (`['1.', '', '2.']`).
 #[test]
-#[ignore = "blocked: bullet numbering is paragraph-index based, no per-level counter that skips empties"]
 fn resolve_bullet_label_continues_across_a_break_only_paragraph() {
     let paragraphs = vec![
         numbered(vec![text_run("foo")]),
@@ -344,7 +337,6 @@ fn resolve_bullet_label_honours_start_at() {
 /// `:152` "resets the counter when a non-list paragraph appears between items"
 /// (the heading's `bullet: none` restarts at `'1.'`).
 #[test]
-#[ignore = "blocked: bullet numbering is paragraph-index based, no counter reset on a non-list paragraph"]
 fn resolve_bullet_label_resets_after_a_non_list_paragraph() {
     let paragraphs = vec![
         numbered(vec![text_run("a")]),
@@ -388,7 +380,6 @@ fn marker_size_pt(bullet: Value) -> f32 {
 /// `:99` "uses the absolute point size (× scale), NOT the run size": buSzPts =
 /// 40 pt with a 20 pt run → the marker paints at 40 px = 40 pt here.
 #[test]
-#[ignore = "blocked: emit::build_paragraphs ignores Bullet::Char::size_pts (the marker is always the paragraph size)"]
 fn bu_sz_pts_sizes_the_marker_absolutely() {
     close(marker_size_pt(char_bullet_sized(Some(40.0), None)), 40.0, "buSzPts 40");
 }
@@ -396,7 +387,6 @@ fn bu_sz_pts_sizes_the_marker_absolutely() {
 /// `:113` "buSzPts wins over a co-present buSzPct": 30 pt absolute beats
 /// 200 % × 20 pt = 40 px.
 #[test]
-#[ignore = "blocked: emit::build_paragraphs ignores Bullet::Char::size_pts / size_pct"]
 fn bu_sz_pts_wins_over_bu_sz_pct() {
     close(
         marker_size_pt(char_bullet_sized(Some(30.0), Some(200.0))),
@@ -408,7 +398,6 @@ fn bu_sz_pts_wins_over_bu_sz_pct() {
 /// `:120` "falls back to buSzPct × run size when no buSzPts is present":
 /// 200 % of the 20 pt run = 40 px.
 #[test]
-#[ignore = "blocked: emit::build_paragraphs ignores Bullet::Char::size_pct"]
 fn bu_sz_pct_falls_back_to_the_run_size() {
     close(
         marker_size_pt(char_bullet_sized(None, Some(200.0))),
@@ -437,17 +426,23 @@ fn autonum_styled(color: Option<&str>, size_pct: Option<f64>, family: Option<&st
     })
 }
 
+/// A first run with an authored colour, the specs' `run('item', color)`.
+fn run_colored(text: &str, color: &str) -> Value {
+    let mut run = text_run(text);
+    run["color"] = json!(color);
+    run
+}
+
 /// `:103` "uses the explicit buClr colour, not the inherited first-run colour":
 /// buClr = C00000 (red) while the first run is blue → `rgba(192,0,0,1)`.
 #[test]
-#[ignore = "blocked: emit::build_paragraphs ignores Bullet::AutoNum::color (buClr §21.1.2.4.4)"]
 fn autonum_marker_uses_the_explicit_bu_clr() {
     let runs = draw_runs(&compile(
         &bulleted(
-            vec![text_run("item")],
+            vec![run_colored("item", "0000FF")],
             autonum_styled(Some("C00000"), None, None),
         ),
-        Some("0000FF"),
+        None,
     ));
     let marker = markers(&runs);
     assert_eq!(marker[0].color, [192, 0, 0, 255], "buClr red");
@@ -458,8 +453,11 @@ fn autonum_marker_uses_the_explicit_bu_clr() {
 #[test]
 fn autonum_marker_inherits_the_text_colour_without_bu_clr() {
     let runs = draw_runs(&compile(
-        &bulleted(vec![text_run("item")], autonum_styled(None, None, None)),
-        Some("0000FF"),
+        &bulleted(
+            vec![run_colored("item", "0000FF")],
+            autonum_styled(None, None, None),
+        ),
+        None,
     ));
     let marker = markers(&runs);
     assert_eq!(marker[0].color, [0, 0, 255, 255], "inherited blue");
@@ -468,14 +466,13 @@ fn autonum_marker_inherits_the_text_colour_without_bu_clr() {
 /// `:122` "uses the authored bullet typeface and percentage size": buSzPct 50
 /// of a 20 pt run → a `10px` marker in the authored `Calibri` face.
 #[test]
-#[ignore = "blocked: the marker face is hard-coded to Carlito and size_pct is ignored in emit::build_paragraphs"]
 fn autonum_marker_uses_the_bullet_face_and_percentage_size() {
     let runs = draw_runs(&compile(
         &bulleted(
-            vec![text_run("item")],
+            vec![run_colored("item", "0000FF")],
             autonum_styled(None, Some(50.0), Some("Calibri")),
         ),
-        Some("0000FF"),
+        None,
     ));
     let marker = markers(&runs);
     close(marker[0].font_size_pt, 10.0, "buSzPct 50 of 20 pt");
@@ -502,7 +499,6 @@ fn rtl_body(bullet: Value, text: &str, rtl: bool) -> pptx_model::TextBody {
 /// `:136` "char bullet: marker RIGHT edge sits on the leading edge, text
 /// reserved to its left": `markerRight ≈ 600` and `textRight ≈ marker.x`.
 #[test]
-#[ignore = "blocked: RTL list markers are inline line-prefix text with no right-edge anchor (issue #930)"]
 fn rtl_char_marker_leads_at_the_right_edge() {
     let runs = draw_runs(&compile(&rtl_body(char_bullet("•"), "ابح", true), None));
     let marker = runs
@@ -515,19 +511,27 @@ fn rtl_char_marker_leads_at_the_right_edge() {
         LEADING_EDGE * PT,
         "marker right edge",
     );
+    // The run's right edge: RTL shaping stores the glyphs in visual order, so
+    // the greatest `x + advance` inside the run is its trailing edge.
     let text_right = runs
         .iter()
         .filter(|run| !run.text.contains('•'))
-        .filter_map(|run| run.glyphs.last().map(|glyph| glyph.x + glyph.advance))
+        .flat_map(|run| run.glyphs.iter())
+        .map(|glyph| glyph.x + glyph.advance)
         .fold(f32::MIN, f32::max);
-    close(text_right, marker.glyphs[0].x, "text right edge");
+    // 1 EMU (1/12700 px) of shaping rounding is below the reference's
+    // `toBeCloseTo` resolution.
+    assert!(
+        (text_right - marker.glyphs[0].x).abs() <= 1.0,
+        "text right edge: expected {}, got {text_right}",
+        marker.glyphs[0].x
+    );
     assert!(text_right < LEADING_EDGE * PT, "text stays inside the box");
 }
 
 /// `:157` "autoNum marker: also leads at the right edge (not pushed into the
 /// margin)".
 #[test]
-#[ignore = "blocked: RTL list markers are inline line-prefix text with no right-edge anchor (issue #930)"]
 fn rtl_autonum_marker_leads_at_the_right_edge() {
     let runs = draw_runs(&compile(&rtl_body(autonum_bullet(None), "ابح", true), None));
     let marker = markers(&runs);

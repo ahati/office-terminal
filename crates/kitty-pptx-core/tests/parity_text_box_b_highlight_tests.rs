@@ -4,16 +4,20 @@
 //! Ports, with the reference's own values, from `/tmp/oooxml` @ `1f5c6e1d`:
 //! `packages/pptx/src/{text-highlight,display-equation-wrap,
 //! line-end-shaft-trim}.test.ts`.
+//!
+//! Blocked cases (no production API yet) are archived, not compiled, in
+//! `tests/parity/pending/parity_text_box_b_highlight_tests.rs.txt`; the
+//! ledger keeps their rows.
 
 use crossbeam_channel::unbounded;
-use kitty_pptx_core::contracts::{AffineTransform, PathSegment, PositionedGlyphRun, VectorCommand};
+use kitty_pptx_core::contracts::{
+    AffineTransform, PathSegment, PositionedGlyphRun, RectF32, VectorCommand, VectorPaint,
+};
 use kitty_pptx_core::text::emit::compile_text_body;
-use kitty_pptx_core::SlideCompiler;
 use serde_json::{json, Value};
 
 const PT: f32 = 12_700.0; // EMU per reference px (SCALE = 1/12700)
 const FONT_PX: f64 = 20.0;
-const EMU_PER_PX: f32 = 9_525.0;
 
 fn text_run(text: &str) -> Value {
     json!({
@@ -103,6 +107,51 @@ fn run_y(run: &PositionedGlyphRun) -> f32 {
     run.glyphs.first().map(|glyph| glyph.y).unwrap_or(f32::NAN)
 }
 
+/// One emitted highlight marker: its box in slide-local EMU and its resolved
+/// colour — the reference's `fillRect` op in `text-highlight.test.ts:12-30`.
+#[derive(Clone, Debug)]
+struct HighlightBox {
+    rect: RectF32,
+    color: [u8; 4],
+}
+
+/// The highlight boxes this compile paints, in paint order. A
+/// `paintHighlight` call is the only solid `DrawPath` the text compiler emits
+/// for a body without equations.
+fn highlight_boxes(commands: &[VectorCommand]) -> Vec<HighlightBox> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            VectorCommand::DrawPath {
+                path,
+                fill: Some(VectorPaint::Solid(color)),
+                ..
+            } => Some(HighlightBox {
+                rect: path_bounds(path),
+                color: *color,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Axis-aligned bounds of a rect path, in EMU.
+fn path_bounds(path: &kitty_pptx_core::contracts::VectorPath) -> RectF32 {
+    let (mut left, mut top, mut right, mut bottom) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for segment in &path.segments {
+        let (x, y) = match segment {
+            PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => (*x, *y),
+            PathSegment::QuadTo { x, y, .. } | PathSegment::CubicTo { x, y, .. } => (*x, *y),
+            PathSegment::Close => continue,
+        };
+        left = left.min(x);
+        top = top.min(y);
+        right = right.max(x);
+        bottom = bottom.max(y);
+    }
+    RectF32::new(left, top, right - left, bottom - top)
+}
+
 fn close(actual: f32, expected: f32, what: &str) {
     assert!(
         (actual - expected).abs() < 0.5,
@@ -120,85 +169,129 @@ fn close(actual: f32, expected: f32, what: &str) {
 /// `:74` "splits adjacent runs whose highlight differs": `['AAA', 'BBB']` with
 /// `rgba(255,255,0,1)` / `rgba(0,255,0,1)` — the two markers must not bleed.
 #[test]
-#[ignore = "blocked: PositionedGlyphRun carries no highlight; no layoutParagraph segment API (sameMeta highlight identity)"]
 fn highlight_splits_adjacent_runs_that_differ() {
-    let runs = draw_runs(&compile(
+    let commands = compile(
         &body(vec![para(vec![
             highlighted_run("AAA", "FFFF00"),
             highlighted_run("BBB", "00FF00"),
         ])]),
         10_000.0,
         400.0,
-    ));
-    assert_eq!(texts(&runs), ["AAA", "BBB"]);
-    // Blocked assertion: seg[0].highlight == rgba(255,255,0,1),
-    // seg[1].highlight == rgba(0,255,0,1).
+    );
+    assert_eq!(texts(&draw_runs(&commands)), ["AAA", "BBB"]);
+    // The highlight is part of segment identity (`sameStyle`, renderer.ts:2002),
+    // so each run keeps its own resolved marker colour.
+    let boxes = highlight_boxes(&commands);
+    assert_eq!(boxes.len(), 2, "one box per segment: {boxes:?}");
+    assert_eq!(boxes[0].color, [255, 255, 0, 255], "seg[0] yellow");
+    assert_eq!(boxes[1].color, [0, 255, 0, 255], "seg[1] green");
+    // AAA is one glyph wider than nothing: the boxes abut, never overlap.
+    close(
+        boxes[0].rect.right(),
+        boxes[1].rect.x,
+        "the two markers abut",
+    );
 }
 
 /// `:94` "coalesces adjacent runs that share the same highlight": one segment
 /// `'AAABBB'` in `rgba(255,255,0,1)`.
 #[test]
-#[ignore = "blocked: PositionedGlyphRun carries no highlight; the emitter never coalesces adjacent runs"]
 fn highlight_coalesces_runs_that_agree() {
-    let runs = draw_runs(&compile(
+    let commands = compile(
         &body(vec![para(vec![
             highlighted_run("AAA", "FFFF00"),
             highlighted_run("BBB", "FFFF00"),
         ])]),
         10_000.0,
         400.0,
-    ));
-    assert_eq!(texts(&runs), ["AAABBB"]);
-    // Blocked assertion: the single segment's highlight == rgba(255,255,0,1).
+    );
+    assert_eq!(texts(&draw_runs(&commands)), ["AAABBB"]);
+    let boxes = highlight_boxes(&commands);
+    assert_eq!(boxes.len(), 1, "one marker for the merged segment: {boxes:?}");
+    assert_eq!(boxes[0].color, [255, 255, 0, 255], "merged yellow");
 }
 
 /// `:104` "splits a highlighted run from an unhighlighted neighbour".
 #[test]
-#[ignore = "blocked: PositionedGlyphRun carries no highlight (the second segment must carry none)"]
 fn highlight_splits_a_highlighted_run_from_its_neighbour() {
-    let runs = draw_runs(&compile(
+    let commands = compile(
         &body(vec![para(vec![
             highlighted_run("AAA", "FFFF00"),
             text_run("BBB"),
         ])]),
         10_000.0,
         400.0,
-    ));
+    );
+    let runs = draw_runs(&commands);
     assert_eq!(texts(&runs), ["AAA", "BBB"]);
-    // Blocked assertion: seg[0].highlight == rgba(255,255,0,1), seg[1] has none.
+    let boxes = highlight_boxes(&commands);
+    assert_eq!(boxes.len(), 1, "only AAA carries a marker: {boxes:?}");
+    assert_eq!(boxes[0].color, [255, 255, 0, 255], "seg[0] yellow");
+    // The box spans AAA's glyph advance only — it must not reach into BBB.
+    let aaa = &runs[0];
+    close(boxes[0].rect.x, aaa.glyphs[0].x, "box left = AAA's origin");
+    let aaa_right = aaa
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.advance)
+        .sum::<f32>();
+    close(boxes[0].rect.w, aaa_right, "box width = AAA's advance");
 }
 
 /// `:120` "fills one rect with the highlight colour then restores the glyph
-/// colour": the box is `(5, 100 − 20·0.85, 30, 20·1.1)` in the highlight
-/// colour, with `fillStyle` left on the glyph colour for the caller's
-/// `fillText`.
+/// colour": the box is `top = baseline − 0.85·em`, `height = 1.1·em`
+/// (`highlightBox`, `packages/core/src/text/highlight-box.ts:26-32`) at the
+/// run's advance.
 #[test]
-#[ignore = "blocked: no paintHighlight equivalent (marker box geometry 0.85 em / 1.1 em absent)"]
 fn highlight_box_is_painted_behind_the_glyphs() {
-    let (baseline, size) = (100.0f32, 20.0f32);
-    close(baseline - size * 0.85, 83.0, "box top");
-    close(size * 1.1, 22.0, "box height");
-    // The rect is painted at x = 5 with width 30 (the run's advance).
-}
-
-/// `:141` "uses the face glyph box ending at the run line box bottom": Arial at
-/// 48 pt paints the marker from `baseline − 42.75` over `53.64`, i.e. the usWin
-/// extent ends at the bottom of the 1.2 × size line box.
-#[test]
-#[ignore = "blocked: no PowerPoint face usWin extent accessor for the highlight box"]
-fn highlight_uses_the_face_glyph_box() {
-    let (baseline, size) = (100.0f32, 48.0f32);
-    close(baseline - 42.75, 57.25, "box top");
-    close(size * 1.1, 52.8, "1.2 em line box proxy");
-    close(-42.75 + 53.64, 10.89, "usWin extent");
+    let commands = compile(
+        &body(vec![para(vec![highlighted_run("AAA", "FFFF00")])]),
+        10_000.0,
+        400.0,
+    );
+    let runs = draw_runs(&commands);
+    let run = &runs[0];
+    let baseline = run.glyphs[0].y;
+    let size = run.font_size_pt * PT;
+    let boxes = highlight_boxes(&commands);
+    assert_eq!(boxes.len(), 1, "one marker box: {boxes:?}");
+    let rect = boxes[0].rect;
+    close(rect.x, run.glyphs[0].x, "box x = run origin");
+    close(
+        rect.w,
+        run.glyphs.iter().map(|glyph| glyph.advance).sum::<f32>(),
+        "box width = run advance",
+    );
+    close(rect.y, baseline - size * 0.85, "box top = baseline - 0.85 em");
+    close(rect.h, size * 1.1, "box height = 1.1 em");
 }
 
 /// `:161` "draws the box under a glyph painted afterwards (background then
 /// glyph)": the recorded ops are `['rect', 'text']`, the glyph in the text
 /// colour.
 #[test]
-#[ignore = "blocked: no ordered paint-op recording for highlights"]
-fn highlight_box_precedes_the_glyph() {}
+fn highlight_box_precedes_the_glyph() {
+    let commands = compile(
+        &body(vec![para(vec![highlighted_run("AAA", "FFFF00")])]),
+        10_000.0,
+        400.0,
+    );
+    // The marker rect is its own command and the glyphs ship in one DrawText
+    // that comes after it, so a display-list renderer paints background first.
+    let rect_at = commands
+        .iter()
+        .position(|command| matches!(command, VectorCommand::DrawPath { .. }))
+        .expect("a marker rect");
+    let text_at = commands
+        .iter()
+        .position(|command| matches!(command, VectorCommand::DrawText { .. }))
+        .expect("the glyph run");
+    assert!(rect_at < text_at, "background then glyph: {rect_at} < {text_at}");
+    let boxes = highlight_boxes(&commands);
+    assert_eq!(boxes[0].color, [255, 255, 0, 255], "box in the highlight colour");
+    let runs = draw_runs(&commands);
+    assert_eq!(runs[0].color, [0, 0, 0, 255], "glyph in the text colour");
+}
 
 // ── display-equation-wrap.test.ts ──────────────────────────────────────────
 
@@ -253,200 +346,11 @@ fn display_equation_starts_and_ends_its_own_visual_line() {
 // the tip. The core compiles `Stroke::head_end` / `tail_end` to nothing, so no
 // arrowhead geometry and no shaft retraction exist yet.
 
-const LINE_EMU: i64 = 114_300;
 const VERTEX_PX: f32 = 12.354_756; // 6 / sin(atan2(2.5, 4.5)), 9 pt line
 
 /// `6 / sin(atan2(2.5, 4.5))` — the reference's `VERTEX_PX`.
 fn vertex_retraction() -> f32 {
     6.0 / (2.5f32).atan2(4.5).sin()
-}
-
-fn line_shape(geometry: &str, width_px: f32, height_px: f32, tail: bool, head: bool) -> Value {
-    let arrow = json!({ "type": "arrow", "w": "lg", "len": "lg" });
-    json!({
-        "type": "shape",
-        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
-        "width": width_px * 9525.0,
-        "height": height_px * 9525.0,
-        "rotation": 0.0, "flipH": false, "flipV": false,
-        "geometry": geometry,
-        "fill": null,
-        "stroke": {
-            "color": "000000",
-            "width": LINE_EMU,
-            "headEnd": if head { arrow.clone() } else { Value::Null },
-            "tailEnd": if tail { arrow } else { Value::Null },
-        },
-        "textBody": null,
-        "defaultTextColor": null,
-        "custGeom": null,
-    })
-}
-
-/// Slide-space end point (px) of every stroked subpath — the reference's
-/// `shaftEnds` recorder.
-fn shaft_ends(element: Value) -> Vec<(f32, f32)> {
-    let slide_json = json!({
-        "index": 0,
-        "slideNumber": 1,
-        "background": null,
-        "elements": [element],
-        "elementSources": [],
-        "comments": [],
-    });
-    let slide: pptx_model::Slide = serde_json::from_value(slide_json).expect("slide fixture");
-    let (tx, _rx) = unbounded();
-    let vector_slide = kitty_pptx_core::DefaultSlideCompiler::new()
-        .compile(&slide, 9_144_000, 6_858_000, &tx)
-        .expect("compile");
-    vector_slide
-        .commands
-        .iter()
-        .filter_map(|command| match command {
-            VectorCommand::DrawPath { path, stroke, .. } if stroke.is_some() => path
-                .segments
-                .iter()
-                .rev()
-                .find_map(|segment| match segment {
-                    PathSegment::LineTo { x, y } | PathSegment::MoveTo { x, y } => {
-                        Some((*x / EMU_PER_PX, *y / EMU_PER_PX))
-                    }
-                    _ => None,
-                }),
-            _ => None,
-        })
-        .collect()
-}
-
-fn expect_stops_at_vertex(ends: &[(f32, f32)], tip: (f32, f32)) {
-    assert!(!ends.is_empty(), "a shaft was stroked");
-    for (x, y) in ends {
-        let distance = ((x - tip.0).powi(2) + (y - tip.1).powi(2)).sqrt();
-        close(distance, vertex_retraction(), "distance to the tip");
-    }
-}
-
-/// `:66` "trims a curved connector leader along its curve" — tip `(400, 300)`.
-#[test]
-#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
-fn curved_connector_shaft_stops_at_the_vertex() {
-    expect_stops_at_vertex(
-        &shaft_ends(line_shape("curvedConnector3", 300.0, 200.0, true, false)),
-        (400.0, 300.0),
-    );
-}
-
-/// `:71` "trims a custom-geometry cubic path" — `(0,0) → C(0.5,0)(0.5,1)(1,1)`,
-/// tip `(400, 300)`.
-#[test]
-#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
-fn custom_geometry_cubic_shaft_stops_at_the_vertex() {
-    let element = json!({
-        "type": "shape",
-        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
-        "width": 300.0 * 9525.0, "height": 200.0 * 9525.0,
-        "rotation": 0.0, "flipH": false, "flipV": false,
-        "geometry": "custGeom",
-        "fill": null,
-        "stroke": { "color": "000000", "width": LINE_EMU,
-                    "headEnd": null,
-                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
-        "textBody": null, "defaultTextColor": null,
-        "custGeom": [[
-            { "cmd": "moveTo", "x": 0.0, "y": 0.0 },
-            { "cmd": "cubicBezTo", "x1": 0.5, "y1": 0.0, "x2": 0.5, "y2": 1.0, "x": 1.0, "y": 1.0 }
-        ]],
-    });
-    expect_stops_at_vertex(&shaft_ends(element), (400.0, 300.0));
-}
-
-/// `:76` "trims a custom-geometry arc and keeps it on its ellipse": a quarter
-/// ellipse from the top-left corner to `(400, 300)`, centre `(100, 300)` with
-/// radii `300 × 200`.
-#[test]
-#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
-fn custom_geometry_arc_shaft_stays_on_its_ellipse() {
-    let element = json!({
-        "type": "shape",
-        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
-        "width": 300.0 * 9525.0, "height": 200.0 * 9525.0,
-        "rotation": 0.0, "flipH": false, "flipV": false,
-        "geometry": "custGeom",
-        "fill": null,
-        "stroke": { "color": "000000", "width": LINE_EMU,
-                    "headEnd": null,
-                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
-        "textBody": null, "defaultTextColor": null,
-        "custGeom": [[
-            { "cmd": "moveTo", "x": 0.0, "y": 0.0 },
-            { "cmd": "arcTo", "wr": 1.0, "hr": 1.0, "stAng": -90.0, "swAng": 90.0 }
-        ]],
-    });
-    let ends = shaft_ends(element);
-    expect_stops_at_vertex(&ends, (400.0, 300.0));
-    for (x, y) in ends {
-        let on_ellipse = ((x - 100.0) / 300.0).powi(2) + ((y - 300.0) / 200.0).powi(2);
-        assert!(
-            (on_ellipse - 1.0).abs() < 1e-6,
-            "on the ellipse: {on_ellipse}"
-        );
-    }
-}
-
-/// `:82` "trims a bent connector across a terminal leg shorter than the
-/// retraction": `bentConnector2` runs right along the top edge then a 1 px leg
-/// down to `(400, 101)`.
-#[test]
-#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
-fn bent_connector_short_leg_stops_at_the_vertex() {
-    expect_stops_at_vertex(
-        &shaft_ends(line_shape("bentConnector2", 300.0, 1.0, true, false)),
-        (400.0, 101.0),
-    );
-}
-
-/// `:95` "paints no compound shaft when both ends consume a short connector":
-/// a 15 px double line with an arrow at each end paints no shaft at all.
-#[test]
-#[ignore = "blocked: Stroke::cmpd / head_end / tail_end are not compiled"]
-fn both_arrow_ends_consume_the_shaft() {
-    let element = json!({
-        "type": "shape",
-        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
-        "width": 15.0 * 9525.0, "height": 0.0,
-        "rotation": 0.0, "flipH": false, "flipV": false,
-        "geometry": "straightConnector1",
-        "fill": null,
-        "stroke": { "color": "000000", "width": LINE_EMU, "cmpd": "dbl",
-                    "headEnd": { "type": "arrow", "w": "lg", "len": "lg" },
-                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
-        "textBody": null, "defaultTextColor": null, "custGeom": null,
-    });
-    assert_eq!(shaft_ends(element), Vec::<(f32, f32)>::new());
-}
-
-/// `:103` "trims both lines of a compound straight connector": each line ends
-/// at `400 − VERTEX_PX`.
-#[test]
-#[ignore = "blocked: Stroke::cmpd / tail_end are not compiled (no compound shaft, no trim)"]
-fn compound_straight_connector_trims_both_lines() {
-    let element = json!({
-        "type": "shape",
-        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
-        "width": 300.0 * 9525.0, "height": 0.0,
-        "rotation": 0.0, "flipH": false, "flipV": false,
-        "geometry": "straightConnector1",
-        "fill": null,
-        "stroke": { "color": "000000", "width": LINE_EMU, "cmpd": "dbl",
-                    "headEnd": null,
-                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
-        "textBody": null, "defaultTextColor": null, "custGeom": null,
-    });
-    let ends = shaft_ends(element);
-    assert!(ends.len() > 1, "both composite lines are stroked");
-    for (x, _) in ends {
-        close(x, 400.0 - vertex_retraction(), "compound shaft end");
-    }
 }
 
 /// The reference's constant itself (`line-end-shaft-trim.test.ts:19`).

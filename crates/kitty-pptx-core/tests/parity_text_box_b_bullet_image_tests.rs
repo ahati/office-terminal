@@ -10,10 +10,15 @@
 //! IR: a picture marker would be a `VectorCommand::DrawImage` in the marker's
 //! gutter. `Bullet::Blip` is not consumed by `text::emit`, so the drawing cases
 //! are blocked and only the "draws nothing" guards are observable.
+//!
+//! Blocked cases (no production API yet) are archived, not compiled, in
+//! `tests/parity/pending/parity_text_box_b_bullet_image_tests.rs.txt`; the
+//! ledger keeps their rows.
 
 use crossbeam_channel::unbounded;
-use kitty_pptx_core::contracts::{AffineTransform, PositionedGlyphRun, VectorCommand};
-use kitty_pptx_core::text::emit::compile_text_body;
+use kitty_pptx_core::contracts::{AffineTransform, PositionedGlyphRun, RectF32, VectorCommand};
+use kitty_pptx_core::text::bullets::MarkerBitmap;
+use kitty_pptx_core::text::emit::{compile_text_body, compile_text_body_with_markers};
 use serde_json::{json, Value};
 
 const PT: f32 = 12_700.0; // EMU per reference px (SCALE = 1/12700)
@@ -22,6 +27,11 @@ const FONT_PX: f64 = 20.0;
 const GUTTER_EMU: i64 = 457_200;
 const BOX_W: f32 = 4000.0;
 const BOX_H: f32 = 2000.0;
+/// The specs' sentinel `ImageBitmap`: intentionally NON-square (16 × 8, ratio
+/// 2:1) so a forced-square draw fails (`bullet-image.test.ts:32-38`).
+const SENTINEL_W: f32 = 16.0;
+const SENTINEL_H: f32 = 8.0;
+const SENTINEL_RATIO: f32 = SENTINEL_W / SENTINEL_H;
 
 fn text_run(text: &str) -> Value {
     json!({
@@ -99,6 +109,47 @@ fn compile(text_body: &pptx_model::TextBody) -> Vec<VectorCommand> {
     )
 }
 
+/// The decoded-bitmap seam (`peekCachedBitmap`, `renderer.ts:5812`): the
+/// reference warms the cache before the synchronous draw, so every test that
+/// expects a marker paints through this probe.
+struct Sentinel;
+
+impl MarkerBitmap for Sentinel {
+    fn source_size(&self, _rel_id: &str) -> Option<(u32, u32)> {
+        Some((SENTINEL_W as u32, SENTINEL_H as u32))
+    }
+}
+
+/// Compile with the warmed sentinel bitmap available.
+fn compile_warmed(text_body: &pptx_model::TextBody) -> Vec<VectorCommand> {
+    let (tx, _rx) = unbounded();
+    compile_text_body_with_markers(
+        text_body,
+        (BOX_W * PT) as i64,
+        (BOX_H * PT) as i64,
+        &AffineTransform::identity(),
+        None,
+        Some(&Sentinel),
+        &tx,
+    )
+}
+
+/// The placed marker bitmaps' destination boxes, in reference px.
+fn draws(commands: &[VectorCommand]) -> Vec<RectF32> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            VectorCommand::DrawImage { dest_rect, .. } => Some(RectF32::new(
+                dest_rect.x / PT,
+                dest_rect.y / PT,
+                dest_rect.w / PT,
+                dest_rect.h / PT,
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
 fn images(commands: &[VectorCommand]) -> usize {
     commands
         .iter()
@@ -130,110 +181,89 @@ fn close(actual: f32, expected: f32, what: &str) {
 /// bitmap aspect ratio, at the bullet gutter": the 16 × 8 sentinel paints at
 /// `h = 20` (100 % of the 20 pt run) and `w = 40` (2:1, not forced square).
 #[test]
-#[ignore = "blocked: Bullet::Blip is not consumed by text::emit; no DrawImage for a picture marker"]
 fn picture_marker_is_sized_to_the_text_height_with_its_aspect() {
-    let commands = compile(&body(blip_bullet(None, None), vec![text_run("Item")], "horz"));
+    let commands = compile_warmed(&body(blip_bullet(None, None), vec![text_run("Item")], "horz"));
     assert_eq!(images(&commands), 1, "one marker bitmap");
-    close(20.0, 20.0, "height = 100 % of a 20 pt run");
-    close(20.0 * (16.0 / 8.0), 40.0, "2:1 aspect");
+    let dest = draws(&commands)[0];
+    // Height = 20 pt run × scale(1/12700) × 12700 = 20 px (buSzPct default 100 %).
+    close(dest.h, 20.0, "height = 100 % of a 20 pt run");
+    // Width preserves the bitmap aspect ratio (16:8 = 2:1), not forced square.
+    close(dest.w, 20.0 * SENTINEL_RATIO, "2:1 aspect");
+    close(dest.w, dest.h * SENTINEL_RATIO, "aspect preserved");
 }
 
 /// `:262` "draws a warmed picture marker in wordArtVert".
 #[test]
-#[ignore = "blocked: Bullet::Blip is not consumed by text::emit (stacked path)"]
 fn picture_marker_is_drawn_in_word_art_vert() {
-    let commands = compile(&body(
+    let commands = compile_warmed(&body(
         blip_bullet(None, None),
         vec![text_run("Item")],
         "wordArtVert",
     ));
     assert_eq!(images(&commands), 1);
+    let dest = draws(&commands)[0];
+    close(dest.h, 20.0, "stacked marker height");
+    close(dest.w, 20.0 * SENTINEL_RATIO, "stacked marker width");
 }
 
 /// `:262` "draws a warmed picture marker in wordArtVertRtl".
 #[test]
-#[ignore = "blocked: Bullet::Blip is not consumed by text::emit (stacked path)"]
 fn picture_marker_is_drawn_in_word_art_vert_rtl() {
-    let commands = compile(&body(
+    let commands = compile_warmed(&body(
         blip_bullet(None, None),
         vec![text_run("Item")],
         "wordArtVertRtl",
     ));
     assert_eq!(images(&commands), 1);
+    let dest = draws(&commands)[0];
+    close(dest.h, 20.0, "stacked marker height");
+    close(dest.w, 20.0 * SENTINEL_RATIO, "stacked marker width");
 }
 
 /// `:475` "scales the bullet by buSzPct (§21.1.2.4.9)": 50 % of 20 px → 10 × 20.
 #[test]
-#[ignore = "blocked: Bullet::Blip::size_pct is not consumed (no picture marker at all)"]
 fn picture_marker_scales_by_bu_sz_pct() {
-    let commands = compile(&body(
+    let commands = compile_warmed(&body(
         blip_bullet(Some(50.0), None),
         vec![text_run("Item")],
         "horz",
     ));
     assert_eq!(images(&commands), 1);
-    close(10.0, 20.0 * 0.5, "buSzPct 50 %");
-    close(10.0 * 2.0, 20.0, "aspect preserved");
+    let dest = draws(&commands)[0];
+    // Height = 20 px text × 50 % = 10 px; width keeps the 2:1 aspect.
+    close(dest.h, 20.0 * 0.5, "buSzPct 50 %");
+    close(dest.w, 10.0 * SENTINEL_RATIO, "aspect preserved");
 }
 
 /// `:497` "sizes the bullet by buSzPts absolutely (§21.1.2.4.10), independent of
 /// the run": 40 pt → 40 px tall, 80 px wide.
 #[test]
-#[ignore = "blocked: Bullet::Blip::size_pts is not consumed (no picture marker at all)"]
 fn picture_marker_sizes_by_bu_sz_pts_absolutely() {
-    let commands = compile(&body(
+    let commands = compile_warmed(&body(
         blip_bullet(None, Some(40.0)),
         vec![text_run("Item")],
         "horz",
     ));
     assert_eq!(images(&commands), 1);
-    close(40.0, 40.0, "absolute 40 pt marker");
-    close(40.0 * 2.0, 80.0, "aspect preserved");
+    let dest = draws(&commands)[0];
+    close(dest.h, 40.0, "absolute 40 pt marker");
+    close(dest.w, 40.0 * SENTINEL_RATIO, "aspect preserved");
 }
 
 /// `:521` "prefers buSzPts over a co-present buSzPct on a picture bullet":
 /// absolute 30 pt wins over 200 % × 20 pt = 40 px.
 #[test]
-#[ignore = "blocked: Bullet::Blip::size_pts / size_pct are not consumed"]
 fn picture_marker_prefers_bu_sz_pts_over_bu_sz_pct() {
-    let commands = compile(&body(
+    let commands = compile_warmed(&body(
         blip_bullet(Some(200.0), Some(30.0)),
         vec![text_run("Item")],
         "horz",
     ));
     assert_eq!(images(&commands), 1);
-    close(30.0, 30.0, "absolute size wins");
-}
-
-// ── browser-only cache / decode paths ─────────────────────────────────────
-
-/// `:281` "preserves a safe native cache variant prepared by renderSlide": the
-/// 4096 × 2048 PNG stays a native `createImageBitmap` decode.
-#[test]
-#[ignore = "N/A: ImageBitmap cache, `createImageBitmap` and the per-surface decode budget are browser-only"]
-fn picture_marker_reuses_the_prepared_bitmap_cache() {}
-
-/// `:328` "routes SVG picture bullets through the worker bridge at their marker
-/// height" (`{ targetHeightPx: 54 }` at DPR 2).
-#[test]
-#[ignore = "N/A: SVG worker-bridge decoder (`svgDecoder`) is browser-only"]
-fn svg_picture_marker_uses_the_worker_bridge() {
-    close(40.0 * 96.0 / 72.0 * 1.0, 53.33, "unrounded marker height");
-}
-
-/// `:385` "loads an SVG picture bullet through HTMLImageElement in Window
-/// mode".
-#[test]
-#[ignore = "N/A: HTMLImageElement / URL.createObjectURL are browser-only"]
-fn svg_picture_marker_loads_through_html_image_element() {}
-
-/// `:435` "dedupes a shared SVG bullet at the largest authored marker height"
-/// (`targetHeightPx: 107` = 40 pt × 96/72 × DPR 2, rounded up).
-#[test]
-#[ignore = "N/A: shared-bitmap dedupe cache is browser-only"]
-fn shared_svg_marker_dedupes_at_the_largest_height() {
-    let height: f32 = 40.0 * 96.0 / 72.0 * 2.0;
-    close(height.ceil(), 107.0, "DPR 2 marker height");
+    let dest = draws(&commands)[0];
+    // Absolute 30 pt → 30 px wins over 200 % × 20 pt (= 40 px).
+    close(dest.h, 30.0, "absolute size wins");
+    close(dest.w, 30.0 * SENTINEL_RATIO, "aspect preserved");
 }
 
 // ── guards that are observable without the paint path ─────────────────────
@@ -271,15 +301,21 @@ fn char_marker_never_becomes_an_image() {
 /// `:602` "first-line text does not overlap the picture bullet (hanging
 /// indent)": `firstTextX − bulletX ≈ 457200 · SCALE = 36`.
 #[test]
-#[ignore = "blocked: no picture marker is painted, so the hanging-indent gutter cannot be measured against it"]
 fn first_line_text_clears_the_picture_marker() {
-    let commands = compile(&body(blip_bullet(None, None), vec![text_run("Item")], "horz"));
+    let commands = compile_warmed(&body(blip_bullet(None, None), vec![text_run("Item")], "horz"));
+    let dest = draws(&commands)[0];
     let runs = draw_runs(&commands);
+    // A picture bullet occupies the gutter exactly like a char marker, so the
+    // first line's hanging indent is suppressed: the marker seats at
+    // `textX + indent` = lIns (7.2 px) and the text starts at `textX` = lIns +
+    // marL (43.2 px) — `firstTextX - bulletX ≈ |indent| = 36 px`.
+    close(dest.x, 7.2, "marker x = lIns + marL + indent");
     let first_text_x = runs
         .iter()
         .find(|run| run.text == "Item")
         .and_then(|run| run.glyphs.first())
         .map(|glyph| glyph.x / PT)
         .expect("the run text is drawn");
-    close(first_text_x - 36.0, 7.2 + GUTTER_EMU as f32 / PT, "hanging gap");
+    close(first_text_x, 7.2 + GUTTER_EMU as f32 / PT, "text x = lIns + marL");
+    close(first_text_x - dest.x, GUTTER_EMU as f32 / PT, "hanging gap");
 }

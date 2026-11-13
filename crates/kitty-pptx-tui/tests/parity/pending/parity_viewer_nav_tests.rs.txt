@@ -1,0 +1,37 @@
+// ARCHIVE — NOT COMPILED.  Blocked cases removed from
+// crates/kitty-pptx-tui/tests/parity_viewer_nav_tests.rs
+//
+// Rule: a test that is included must run, so no #[ignore] is left in the
+// compiled test tree. Every case below is blocked on a production API that
+// does not exist yet, so its source lives here instead of in the target.
+// The coverage ledger (tests/parity/COVERAGE.md plus the per-batch files in
+// tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
+// recorded there.
+//
+// Wave 3 reinstates each function below (with its doc comment and attributes)
+// into the compiled test file as soon as the named API lands.
+//
+// Missing API per blocked case:
+//   skip_mode_go_to_hidden_slide_lands_on_the_next_shown_slide BLOCKED: no hidden-slide policy (PresentationState has no set_hidden_slide_mode/next_visible_index)
+//   find_text_excludes_hidden_slides                           BLOCKED: no run-level find controller (PresentationState search is a slide-title fuzzy matcher, not PptxFindController)
+//   caller_callback_owns_the_internal_click                    BLOCKED: no on_hyperlink_click delegation seam (dispatch_link always navigates)
+
+// ============================================================================
+/// ref viewer-hidden-skip.test.ts:31-44 — `goToSlide` on a hidden slide lands on
+/// the next shown one.
+#[test]
+#[ignore = "BLOCKED: no hidden-slide policy (PresentationState has no \
+            set_hidden_slide_mode/next_visible_index)"]
+fn skip_mode_go_to_hidden_slide_lands_on_the_next_shown_slide() {}
+
+/// ref viewer-hidden-skip.test.ts:95-111 — findText/findNext skip hidden slides.
+#[test]
+#[ignore = "BLOCKED: no run-level find controller (PresentationState search is a \
+            slide-title fuzzy matcher, not PptxFindController)"]
+fn find_text_excludes_hidden_slides() {}
+
+/// ref viewer-internal-nav.test.ts:52-72 — a caller-supplied `onHyperlinkClick`
+/// owns the click and the viewer does not navigate.
+#[test]
+#[ignore = "BLOCKED: no on_hyperlink_click delegation seam (dispatch_link always navigates)"]
+fn caller_callback_owns_the_internal_click() {}

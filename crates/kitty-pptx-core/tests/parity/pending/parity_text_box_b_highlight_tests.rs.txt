@@ -1,0 +1,230 @@
+// ARCHIVE — NOT COMPILED.  Blocked cases removed from
+// crates/kitty-pptx-core/tests/parity_text_box_b_highlight_tests.rs
+//
+// Rule: a test that is included must run, so no #[ignore] is left in the
+// compiled test tree. Every case below is blocked on a production API that
+// does not exist yet, so its source lives here instead of in the target.
+// The coverage ledger (tests/parity/COVERAGE.md plus the per-batch files in
+// tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
+// recorded there.
+//
+// Wave 3 reinstates each function below (with its doc comment and attributes)
+// into the compiled test file as soon as the named API lands.
+//
+// Missing API per blocked case:
+//   highlight_uses_the_face_glyph_box                          blocked: no powerPointFaceMetrics face catalogue (usWin glyph box / share), ported by the text-box-a `powerPointAscentShare` work
+//   curved_connector_shaft_stops_at_the_vertex                 blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)
+//   custom_geometry_cubic_shaft_stops_at_the_vertex            blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)
+//   custom_geometry_arc_shaft_stays_on_its_ellipse             blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)
+//   bent_connector_short_leg_stops_at_the_vertex               blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)
+//   both_arrow_ends_consume_the_shaft                          blocked: Stroke::cmpd / head_end / tail_end are not compiled
+//   compound_straight_connector_trims_both_lines               blocked: Stroke::cmpd / tail_end are not compiled (no compound shaft, no trim)
+
+// ============================================================================
+/// `:141` "uses the face glyph box ending at the run line box bottom": Arial at
+/// 48 pt paints the marker from `baseline − 42.75` over `53.64`, i.e. the usWin
+/// extent ends at the bottom of the 1.2 × size line box.
+#[test]
+#[ignore = "blocked: no powerPointFaceMetrics face catalogue (usWin glyph box / share), ported by the text-box-a `powerPointAscentShare` work"]
+fn highlight_uses_the_face_glyph_box() {
+    let (baseline, size) = (100.0f32, 48.0f32);
+    close(baseline - 42.75, 57.25, "box top");
+    close(size * 1.1, 52.8, "1.2 em line box proxy");
+    close(-42.75 + 53.64, 10.89, "usWin extent");
+}
+
+/// `:66` "trims a curved connector leader along its curve" — tip `(400, 300)`.
+#[test]
+#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
+fn curved_connector_shaft_stops_at_the_vertex() {
+    expect_stops_at_vertex(
+        &shaft_ends(line_shape("curvedConnector3", 300.0, 200.0, true, false)),
+        (400.0, 300.0),
+    );
+}
+
+/// `:71` "trims a custom-geometry cubic path" — `(0,0) → C(0.5,0)(0.5,1)(1,1)`,
+/// tip `(400, 300)`.
+#[test]
+#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
+fn custom_geometry_cubic_shaft_stops_at_the_vertex() {
+    let element = json!({
+        "type": "shape",
+        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
+        "width": 300.0 * 9525.0, "height": 200.0 * 9525.0,
+        "rotation": 0.0, "flipH": false, "flipV": false,
+        "geometry": "custGeom",
+        "fill": null,
+        "stroke": { "color": "000000", "width": LINE_EMU,
+                    "headEnd": null,
+                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
+        "textBody": null, "defaultTextColor": null,
+        "custGeom": [[
+            { "cmd": "moveTo", "x": 0.0, "y": 0.0 },
+            { "cmd": "cubicBezTo", "x1": 0.5, "y1": 0.0, "x2": 0.5, "y2": 1.0, "x": 1.0, "y": 1.0 }
+        ]],
+    });
+    expect_stops_at_vertex(&shaft_ends(element), (400.0, 300.0));
+}
+
+/// `:76` "trims a custom-geometry arc and keeps it on its ellipse": a quarter
+/// ellipse from the top-left corner to `(400, 300)`, centre `(100, 300)` with
+/// radii `300 × 200`.
+#[test]
+#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
+fn custom_geometry_arc_shaft_stays_on_its_ellipse() {
+    let element = json!({
+        "type": "shape",
+        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
+        "width": 300.0 * 9525.0, "height": 200.0 * 9525.0,
+        "rotation": 0.0, "flipH": false, "flipV": false,
+        "geometry": "custGeom",
+        "fill": null,
+        "stroke": { "color": "000000", "width": LINE_EMU,
+                    "headEnd": null,
+                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
+        "textBody": null, "defaultTextColor": null,
+        "custGeom": [[
+            { "cmd": "moveTo", "x": 0.0, "y": 0.0 },
+            { "cmd": "arcTo", "wr": 1.0, "hr": 1.0, "stAng": -90.0, "swAng": 90.0 }
+        ]],
+    });
+    let ends = shaft_ends(element);
+    expect_stops_at_vertex(&ends, (400.0, 300.0));
+    for (x, y) in ends {
+        let on_ellipse = ((x - 100.0) / 300.0).powi(2) + ((y - 300.0) / 200.0).powi(2);
+        assert!(
+            (on_ellipse - 1.0).abs() < 1e-6,
+            "on the ellipse: {on_ellipse}"
+        );
+    }
+}
+
+/// `:82` "trims a bent connector across a terminal leg shorter than the
+/// retraction": `bentConnector2` runs right along the top edge then a 1 px leg
+/// down to `(400, 101)`.
+#[test]
+#[ignore = "blocked: Stroke::tail_end / head_end are not compiled (no arrowhead geometry, no shaft trim)"]
+fn bent_connector_short_leg_stops_at_the_vertex() {
+    expect_stops_at_vertex(
+        &shaft_ends(line_shape("bentConnector2", 300.0, 1.0, true, false)),
+        (400.0, 101.0),
+    );
+}
+
+/// `:95` "paints no compound shaft when both ends consume a short connector":
+/// a 15 px double line with an arrow at each end paints no shaft at all.
+#[test]
+#[ignore = "blocked: Stroke::cmpd / head_end / tail_end are not compiled"]
+fn both_arrow_ends_consume_the_shaft() {
+    let element = json!({
+        "type": "shape",
+        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
+        "width": 15.0 * 9525.0, "height": 0.0,
+        "rotation": 0.0, "flipH": false, "flipV": false,
+        "geometry": "straightConnector1",
+        "fill": null,
+        "stroke": { "color": "000000", "width": LINE_EMU, "cmpd": "dbl",
+                    "headEnd": { "type": "arrow", "w": "lg", "len": "lg" },
+                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
+        "textBody": null, "defaultTextColor": null, "custGeom": null,
+    });
+    assert_eq!(shaft_ends(element), Vec::<(f32, f32)>::new());
+}
+
+/// `:103` "trims both lines of a compound straight connector": each line ends
+/// at `400 − VERTEX_PX`.
+#[test]
+#[ignore = "blocked: Stroke::cmpd / tail_end are not compiled (no compound shaft, no trim)"]
+fn compound_straight_connector_trims_both_lines() {
+    let element = json!({
+        "type": "shape",
+        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
+        "width": 300.0 * 9525.0, "height": 0.0,
+        "rotation": 0.0, "flipH": false, "flipV": false,
+        "geometry": "straightConnector1",
+        "fill": null,
+        "stroke": { "color": "000000", "width": LINE_EMU, "cmpd": "dbl",
+                    "headEnd": null,
+                    "tailEnd": { "type": "arrow", "w": "lg", "len": "lg" } },
+        "textBody": null, "defaultTextColor": null, "custGeom": null,
+    });
+    let ends = shaft_ends(element);
+    assert!(ends.len() > 1, "both composite lines are stroked");
+    for (x, _) in ends {
+        close(x, 400.0 - vertex_retraction(), "compound shaft end");
+    }
+}
+
+// ============================================================================
+// Helpers for the blocked line-end shaft-trim cases above (arrowhead geometry +
+// the shaft-end recorder).
+
+const EMU_PER_PX: f32 = 9_525.0;
+
+const LINE_EMU: i64 = 114_300;
+
+fn line_shape(geometry: &str, width_px: f32, height_px: f32, tail: bool, head: bool) -> Value {
+    let arrow = json!({ "type": "arrow", "w": "lg", "len": "lg" });
+    json!({
+        "type": "shape",
+        "x": 100.0 * 9525.0, "y": 100.0 * 9525.0,
+        "width": width_px * 9525.0,
+        "height": height_px * 9525.0,
+        "rotation": 0.0, "flipH": false, "flipV": false,
+        "geometry": geometry,
+        "fill": null,
+        "stroke": {
+            "color": "000000",
+            "width": LINE_EMU,
+            "headEnd": if head { arrow.clone() } else { Value::Null },
+            "tailEnd": if tail { arrow } else { Value::Null },
+        },
+        "textBody": null,
+        "defaultTextColor": null,
+        "custGeom": null,
+    })
+}
+
+/// Slide-space end point (px) of every stroked subpath — the reference's
+/// `shaftEnds` recorder.
+fn shaft_ends(element: Value) -> Vec<(f32, f32)> {
+    let slide_json = json!({
+        "index": 0,
+        "slideNumber": 1,
+        "background": null,
+        "elements": [element],
+        "elementSources": [],
+        "comments": [],
+    });
+    let slide: pptx_model::Slide = serde_json::from_value(slide_json).expect("slide fixture");
+    let (tx, _rx) = unbounded();
+    let vector_slide = kitty_pptx_core::DefaultSlideCompiler::new()
+        .compile(&slide, 9_144_000, 6_858_000, &tx)
+        .expect("compile");
+    vector_slide
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            VectorCommand::DrawPath { path, stroke, .. } if stroke.is_some() => path
+                .segments
+                .iter()
+                .rev()
+                .find_map(|segment| match segment {
+                    PathSegment::LineTo { x, y } | PathSegment::MoveTo { x, y } => {
+                        Some((*x / EMU_PER_PX, *y / EMU_PER_PX))
+                    }
+                    _ => None,
+                }),
+            _ => None,
+        })
+        .collect()
+}
+
+fn expect_stops_at_vertex(ends: &[(f32, f32)], tip: (f32, f32)) {
+    assert!(!ends.is_empty(), "a shaft was stroked");
+    for (x, y) in ends {
+        let distance = ((x - tip.0).powi(2) + (y - tip.1).powi(2)).sqrt();
+        close(distance, vertex_retraction(), "distance to the tip");
+    }
+}

@@ -4,14 +4,18 @@
 The checkout is intentionally narrow:
 
 * ``--depth=1 --filter=tree:0`` fetches only the pinned commit, not its trees;
-* non-cone ``sparse-checkout`` lists exactly the manifest paths;
+* non-cone ``sparse-checkout`` lists exactly the manifest paths (419 entries for
+  the LibreOffice QA corpus);
 * Git fetches the blobs for those paths only when they are checked out.
 
 The result is verified with SHA-256 and installed atomically into the cache.
-Run this through ``run.py`` unless you are debugging the fetch step.
+Existing cache entries are kept, so ``--limit`` smoke runs never evict a
+previously fetched corpus. Run this through ``run.py`` unless you are debugging
+the fetch step.
 
 Usage:
-    python3 fetch_fixtures.py [--manifest fixtures.json] [--dest DIR] [--force]
+    python3 fetch_fixtures.py [--manifest fixtures.json] [--dest DIR]
+                              [--limit N] [--force]
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ DEFAULT_MANIFEST = HERE / "fixtures.json"
 REPO_ROOT = HERE.parents[4]
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
 
 def sha256_file(path: Path) -> str:
@@ -45,7 +50,7 @@ def sha256_file(path: Path) -> str:
 def load_manifest(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     commit = data.get("commit", "")
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if not COMMIT.fullmatch(commit):
         raise SystemExit(f"{path}: commit must be a 40-character lowercase SHA")
     upstream = data.get("upstream", "")
     if not upstream.startswith("https://"):
@@ -71,6 +76,15 @@ def load_manifest(path: Path) -> dict:
     return data
 
 
+def selected_files(manifest: dict, limit: int | None) -> list[dict]:
+    files = manifest["files"]
+    if limit is None or limit >= len(files):
+        return files
+    if limit < 1:
+        raise SystemExit("--limit must be at least 1")
+    return files[:limit]
+
+
 def run_git(args: list[str], cwd: Path, env: dict[str, str]) -> None:
     try:
         subprocess.run(
@@ -86,9 +100,7 @@ def run_git(args: list[str], cwd: Path, env: dict[str, str]) -> None:
         raise SystemExit("git is required to fetch external fixtures") from error
     except subprocess.CalledProcessError as error:
         output = (error.stdout or "").strip()
-        raise SystemExit(
-            f"git {' '.join(args)} failed in {cwd}:\n{output}"
-        ) from error
+        raise SystemExit(f"git {' '.join(args)} failed in {cwd}:\n{output}") from error
 
 
 def cache_is_valid(dest: Path, files: list[dict]) -> bool:
@@ -99,16 +111,21 @@ def cache_is_valid(dest: Path, files: list[dict]) -> bool:
     return True
 
 
-def fetch(manifest_path: Path, dest: Path, force: bool) -> Path:
+def fetch(manifest_path: Path, dest: Path, force: bool, limit: int | None) -> Path:
     manifest = load_manifest(manifest_path)
-    files = manifest["files"]
+    files = selected_files(manifest, limit)
     commit = manifest["commit"]
+    print(
+        f"fixtures: {len(files)} of {len(manifest['files'])} manifest entries "
+        f"at {commit[:12]}",
+        flush=True,
+    )
 
     if not force and cache_is_valid(dest, files):
         print(f"fixtures cached: {dest}")
         return dest
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix=".kitty-pptx-fetch-", dir=dest.parent))
     clone = work / "clone"
     output = work / "output"
@@ -120,27 +137,20 @@ def fetch(manifest_path: Path, dest: Path, force: bool) -> Path:
     try:
         run_git(["init", "--quiet"], clone, env)
         run_git(["remote", "add", "origin", manifest["upstream"]], clone, env)
+        print(f"fetching {commit} (trees excluded) ...", flush=True)
         run_git(
-            [
-                "fetch",
-                "--quiet",
-                "--depth=1",
-                "--filter=tree:0",
-                "origin",
-                commit,
-            ],
+            ["fetch", "--quiet", "--depth=1", "--filter=tree:0", "origin", commit],
             clone,
             env,
         )
         run_git(["sparse-checkout", "init", "--no-cone"], clone, env)
         patterns = "\n".join("/" + entry["path"] for entry in files) + "\n"
-        (clone / ".git" / "info" / "sparse-checkout").write_text(
-            patterns, encoding="utf-8"
-        )
+        (clone / ".git" / "info" / "sparse-checkout").write_text(patterns, encoding="utf-8")
+        print(f"checking out {len(files)} path(s) ...", flush=True)
         run_git(["checkout", "--quiet", "FETCH_HEAD"], clone, env)
 
         total_bytes = 0
-        for entry in files:
+        for index, entry in enumerate(files, 1):
             source = clone / entry["path"]
             if not source.is_file():
                 raise SystemExit(f"checkout did not produce {entry['path']}")
@@ -155,10 +165,11 @@ def fetch(manifest_path: Path, dest: Path, force: bool) -> Path:
             shutil.copyfile(source, target)
             target.chmod(0o644)
             total_bytes += target.stat().st_size
+            if index % 50 == 0 or index == len(files):
+                print(f"  verified {index}/{len(files)}", flush=True)
 
-        if dest.exists():
-            shutil.rmtree(dest)
-        output.rename(dest)
+        for entry in files:
+            (output / f"{entry['name']}.pptx").replace(dest / f"{entry['name']}.pptx")
         print(f"fetched {len(files)} fixture(s), {total_bytes} bytes: {dest}")
         return dest
     finally:
@@ -169,14 +180,13 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--dest", type=Path)
+    parser.add_argument("--limit", type=int, help="fetch only the first N manifest entries")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv[1:])
 
     manifest = load_manifest(args.manifest)
-    dest = args.dest or (
-        REPO_ROOT / "target" / "external" / "fixtures" / manifest["commit"]
-    )
-    fetch(args.manifest, dest, args.force)
+    dest = args.dest or (REPO_ROOT / "target" / "external" / "fixtures" / manifest["commit"])
+    fetch(args.manifest, dest, args.force, args.limit)
     return 0
 
 

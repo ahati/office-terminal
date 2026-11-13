@@ -1,0 +1,34 @@
+// ARCHIVE — NOT COMPILED.  Blocked cases removed from
+// crates/kitty-pptx-core/tests/parity_viewer_worker_tests.rs
+//
+// Rule: a test that is included must run, so no #[ignore] is left in the
+// compiled test tree. Every case below is blocked on a production API that
+// does not exist yet, so its source lives here instead of in the target.
+// The coverage ledger (tests/parity/COVERAGE.md plus the per-batch files in
+// tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
+// recorded there.
+//
+// Wave 3 reinstates each function below (with its doc comment and attributes)
+// into the compiled test file as soon as the named API lands.
+//
+// Missing API per blocked case:
+//   pull_retries_coded_insufficient_credit_with_the_same_identity BLOCKED: no BoundedPullSession/pull_with_credit_retry byte-credit protocol
+//   a_pull_session_transfers_exactly_one_slide                 BLOCKED: no pull_session protocol (slides are compiled in-process, not transferred)
+//   yield_crosses_a_host_task_boundary                         N/A (JS realm): MessageChannel task vs microtask ordering has no Rust analogue
+
+// ============================================================================
+/// ref slide-pull-client.test.ts:41-60 — coded byte-credit retry with the same
+/// session identity.
+#[test]
+#[ignore = "BLOCKED: no BoundedPullSession/pull_with_credit_retry byte-credit protocol"]
+fn pull_retries_coded_insufficient_credit_with_the_same_identity() {}
+
+/// ref slide-pull-worker.test.ts:1-120 — one transferred slide per pull session.
+#[test]
+#[ignore = "BLOCKED: no pull_session protocol (slides are compiled in-process, not transferred)"]
+fn a_pull_session_transfers_exactly_one_slide() {}
+
+/// ref worker-task-scheduler.test.ts:4-12 — crossing a host task boundary.
+#[test]
+#[ignore = "N/A (JS realm): MessageChannel task vs microtask ordering has no Rust analogue"]
+fn yield_crosses_a_host_task_boundary() {}

@@ -24,10 +24,10 @@ the draw pass (measurement is not stubbable there — `Measurer` is `pub(super)`
 | `tab-stop-spc.test.ts` | 4 | 0 | 1 | 0 | 3 | `parity_text_flow_a_draw_tests.rs` | Case 4 (`ls==0`) behavioural: one piece, `x+width == 400 px` stop. Cases 1–3 need `rPr@spc` → BLOCKED on `letterSpacing` (see below). |
 | `pptx-tab-wrap.test.ts` | 9 | 9 | 0 | 0 | 0 | `parity_text_flow_a_tests_wrap.rs` | `break_paragraph` with `advance=chars*20`; line texts, stop-seated pens (100/200/300) and text-left continuations all match. |
 | `pptx-multi-tab.test.ts` | 4 | 3 | 0 | 0 | 1 | `parity_text_flow_a_tests_wrap.rs` | LTR three-cell, start-tab gap and indent-stop cases exact (pens reconstructed from resolved item widths). RTL mirroring BLOCKED. |
-| `rtl-tab-stops.test.ts` | 7 | 0 | 1 | 0 | 6 | `parity_text_flow_a_tests_wrap.rs` | Case 5's reading-frame half ported (`[50,20,0,40]`); its mirrored canvas x (440/480) and cases 1–4, 6–7 BLOCKED. |
+| `rtl-tab-stops.test.ts` | — | — | — | — | — | moved | Row moved to `text-flow-b.md`: all 7 cases are now ported in `parity_text_flow_b_bidi_tests.rs` (reading-frame tab resolution + UAX#9 L2 paint order). `parity_text_flow_a_tests_wrap.rs::c25_*` still asserts case 5's kernel half. |
 | `spc-wrap.test.ts` | 2 | 0 | 0 | 0 | 2 | — | BLOCKED on `letterSpacing`: no wrap-budget path consumes `rPr@spc`. |
 | `spc-cluster-advance.test.ts` | 12 | 0 | 0 | 0 | 12 | — | BLOCKED on `letterSpacing` (cluster advances, EA seam, tab seam, RTL seam, grapheme clusters, inert/absent-canvas modes). |
-| **total** | **77** | **44** | **9** | **0** | **24** | | **53 cases ported, 53 tests passing** |
+| **total** | **70** | **44** | **8** | **0** | **18** | | **53 cases ported, 53 tests passing** (the 7 `rtl-tab-stops` cases are counted in `text-flow-b.md`) |
 
 ## Blocked cases — symbols needed
 
@@ -37,9 +37,11 @@ the draw pass (measurement is not stubbable there — `Measurer` is `pub(super)`
   `(clusters-1)*ls` into the advance, and a per-piece spacing on
   `contracts::PositionedGlyphRun`. Blocks `tab-stop-spc` 1–3, `spc-wrap` 1–2,
   `spc-cluster-advance` 1–12.
-- RTL/bidi tab-cell mirroring: the paint pass has no visual-order pass, so a stop's
+- RTL/bidi tab-cell mirroring — **landed** (`paint::resolve_line_tabs` +
+  `text::bidi`, ported in `text-flow-b`); what remains for this batch: the paint pass had no visual-order pass, so a stop's
   mirrored x (`(bx+bw-rIns)-pos`) and the cell's trailing-edge anchor do not exist.
-  Blocks `pptx-multi-tab` 2 and `rtl-tab-stops` 1–4, 6–7.
+  Blocked `pptx-multi-tab` 2 and `rtl-tab-stops` 1–4, 6–7; the RTL half landed
+  in the `text-flow-b` pass (see there).
 - Canvas-only structure: `fillText` call granularity and `ctx.letterSpacing` strings
   have no analogue in a vector IR; every such assertion is restated as compiled
   geometry (extents/pitch/piece split) rather than dropped.

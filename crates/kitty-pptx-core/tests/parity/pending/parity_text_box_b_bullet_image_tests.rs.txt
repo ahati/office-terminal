@@ -1,0 +1,48 @@
+// ARCHIVE — NOT COMPILED.  Blocked cases removed from
+// crates/kitty-pptx-core/tests/parity_text_box_b_bullet_image_tests.rs
+//
+// Rule: a test that is included must run, so no #[ignore] is left in the
+// compiled test tree. Every case below is blocked on a production API that
+// does not exist yet, so its source lives here instead of in the target.
+// The coverage ledger (tests/parity/COVERAGE.md plus the per-batch files in
+// tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
+// recorded there.
+//
+// Wave 3 reinstates each function below (with its doc comment and attributes)
+// into the compiled test file as soon as the named API lands.
+//
+// Missing API per blocked case:
+//   picture_marker_reuses_the_prepared_bitmap_cache            N/A: ImageBitmap cache, `createImageBitmap` and the per-surface decode budget are browser-only
+//   svg_picture_marker_uses_the_worker_bridge                  N/A: SVG worker-bridge decoder (`svgDecoder`) is browser-only
+//   svg_picture_marker_loads_through_html_image_element        N/A: HTMLImageElement / URL.createObjectURL are browser-only
+//   shared_svg_marker_dedupes_at_the_largest_height            N/A: shared-bitmap dedupe cache is browser-only
+
+// ============================================================================
+/// `:281` "preserves a safe native cache variant prepared by renderSlide": the
+/// 4096 × 2048 PNG stays a native `createImageBitmap` decode.
+#[test]
+#[ignore = "N/A: ImageBitmap cache, `createImageBitmap` and the per-surface decode budget are browser-only"]
+fn picture_marker_reuses_the_prepared_bitmap_cache() {}
+
+/// `:328` "routes SVG picture bullets through the worker bridge at their marker
+/// height" (`{ targetHeightPx: 54 }` at DPR 2).
+#[test]
+#[ignore = "N/A: SVG worker-bridge decoder (`svgDecoder`) is browser-only"]
+fn svg_picture_marker_uses_the_worker_bridge() {
+    close(40.0 * 96.0 / 72.0 * 1.0, 53.33, "unrounded marker height");
+}
+
+/// `:385` "loads an SVG picture bullet through HTMLImageElement in Window
+/// mode".
+#[test]
+#[ignore = "N/A: HTMLImageElement / URL.createObjectURL are browser-only"]
+fn svg_picture_marker_loads_through_html_image_element() {}
+
+/// `:435` "dedupes a shared SVG bullet at the largest authored marker height"
+/// (`targetHeightPx: 107` = 40 pt × 96/72 × DPR 2, rounded up).
+#[test]
+#[ignore = "N/A: shared-bitmap dedupe cache is browser-only"]
+fn shared_svg_marker_dedupes_at_the_largest_height() {
+    let height: f32 = 40.0 * 96.0 / 72.0 * 2.0;
+    close(height.ceil(), 107.0, "DPR 2 marker height");
+}

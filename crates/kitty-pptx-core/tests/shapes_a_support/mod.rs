@@ -11,7 +11,9 @@
 use crossbeam_channel::unbounded;
 
 use kitty_pptx_core::compiler::{DefaultSlideCompiler, SlideCompiler};
-use kitty_pptx_core::contracts::{PathSegment, VectorCommand, VectorPaint, VectorStroke};
+use kitty_pptx_core::contracts::{
+    PathSegment, VectorCommand, VectorPaint, VectorPath, VectorPattern, VectorStroke,
+};
 use pptx_model::Slide;
 use serde_json::{json, Value};
 
@@ -155,4 +157,157 @@ pub fn picture_fill_text_body() -> Value {
         "lIns": 0, "rIns": 0, "tIns": 0, "bIns": 0,
         "wrap": "square", "vert": "horz", "autoFit": "none",
     })
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Slide-level helpers for the image-fill ports (`renderer-shape-image-fill`).
+// ───────────────────────────────────────────────────────────────────────────
+
+use std::sync::{Arc, Mutex};
+
+use kitty_pptx_core::contracts::{RenderTargetSpec, RgbaSlide, VectorSlide};
+use kitty_pptx_core::error::AssetError;
+use kitty_pptx_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
+use kitty_pptx_core::rasterizer::{SlideRasterizer, TinySkiaRasterizer};
+
+/// Compile one slide (9144000 × 6858000 EMU) into a [`VectorSlide`].
+pub fn compile_slide(elements: Vec<Value>) -> VectorSlide {
+    let slide_value = json!({
+        "index": 0,
+        "slideNumber": 1,
+        "background": null,
+        "elements": elements,
+        "elementSources": [],
+        "comments": [],
+    });
+    let slide: Slide = serde_json::from_value(slide_value).expect("slide JSON");
+    let (tx, _rx) = unbounded();
+    DefaultSlideCompiler::new()
+        .compile(&slide, 9_144_000, 6_858_000, &tx)
+        .expect("compile")
+}
+
+/// Solid-colour bitmap with a distinct quad palette so a painted blip is
+/// distinguishable from the white canvas.
+pub struct Image {
+    pub rel_id: &'static str,
+    pub pixels: Vec<u8>,
+}
+
+impl Image {
+    /// `width` x `height` bitmap filled with `rgba`.
+    pub fn solid(rel_id: &'static str, width: u32, height: u32, rgba: [u8; 4]) -> Self {
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        for chunk in pixels.as_chunks_mut::<4>().0 {
+            *chunk = rgba;
+        }
+        Self { rel_id, pixels }
+    }
+}
+
+/// Asset store that records every `get` hint, so the ports can assert the
+/// decode plan the reference inspects through `decode.mock.calls` options.
+#[derive(Default)]
+pub struct RecordingStore {
+    images: Vec<(String, u32, u32, Vec<u8>)>,
+    requests: Mutex<Vec<String>>,
+}
+
+impl RecordingStore {
+    pub fn new(images: Vec<(Image, u32, u32)>) -> Self {
+        Self {
+            images: images
+                .into_iter()
+                .map(|(image, width, height)| (image.rel_id.to_string(), width, height, image.pixels))
+                .collect(),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn requests(&self) -> Vec<String> {
+        self.requests.lock().expect("request log").clone()
+    }
+}
+
+impl AssetStore for RecordingStore {
+    fn get(&self, rel_id: &str, hint: SizeHint) -> Result<DecodedImage, AssetError> {
+        let label = match hint {
+            SizeHint::Native => format!("native:{}", rel_id),
+            SizeHint::AtMost { width, height } => format!("atmost_{}x{}:{}", width, height, rel_id),
+        };
+        self.requests.lock().expect("request log").push(label);
+        let (_, width, height, pixels) = self
+            .images
+            .iter()
+            .find(|(path, ..)| path == rel_id)
+            .ok_or_else(|| AssetError::NotFound(rel_id.to_string()))?;
+        Ok(DecodedImage {
+            width: *width,
+            height: *height,
+            pixels: Arc::from(pixels.clone().into_boxed_slice()),
+        })
+    }
+
+    fn stats(&self) -> AssetStoreStats {
+        AssetStoreStats::default()
+    }
+}
+
+/// Rasterize a compiled slide at the reference's 960 CSS px width.
+pub fn rasterize(slide: &VectorSlide, store: &RecordingStore) -> RgbaSlide {
+    TinySkiaRasterizer::new()
+        .rasterize(
+            slide,
+            &RenderTargetSpec {
+                width_px: 960,
+                height_px: 720,
+            },
+            store,
+        )
+        .expect("rasterize")
+}
+
+/// One straight RGBA pixel of a rendered slide.
+pub fn pixel(rendered: &RgbaSlide, x: u32, y: u32) -> [u8; 4] {
+    let i = ((y * rendered.width + x) * 4) as usize;
+    [
+        rendered.pixels[i],
+        rendered.pixels[i + 1],
+        rendered.pixels[i + 2],
+        rendered.pixels[i + 3],
+    ]
+}
+
+/// The compiled image fills of a slide, in command order.
+pub fn image_fills(commands: &[VectorCommand]) -> Vec<kitty_pptx_core::contracts::VectorImageFill> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            VectorCommand::DrawPath {
+                fill: Some(VectorPaint::Image(fill)),
+                ..
+            } => Some((**fill).clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `a:pattFill` brush the compiler must produce (§20.1.8.40).
+pub fn pattern_fill(preset: &str, fg: [u8; 4], bg: [u8; 4]) -> VectorPattern {
+    VectorPattern {
+        preset: preset.to_string(),
+        fg,
+        bg,
+    }
+}
+
+/// The first `DrawPath` geometry of a compiled slide.
+pub fn first_path(commands: &[VectorCommand]) -> VectorPath {
+    commands
+        .iter()
+        .find_map(|command| match command {
+            VectorCommand::DrawPath { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .expect("a DrawPath")
 }

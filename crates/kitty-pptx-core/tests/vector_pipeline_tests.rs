@@ -40,6 +40,7 @@ fn test_vector_slide_rasterization_and_svg_export() {
             dash_segments: None,
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
+            paint: None,
         }),
         transform: AffineTransform::default(),
         effects: Box::default(),

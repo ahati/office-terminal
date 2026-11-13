@@ -12,6 +12,10 @@
 //! below evaluate the envelope at the reference's `u` range directly. The
 //! multi-line cases depend on the reference's per-line envelope expansion, which
 //! this port does not implement.
+//!
+//! Blocked cases (no production API yet) are archived, not compiled, in
+//! `tests/parity/pending/parity_text_box_b_warp_tests.rs.txt`; the
+//! ledger keeps their rows.
 
 use kitty_pptx_core::compiler::text_warp::{
     build_warp_envelope, follow_path_u_scale, warp_glyph_transform,
@@ -109,123 +113,6 @@ fn arch_baseline_uses_the_glyph_ink_box() {
     close(shift, 28.2, "ink vs shape height");
 }
 
-/// `:159` "keeps the last clockwise line on the authored arch and expands
-/// preceding lines": `bottomY − topY > 20`, `topY < 0`, `bottomY < 10`.
-#[test]
-#[ignore = "blocked: no per-line envelope expansion / line-anchored arch placement in the warp path"]
-fn multi_line_arch_anchors_the_last_line() {
-    // Reference: bottomY - topY > 20, topY < 0, bottomY < 10 for a two-line
-    // arch whose LAST line stays on the authored arch.
-    let env = envelope("textArchUp", &[]);
-    assert!(arc_length(&env) > BOX_W, "the arch is wider than the box");
-}
-
-/// `:169` "expands later counterclockwise lines outside the lower arch":
-/// `glyphs[1].y − glyphs[0].y ≈ 48` and `glyphs[0].y > BOX_H`.
-#[test]
-#[ignore = "blocked: no per-line envelope expansion (textArchDown line stacking)"]
-fn counterclockwise_lines_expand_outside_the_lower_arch() {
-    // Reference: glyphs[1].y - glyphs[0].y == 48 and glyphs[0].y > BOX_H.
-    let env = envelope("textArchDown", &[]);
-    assert!(arc_length(&env) > 0.0);
-}
-
-/// `:178` "honours fixed line spacing independently of the font size":
-/// `spaceLine = { type: 'pts', val: 18 }` → `glyphs[1].y − glyphs[0].y ≈ 18`.
-#[test]
-#[ignore = "blocked: the warp path does not apply a:lnSpc between its lines"]
-fn warp_honours_fixed_line_spacing() {
-    // Reference: glyphs[1].y - glyphs[0].y == 18 for spaceLine { pts, 18 }.
-    let env = envelope("textArchUp", &[]);
-    assert!(glyph_y(&env, 0.5, 9.0).is_finite());
-}
-
-/// `:189` "retains paragraph spacing only between paragraphs":
-/// `spaceBefore 1200` + `spaceAfter 600` → `glyphs[1].y − glyphs[0].y ≈ 66`.
-#[test]
-#[ignore = "blocked: the warp path does not apply spcBef/spcAft between its paragraphs"]
-fn warp_keeps_paragraph_spacing_between_paragraphs() {
-    // Reference: glyphs[1].y - glyphs[0].y == 66 (spaceBefore 1200 + 600), and
-    // the second baseline stays above y = 10.
-    let env = envelope("textArchUp", &[]);
-    assert!(glyph_y(&env, 0.5, 9.0).is_finite());
-}
-
-/// `:200` "uses 50 % authored line spacing": `48 × 50 / 100`.
-#[test]
-#[ignore = "blocked: the warp path does not apply a:lnSpc between its lines"]
-fn warp_uses_50_percent_line_spacing() {
-    // Reference: glyphs[1].y - glyphs[0].y == 48 * 50 / 100 == 24.
-    close(48.0 * 50.0 / 100.0, 24.0, "half line");
-}
-
-/// `:200` "uses 100 % authored line spacing".
-#[test]
-#[ignore = "blocked: the warp path does not apply a:lnSpc between its lines"]
-fn warp_uses_100_percent_line_spacing() {
-    // Reference: glyphs[1].y - glyphs[0].y == 48 * 100 / 100 == 48.
-    close(48.0 * 100.0 / 100.0, 48.0, "one line");
-}
-
-/// `:200` "uses 150 % authored line spacing".
-#[test]
-#[ignore = "blocked: the warp path does not apply a:lnSpc between its lines"]
-fn warp_uses_150_percent_line_spacing() {
-    // Reference: glyphs[1].y - glyphs[0].y == 48 * 150 / 100 == 72.
-    close(48.0 * 150.0 / 100.0, 72.0, "1.5 lines");
-}
-
-/// `:200` "uses 200 % authored line spacing".
-#[test]
-#[ignore = "blocked: the warp path does not apply a:lnSpc between its lines"]
-fn warp_uses_200_percent_line_spacing() {
-    // Reference: glyphs[1].y - glyphs[0].y == 48 * 200 / 100 == 96.
-    close(48.0 * 200.0 / 100.0, 96.0, "double line");
-}
-
-/// `:211` "accumulates mixed-size line boxes before anchoring the last
-/// baseline": 16/32/48 pt lines step by `34.56` then `53.76`.
-#[test]
-#[ignore = "blocked: the warp path does not accumulate mixed-size line boxes"]
-fn warp_accumulates_mixed_size_line_boxes() {
-    close(1.2 * 16.0 * 1.8, 34.56, "first step");
-    close(1.2 * 48.0 * 0.933, 53.76, "second step");
-}
-
-/// `:221` "uses path winding for a 135 degree downward arch": the second line
-/// sits more than 40 px ABOVE the first.
-#[test]
-#[ignore = "blocked: no per-line envelope expansion along the path winding (textArchDown)"]
-fn warp_follows_the_path_winding_at_135_degrees() {
-    let env = envelope("textArchDown", &[135 * 60_000]);
-    assert!(arc_length(&env) > 0.0);
-}
-
-/// `:221` "uses path winding for a 225 degree downward arch".
-#[test]
-#[ignore = "blocked: no per-line envelope expansion along the path winding (textArchDown)"]
-fn warp_follows_the_path_winding_at_225_degrees() {
-    let env = envelope("textArchDown", &[225 * 60_000]);
-    assert!(arc_length(&env) > 0.0);
-}
-
-/// `:232` "anchors the final circle line and expands preceding lines radially":
-/// the two lines differ by `48` in x and the second sits past `BOX_W − 10`.
-#[test]
-#[ignore = "blocked: no per-line radial expansion in the textCircle path"]
-fn circle_anchors_the_final_line_and_expands_radially() {
-    // Reference: glyphs[0].x - glyphs[1].x == 48 and glyphs[1].x > BOX_W - 10.
-    let env = envelope("textCircle", &[]);
-    assert!(glyph_x(&env, 0.0, 9.0).is_finite());
-}
-
-/// `:242` "recomputes each line on its expanded ellipse, including arc-length
-/// alignment": the two lines of a 200 × 180 box match a single line laid out on
-/// a 296 × 276 box at `(−48, −48)`.
-#[test]
-#[ignore = "blocked: no per-line expanded ellipse (the warp path maps every line through one envelope)"]
-fn expanded_ellipse_recomputes_each_line() {}
-
 /// `:258` "textCircle keeps the word compact rather than scattering around the
 /// ellipse": the 60 px natural width stays a compact arc segment.
 #[test]
@@ -257,10 +144,3 @@ fn a_word_wider_than_the_arch_clamps_to_the_full_path() {
     let span = (glyph_x(&env, 1.0, 9.0) - glyph_x(&env, 0.0, 9.0)).abs();
     assert!(span > BOX_W * 0.5, "fills the arch: {span}");
 }
-
-/// `:279` "does not create wrap-only fragments for infinite-width WordArt
-/// layout": the flat no-wrap pass measures the full segment a small fixed number
-/// of times, never every growing prefix.
-#[test]
-#[ignore = "blocked: no measurer call recording on the warp compile path"]
-fn warp_layout_measures_the_full_segment_once() {}

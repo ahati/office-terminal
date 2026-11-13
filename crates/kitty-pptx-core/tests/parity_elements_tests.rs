@@ -163,6 +163,29 @@ fn pattern_rect(ax: f32, ay: f32, w: f32, h: f32) -> String {
     )
 }
 
+/// A picture frame holding one `DrawImage` over a 9144000×6858000 EMU slide,
+/// with the `srcRect` window `crop` = `(x, y, w, h)`.
+fn picture_slide(rel_id: &str, frame: (f32, f32, f32, f32), crop: (f32, f32, f32, f32)) -> VectorSlide {
+    let mut slide = VectorSlide::new(9_144_000, 6_858_000);
+    slide.commands.push(VectorCommand::draw_image(
+        rel_id.to_string(),
+        NormalizedRect {
+            x: crop.0,
+            y: crop.1,
+            w: crop.2,
+            h: crop.3,
+        },
+        RectF32::new(frame.0, frame.1, frame.2, frame.3),
+        1.0,
+        AffineTransform::identity(),
+    ));
+    slide
+}
+
+fn target(width: u32, height: u32) -> RenderTargetSpec {
+    RenderTargetSpec { width_px: width, height_px: height }
+}
+
 fn rasterize(slide: &VectorSlide, width: u32, height: u32, store: &Store) -> RgbaSlide {
     TinySkiaRasterizer::new()
         .rasterize(
@@ -454,11 +477,15 @@ fn is_dark_or_colour(px: [u8; 4]) -> bool {
 
 // ───────────────────────────────────────────────────────────────────────────
 // renderer-adaptive-image-budget.test.ts — "preserves native decoding for an
-// ordinary slide raster that fits by default". The core has no decoded-byte
-// planner, so the port asserts the one policy that *does* exist: the
-// rasterizer asks the store for the native bitmap and keeps its pixels.
-// ref renderer.ts picture decode path.
+// ordinary slide raster that fits by default": the rasterizer asks the store
+// for the native bitmap and keeps its pixels. The rest of that spec, and the
+// device-pixel derivation of `renderer-picture-raster-target.test.ts`, live in
+// `parity_elements_support/decode_plan_cases.rs`.
+// ref renderer.ts picture decode path, core/src/image/adaptive-image-budget.ts.
 // ───────────────────────────────────────────────────────────────────────────
+
+#[path = "parity_elements_support/decode_plan_cases.rs"]
+mod decode_plan_cases;
 
 #[test]
 fn picture_raster_requests_the_native_source_grid_by_default() {
@@ -482,3 +509,4 @@ fn picture_raster_requests_the_native_source_grid_by_default() {
     assert_eq!(pixel(&rendered, 400, 600), [255, 255, 0, 255]);
     assert!(is_light(pixel(&rendered, 600, 300)), "outside the frame stays white");
 }
+

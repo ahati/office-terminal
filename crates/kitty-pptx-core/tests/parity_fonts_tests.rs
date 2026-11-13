@@ -203,12 +203,17 @@ fn unnamed_families_stay_regular() {
 /// ref font-stack.test.ts `uses the same resolved alias stack for measurement
 /// and paint`. Measurement, paint and export must all see one family string:
 /// the run that layout measured is the run the SVG serialiser writes.
+///
+/// The probe text is East Asian with an empty `a:ea` slot, so the face the run
+/// resolves is PowerPoint's application default for that slot (issue #1627:
+/// `Noto Sans CJK SC` is not an installed Office face, so the sans tier applies);
+/// measure, paint and export must still agree on it.
 #[test]
 fn measurement_paint_and_export_share_one_resolved_family() {
     let commands = compile(&body(None, Some("Noto Sans CJK SC"), false, "中文"));
     let painted = runs(&commands);
     let run = painted.first().expect("painted CJK run");
-    assert_eq!(run.font_family, "Noto Sans CJK SC");
+    assert_eq!(run.font_family, "MS Gothic");
     assert_eq!(run.text, "中文");
 
     let slide = VectorSlide {
@@ -220,7 +225,7 @@ fn measurement_paint_and_export_share_one_resolved_family() {
     };
     let svg = svg_for(&slide);
     assert!(
-        svg.contains(r#"font-family="Noto Sans CJK SC""#),
+        svg.contains(r#"font-family="MS Gothic""#),
         "SVG must name the same family the run carries: {svg}"
     );
 }
