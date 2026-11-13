@@ -8,23 +8,20 @@
 //! The rotated modes are a *frame* transform: the body is laid out exactly as
 //! horizontal text inside the box with its width and height swapped, and the
 //! resulting `DrawText` transform is post-multiplied by a rotation about the
-//! box centre. Fonts, wrapping, spacing and alignment therefore need no
-//! vertical-specific code path.
+//! box centre, so fonts, wrapping, spacing and alignment need no vertical code
+//! path. `eaVert` re-enters with `eaVertUpright = true` and uprights the
+//! East-Asian glyphs (UAX#50): [`EaVertFrame`] and [`ea_vert_pieces`].
 //!
 //! Approximations are documented per item:
-//! - `eaVert` re-enters the reference with `eaVertUpright = true`, which stands
-//!   CJK glyphs upright and rotates only the Latin ones (UAX#50). Here every
-//!   glyph rotates with the frame; per-glyph upright substitution is not
-//!   implemented.
-//! - `mongolianVert` is rendered horizontally by the reference (it only tests
-//!   `vert`/`eaVert` at `renderer.ts:5034`). ST_TextVerticalType still means
-//!   top-to-bottom text, so it is treated like `vert` here.
+//! - `mongolianVert` only tests `vert`/`eaVert` at `renderer.ts:5034`, so it is
+//!   treated like `vert` here.
 //! - Stacked text is the reference's one-grapheme-per-column reduction: the
 //!   full `layoutStackedText` also balances multi-glyph columns, applies
 //!   `a:lnSpc` per column and seeds `spcBef`/`spcAft` gaps, none of which can
 //!   change a single-glyph column.
 
 use crate::contracts::{AffineTransform, RectF32};
+use crate::text::linebreak::rules::is_cjk_break_char;
 use crate::text::measure::StyleId;
 
 /// How `a:bodyPr@vert` reshapes the body.
@@ -32,12 +29,17 @@ use crate::text::measure::StyleId;
 pub enum VertMode {
     /// `horz` and every value the reference draws horizontally.
     Horz,
-    /// `vert` / `eaVert` / `vert270` / `mongolianVert`: swapped layout box plus
-    /// a frame rotation. `angle_deg` is the canvas rotation of
-    /// `renderer.ts:5042` (`vertRot`): positive = clockwise in the y-down
-    /// layout frame, i.e. `kx = -sin`, `ky = sin` like
+    /// `vert` / `vert270` / `mongolianVert`: swapped layout box plus a frame
+    /// rotation. `angle_deg` is the canvas rotation of `renderer.ts:5042`
+    /// (`vertRot`): positive = clockwise in the y-down layout frame, i.e.
+    /// `kx = -sin`, `ky = sin` like
     /// `compiler::transform::compute_shape_transform`.
     Rotated { angle_deg: f32 },
+    /// `eaVert`: the same +90° frame, re-entered with
+    /// `eaVertUpright = true` (`renderer.ts:5034`, `5083`), so East-Asian
+    /// glyphs stand upright while Latin ones rotate with the frame
+    /// (UAX#50). [`EaVertFrame`] carries the per-glyph uprighting.
+    EaVert,
     /// `wordArtVert` (`rtl == false`) / `wordArtVertRtl`: one grapheme per
     /// column, glyphs upright.
     Stacked { rtl: bool },
@@ -49,7 +51,9 @@ impl VertMode {
         match vert {
             // ref renderer.ts:5034 `isVert = vert === 'vert' || vert === 'eaVert'`
             // (plus `mongolianVert`, see the module docs).
-            "vert" | "eaVert" | "mongolianVert" => VertMode::Rotated { angle_deg: 90.0 },
+            "vert" | "mongolianVert" => VertMode::Rotated { angle_deg: 90.0 },
+            // ref renderer.ts:5083: `eaVert` re-enters with uprighting.
+            "eaVert" => VertMode::EaVert,
             // ref renderer.ts:5035 `isVert270`: `vertRot = -90`.
             "vert270" => VertMode::Rotated { angle_deg: -90.0 },
             // ref renderer.ts:5021-5028 stacked WordArt.
@@ -65,13 +69,20 @@ impl VertMode {
 /// (`renderer.ts:5073-5083`); every other mode keeps the authored box.
 pub fn layout_frame(mode: VertMode, box_w: i64, box_h: i64) -> (f32, f32, Option<AffineTransform>) {
     match mode {
-        VertMode::Rotated { angle_deg } => (
-            box_h as f32,
-            box_w as f32,
-            Some(frame_transform(angle_deg, box_w as f32, box_h as f32)),
-        ),
+        VertMode::Rotated { angle_deg } => rotated_frame(angle_deg, box_w, box_h),
+        // `eaVert` shares `vert`'s swapped box and +90° frame (`renderer.ts:5034`).
+        VertMode::EaVert => rotated_frame(90.0, box_w, box_h),
         _ => (box_w as f32, box_h as f32, None),
     }
+}
+
+/// The swapped box and frame of the rotated modes (`renderer.ts:5073-5083`).
+fn rotated_frame(angle_deg: f32, box_w: i64, box_h: i64) -> (f32, f32, Option<AffineTransform>) {
+    (
+        box_h as f32,
+        box_w as f32,
+        Some(frame_transform(angle_deg, box_w as f32, box_h as f32)),
+    )
 }
 
 /// The rotated sub-frame of `renderer.ts:5070-5083`:
@@ -96,6 +107,233 @@ pub fn frame_transform(angle_deg: f32, box_w: f32, box_h: f32) -> AffineTransfor
     AffineTransform::translate(box_w * 0.5, box_h * 0.5)
         .post_concat(&rotation)
         .post_concat(&AffineTransform::translate(-box_h * 0.5, -box_w * 0.5))
+}
+
+// ── `eaVert` per-glyph orientation (UAX #50, `vertical-text.ts`) ─────────────
+
+/// UAX #50 `Vertical_Orientation` reduced to the two draw behaviours
+/// `drawEaVertRunWithCapability` distinguishes (`vertical-text.ts:90-170`):
+/// stand the glyph up, or leave it lying sideways with the rotated frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Orient {
+    /// `vo=U` / `vo=Tu` / a substituted `vo=Tr` form: drawn with the −90°
+    /// counter-rotation that cancels the frame (`vertical-text.ts:143-151`).
+    Upright,
+    /// `vo=R`: drawn with the frame, i.e. rotated 90° clockwise on the slide
+    /// (`vertical-text.ts:160-169`).
+    Rotated,
+}
+
+/// `ー` U+30FC, `〜` U+301C, `～` U+FF5E: the `vo=Tr` long marks. Their UAX #50
+/// fallback is to rotate with the frame (`vertical-text.ts:143-160`,
+/// `vertical-orientation.ts` `VERTICAL_TR_LONG_MARKS`); a face that does carry
+/// the FE31/FE32 vertical form draws the substituted glyph upright instead
+/// ([`vertical_form`]).
+fn rotates_with_the_frame(cp: u32) -> bool {
+    matches!(cp, 0x30fc | 0x301c | 0xff5e)
+}
+
+/// The U+FE10–FE19 / U+FE30–FE4F vertical presentation forms are by definition
+/// already vertical, so an authored one stays upright.
+fn is_vertical_presentation(cp: u32) -> bool {
+    matches!(cp, 0xfe10..=0xfe19 | 0xfe30..=0xfe4f)
+}
+
+/// UAX #50 `Vertical_Orientation` of one code point (`vertical-text.ts:96`).
+///
+/// `vo=U` is the ideographic / kana / Hangul / fullwidth set the line breaker
+/// already classifies (`cjk-ranges.ts:57-64`, reused through
+/// [`is_cjk_break_char`] so the two engines share one table); everything else —
+/// Latin, digits, ASCII punctuation, arrows, symbols — is `vo=R`. Punctuation
+/// inside the ideographic ranges (`、。「」（`, `！？`) is upright here, with the
+/// Tr long marks rotated as noted above; the reference resolves the same two
+/// draw classes from the full generated UCD table.
+///
+/// Approximated: the supplementary-plane ideographs (U+20000–U+3FFFD) are
+/// outside `is_cjk_break_char` and therefore rotate; the reference stands them
+/// up.
+pub fn orientation(ch: char) -> Orient {
+    let cp = ch as u32;
+    if is_vertical_presentation(cp) || (is_cjk_break_char(cp) && !rotates_with_the_frame(cp)) {
+        Orient::Upright
+    } else {
+        Orient::Rotated
+    }
+}
+
+/// The U+FE1x / U+FE3x vertical presentation form of a horizontal glyph, or
+/// `None` (`vertical-orientation.ts`: `verticalFormSubstitute` for `vo=Tu`,
+/// `verticalBracketFormSubstitute` for `vo=Tr`).
+///
+/// The Tu part is the corner-hanging punctuation; the Tr part is the fullwidth
+/// bracket family, including the white lenticular `〖〗` whose FE17/FE18 form
+/// the reference's substitute faces do contain. `！`/`？` are deliberately absent
+/// (they are already the correct vertical shape, #771), as are the fullwidth
+/// colon/semicolon whose FE13/FE14 forms are missing from most faces (#969) and
+/// which therefore take the geometric fallback instead.
+pub fn vertical_form(ch: char) -> Option<char> {
+    Some(match ch {
+        // vo=Tu, corner-hanging (`VERTICAL_FORM_MAP`): ， 、 。
+        '\u{ff0c}' => '\u{fe10}',
+        '\u{3001}' => '\u{fe11}',
+        '\u{3002}' => '\u{fe12}',
+        // vo=Tr brackets (`VERTICAL_BRACKET_FORM_MAP`): （）｛｝〔〕【】《》〈〉「」『』〖〗
+        '\u{ff08}' => '\u{fe35}',
+        '\u{ff09}' => '\u{fe36}',
+        '\u{ff5b}' => '\u{fe37}',
+        '\u{ff5d}' => '\u{fe38}',
+        '\u{3014}' => '\u{fe39}',
+        '\u{3015}' => '\u{fe3a}',
+        '\u{3010}' => '\u{fe3b}',
+        '\u{3011}' => '\u{fe3c}',
+        '\u{300a}' => '\u{fe3d}',
+        '\u{300b}' => '\u{fe3e}',
+        '\u{3008}' => '\u{fe3f}',
+        '\u{3009}' => '\u{fe40}',
+        '\u{300c}' => '\u{fe41}',
+        '\u{300d}' => '\u{fe42}',
+        '\u{300e}' => '\u{fe43}',
+        '\u{300f}' => '\u{fe44}',
+        '\u{3016}' => '\u{fe17}',
+        '\u{3017}' => '\u{fe18}',
+        // The Tr long marks: `ー`/`〜` are the horizontal marks whose vertical
+        // form IS the U+FE3x rotation (FE31/FE32), so a face that has them
+        // draws the substituted glyph upright instead of rotating the original.
+        '\u{30fc}' => '\u{fe31}',
+        '\u{301c}' => '\u{fe32}',
+        _ => return None,
+    })
+}
+
+/// One paint piece of an `eaVert` run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EaVertPiece {
+    /// Stand the glyph up (UAX #50 `vo=U` / `vo=Tu`, or a substituted form).
+    pub upright: bool,
+    /// The glyph text to paint: the substituted vertical form when the face
+    /// resolves one, else the authored cluster.
+    pub painted: String,
+    /// The authored cluster. Its advance sets the cell width: the reference
+    /// measures the ORIGINAL code point and substitutes glyph-only
+    /// (`vertical-text.ts:118-121`, measure == draw).
+    pub measured: String,
+}
+
+/// Split a run into `eaVert` paint pieces (`drawEaVertRunWithCapability`,
+/// `vertical-text.ts:96-170`).
+///
+/// Each upright cluster is its own piece (the counter-rotated cell is drawn
+/// alone); consecutive sideways clusters stay one rotated group. `has_glyph`
+/// answers whether the resolved face can draw a code point, so a vertical form
+/// is only substituted when present (`vertical-text.ts:171-183` probes the same
+/// capability).
+pub fn ea_vert_pieces(text: &str, has_glyph: impl Fn(char) -> bool) -> Vec<EaVertPiece> {
+    let mut out: Vec<EaVertPiece> = Vec::new();
+    let mut sideways: Option<(String, String)> = None;
+    for cluster in graphemes(text) {
+        let mut chars = cluster.chars();
+        let first = chars.next();
+        // Substitution is glyph-only and per code point: a cluster with a
+        // combining mark keeps its authored text.
+        let substitute = match (first, chars.next()) {
+            (Some(ch), None) => vertical_form(ch).filter(|form| has_glyph(*form)),
+            _ => None,
+        };
+        // A substituted vertical form is already vertical, so it is drawn
+        // upright even when the authored code point would rotate
+        // (`vertical-text.ts:131` `upright = ... || bracketCp !== null`).
+        let upright =
+            substitute.is_some() || first.is_some_and(|ch| orientation(ch) == Orient::Upright);
+        if upright {
+            if let Some((painted, measured)) = sideways.take() {
+                out.push(EaVertPiece {
+                    upright: false,
+                    painted,
+                    measured,
+                });
+            }
+            out.push(EaVertPiece {
+                upright: true,
+                painted: substitute.map_or_else(|| cluster.to_string(), String::from),
+                measured: cluster.to_string(),
+            });
+            continue;
+        }
+        let painted = substitute.map_or_else(|| cluster.to_string(), String::from);
+        match &mut sideways {
+            Some((group, source)) => {
+                group.push_str(&painted);
+                source.push_str(cluster);
+            }
+            None => sideways = Some((painted, cluster.to_string())),
+        }
+    }
+    if let Some((painted, measured)) = sideways {
+        out.push(EaVertPiece {
+            upright: false,
+            painted,
+            measured,
+        });
+    }
+    out
+}
+
+/// The `eaVert` sub-frame plus the element transform it is entered with
+/// (`renderer.ts:5034-5083`). An upright cell is placed OUTSIDE the frame — its
+/// baseline runs along the slide axes — so its glyph coordinates are pre-mapped
+/// through the frame and painted with the element transform alone
+/// (`vertical-text.ts:143-151` counter-rotates the glyph about the cell centre,
+/// which lands on the same point).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EaVertFrame {
+    /// The element transform the body is entered with (`base_transform`).
+    pub base: AffineTransform,
+    /// The +90° sub-frame (`frame_transform`).
+    pub frame: AffineTransform,
+}
+
+impl EaVertFrame {
+    /// Baseline origin in frame-local slide EMU of an upright cell whose em box
+    /// is centred at layout `(centre_x, baseline_y − centre_above)`.
+    ///
+    /// `centre_x` is the cell centre along the column, `baseline_y` the line's
+    /// alphabetic baseline (layout y) and `centre_above` the em-box centre above
+    /// that baseline ([`em_centre_above`]); `advance` is the cell width.
+    pub fn upright_origin(
+        &self,
+        centre_x: f32,
+        baseline_y: f32,
+        advance: f32,
+        centre_above: f32,
+    ) -> (f32, f32) {
+        let (x, y) = self
+            .frame
+            .transform_point(centre_x, baseline_y - centre_above);
+        (x - advance * 0.5, y + centre_above)
+    }
+}
+
+/// The per-glyph uprighting frame for `eaVert`, `None` for every other mode
+/// (`renderer.ts:5083` passes `eaVertUpright` only for `eaVert`).
+pub fn ea_vert_frame(
+    mode: VertMode,
+    box_w: i64,
+    box_h: i64,
+    base: &AffineTransform,
+) -> Option<EaVertFrame> {
+    if mode != VertMode::EaVert {
+        return None;
+    }
+    let (_, _, frame) = layout_frame(mode, box_w, box_h);
+    frame.map(|frame| EaVertFrame { base: *base, frame })
+}
+
+/// Em-box centre above the baseline for the 1.2-em box [`crate::text::metrics`]
+/// measures: `ascent − box/2` (`natural_line_box`). This is the cross-axis
+/// anchor an upright cell centres on (`vertical-text.ts:127-131`, which reads
+/// the face's font bounding box instead).
+pub fn em_centre_above(size_emu: f32, ascent_share: f32) -> f32 {
+    1.2 * size_emu * (ascent_share - 0.5)
 }
 
 /// One grapheme measured by the host, before column placement.
@@ -269,10 +507,7 @@ mod tests {
         assert_eq!(VertMode::of("horz"), VertMode::Horz);
         assert_eq!(VertMode::of(""), VertMode::Horz);
         assert_eq!(VertMode::of("vert"), VertMode::Rotated { angle_deg: 90.0 });
-        assert_eq!(
-            VertMode::of("eaVert"),
-            VertMode::Rotated { angle_deg: 90.0 }
-        );
+        assert_eq!(VertMode::of("eaVert"), VertMode::EaVert);
         assert_eq!(
             VertMode::of("vert270"),
             VertMode::Rotated { angle_deg: -90.0 }

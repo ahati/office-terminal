@@ -7,7 +7,7 @@
 /// CJK / ideographic code points that allow a break against an adjacent
 /// character without whitespace (cjk-ranges.ts:57-64). Hangul ends at U+D7A3:
 /// U+D7B0–D7FF are conjoining Jamo and are not break units.
-pub(super) fn is_cjk_break_char(cp: u32) -> bool {
+pub(crate) fn is_cjk_break_char(cp: u32) -> bool {
     matches!(cp, 0x3000..=0x9fff | 0xac00..=0xd7a3 | 0xf900..=0xfaff | 0xff00..=0xffef)
 }
 

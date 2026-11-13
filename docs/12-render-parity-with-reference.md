@@ -497,7 +497,9 @@ differently (see §8.1), not by paint.
 2. **Vertical text `eaVert` upright substitution** is approximated (rotation, not per-glyph UAX#50).
 3. **Charts** only render the column/bar/line/area/pie/doughnut subset; other families now show the
    labelled placeholder (parity with the reference's unsupported path) but are not drawn.
-4. **SVG reflection** still uses the simplified filter graph and ignores `dir`/`stPos`/`endPos`/`sx`/`sy`.
+4. **`eaVert` Latin segments** are emitted with a rotated frame, but the rasteriser still applies one
+   transform per `DrawText` command, so a mixed Han+Latin column can lose the Latin rotation. Upright
+   EA cells and the U+FE1x/FE3x substitutions are emitted per run and render correctly.
 5. **3-D bevel/extrusion** remains the previous approximation; the reference's material/rig shading
    is not ported.
 6. **Table cell clipping**, `cmpd` double borders and device-pixel crisp snapping are not
@@ -509,6 +511,10 @@ Landed after the first commit: `rPr@baseline` super/subscript (0.65 size, `-(bas
 shift), background image fills (`srcRect`, `fillRect`, tile, alpha, white base), measured chart
 bands (title/legend/axis-title, elision, manual layout), and a font-metric investigation that
 explains the slide-1 wrap difference above.
+
+Fourth slice: SVG reflection now mirrors the raster semantics (`dir`, `stPos`/`endPos`, `sx`/`sy`,
+`algn`, `dist`, padded filter region) and `eaVert` emits upright East-Asian cells with Tu/Tr
+vertical-form substitutions instead of rotating the whole run.
 
 Third slice: chart-family dispatch (unsupported families now draw the reference's labelled
 "Unsupported chart" placeholder with a warning instead of a silent column chart), reflection
