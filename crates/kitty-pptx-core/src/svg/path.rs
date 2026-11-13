@@ -1,7 +1,5 @@
 use std::fmt::Write;
-use crate::compiler::style::{
-    linear_gradient_axis, linear_gradient_axis_for_path, radial_gradient_frame_for_path,
-};
+use crate::compiler::style::gradient;
 use crate::contracts::{
     AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint,
     VectorPath, VectorStroke,
@@ -54,6 +52,47 @@ pub fn path_to_svg_d(path: &VectorPath) -> String {
     d.trim().to_string()
 }
 
+/// Local-space bounds of a path (control points included), matching the
+/// rasterizer's conservative bounds. Used as the fill box for image/pattern
+/// paint servers.
+pub fn path_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    let mut any = false;
+    let mut add = |x: f32, y: f32| {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+        any = true;
+    };
+    for seg in &path.segments {
+        match seg {
+            PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => add(*x, *y),
+            PathSegment::QuadTo { x1, y1, x, y } => {
+                add(*x1, *y1);
+                add(*x, *y);
+            }
+            PathSegment::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
+                add(*x1, *y1);
+                add(*x2, *y2);
+                add(*x, *y);
+            }
+            PathSegment::Close => {}
+        }
+    }
+    any.then_some((min_x, min_y, max_x, max_y))
+}
+
 pub fn format_fill_attr(fill: Option<&VectorPaint>, gradient_id: Option<&str>) -> String {
     match fill {
         Some(VectorPaint::Solid([r, g, b, a])) => {
@@ -72,19 +111,40 @@ pub fn format_fill_attr(fill: Option<&VectorPaint>, gradient_id: Option<&str>) -
                 r##"fill="#888888""##.to_string()
             }
         }
+        // §20.1.8.14 / §20.1.8.40 brushes: both reference a paint-server def
+        // (`<pattern>`) collected with the gradients; without one the path keeps
+        // an unpainted fill (ref renderer.ts:2620-2700, paint.ts:459-479).
+        Some(VectorPaint::Image(_)) | Some(VectorPaint::Pattern(_)) => match gradient_id {
+            Some(id) => format!(r#"fill="url(#{})""#, id),
+            None => r#"fill="none""#.to_string(),
+        },
         None => r#"fill="none""#.to_string(),
     }
 }
 
-pub fn format_stroke_attr(stroke: Option<&VectorStroke>) -> String {
+/// Stroke attributes. `paint_id` is the collected paint server for the line's
+/// own `a:ln` gradient/pattern fill, which replaces the flat colour entirely
+/// (ref renderer.ts:7542-7565 `applyStroke`).
+pub fn format_stroke_attr(stroke: Option<&VectorStroke>, paint_id: Option<&str>) -> String {
     match stroke {
         Some(s) => {
-            let [r, g, b, a] = s.color;
+            // A single-stop gradient resolved to a solid paint replaces the
+            // authored line colour (ref core/src/shape/paint.ts:377-379).
+            let [r, g, b, a] = match s.paint.as_deref() {
+                Some(VectorPaint::Solid(color)) => *color,
+                _ => s.color,
+            };
             let opacity = a as f32 / 255.0;
-            let mut out = format!(
-                r#"stroke="rgb({},{},{})" stroke-opacity="{:.2}" stroke-width="{}""#,
-                r, g, b, opacity, s.width_emu
-            );
+            let mut out = match paint_id {
+                Some(id) => format!(
+                    r#"stroke="url(#{})" stroke-opacity="{:.2}" stroke-width="{}""#,
+                    id, opacity, s.width_emu
+                ),
+                None => format!(
+                    r#"stroke="rgb({},{},{})" stroke-opacity="{:.2}" stroke-width="{}""#,
+                    r, g, b, opacity, s.width_emu
+                ),
+            };
 
             match s.line_cap {
                 LineCap::Butt => out.push_str(r#" stroke-linecap="butt""#),
@@ -168,7 +228,7 @@ pub fn emit_linear_gradient_def(
     grad: &VectorGradient,
     path: &VectorPath,
 ) {
-    if let Some(((x1, y1), (x2, y2))) = linear_gradient_axis_for_path(grad.angle_deg, path) {
+    if let Some(((x1, y1), (x2, y2))) = gradient::linear_axis_for_path(grad, path) {
         emit_linear_gradient_range(defs, id, grad, x1, y1, x2, y2);
     }
 }
@@ -184,7 +244,10 @@ pub fn emit_linear_gradient_def_for_box(
     w: f32,
     h: f32,
 ) {
-    let ((x1, y1), (x2, y2)) = linear_gradient_axis(grad.angle_deg, x, y, w, h);
+    let ((x1, y1), (x2, y2)) = gradient::linear_axis(
+        grad,
+        gradient::GradientBox { x, y, w, h },
+    );
     emit_linear_gradient_range(defs, id, grad, x1, y1, x2, y2);
 }
 
@@ -218,7 +281,7 @@ pub fn emit_radial_gradient_def(
     grad: &VectorGradient,
     path: &VectorPath,
 ) {
-    let Some(((cx, cy), radius)) = radial_gradient_frame_for_path(path) else {
+    let Some(((cx, cy), radius)) = gradient::radial_frame_for_path(grad, path) else {
         return;
     };
     let cx = round_coord(cx);

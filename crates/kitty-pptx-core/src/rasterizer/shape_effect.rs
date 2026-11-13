@@ -56,6 +56,7 @@ pub fn projected_transform(
 #[allow(clippy::too_many_arguments)]
 pub fn render_path_with_effects(
     pixmap: &mut tiny_skia::Pixmap,
+    assets: &dyn crate::loader::AssetStore,
     path: &VectorPath,
     fill: Option<&VectorPaint>,
     stroke: Option<&VectorStroke>,
@@ -72,7 +73,7 @@ pub fn render_path_with_effects(
     let effective = projected_transform(path, transform, effects, slide_width_emu);
 
     if effects.is_empty() {
-        path::render_path(pixmap, path, fill, stroke, &effective, scale, offset_x, offset_y);
+        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
         return;
     }
 
@@ -99,7 +100,7 @@ pub fn render_path_with_effects(
     let x1 = (max_px.0 + padding.2 + painted_pad).ceil().min(canvas_w) as i32;
     let y1 = (max_px.1 + padding.3 + painted_pad).ceil().min(canvas_h) as i32;
     if x1 <= x0 || y1 <= y0 {
-        path::render_path(pixmap, path, fill, stroke, &effective, scale, offset_x, offset_y);
+        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
         return;
     }
 
@@ -107,16 +108,17 @@ pub fn render_path_with_effects(
     let layer_h = (y1 - y0) as usize;
     if layer_w * layer_h > MAX_LAYER_PIXELS {
         // PRD 08 §7.2: degrade gracefully rather than exhausting memory.
-        path::render_path(pixmap, path, fill, stroke, &effective, scale, offset_x, offset_y);
+        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
         return;
     }
     let Some(mut layer) = tiny_skia::Pixmap::new(layer_w as u32, layer_h as u32) else {
-        path::render_path(pixmap, path, fill, stroke, &effective, scale, offset_x, offset_y);
+        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
         return;
     };
 
     draw_shape_layer(
         &mut layer,
+        assets,
         path,
         fill,
         stroke,
@@ -200,6 +202,7 @@ fn painted_padding(stroke: Option<&VectorStroke>, effects: &ShapeEffects, scale:
 #[allow(clippy::too_many_arguments)]
 fn draw_shape_layer(
     layer: &mut tiny_skia::Pixmap,
+    assets: &dyn crate::loader::AssetStore,
     path: &VectorPath,
     fill: Option<&VectorPaint>,
     stroke: Option<&VectorStroke>,
@@ -210,13 +213,13 @@ fn draw_shape_layer(
     offset_y: f32,
 ) {
     if let Some(shape_3d) = effects.shape_3d.as_ref() {
-        draw_extrusion(layer, path, fill, shape_3d, transform, scale, offset_x, offset_y);
+        draw_extrusion(layer, assets, path, fill, shape_3d, transform, scale, offset_x, offset_y);
     }
 
-    path::render_path(layer, path, fill, stroke, transform, scale, offset_x, offset_y);
+    path::render_path(layer, assets, path, fill, stroke, transform, scale, offset_x, offset_y);
 
     if let Some(shape_3d) = effects.shape_3d.as_ref() {
-        draw_contour(layer, path, stroke, shape_3d, transform, scale, offset_x, offset_y);
+        draw_contour(layer, assets, path, stroke, shape_3d, transform, scale, offset_x, offset_y);
         let width = layer.width() as usize;
         let height = layer.height() as usize;
         apply_bevel_shading(layer.data_mut(), width, height, shape_3d, effects, scale);
@@ -226,6 +229,7 @@ fn draw_shape_layer(
 #[allow(clippy::too_many_arguments)]
 fn draw_extrusion(
     layer: &mut tiny_skia::Pixmap,
+    assets: &dyn crate::loader::AssetStore,
     path: &VectorPath,
     fill: Option<&VectorPaint>,
     shape_3d: &VectorShape3d,
@@ -256,13 +260,24 @@ fn draw_extrusion(
     // Farthest silhouette first, nearest last: a layered planar extrusion.
     for step in (1..=steps).rev() {
         let dy = depth_px * step as f32 / steps as f32;
-        path::render_path(layer, path, Some(&paint), None, transform, scale, offset_x, offset_y + dy);
+        path::render_path(
+            layer,
+            assets,
+            path,
+            Some(&paint),
+            None,
+            transform,
+            scale,
+            offset_x,
+            offset_y + dy,
+        );
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn draw_contour(
     layer: &mut tiny_skia::Pixmap,
+    assets: &dyn crate::loader::AssetStore,
     path: &VectorPath,
     stroke: Option<&VectorStroke>,
     shape_3d: &VectorShape3d,
@@ -284,8 +299,19 @@ fn draw_contour(
         dash_segments: None,
         line_cap: LineCap::Round,
         line_join: LineJoin::Round,
+        paint: None,
     };
-    path::render_path(layer, path, None, Some(&contour), transform, scale, offset_x, offset_y);
+    path::render_path(
+        layer,
+        assets,
+        path,
+        None,
+        Some(&contour),
+        transform,
+        scale,
+        offset_x,
+        offset_y,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]

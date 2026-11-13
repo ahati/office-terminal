@@ -56,6 +56,7 @@ pub fn compile_pie(
         dash_segments: None,
         line_cap: LineCap::Round,
         line_join: LineJoin::Round,
+        paint: None,
     };
 
     for (idx, val_opt) in first_series.values.iter().enumerate() {

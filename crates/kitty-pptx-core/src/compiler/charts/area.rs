@@ -112,6 +112,7 @@ pub fn compile_area(
             dash_segments: None,
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
+            paint: None,
         };
 
         commands.push(VectorCommand::draw_path(

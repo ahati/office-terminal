@@ -258,6 +258,7 @@ pub fn math_path_command(path: &MathPath, transform: &AffineTransform) -> Vector
                 dash_segments: None,
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
+                paint: None,
             }),
             *transform,
         ),

@@ -2,6 +2,7 @@ pub mod background;
 pub mod charts;
 pub mod hyperlinks;
 pub mod math;
+pub mod pattern;
 pub mod placeholders;
 pub mod pictures;
 pub mod shape_effects;
@@ -18,9 +19,7 @@ pub use hyperlinks::{
 };
 
 use crossbeam_channel::Sender;
-use crate::contracts::{
-    FidelityClass, ShapeEffects, VectorCommand, VectorSlide, WarningEvent,
-};
+use crate::contracts::{FidelityClass, ShapeEffects, VectorSlide, WarningEvent};
 use crate::error::RenderError;
 
 pub trait SlideCompiler: Send + Sync {
@@ -126,8 +125,23 @@ impl SlideCompiler for DefaultSlideCompiler {
                         warning_sink,
                     );
 
-                    let fill = shape.fill.as_ref().and_then(|f| style::compile_fill(f, 1.0));
-                    let stroke = shape.stroke.as_ref().and_then(style::compile_stroke);
+                    let fill = shape.fill.as_ref().and_then(|f| {
+                        style::compile_shape_fill(
+                            f,
+                            1.0,
+                            shape.rotation,
+                            shape.flip_h,
+                            shape.flip_v,
+                        )
+                    });
+                    let stroke = shape.stroke.as_ref().and_then(|s| {
+                        style::compile_stroke_for_shape(
+                            s,
+                            shape.rotation,
+                            shape.flip_h,
+                            shape.flip_v,
+                        )
+                    });
                     let effects = shape_effects::extract_shape_effects(shape);
 
                     // ref `preset-geometry/index.ts:44-99`: one paint pass per
@@ -140,18 +154,32 @@ impl SlideCompiler for DefaultSlideCompiler {
                         .position(|subpath| subpath.fill.is_filled())
                         .unwrap_or(0);
 
+                    // `a:headEnd`/`a:tailEnd` decorate the leader only, i.e. the
+                    // last stroked subpath (ref renderer.ts:4413-4535).
+                    let decorates = style::stroke::geometry_decorates_line_ends(&shape.geometry);
+                    let last_stroked = subpaths.iter().rposition(|subpath| subpath.stroke);
+
                     for (index, subpath) in subpaths.iter().enumerate() {
-                        commands.push(VectorCommand::DrawPath {
-                            path: subpath.path.clone(),
-                            fill: shapes::apply_path_fill_mode(fill.as_ref(), subpath.fill),
-                            stroke: if subpath.stroke { stroke.clone() } else { None },
+                        let scope = style::stroke::StrokeScope {
+                            decorate: decorates && Some(index) == last_stroked,
+                        };
+                        let model_stroke = if subpath.stroke {
+                            stroke.as_ref().zip(shape.stroke.as_ref())
+                        } else {
+                            None
+                        };
+                        commands.extend(style::stroke::compile_stroked_paths(
+                            &subpath.path,
+                            shapes::apply_path_fill_mode(fill.as_ref(), subpath.fill),
+                            model_stroke,
+                            &scope,
                             transform,
-                            effects: Box::new(if index == shadow_owner {
+                            if index == shadow_owner {
                                 effects.clone()
                             } else {
                                 ShapeEffects::default()
-                            }),
-                        });
+                            },
+                        ));
                     }
 
                     // Compile text body if present (supporting SmartArt explicit text_rect)

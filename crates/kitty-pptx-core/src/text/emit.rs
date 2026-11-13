@@ -3,20 +3,26 @@ use std::collections::HashMap;
 
 use crossbeam_channel::Sender;
 
-use crate::compiler::math::{self, MathParams, MathPiece};
 use crate::compiler::parse_hex_color;
-use crate::compiler::text::{map_bullet_char, resolve_font_family};
 use crate::contracts::{AffineTransform, PositionedGlyphRun, VectorCommand, WarningEvent};
-use crate::text::linebreak::{break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem};
-use crate::text::measure::{StyleId, TabAlign, TabStop, TextMeasure};
+use crate::text::bidi;
+use crate::text::bullets::MarkerBitmap;
+use crate::text::linebreak::{break_paragraph, BreakOptions, LineItem};
+use crate::text::measure::{StyleId, TextMeasure};
 use crate::text::metrics;
 use crate::text::shape;
 use crate::text::vertical::{self, VertMode};
 
 use super::paint;
+use super::paragraphs::{self, ParagraphLayout};
 
 /// One authored text segment's resolved styling.
-#[derive(Clone, Debug)]
+///
+/// `Measurer::push` interns equal styles, so two adjacent runs with identical
+/// metadata share one `StyleId` and the breaker coalesces them — the port of the
+/// reference's structural `sameStyle` comparison (`renderer.ts:2000-2019`, which
+/// includes `highlight` in the identity so two markers never bleed).
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct StyleDef {
     pub(super) family: String,
     /// Authored size in EMU: owns the line box (`natural_line_box`).
@@ -30,6 +36,24 @@ pub(super) struct StyleDef {
     /// `rPr@baseline` in thousandths of a point: positive = superscript
     /// (raised), negative = subscript (lowered). `0`/`None` = on the baseline.
     pub(super) baseline: Option<i32>,
+    /// `rPr@spc` (ECMA-376 §21.1.2.3.9, `ST_TextPoint` §20.1.10.74) as EMU per
+    /// inter-code-point boundary. `0` = normal tracking
+    /// (`renderer.ts:1885`, `1899`).
+    pub(super) letter_spacing_emu: f32,
+    /// `rPr/a:highlight` (ECMA-376 §21.1.2.3.4) marker colour, resolved.
+    pub(super) highlight: Option<[u8; 4]>,
+}
+
+impl StyleDef {
+    /// `letterSpacingPx * (codePointCount - 1)` (`measureTextAdvance`,
+    /// `renderer.ts:1690-1691`): tracking only separates code points.
+    pub(super) fn spacing_advance(&self, text: &str) -> f32 {
+        if self.letter_spacing_emu == 0.0 {
+            return 0.0;
+        }
+        let boundaries = text.chars().count().saturating_sub(1) as f32;
+        self.letter_spacing_emu * boundaries
+    }
 }
 
 /// Measurement adapter: `advance()` shapes with the same face the painter uses.
@@ -46,7 +70,12 @@ impl Measurer {
         }
     }
 
-    fn push(&mut self, style: StyleDef) -> StyleId {
+    /// Intern `style`: equal definitions reuse one `StyleId`, which is what
+    /// lets the breaker coalesce equal-style runs (`renderer.ts:2000-2019`).
+    pub(super) fn push(&mut self, style: StyleDef) -> StyleId {
+        if let Some(index) = self.styles.iter().position(|known| *known == style) {
+            return StyleId(index);
+        }
         self.styles.push(style);
         StyleId(self.styles.len() - 1)
     }
@@ -64,8 +93,10 @@ impl TextMeasure for Measurer {
         }
         let def = self.style(style);
         // The breaker measures with the face the painter draws (`seg.font` is
-        // built from `drawSizePx`, `renderer.ts:1859-1877`).
-        let width = shape::measure(text, &def.family, def.draw_size_emu(), def.bold, def.italic);
+        // built from `drawSizePx`, `renderer.ts:1859-1877`), including the
+        // run's `rPr@spc` tracking (`measureTextAdvance`, `renderer.ts:1672`).
+        let width = shape::measure(text, &def.family, def.draw_size_emu(), def.bold, def.italic)
+            + def.spacing_advance(text);
         self.cache.borrow_mut().insert(key, width);
         width
     }
@@ -73,28 +104,6 @@ impl TextMeasure for Measurer {
     fn space(&self, style: StyleId) -> f32 {
         self.advance(" ", style)
     }
-}
-
-pub(super) struct ParagraphLayout {
-    pub(super) items: Vec<BreakItem>,
-    /// Math pieces in `BreakItem::Object` order.
-    pub(super) math: Vec<MathPiece>,
-    pub(super) alignment: String,
-    mar_l: f32,
-    mar_r: f32,
-    indent: f32,
-    pub(super) rtl: bool,
-    /// `a:pPr/a:tabLst` stops, already in EMU from the text-inset edge.
-    tab_stops: Vec<TabStop>,
-    /// `a:pPr@defTabSz` else PowerPoint's 1-inch grid (renderer.ts:5704).
-    tab_size: f32,
-    /// `a:pPr@eaLnBrk` (ECMA-376 §21.1.2.2.7, default true).
-    ea_ln_brk: bool,
-    space_line: metrics::SpaceLine,
-    space_before: metrics::SpaceLine,
-    space_after: metrics::SpaceLine,
-    pub(super) default_style: StyleId,
-    pub(super) object_cursor: RefCell<usize>,
 }
 
 pub(super) struct LineLayout {
@@ -105,31 +114,21 @@ pub(super) struct LineLayout {
     descent: f32,
     top_gap: f32,
     after_gap: f32,
-    indent: f32,
-    first_line: bool,
+    /// First-line indent the layout applied (`textXOffset`,
+    /// `renderer.ts:5479`): 0 for a paragraph that carries a marker.
+    first_line_indent: f32,
+    pub(super) first_line: bool,
     /// Last line of its paragraph (`isLastLine` in the draw loop).
     pub(super) is_last_line: bool,
     /// Closed by an authored `<a:br/>` (`line.endsWithBreak`).
     pub(super) ends_with_break: bool,
 }
 
-fn space_of(value: &Option<ooxml_common::text::SpaceLine>) -> metrics::SpaceLine {
-    match value {
-        Some(ooxml_common::text::SpaceLine::Pct { val }) => Some((true, *val as f32)),
-        Some(ooxml_common::text::SpaceLine::Pts { val }) => Some((false, *val as f32)),
-        None => None,
-    }
-}
-
-fn pts_of_hundredths(value: Option<i64>) -> metrics::SpaceLine {
-    value.map(|v| (false, v as f32 / 100.0))
-}
-
-fn pct_of_thousandths(value: Option<f64>) -> metrics::SpaceLine {
-    value.map(|v| (true, v as f32))
-}
-
 /// `renderTextBody` for bodies without an `a:prstTxWarp`.
+///
+/// No bitmap probe: a picture marker whose bitmap has not been decoded paints
+/// nothing, exactly the reference's `peekCachedBitmap` miss
+/// (`renderer.ts:5812`). See [`compile_text_body_with_markers`].
 #[allow(clippy::too_many_arguments)]
 pub fn compile_text_body(
     text_body: &pptx_model::TextBody,
@@ -137,6 +136,33 @@ pub fn compile_text_body(
     box_h: i64,
     base_transform: &AffineTransform,
     default_shape_text_color: Option<&str>,
+    warning_sink: &Sender<WarningEvent>,
+) -> Vec<VectorCommand> {
+    compile_text_body_with_markers(
+        text_body,
+        box_w,
+        box_h,
+        base_transform,
+        default_shape_text_color,
+        None,
+        warning_sink,
+    )
+}
+
+/// [`compile_text_body`] with a bitmap probe for `<a:buBlip>` picture markers.
+///
+/// `bitmaps` is the decoded-image seam the reference reads through
+/// `peekCachedBitmap` when it paints a picture marker (`renderer.ts:5862-5877`).
+/// Without it (or for a path the probe does not know) no marker image is
+/// placed — the marker appears once its bitmap is available, never blocking.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_text_body_with_markers(
+    text_body: &pptx_model::TextBody,
+    box_w: i64,
+    box_h: i64,
+    base_transform: &AffineTransform,
+    default_shape_text_color: Option<&str>,
+    bitmaps: Option<&dyn MarkerBitmap>,
     warning_sink: &Sender<WarningEvent>,
 ) -> Vec<VectorCommand> {
     let l_ins = text_body.l_ins as f32;
@@ -159,6 +185,8 @@ pub fn compile_text_body(
         underline: false,
         strikethrough: false,
         baseline: None,
+        letter_spacing_emu: 0.0,
+        highlight: None,
     });
 
     // `a:bodyPr@vert` dispatch (renderer.ts:5021-5035). Stacked WordArt is a
@@ -166,7 +194,7 @@ pub fn compile_text_body(
     // layout box and post-multiply a frame rotation.
     let mode = VertMode::of(&text_body.vert);
     if let VertMode::Stacked { rtl } = mode {
-        return paint::compile_stacked(
+        return super::stacked::compile_stacked(
             text_body,
             box_w,
             box_h,
@@ -175,6 +203,7 @@ pub fn compile_text_body(
             default_style,
             default_color,
             rtl,
+            bitmaps,
             warning_sink,
         );
     }
@@ -185,7 +214,7 @@ pub fn compile_text_body(
     let ea = vertical::ea_vert_frame(mode, box_w, box_h, base_transform);
     let avail_w = (layout_w - l_ins - r_ins).max(0.0);
 
-    let paragraphs = build_paragraphs(
+    let paragraphs = paragraphs::build_paragraphs(
         text_body,
         default_style,
         font_scale,
@@ -196,12 +225,18 @@ pub fn compile_text_body(
 
     let do_wrap = text_body.wrap != "none";
     let mut lines: Vec<LineLayout> = Vec::new();
-
     for (p_index, para) in paragraphs.iter().enumerate() {
         let budget = (avail_w - para.mar_l - para.mar_r).max(0.0);
+        // `firstLineIndentPxFor(hasBullet, indentPx)` (`renderer.ts:1542-1544`):
+        // a marker already owns the gutter, so it contributes no text indent.
+        let first_line_indent = if para.marker.is_some() {
+            0.0
+        } else {
+            para.indent
+        };
         let opts = BreakOptions {
             max_width: if do_wrap { budget } else { f32::INFINITY },
-            first_line_indent: para.indent,
+            first_line_indent,
             tab_stops: &para.tab_stops,
             default_tab_size: para.tab_size,
             east_asian_line_break: para.ea_ln_brk,
@@ -215,7 +250,7 @@ pub fn compile_text_body(
         for (line_index, line) in broken.iter().enumerate() {
             let first_line = line_index == 0;
             let is_last = line_index + 1 == line_count;
-            let pieces = line_math_pieces(line, para, &mut math_cursor);
+            let pieces = paragraphs::line_math_pieces(line, para, &mut math_cursor);
             let (nat_ascent, nat_descent) = paint::natural_box(&measurer, line, para, &pieces);
             let (ascent, descent) = metrics::spaced_line_box(
                 nat_ascent,
@@ -241,7 +276,7 @@ pub fn compile_text_body(
                 descent,
                 top_gap,
                 after_gap,
-                indent: para.indent,
+                first_line_indent,
                 first_line,
                 is_last_line: is_last,
                 ends_with_break: line.ends_with_break,
@@ -265,14 +300,70 @@ pub fn compile_text_body(
     let mut final_runs: Vec<PositionedGlyphRun> = Vec::new();
     let mut commands: Vec<VectorCommand> = Vec::new();
 
-    for line in &lines {
+    for line in lines.iter_mut() {
         cur_y += line.top_gap;
         let para = &paragraphs[line.para_index];
-        let indent = if line.first_line { line.indent } else { 0.0 };
+        let indent = if line.first_line {
+            line.first_line_indent
+        } else {
+            0.0
+        };
+        // `renderer.ts:5683-5722`: a line carrying inline tabs resolves them at
+        // draw time in the reading frame, then measures the line with those
+        // widths (`renderer.ts:5730-5740`) — the anchor below and the RTL pen
+        // both use the resulting width.
+        let has_tab = line
+            .items
+            .iter()
+            .any(|item| matches!(item, LineItem::Tab { .. }));
+        if has_tab {
+            paint::resolve_line_tabs(
+                &mut line.items,
+                para,
+                avail_w,
+                indent,
+                para.rtl,
+                &measurer,
+            );
+            line.width = line.items.iter().map(paint::item_advance).sum();
+        }
+        // `renderer.ts:5689-5692`: engage UAX#9 only when the base direction is
+        // RTL or the line carries a strong-RTL character.
+        let segments = paint::bidi_segments(&line.items);
+        let visual = (para.rtl || bidi::segments_have_rtl(&segments))
+            .then(|| bidi::compute_line_visual_order(&segments, para.rtl));
         let region_left = l_ins + para.mar_l;
         let region_w = (avail_w - para.mar_l - para.mar_r - indent).max(0.0);
-        let line_x =
-            metrics::align_x(&para.alignment, region_left, region_w, line.width, para.rtl) + indent;
+        // `leadingEdgeX = textX + textMaxW` (`renderer.ts:5811`).
+        let leading_edge = l_ins + avail_w - para.mar_r;
+        // Reading-frame marker placement under an RTL base (issue #930): the
+        // marker's RIGHT edge sits on the leading edge and the text is laid
+        // contiguously to its left, so the pen reserves the marker advance
+        // (`rtlMarkerReservePx`, `renderer.ts:5815-5830`, `5860-5869`).
+        let reserve = if line.first_line && para.rtl {
+            paragraphs::marker_advance(&measurer, para, bitmaps)
+        } else {
+            0.0
+        };
+        let marker_x = if reserve > 0.0 {
+            leading_edge - reserve
+        } else {
+            // `bulletX = bx + lPad + marLPx + indentPx` (`renderer.ts:5245`).
+            region_left + para.indent
+        };
+        // `penX` (`renderer.ts:5880-5904`): a tabbed line is placed in the
+        // READING frame — the RTL pen right-anchors at the leading edge, and a
+        // tab stop is absolute from the leading text-inset edge, so paragraph
+        // alignment must not add a second offset (#913/#916).
+        let line_x = if reserve > 0.0 || has_tab {
+            if para.rtl {
+                leading_edge - reserve - line.width
+            } else {
+                region_left + indent
+            }
+        } else {
+            metrics::align_x(&para.alignment, region_left, region_w, line.width, para.rtl) + indent
+        };
         let baseline_y = cur_y + line.ascent;
         let justified = paint::justify_plan(para, line, region_w);
 
@@ -281,10 +372,13 @@ pub fn compile_text_body(
             para,
             line,
             line_x,
+            marker_x,
             baseline_y,
             &transform,
             ea.as_ref(),
             justified.as_ref(),
+            visual.as_ref(),
+            bitmaps,
             &mut final_runs,
             &mut commands,
         );
@@ -300,262 +394,14 @@ pub fn compile_text_body(
     commands
 }
 
-pub(super) fn build_paragraphs(
-    text_body: &pptx_model::TextBody,
-    default_style: StyleId,
-    font_scale: f32,
-    default_color: [u8; 4],
-    measurer: &mut Measurer,
-    warning_sink: &Sender<WarningEvent>,
-) -> Vec<ParagraphLayout> {
-    let mut out: Vec<ParagraphLayout> = Vec::new();
-    for (p_index, p) in text_body.paragraphs.iter().enumerate() {
-        let def_size = p
-            .def_font_size
-            .or(text_body.default_font_size)
-            .unwrap_or(18.0) as f32;
-        let def_color = p
-            .def_color
-            .as_deref()
-            .map(parse_hex_color)
-            .unwrap_or(default_color);
-        let def_family = p
-            .def_font_family
-            .clone()
-            .unwrap_or_else(|| "Calibri".into());
-        // `a:pPr@defTabSz` else PowerPoint's universal 1-inch grid
-        // (renderer.ts:5702-5706); 0 disables the default grid.
-        let tab_size = p.def_tab_sz.map(|v| v as f32).unwrap_or(914_400.0);
-        // `a:tabLst` stops are absolute from the text-inset edge
-        // (renderer.ts:5697-5700), so they stay in EMU.
-        let tab_stops: Vec<TabStop> = p
-            .tab_stops
+/// Whether `para` paints a marker on the given line: the first line only, and
+/// only when that line carries content (`lineHasContent`,
+/// `renderer.ts:5485-5488`).
+pub(super) fn marker_visible(para: &ParagraphLayout, line: &LineLayout) -> bool {
+    line.first_line
+        && para.marker.is_some()
+        && line
+            .items
             .iter()
-            .map(|stop| TabStop {
-                pos: stop.pos as f32,
-                align: tab_align(&stop.algn),
-            })
-            .collect();
-        let mut items: Vec<BreakItem> = Vec::new();
-        let mut math_pieces: Vec<MathPiece> = Vec::new();
-
-        if let Some(label) = bullet_label(p, p_index) {
-            let b_size = def_size * font_scale;
-            let id = measurer.push(StyleDef {
-                family: "Carlito".to_string(),
-                size_emu: b_size * 12700.0,
-                size_pt: b_size,
-                bold: false,
-                italic: false,
-                color: def_color,
-                underline: false,
-                strikethrough: false,
-                baseline: None,
-            });
-            items.push(BreakItem::Text {
-                text: label,
-                style: id,
-            });
-        }
-
-        for run in &p.runs {
-            match run {
-                pptx_model::TextRun::Text(data) => {
-                    let family = resolve_font_family(
-                        data.font_family
-                            .as_deref()
-                            .or(p.def_font_family.as_deref())
-                            .unwrap_or(&def_family),
-                        warning_sink,
-                    );
-                    let sz_pt = data.font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
-                    let color = data
-                        .color
-                        .as_deref()
-                        .map(parse_hex_color)
-                        .unwrap_or(def_color);
-                    let bold = data
-                        .bold
-                        .or(p.def_bold)
-                        .or(text_body.default_bold)
-                        .unwrap_or(false);
-                    let italic = data
-                        .italic
-                        .or(p.def_italic)
-                        .or(text_body.default_italic)
-                        .unwrap_or(false);
-                    let id = measurer.push(StyleDef {
-                        family,
-                        size_emu: sz_pt * 12700.0,
-                        size_pt: sz_pt,
-                        bold,
-                        italic,
-                        color,
-                        underline: data.underline,
-                        strikethrough: data.strikethrough,
-                        // Run-only: neither `TextBody` nor `Paragraph` carries a
-                        // baseline default, and the parser already cascaded
-                        // `lstStyle`/master `defRPr@baseline` into the run and
-                        // dropped an explicit `0` (`pptx-parser/src/text.rs:2557`).
-                        baseline: data.baseline,
-                    });
-                    push_text_items(&mut items, &data.text, id);
-                }
-                pptx_model::TextRun::Break { .. } => items.push(BreakItem::LineBreak),
-                pptx_model::TextRun::Math {
-                    nodes,
-                    display,
-                    font_size,
-                    color,
-                    fallback_text,
-                } => {
-                    let sz_pt = font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
-                    let params = MathParams {
-                        display: *display,
-                        font_size_pt: sz_pt,
-                        color: parse_hex_color(color.as_deref().unwrap_or("000000")),
-                        fallback: fallback_text.as_deref(),
-                    };
-                    let piece = math::layout_math(nodes, params, warning_sink);
-                    if piece.is_empty() {
-                        continue;
-                    }
-                    let width = piece.width.max(1.0);
-                    let id = measurer.push(StyleDef {
-                        family: "Cambria Math".to_string(),
-                        size_emu: sz_pt * 12700.0,
-                        size_pt: sz_pt,
-                        bold: false,
-                        italic: false,
-                        color: default_color,
-                        underline: false,
-                        strikethrough: false,
-                        baseline: None,
-                    });
-                    if *display {
-                        // Display equations are their own centred block
-                        // (renderer.ts:5087 `m:oMathPara`).
-                        if !items.is_empty() {
-                            out.push(ParagraphLayout {
-                                items: std::mem::take(&mut items),
-                                math: std::mem::take(&mut math_pieces),
-                                alignment: p.alignment.clone(),
-                                mar_l: p.mar_l as f32,
-                                mar_r: p.mar_r as f32,
-                                indent: p.indent as f32,
-                                rtl: p.rtl,
-                                tab_stops: tab_stops.clone(),
-                                tab_size,
-                                ea_ln_brk: p.ea_ln_brk,
-                                space_line: space_of(&p.space_line),
-                                space_before: pts_of_hundredths(p.space_before)
-                                    .or(pct_of_thousandths(p.space_before_pct)),
-                                space_after: pts_of_hundredths(p.space_after)
-                                    .or(pct_of_thousandths(p.space_after_pct)),
-                                default_style,
-                                object_cursor: RefCell::new(0),
-                            });
-                        }
-                        items.push(BreakItem::Object { width, style: id });
-                        math_pieces.push(piece);
-                        out.push(ParagraphLayout {
-                            items: std::mem::take(&mut items),
-                            math: std::mem::take(&mut math_pieces),
-                            alignment: "ctr".to_string(),
-                            mar_l: 0.0,
-                            mar_r: 0.0,
-                            indent: 0.0,
-                            rtl: false,
-                            tab_stops: Vec::new(),
-                            tab_size,
-                            ea_ln_brk: p.ea_ln_brk,
-                            space_line: None,
-                            space_before: None,
-                            space_after: None,
-                            default_style,
-                            object_cursor: RefCell::new(0),
-                        });
-                        continue;
-                    }
-                    items.push(BreakItem::Object { width, style: id });
-                    math_pieces.push(piece);
-                }
-            }
-        }
-
-        out.push(ParagraphLayout {
-            items,
-            math: math_pieces,
-            alignment: p.alignment.clone(),
-            mar_l: p.mar_l as f32,
-            mar_r: p.mar_r as f32,
-            indent: p.indent as f32,
-            rtl: p.rtl,
-            tab_stops,
-            tab_size,
-            ea_ln_brk: p.ea_ln_brk,
-            space_line: space_of(&p.space_line),
-            space_before: pts_of_hundredths(p.space_before)
-                .or(pct_of_thousandths(p.space_before_pct)),
-            space_after: pts_of_hundredths(p.space_after).or(pct_of_thousandths(p.space_after_pct)),
-            default_style,
-            object_cursor: RefCell::new(0),
-        });
-    }
-    out
-}
-
-/// The math pieces backing this line's `BreakItem::Object`s, in item order.
-fn line_math_pieces<'a>(
-    line: &BrokenLine,
-    para: &'a ParagraphLayout,
-    cursor: &mut usize,
-) -> Vec<&'a MathPiece> {
-    let mut pieces: Vec<&MathPiece> = Vec::new();
-    for item in &line.items {
-        if matches!(item, LineItem::Object { .. }) {
-            if let Some(piece) = para.math.get(*cursor) {
-                pieces.push(piece);
-            }
-            *cursor += 1;
-        }
-    }
-    pieces
-}
-
-/// `ST_TabAlign` (`l`/`ctr`/`r`/`dec`). An unknown value falls back to `l`,
-/// the reference's `algn ?? 'l'` default (`tab.ts:43-47`).
-fn tab_align(algn: &str) -> TabAlign {
-    match algn {
-        "ctr" => TabAlign::Center,
-        "r" => TabAlign::Right,
-        "dec" => TabAlign::Decimal,
-        _ => TabAlign::Left,
-    }
-}
-
-fn push_text_items(items: &mut Vec<BreakItem>, text: &str, style: StyleId) {
-    for (i, part) in text.split('\t').enumerate() {
-        if i > 0 {
-            items.push(BreakItem::Tab);
-        }
-        if !part.is_empty() {
-            items.push(BreakItem::Text {
-                text: part.to_string(),
-                style,
-            });
-        }
-    }
-}
-
-fn bullet_label(p: &pptx_model::Paragraph, index: usize) -> Option<String> {
-    match &p.bullet {
-        pptx_model::Bullet::Char {
-            ch, font_family, ..
-        } => Some(format!("{} ", map_bullet_char(ch, font_family.as_deref()))),
-        pptx_model::Bullet::AutoNum { start_at, .. } => {
-            Some(format!("{}. ", start_at.unwrap_or(1) + index as u32))
-        }
-        _ => None,
-    }
+            .any(|item| !matches!(item, LineItem::Tab { .. }))
 }

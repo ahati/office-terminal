@@ -7,7 +7,7 @@
 use crate::compiler::parse_hex_color;
 use crate::contracts::{
     ShapeEffects, VectorGlow, VectorInnerShadow, VectorOuterShadow, VectorReflection,
-    VectorScene3d, VectorShape3d, VectorSoftEdge,
+    VectorRot3d, VectorScene3d, VectorShape3d, VectorSoftEdge,
 };
 
 /// Extract every supported effect component from a shape's `spPr`.
@@ -85,6 +85,12 @@ fn scene_3d(scene: &pptx_model::Scene3d) -> VectorScene3d {
     VectorScene3d {
         camera_type: scene.camera.prst.clone(),
         fov_deg: scene.camera.fov.unwrap_or(0.0) as f32,
+        zoom: scene.camera.zoom.unwrap_or(1.0) as f32,
+        rot: scene.camera.rot.as_ref().map(|rot| VectorRot3d {
+            lat_deg: rot.lat as f32,
+            lon_deg: rot.lon as f32,
+            rev_deg: rot.rev as f32,
+        }),
         light_rig_type,
         light_direction_deg,
     }
@@ -92,6 +98,7 @@ fn scene_3d(scene: &pptx_model::Scene3d) -> VectorScene3d {
 
 fn shape_3d(sp3d: &pptx_model::Sp3d) -> VectorShape3d {
     let bevel = sp3d.bevel_t.as_ref();
+    let bottom = sp3d.bevel_b.as_ref();
     VectorShape3d {
         extrusion_depth_emu: sp3d.extrusion_h,
         extrusion_color: sp3d.extrusion_clr.as_deref().map(|c| color_with_alpha(c, 1.0)),
@@ -100,6 +107,40 @@ fn shape_3d(sp3d: &pptx_model::Sp3d) -> VectorShape3d {
         bevel_top_width_emu: bevel.map(|b| b.w).unwrap_or(0),
         bevel_top_height_emu: bevel.map(|b| b.h).unwrap_or(0),
         bevel_top_type: bevel.map(|b| b.prst.clone()).unwrap_or_default(),
+        bevel_bottom_width_emu: bottom.map(|b| b.w).unwrap_or(0),
+        bevel_bottom_height_emu: bottom.map(|b| b.h).unwrap_or(0),
+        bevel_bottom_type: bottom.map(|b| b.prst.clone()).unwrap_or_default(),
+        prst_material: sp3d.prst_material.clone(),
+    }
+}
+
+/// How a shape's 2-D transform composes with a `scene3d` camera.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scene3dShapeTransform {
+    /// The element's ordinary 2-D rotation, applied *after* the camera.
+    pub outer_rotation: f64,
+    /// Horizontal flip, applied *inside* the camera (local face).
+    pub local_flip_h: bool,
+    /// Vertical flip, applied *inside* the camera (local face).
+    pub local_flip_v: bool,
+}
+
+/// Split a shape transform into the part that warps the authored face and the
+/// part that stays outside the projection.
+///
+/// DrawingML camera projection consumes the shape-local face *after* `xfrm`
+/// flips, while the ordinary 2-D rotation remains outside the projected face:
+/// a post-projection flip would mirror the camera footprint itself
+/// (ref `renderer.ts:3570-3583` `splitScene3dShapeTransform`).
+pub fn split_scene3d_shape_transform(
+    rotation: f64,
+    flip_h: bool,
+    flip_v: bool,
+) -> Scene3dShapeTransform {
+    Scene3dShapeTransform {
+        outer_rotation: rotation,
+        local_flip_h: flip_h,
+        local_flip_v: flip_v,
     }
 }
 

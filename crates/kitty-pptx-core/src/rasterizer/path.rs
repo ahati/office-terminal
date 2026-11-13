@@ -1,4 +1,4 @@
-use crate::compiler::style::{linear_gradient_axis_for_path, radial_gradient_frame_for_path};
+use crate::compiler::style::gradient;
 use crate::contracts::{
     AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint,
     VectorPath, VectorStroke,
@@ -7,6 +7,7 @@ use crate::contracts::{
 #[allow(clippy::too_many_arguments)]
 pub fn render_path(
     pixmap: &mut tiny_skia::Pixmap,
+    assets: &dyn crate::loader::AssetStore,
     path: &VectorPath,
     fill: Option<&VectorPaint>,
     stroke: Option<&VectorStroke>,
@@ -101,29 +102,17 @@ pub fn render_path(
                 } else if !grad.stops.is_empty() {
                     // ref paint.ts:290-300: the axis is framed on the shape box,
                     // centred, with half-length (|cos|·w + |sin|·h) / 2.
-                    if let Some(((x0, y0), (x1, y1))) =
-                        linear_gradient_axis_for_path(grad.angle_deg, path)
-                    {
-                        let p0 =
-                            device_point(transform, x0, y0, scale, offset_x, offset_y);
-                        let p1 =
-                            device_point(transform, x1, y1, scale, offset_x, offset_y);
-                        if let Some(shader) = tiny_skia::LinearGradient::new(
-                            p0,
-                            p1,
-                            gradient_stops(grad),
-                            tiny_skia::SpreadMode::Pad,
+                    if let Some(shader) = linear_shader(
+                        grad, path, transform, scale, offset_x, offset_y,
+                    ) {
+                        paint.shader = shader;
+                        pixmap.fill_path(
+                            &ts_path,
+                            &paint,
+                            ts_fill_rule,
                             tiny_skia::Transform::identity(),
-                        ) {
-                            paint.shader = shader;
-                            pixmap.fill_path(
-                                &ts_path,
-                                &paint,
-                                ts_fill_rule,
-                                tiny_skia::Transform::identity(),
-                                None,
-                            );
-                        }
+                            None,
+                        );
                     }
                 }
             }
@@ -135,45 +124,56 @@ pub fn render_path(
                     // shape box, so centre = box centre and the circle radius
                     // is the half-diagonal. `fillToRect`/`path` are not in the
                     // IR; the `rect` max-axis branch is therefore unavailable.
-                    if let Some(((cx, cy), radius)) = radial_gradient_frame_for_path(path) {
-                        let center =
-                            device_point(transform, cx, cy, scale, offset_x, offset_y);
-                        // tiny-skia only has circular device-space shaders, so a
-                        // non-uniform transform is approximated by its largest
-                        // column norm (shape transforms are rotations/flips).
-                        let radius_px =
-                            (radius * scale * transform_scale(transform)).max(1e-6);
-                        if let Some(shader) = tiny_skia::RadialGradient::new(
-                            center,
-                            center,
-                            radius_px,
-                            gradient_stops(grad),
-                            tiny_skia::SpreadMode::Pad,
+                    if let Some(shader) = radial_shader(
+                        grad, path, transform, scale, offset_x, offset_y,
+                    ) {
+                        paint.shader = shader;
+                        pixmap.fill_path(
+                            &ts_path,
+                            &paint,
+                            ts_fill_rule,
                             tiny_skia::Transform::identity(),
-                        ) {
-                            paint.shader = shader;
-                            pixmap.fill_path(
-                                &ts_path,
-                                &paint,
-                                ts_fill_rule,
-                                tiny_skia::Transform::identity(),
-                                None,
-                            );
-                        }
+                            None,
+                        );
                     }
                 }
+            }
+            VectorPaint::Image(fill) => {
+                // §20.1.8.14 shape blip: paint the prepared brush inside the
+                // shape geometry (ref renderer.ts:2620-2700).
+                if let Err(error) = super::image_fill::fill_path_with_image(
+                    pixmap,
+                    assets,
+                    fill,
+                    path,
+                    &ts_path,
+                    ts_fill_rule,
+                    transform,
+                    scale,
+                    offset_x,
+                    offset_y,
+                ) {
+                    let _ = error; // fail-soft: a broken brush paints nothing
+                }
+            }
+            VectorPaint::Pattern(pattern) => {
+                // §20.1.8.40 preset pattern: a bitmap cell on the 1/8 pt grid
+                // (ref core/src/shape/paint.ts:459-479).
+                super::image_fill::fill_path_with_pattern(
+                    pixmap,
+                    pattern,
+                    &ts_path,
+                    ts_fill_rule,
+                    scale,
+                    offset_x,
+                    offset_y,
+                );
             }
         }
     }
 
     // 2. Stroke
     if let Some(s) = stroke {
-        let mut paint = tiny_skia::Paint {
-            anti_alias: true,
-            ..Default::default()
-        };
-        let [r, g, b, a] = s.color;
-        paint.set_color_rgba8(r, g, b, a);
 
         // ref packages/core/src/shape/stroke-geometry.ts:15 — hairline floor
         // is 0.5 px, not a full pixel.
@@ -206,12 +206,16 @@ pub fn render_path(
             dash,
         };
 
-        pixmap.stroke_path(
+        stroke_with_paint(
+            pixmap,
+            s,
             &ts_path,
-            &paint,
             &ts_stroke,
-            tiny_skia::Transform::identity(),
-            None,
+            path,
+            transform,
+            scale,
+            offset_x,
+            offset_y,
         );
     }
 }
@@ -221,8 +225,7 @@ fn fill_solid(
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     [r, g, b, a]: [u8; 4],
-) {
-    let mut paint = tiny_skia::Paint {
+) {    let mut paint = tiny_skia::Paint {
         anti_alias: true,
         ..Default::default()
     };
@@ -261,6 +264,110 @@ fn device_point(
     tiny_skia::Point::from_xy(offset_x + tx * scale, offset_y + ty * scale)
 }
 
+/// Device-space linear gradient shader for the authored paint frame.
+/// ref packages/core/src/shape/paint.ts:290-315
+fn linear_shader(
+    grad: &VectorGradient,
+    path: &VectorPath,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) -> Option<tiny_skia::Shader<'static>> {
+    let ((x0, y0), (x1, y1)) = gradient::linear_axis_for_path(grad, path)?;
+    let p0 = device_point(transform, x0, y0, scale, offset_x, offset_y);
+    let p1 = device_point(transform, x1, y1, scale, offset_x, offset_y);
+    tiny_skia::LinearGradient::new(
+        p0,
+        p1,
+        gradient_stops(grad),
+        tiny_skia::SpreadMode::Pad,
+        tiny_skia::Transform::identity(),
+    )
+}
+
+/// Device-space radial gradient shader for the authored focus frame.
+/// ref packages/core/src/shape/paint.ts:114-140
+fn radial_shader(
+    grad: &VectorGradient,
+    path: &VectorPath,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) -> Option<tiny_skia::Shader<'static>> {
+    let ((cx, cy), radius) = gradient::radial_frame_for_path(grad, path)?;
+    let center = device_point(transform, cx, cy, scale, offset_x, offset_y);
+    // tiny-skia only has circular device-space shaders, so a non-uniform
+    // transform is approximated by its largest column norm (shape transforms
+    // are rotations/flips).
+    let radius_px = (radius * scale * transform_scale(transform)).max(1e-6);
+    tiny_skia::RadialGradient::new(
+        center,
+        center,
+        radius_px,
+        gradient_stops(grad),
+        tiny_skia::SpreadMode::Pad,
+        tiny_skia::Transform::identity(),
+    )
+}
+
+/// Paint for a stroked path. The reference replaces `strokeStyle` with the
+/// complete gradient/pattern paint whenever the line authors one
+/// (`applyStroke`, ref renderer.ts:7542-7565), framing it on the stroked box.
+fn stroke_paint(
+    stroke: &VectorStroke,
+    path: &VectorPath,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) -> tiny_skia::Paint<'static> {
+    let mut paint = tiny_skia::Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
+    let shader = match stroke.paint.as_deref() {
+        Some(VectorPaint::Solid([r, g, b, a])) => {
+            paint.set_color_rgba8(*r, *g, *b, *a);
+            None
+        }
+        Some(VectorPaint::LinearGradient(grad)) if grad.stops.len() > 1 => {
+            linear_shader(grad, path, transform, scale, offset_x, offset_y)
+        }
+        Some(VectorPaint::RadialGradient(grad)) if grad.stops.len() > 1 => {
+            radial_shader(grad, path, transform, scale, offset_x, offset_y)
+        }
+        // A single stop paints that solid colour; an image stroke has no
+        // paint-server form in `tiny-skia`, so it keeps the flat fallback.
+        Some(VectorPaint::LinearGradient(grad)) | Some(VectorPaint::RadialGradient(grad)) => {
+            match grad.stops.first() {
+                Some((_, [r, g, b, a])) => {
+                    paint.set_color_rgba8(*r, *g, *b, *a);
+                    None
+                }
+                None => None,
+            }
+        }
+        _ => None,
+    };
+    match shader {
+        Some(shader) => paint.shader = shader,
+        None if stroke.paint.is_none()
+            || matches!(
+                stroke.paint.as_deref(),
+                Some(VectorPaint::Image(_)) | Some(VectorPaint::Pattern(_))
+            ) =>
+        {
+            let [r, g, b, a] = stroke.color;
+            paint.set_color_rgba8(r, g, b, a);
+        }
+        None => {}
+    }
+    paint
+}
+
+/// Largest column norm of a transform's linear part.
 fn transform_scale(transform: &AffineTransform) -> f32 {
     let sx = (transform.sx * transform.sx + transform.ky * transform.ky).sqrt();
     let sy = (transform.kx * transform.kx + transform.sy * transform.sy).sqrt();
@@ -270,6 +377,60 @@ fn transform_scale(transform: &AffineTransform) -> f32 {
     } else {
         1.0
     }
+}
+
+/// Stroke `ts_path` with the authored line paint, including the preset-pattern
+/// brush whose cell pixmap has to outlive the shader.
+#[allow(clippy::too_many_arguments)]
+fn stroke_with_paint(
+    pixmap: &mut tiny_skia::Pixmap,
+    stroke: &VectorStroke,
+    ts_path: &tiny_skia::Path,
+    ts_stroke: &tiny_skia::Stroke,
+    path: &VectorPath,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) {
+    if let Some(VectorPaint::Pattern(pattern)) = stroke.paint.as_deref() {
+        if let Some(pixels) =
+            crate::compiler::pattern::build_pattern_bitmap(&pattern.preset, pattern.fg, pattern.bg)
+        {
+            let edge = crate::compiler::pattern::PATTERN_BITMAP_EDGE;
+            if let Some(mut cell) = tiny_skia::Pixmap::new(edge, edge) {
+                super::image_fill::premultiply_into(cell.data_mut(), &pixels);
+                let step = crate::contracts::PATTERN_CELL_EMU * scale;
+                let mut paint = tiny_skia::Paint {
+                    anti_alias: true,
+                    ..Default::default()
+                };
+                paint.shader = tiny_skia::Pattern::new(
+                    cell.as_ref(),
+                    tiny_skia::SpreadMode::Repeat,
+                    tiny_skia::FilterQuality::Bilinear,
+                    1.0,
+                    tiny_skia::Transform::from_row(step, 0.0, 0.0, step, offset_x, offset_y),
+                );
+                pixmap.stroke_path(
+                    ts_path,
+                    &paint,
+                    ts_stroke,
+                    tiny_skia::Transform::identity(),
+                    None,
+                );
+                return;
+            }
+        }
+    }
+    let paint = stroke_paint(stroke, path, transform, scale, offset_x, offset_y);
+    pixmap.stroke_path(
+        ts_path,
+        &paint,
+        ts_stroke,
+        tiny_skia::Transform::identity(),
+        None,
+    );
 }
 
 fn update_bounds(x: f32, y: f32, min_x: &mut f32, min_y: &mut f32, max_x: &mut f32, max_y: &mut f32) {

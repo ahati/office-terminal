@@ -1,3 +1,5 @@
+//! The `<p:pic>` blit path.
+
 use crate::contracts::{AffineTransform, NormalizedRect, RectF32};
 use crate::loader::{AssetStore, SizeHint};
 
@@ -15,7 +17,40 @@ pub fn render_image(
     offset_x: f32,
     offset_y: f32,
 ) {
-    let decoded = match assets.get(rel_id, SizeHint::Native) {
+    render_image_with_hint(
+        pixmap,
+        assets,
+        rel_id,
+        SizeHint::Native,
+        src_rect,
+        dest_rect,
+        opacity,
+        transform,
+        effects,
+        scale,
+        offset_x,
+        offset_y,
+    );
+}
+
+/// [`render_image`] with an explicit decode hint
+/// (`decode_plan::DecodePlan::size_hint`).
+#[allow(clippy::too_many_arguments)]
+pub fn render_image_with_hint(
+    pixmap: &mut tiny_skia::Pixmap,
+    assets: &dyn AssetStore,
+    rel_id: &str,
+    hint: SizeHint,
+    src_rect: &NormalizedRect,
+    dest_rect: &RectF32,
+    opacity: f32,
+    transform: &AffineTransform,
+    effects: &[ooxml_common::blip::BlipEffect],
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) {
+    let decoded = match assets.get(rel_id, hint) {
         Ok(img) => img,
         Err(_) => return, // Asset missing, fail-soft
     };

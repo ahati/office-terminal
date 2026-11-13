@@ -117,16 +117,40 @@ impl Default for VectorReflection {
     }
 }
 
+/// Camera rotation override — ECMA-376 §20.1.5.11 (`CT_SphereCoords`).
+///
+/// An authored `<a:rot>` replaces the preset camera's base orientation; all
+/// three angles are in degrees (`lat` = X tilt, `lon` = Y turn, `rev` = view-Z
+/// spin).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VectorRot3d {
+    pub lat_deg: f32,
+    pub lon_deg: f32,
+    pub rev_deg: f32,
+}
+
 /// 3D Scene camera and lighting rig parameters.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VectorScene3d {
     pub camera_type: String,
+    /// Authored `a:camera@fov` in degrees; `0.0` = preset default.
     pub fov_deg: f32,
+    /// `a:camera@zoom` as a unit ratio (1.0 = 100 %).
+    #[serde(default = "default_zoom")]
+    pub zoom: f32,
+    /// Authored `a:camera/a:rot`; `None` = preset base orientation.
+    #[serde(default)]
+    pub rot: Option<VectorRot3d>,
     pub light_rig_type: String,
     pub light_direction_deg: f32,
 }
 
-/// 3D Shape bevel and extrusion parameters.
+fn default_zoom() -> f32 {
+    1.0
+}
+
+/// 3D Shape bevel (`bevelT`/`bevelB`, ECMA-376 §20.1.5.3) and extrusion
+/// parameters.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VectorShape3d {
     pub extrusion_depth_emu: i64,
@@ -136,4 +160,16 @@ pub struct VectorShape3d {
     pub bevel_top_width_emu: i64,
     pub bevel_top_height_emu: i64,
     pub bevel_top_type: String,
+    /// `bevelB@w` — MS-OI29500 §2.1.1268 places this lip at the extrusion base.
+    #[serde(default)]
+    pub bevel_bottom_width_emu: i64,
+    /// `bevelB@h`.
+    #[serde(default)]
+    pub bevel_bottom_height_emu: i64,
+    /// `bevelB@prst`; empty = `circle`.
+    #[serde(default)]
+    pub bevel_bottom_type: String,
+    /// `sp3d@prstMaterial` (`ST_PresetMaterialType`); empty = `matte`.
+    #[serde(default)]
+    pub prst_material: String,
 }

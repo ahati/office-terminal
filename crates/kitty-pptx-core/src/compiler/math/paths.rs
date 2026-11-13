@@ -55,6 +55,7 @@ pub fn stroke(color: [u8; 4], thickness: f32) -> VectorStroke {
         dash_segments: None,
         line_cap: LineCap::Round,
         line_join: LineJoin::Round,
+        paint: None,
     }
 }
 

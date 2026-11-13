@@ -10,15 +10,15 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use crossbeam_channel::Sender;
-
-use super::emit::{build_paragraphs, LineLayout, Measurer, ParagraphLayout, StyleDef};
+use super::decor;
+use super::emit::{marker_visible, LineLayout, Measurer, StyleDef};
+use super::paragraphs::ParagraphLayout;
 use crate::compiler::math::{self, MathPiece};
-use crate::contracts::{
-    AffineTransform, PositionedGlyph, PositionedGlyphRun, RectF32, VectorCommand, WarningEvent,
-};
+use crate::contracts::{AffineTransform, PositionedGlyph, PositionedGlyphRun, VectorCommand};
+use crate::text::bidi::{BidiSegment, LineVisualOrder};
+use crate::text::bullets::MarkerBitmap;
 use crate::text::justify::{self, JustifyMode, JustifyPlan};
-use crate::text::linebreak::{BreakItem, BrokenLine, LineItem};
+use crate::text::linebreak::{BrokenLine, LineItem};
 use crate::text::measure::{StyleId, TextMeasure};
 use crate::text::metrics::{self, FaceMetrics};
 use crate::text::shape;
@@ -125,13 +125,28 @@ pub(super) fn place_line(
     para: &ParagraphLayout,
     line: &LineLayout,
     line_x: f32,
+    marker_x: f32,
     baseline_y: f32,
     transform: &AffineTransform,
     ea: Option<&EaVertFrame>,
     justify: Option<&JustifyPlan>,
+    visual: Option<&LineVisualOrder>,
+    bitmaps: Option<&dyn MarkerBitmap>,
     final_runs: &mut Vec<PositionedGlyphRun>,
     commands: &mut Vec<VectorCommand>,
 ) {
+    if marker_visible(para, line) {
+        decor::paint_marker(
+            measurer,
+            para,
+            marker_x,
+            baseline_y,
+            transform,
+            bitmaps,
+            final_runs,
+            commands,
+        );
+    }
     let mut pen_x = 0.0f32;
     // Position in the line's flat unit stream, see `justify::JustifyPlan`.
     let mut unit = 0usize;
@@ -140,7 +155,15 @@ pub(super) fn place_line(
         frame,
         runs: Vec::new(),
     });
-    for item in &line.items {
+    for step in 0..line.items.len() {
+        // `renderer.ts:5936-5940`: draw the segments in UAX#9 L2 visual order,
+        // each at the running pen (textAlign is already left, so `pen_x` stays
+        // the segment's left edge). Without bidi the order is logical.
+        let index = match visual {
+            Some(visual) => visual.order.get(step).copied().unwrap_or(step),
+            None => step,
+        };
+        let item = &line.items[index];
         match item {
             LineItem::Text { text, style, width } => {
                 let extra = place_text(
@@ -153,6 +176,21 @@ pub(super) fn place_line(
                     upper.as_mut(),
                     final_runs,
                 );
+                // Run-level highlight (§21.1.2.3.4): the box covers the glyph
+                // advance plus the justification stretch and sits under the
+                // glyphs (`renderer.ts:5987-5994`).
+                let def = measurer.style(*style);
+                if let Some(color) = def.highlight {
+                    decor::push_highlight(
+                        commands,
+                        line_x + pen_x,
+                        baseline_y + def.baseline_shift_emu(),
+                        width + extra,
+                        def.draw_size_emu(),
+                        color,
+                        transform,
+                    );
+                }
                 pen_x += width + extra;
                 unit += text.chars().count();
             }
@@ -240,6 +278,67 @@ pub(super) fn justify_plan(
         line.is_last_line,
         line.ends_with_break,
     )
+}
+
+/// The advance one [`LineItem`] occupies under the current (draw-time) widths.
+pub(super) fn item_advance(item: &LineItem) -> f32 {
+    match item {
+        LineItem::Text { width, .. }
+        | LineItem::Tab { width, .. }
+        | LineItem::Object { width, .. } => *width,
+    }
+}
+
+/// `renderer.ts:5683-5722`: resolve the line's inline tabs at DRAW time in the
+/// logical READING frame.
+///
+/// The pen starts at the leading indent — `marR` under an RTL base, because the
+/// draw-side first-line indent only shifts the LTR pen — and the trailing limit
+/// is the text area including both paragraph margins. Each tab therefore
+/// measures an absolute distance from the leading text-inset edge; the UAX#9 L2
+/// pass later mirrors the resulting cells physically for an RTL base.
+pub(super) fn resolve_line_tabs(
+    items: &mut [LineItem],
+    para: &ParagraphLayout,
+    avail_w: f32,
+    first_line_indent: f32,
+    base_rtl: bool,
+    measurer: &Measurer,
+) {
+    let Some(tab_style) = items.iter().find_map(|item| match item {
+        LineItem::Tab { style, .. } => Some(*style),
+        _ => None,
+    }) else {
+        return;
+    };
+    let start_pen = if base_rtl {
+        para.mar_r
+    } else {
+        first_line_indent
+    };
+    let no_stop_gap = measurer.space(tab_style);
+    crate::text::tabs::resolve_tab_widths(
+        items,
+        &para.tab_stops,
+        start_pen,
+        avail_w,
+        no_stop_gap,
+        para.tab_size,
+    );
+}
+
+/// The line's painted segments in logical order, for the UAX#9 L2 pass
+/// (`LineItem::Tab` is Bidi_Class `S`, an equation or picture marker is the
+/// neutral U+FFFC placeholder).
+pub(super) fn bidi_segments(items: &[LineItem]) -> Vec<BidiSegment<'_>> {
+    items
+        .iter()
+        .map(|item| match item {
+            LineItem::Text { text, .. } => BidiSegment::Text(text.as_str()),
+            LineItem::Tab { .. } => BidiSegment::Tab,
+            LineItem::Object { .. } => BidiSegment::Object,
+        })
+        .collect()
 }
 
 /// `per_gap` when the plan opens a boundary immediately before flat unit
@@ -431,7 +530,7 @@ fn has_glyph(measurer: &Measurer, style: StyleId, ch: char) -> bool {
 /// A run carrying a non-zero `rPr@baseline` shapes at 65 % of its authored
 /// size and rides the shifted baseline (`renderer.ts:1552`, `5981`); the line
 /// box itself still comes from the authored size (see [`natural_box`]).
-fn emit_run(
+pub(super) fn emit_run(
     measurer: &Measurer,
     text: &str,
     style: StyleId,
@@ -479,93 +578,4 @@ fn emit_run_at(
         strikethrough: def.strikethrough,
         warp: None,
     });
-}
-
-/// `renderStackedTextBody` (`renderer.ts:4849-5028`) reduced to one grapheme
-/// per column: upright glyphs read down a column, columns left-to-right for
-/// `wordArtVert` and right-to-left for `wordArtVertRtl`.
-///
-/// Approximations (see `text::vertical`): a grapheme is one column, so no
-/// column ever wraps; `a:lnSpc`, `spcBef`/`spcAft` column gaps and inline
-/// objects are not laid out, and the paragraph alignment is not applied along
-/// the column (the single glyph is centred).
-#[allow(clippy::too_many_arguments)]
-pub(super) fn compile_stacked(
-    text_body: &pptx_model::TextBody,
-    box_w: i64,
-    box_h: i64,
-    base_transform: &AffineTransform,
-    measurer: &mut Measurer,
-    default_style: StyleId,
-    default_color: [u8; 4],
-    rtl: bool,
-    warning_sink: &Sender<WarningEvent>,
-) -> Vec<VectorCommand> {
-    let font_scale = text_body.font_scale.unwrap_or(1.0) as f32;
-    let paragraphs = build_paragraphs(
-        text_body,
-        default_style,
-        font_scale,
-        default_color,
-        measurer,
-        warning_sink,
-    );
-    let mut glyphs: Vec<vertical::StackedGlyph> = Vec::new();
-    for para in &paragraphs {
-        for item in &para.items {
-            let BreakItem::Text { text, style } = item else {
-                continue;
-            };
-            let def = measurer.style(*style);
-            let (ascent, descent) = metrics::natural_line_box(&[(
-                def.size_emu,
-                FaceMetrics {
-                    ascent_share: shape::ascent_share_for(&def.family, def.bold, def.italic),
-                },
-            )]);
-            for grapheme in vertical::graphemes(text) {
-                let advance = measurer.advance(grapheme, *style).max(1.0);
-                glyphs.push(vertical::StackedGlyph {
-                    text: grapheme.to_string(),
-                    style: *style,
-                    advance,
-                    thickness: advance,
-                    ascent,
-                    descent,
-                });
-            }
-        }
-    }
-    let rect = RectF32::new(
-        text_body.l_ins as f32,
-        text_body.t_ins as f32,
-        (box_w as f32 - text_body.l_ins as f32 - text_body.r_ins as f32).max(0.0),
-        (box_h as f32 - text_body.t_ins as f32 - text_body.b_ins as f32).max(0.0),
-    );
-    let slots = vertical::place_stacked(
-        &glyphs,
-        rect,
-        &text_body.vertical_anchor,
-        "ctr",
-        text_body.anchor_ctr,
-        rtl,
-    );
-    let mut runs = Vec::new();
-    for slot in &slots {
-        emit_run(
-            measurer,
-            &slot.text,
-            slot.style,
-            slot.x,
-            slot.baseline,
-            &mut runs,
-        );
-    }
-    if runs.is_empty() {
-        return Vec::new();
-    }
-    vec![VectorCommand::DrawText {
-        runs,
-        transform: *base_transform,
-    }]
 }

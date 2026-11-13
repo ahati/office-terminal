@@ -1,8 +1,18 @@
+pub mod decode_plan;
 pub mod effects;
+
+/// Image-fill paint path (`a:blipFill` / `a:pattFill`) surface used by the
+/// parity tests and by the SVG twin.
+pub use image_fill::{
+    fill_path_with_image, fill_path_with_pattern, prepare_image_fill, tile_anchor,
+    tile_cell_pixels, tile_source_extent_emu, ImageFillBrush, MAX_TILE_CELL_DIMENSION,
+    MAX_TILE_CELL_PIXELS,
+};
 pub mod filters;
 mod background_image;
 mod bevel;
 mod image;
+mod image_fill;
 mod mask;
 mod path;
 mod shape_effect;
@@ -53,6 +63,12 @@ impl SlideRasterizer for TinySkiaRasterizer {
             RenderError::RasterizationError("failed to allocate pixmap".to_string())
         })?;
 
+        // Decoded-raster policy for this pass (ref core/src/image/
+        // adaptive-image-budget.ts:130): it only shrinks surfaces when the
+        // aggregate budget cannot hold the source grids, so the default path
+        // keeps native decoding.
+        let decode_plan = decode_plan::scene_decode_plan(scene, target).ok();
+
         // 1. Uniform scale factor
         let s = (width as f64 / scene.width_emu.max(1) as f64)
             .min(height as f64 / scene.height_emu.max(1) as f64);
@@ -90,6 +106,7 @@ impl SlideRasterizer for TinySkiaRasterizer {
                     );
                     path::render_path(
                         &mut pixmap,
+                        assets,
                         &bg_path,
                         Some(&VectorPaint::LinearGradient(grad.clone())),
                         None,
@@ -141,7 +158,16 @@ impl SlideRasterizer for TinySkiaRasterizer {
             }
 
             if !clips.is_active() {
-                draw_command(&mut pixmap, cmd, assets, s_f32, dx, dy, scene.width_emu);
+                draw_command(
+                    &mut pixmap,
+                    cmd,
+                    assets,
+                    s_f32,
+                    dx,
+                    dy,
+                    scene.width_emu,
+                    decode_plan.as_ref(),
+                );
                 continue;
             }
 
@@ -153,7 +179,16 @@ impl SlideRasterizer for TinySkiaRasterizer {
             let layer_h = (y1 - y0) as u32;
             if layer_w as usize * layer_h as usize > MAX_CLIP_LAYER_PIXELS {
                 // Degrade to unclipped drawing rather than exhausting memory.
-                draw_command(&mut pixmap, cmd, assets, s_f32, dx, dy, scene.width_emu);
+                draw_command(
+                    &mut pixmap,
+                    cmd,
+                    assets,
+                    s_f32,
+                    dx,
+                    dy,
+                    scene.width_emu,
+                    decode_plan.as_ref(),
+                );
                 continue;
             }
             let Some(layer) = scratch_layer(&mut scratch, layer_w, layer_h) else {
@@ -170,6 +205,7 @@ impl SlideRasterizer for TinySkiaRasterizer {
                 dx - x0 as f32,
                 dy - y0 as f32,
                 scene.width_emu,
+                decode_plan.as_ref(),
             );
 
             let Some(mask) = clips.build_mask(LayerPlacement {
@@ -222,6 +258,7 @@ fn draw_command(
     offset_x: f32,
     offset_y: f32,
     slide_width_emu: i64,
+    decode_plan: Option<&decode_plan::DecodePlan>,
 ) {
     match cmd {
         VectorCommand::DrawPath {
@@ -233,6 +270,7 @@ fn draw_command(
         } => {
             shape_effect::render_path_with_effects(
                 pixmap,
+                assets,
                 path,
                 fill.as_ref(),
                 stroke.as_ref(),
@@ -252,10 +290,14 @@ fn draw_command(
             transform,
             effects,
         } => {
-            image::render_image(
+            let hint = decode_plan
+                .map(|plan| plan.size_hint(rel_id))
+                .unwrap_or(crate::loader::SizeHint::Native);
+            image::render_image_with_hint(
                 pixmap,
                 assets,
                 rel_id,
+                hint,
                 src_rect,
                 dest_rect,
                 *opacity,

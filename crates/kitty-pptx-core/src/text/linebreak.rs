@@ -9,7 +9,7 @@
 //! run's style and never fabricates one. Alignment, bidi, line metrics and paint
 //! are later phases. Atoms are extended grapheme clusters (break.ts:113-121).
 
-mod grapheme;
+pub(crate) mod grapheme;
 pub(crate) mod rules;
 
 use super::measure::{StyleId, TabAlign, TabStop, TextMeasure};

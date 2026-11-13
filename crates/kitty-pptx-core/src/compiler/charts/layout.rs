@@ -303,6 +303,7 @@ pub fn compile_chart_background(
             dash_segments: None,
             line_cap: LineCap::Square,
             line_join: LineJoin::Miter,
+            paint: None,
         };
         commands.push(VectorCommand::draw_path(
             rect_path(0.0, 0.0, layout.w, layout.h),
@@ -415,6 +416,7 @@ pub fn compile_chart_legend(
                     dash_segments: None,
                     line_cap: LineCap::Round,
                     line_join: LineJoin::Round,
+                    paint: None,
                 };
                 commands.push(VectorCommand::draw_path(seg, None, Some(stroke), transform));
             } else {

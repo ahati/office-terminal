@@ -16,37 +16,45 @@ pub(crate) fn apply_bevel_shading(
     effects: &ShapeEffects,
     scale: f32,
 ) {
-    let bevel_w_px = (shape_3d.bevel_top_width_emu.max(shape_3d.bevel_top_height_emu) as f32 * scale)
-        .clamp(0.0, 48.0);
-    if bevel_w_px < 1.0 || width == 0 || height == 0 || pixels.len() < width * height * 4 {
+    if width == 0 || height == 0 || pixels.len() < width * height * 4 {
         return;
     }
-    let bevel_h_px = (shape_3d.bevel_top_height_emu as f32 * scale).max(1.0);
+    // The layer is already at device resolution, so `scale` (EMU → device px)
+    // plays the role of the reference's `scale × devScale`; `devScale` is 1.
+    // ref renderer.ts:6302-6330 — no band clamp, and `w > 0 && h > 0` gates the
+    // whole lip, so a zero-sized bevel shades nothing.
+    let inputs = scene3d::build_bevel_inputs(Some(shape_3d), effects.scene_3d.as_ref(), scale as f64, 1.0);
+    // The rasterizer paints a single planar layer (no rear plane), so only the
+    // front lip is shaded; the bottom lip additionally needs the back-face
+    // surface geometry (MS-OI29500 §2.1.1268) that this layer does not build.
+    let Some(bevel) = inputs.iter().find(|bevel| !bevel.bottom) else {
+        return;
+    };
+    let band_px = bevel.width_px as f32;
+    if band_px <= 0.0 {
+        return;
+    }
     let preset = if shape_3d.bevel_top_type.is_empty() {
         "circle"
     } else {
         shape_3d.bevel_top_type.as_str()
     };
-    let light_deg = effects
-        .scene_3d
-        .as_ref()
-        .map(|s| s.light_direction_deg)
-        .unwrap_or(225.0);
-    let material = scene3d::Material::from_preset("plastic");
+    let profile_height = (bevel.height_px as f32).max(1.0);
+    let material = scene3d::Material::from_preset(bevel.material.as_str());
+    let light = [bevel.light[0] as f32, bevel.light[1] as f32, bevel.light[2] as f32];
 
     let inside: Vec<bool> = pixels.chunks_exact(4).map(|c| c[3] > 8).collect();
     let dist = distance_field(&inside, width, height);
-    let light = scene3d::light_vector(light_deg);
     let flat = scene3d::blinn_phong([0.0, 0.0, 1.0], light, material).max(0.05);
 
     for y in 0..height {
         for x in 0..width {
             let idx = y * width + x;
-            if !inside[idx] || dist[idx] >= bevel_w_px {
+            if !inside[idx] || dist[idx] >= band_px {
                 continue;
             }
-            let u = (dist[idx] / bevel_w_px).clamp(0.0, 1.0);
-            let (_, slope) = scene3d::bevel_curve(preset, u, bevel_h_px);
+            let u = (dist[idx] / band_px).clamp(0.0, 1.0);
+            let (_, slope) = scene3d::bevel_curve(preset, u, profile_height);
             let gx = (sample(&dist, width, height, x + 1, y) - sample(&dist, width, height, x - 1, y)) * 0.5;
             let gy = (sample(&dist, width, height, x, y + 1) - sample(&dist, width, height, x, y - 1)) * 0.5;
             let normal = scene3d::bevel_normal(slope.min(8.0), (gx, gy));
