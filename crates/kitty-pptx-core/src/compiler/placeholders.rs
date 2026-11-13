@@ -37,6 +37,7 @@ pub fn compile_chart_placeholder(chart_elem: &pptx_model::ChartElement) -> Vec<V
         dash_segments: Some(vec![4.0, 3.0]),
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
+        paint: None,
     };
     commands.push(VectorCommand::DrawPath {
         path: frame_path,
@@ -138,6 +139,7 @@ pub fn compile_media_placeholder(media_elem: &pptx_model::MediaElement) -> Vec<V
         dash_segments: Some(vec![4.0, 3.0]),
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
+        paint: None,
     };
     commands.push(VectorCommand::DrawPath {
         path: frame_path,

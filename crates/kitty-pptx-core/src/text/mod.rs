@@ -5,6 +5,10 @@
 //! `packages/pptx/src/powerpoint-line-metrics.ts` and
 //! `packages/core/src/drawingml-text/`.
 
+pub mod bidi;
+pub mod east_asian_default;
+mod east_asian_coverage;
+pub mod bullets;
 pub mod emit;
 pub mod fonts;
 pub mod linebreak;
@@ -12,7 +16,11 @@ pub mod justify;
 pub mod measure;
 pub mod shape;
 pub mod metrics;
+mod decor;
 mod paint;
+mod paragraphs;
+mod slots;
+mod stacked;
 pub mod tabs;
 pub mod vertical;
 

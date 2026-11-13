@@ -8,6 +8,23 @@
 
 use crate::contracts::{AffineTransform, VectorScene3d};
 
+pub mod bevel_inputs;
+pub mod camera;
+pub mod homography;
+pub mod projection;
+
+pub use bevel_inputs::{build_bevel_inputs, BevelInput, PresetMaterial};
+pub use camera::{
+    camera_rotation, compute_depth_offset, compute_scene3d_quad, is_back_facing, CameraInput, Rot3d,
+    Scene3dQuad,
+};
+pub use homography::{expand_projected_quad, project_quad_point, unit_square_to_quad};
+pub use projection::{
+    authored_alignment_anchor, projected_effect_geometry, projected_surface,
+    transformed_effect_bounds, Alignment, Bounds, EffectTransform, ProjectedEffectGeometry,
+    ProjectedSurface,
+};
+
 /// EMUs per CSS/SVG user unit at 96 DPI (AGENTS.md §4).
 pub const EMU_PER_PX: f32 = 9525.0;
 
@@ -273,6 +290,8 @@ mod tests {
         VectorScene3d {
             camera_type: camera_type.to_string(),
             fov_deg: fov,
+            zoom: 1.0,
+            rot: None,
             light_rig_type: "threePt".to_string(),
             light_direction_deg: 225.0,
         }

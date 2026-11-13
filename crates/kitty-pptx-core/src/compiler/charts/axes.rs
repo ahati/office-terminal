@@ -33,6 +33,7 @@ pub fn compile_axes(
         dash_segments: None,
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
+        paint: None,
     };
 
     let axis_line_color = [160, 160, 160, 255];
@@ -42,6 +43,7 @@ pub fn compile_axes(
         dash_segments: None,
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
+        paint: None,
     };
 
     // ref core/src/chart/shared/axis.ts:584 (`axisLabelPx`): the authored

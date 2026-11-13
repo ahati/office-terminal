@@ -58,6 +58,19 @@ pub enum RenderError {
     RasterizationError(String),
     #[error("Vector serialization error: {0}")]
     SerializationError(String),
+    /// An authored brush the raster backend cannot represent, e.g. a tile
+    /// auxiliary with a non-finite extent. The reference raises the typed
+    /// `unsupported-image-effect` diagnostic here (ref renderer.ts:2475-2477).
+    #[error("Unsupported image effect: {0}")]
+    UnsupportedImageEffect(&'static str),
+    /// A strict decoded-image quota crossing (ref core/src/image/pixel-budget.ts
+    /// `OoxmlDecodedImageLimitError`, code `ooxml-decoded-image-limit`).
+    #[error("Decoded image limit exceeded: {metric} limit {limit}, observed {observed}")]
+    DecodedImageLimit {
+        metric: &'static str,
+        limit: u64,
+        observed: u64,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -120,7 +120,7 @@ fn gb_break(prev: char, cur: char, ri_run: usize, zwj_ready: bool) -> bool {
 
 /// Byte ranges of the extended grapheme clusters of `text`; empty text yields no
 /// span, so a zero-width run contributes no atom.
-pub(super) fn grapheme_spans(text: &str) -> Vec<(usize, usize)> {
+pub(crate) fn grapheme_spans(text: &str) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut start = 0usize;
     let mut prev: Option<char> = None;

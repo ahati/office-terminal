@@ -15,10 +15,10 @@ pub fn compile_slide_background(bg: Option<&pptx_model::Fill>) -> Option<VectorB
                 .iter()
                 .map(|stop| (stop.position as f32, parse_hex_color(&stop.color)))
                 .collect();
-            Some(VectorBackground::Gradient(VectorGradient {
-                angle_deg: *angle as f32,
-                stops: gradient_stops,
-            }))
+            Some(VectorBackground::Gradient(VectorGradient::new(
+                *angle as f32,
+                gradient_stops,
+            )))
         }
         Some(pptx_model::Fill::Image {
             image_path,

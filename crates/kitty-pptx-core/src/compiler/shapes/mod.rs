@@ -179,6 +179,10 @@ pub fn apply_path_fill_mode(fill: Option<&VectorPaint>, mode: PathFill) -> Optio
         // the resolved gradient, which `VectorGradient` has no slot for; leave
         // it untinted rather than approximating (documented limitation).
         VectorPaint::LinearGradient(_) | VectorPaint::RadialGradient(_) => Some(paint.clone()),
+        // An untinted image/pattern brush stays as authored: the reference's
+        // overlay is a translucent rect composited over the resolved brush, and
+        // the IR has no tinted-brush slot (documented limitation).
+        VectorPaint::Image(_) | VectorPaint::Pattern(_) => Some(paint.clone()),
     }
 }
 

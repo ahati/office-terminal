@@ -1,7 +1,11 @@
-use crate::contracts::{
-    LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint, VectorPath, VectorStroke,
-};
+pub mod gradient;
+pub mod line_end;
+pub mod stroke;
 
+use crate::contracts::{
+    GradientFrame, LineCap, LineJoin, NormalizedRect, PathSegment, VectorGradient,
+    VectorImageFill, VectorPaint, VectorPath, VectorStroke, VectorTile,
+};
 /// Synchronous-canvas ceiling kept in parity with the reference parser
 /// (`MAX_DRAWINGML_CUSTOM_DASH_STOPS`).
 /// ref packages/core/src/draw/dash.ts:143
@@ -35,7 +39,24 @@ pub fn modulate_alpha(mut color: [u8; 4], alpha: f32) -> [u8; 4] {
 }
 
 /// Convert a pptx_model::Fill to VectorPaint.
+///
+/// Shape rotation/reflection is unknown here, so an `a:blipFill` compiles with
+/// `rotWithShape` treated as 0°. Element compilers use
+/// [`compile_shape_fill`] to thread the authored frame.
 pub fn compile_fill(fill: &pptx_model::Fill, alpha: f32) -> Option<VectorPaint> {
+    compile_shape_fill(fill, alpha, 0.0, false, false)
+}
+
+/// Convert a `CT_ShapeProperties` fill to [`VectorPaint`] with the owning
+/// shape's authored frame, which the `rotWithShape="0"` blip-fill
+/// counter-rotation needs (ref renderer.ts:2644-2656).
+pub fn compile_shape_fill(
+    fill: &pptx_model::Fill,
+    alpha: f32,
+    rotation_deg: f64,
+    flip_h: bool,
+    flip_v: bool,
+) -> Option<VectorPaint> {
     match fill {
         pptx_model::Fill::Solid { color } => {
             let c = modulate_alpha(parse_hex_color(color), alpha);
@@ -45,7 +66,12 @@ pub fn compile_fill(fill: &pptx_model::Fill, alpha: f32) -> Option<VectorPaint> 
             stops,
             angle,
             grad_type,
-            ..
+            scaled,
+            path,
+            fill_to_rect,
+            tile_rect,
+            flip,
+            rot_with_shape,
         } => {
             // ref packages/core/src/shape/paint.ts:377-379: a gradient with no
             // stops paints nothing; a single stop paints that solid colour.
@@ -65,14 +91,23 @@ pub fn compile_fill(fill: &pptx_model::Fill, alpha: f32) -> Option<VectorPaint> 
                 })
                 .collect();
 
-            // IR limitation: `VectorGradient` carries only angle + stops, so
-            // the authored `scaled`, `path`, `fillToRect`, `tileRect`, `flip`
-            // and `rotWithShape` options are dropped here and cannot reach the
-            // renderers. The linear/radial frames below are the untiled,
-            // full-box, shape-rotating case. ref paint.ts:283-315, 114-140.
+            // §20.1.8.32 frame options reach the renderers; the projection into
+            // an axis/focus frame happens at paint time so both backends agree
+            // (ref paint.ts:262-320).
             let grad = VectorGradient {
                 angle_deg: *angle as f32,
                 stops: gradient_stops,
+                frame: GradientFrame {
+                    rot_with_shape: rot_with_shape.unwrap_or(true),
+                    rotation_deg: rotation_deg as f32,
+                    flip_h,
+                    flip_v,
+                    scaled: *scaled == Some(true),
+                    path: path.clone().unwrap_or_default(),
+                    fill_to_rect: fill_to_rect.as_ref().and_then(normalized_rect),
+                    tile_rect: tile_rect.as_ref().and_then(normalized_rect),
+                    flip: flip.clone().unwrap_or_else(|| "none".to_string()),
+                },
             };
 
             if grad_type == "radial" {
@@ -81,24 +116,180 @@ pub fn compile_fill(fill: &pptx_model::Fill, alpha: f32) -> Option<VectorPaint> 
                 Some(VectorPaint::LinearGradient(grad))
             }
         }
-        pptx_model::Fill::Pattern { fg, .. } => {
-            // Degraded fallback: solid fill in pattern primary foreground color
-            let c = modulate_alpha(parse_hex_color(fg), alpha);
-            Some(VectorPaint::Solid(c))
+        pptx_model::Fill::Pattern { fg, bg, preset } => {
+            // §20.1.8.40 `a:pattFill` is a tiled bitmap whose cell is 1/8 pt; a
+            // preset outside ST_PresetPatternVal keeps the reference's solid
+            // foreground fallback (ref core/src/shape/paint.ts:474-476).
+            if crate::compiler::pattern::pattern_rows(preset).is_none() {
+                let c = modulate_alpha(parse_hex_color(fg), alpha);
+                return Some(VectorPaint::Solid(c));
+            }
+            Some(VectorPaint::Pattern(crate::contracts::VectorPattern {
+                preset: preset.clone(),
+                fg: modulate_alpha(parse_hex_color(fg), alpha),
+                bg: modulate_alpha(parse_hex_color(bg), alpha),
+            }))
         }
         pptx_model::Fill::None => None,
-        pptx_model::Fill::Image { .. } => {
-            // Image fills are handled as pictures or background images
-            None
-        }
+        pptx_model::Fill::Image {
+            image_path,
+            svg_image_path,
+            dpi,
+            rot_with_shape,
+            src_rect,
+            fill_rect,
+            stretch,
+            tile,
+            alpha: fill_alpha,
+            blip_effects,
+            ..
+        } => compile_image_fill(
+            svg_image_path.as_deref().unwrap_or(image_path),
+            rotation_deg,
+            flip_h,
+            flip_v,
+            alpha,
+            ImageFillSpec {
+                src_rect: src_rect.as_ref(),
+                fill_rect: fill_rect.as_ref(),
+                stretch: *stretch,
+                tile: tile.as_ref(),
+                alpha: fill_alpha.map(|a| a as f32),
+                rot_with_shape: rot_with_shape.unwrap_or(true),
+                dpi: dpi.map(|d| d as f32).unwrap_or(0.0),
+                effects: blip_effects.clone(),
+            },
+        ),
     }
+}
+
+/// The `a:blipFill` facts [`compile_image_fill`] projects into the IR.
+struct ImageFillSpec<'a> {
+    src_rect: Option<&'a ooxml_common::blip::SrcRect>,
+    fill_rect: Option<&'a ooxml_common::fill::FillRect>,
+    stretch: bool,
+    tile: Option<&'a ooxml_common::fill::TileInfo>,
+    alpha: Option<f32>,
+    rot_with_shape: bool,
+    dpi: f32,
+    effects: Vec<ooxml_common::blip::BlipEffect>,
+}
+
+/// Resolve `a:blipFill` (ECMA-376 §20.1.8.14) to [`VectorImageFill`].
+///
+/// The two fill modes stay authored: a fill with no mode, or with the
+/// schema-invalid `tile` + `stretch` pair, still compiles so the paint path can
+/// observe and reject it (`VectorImageFill::mode_is_paintable`).
+/// ref renderer.ts:2610-2616, 2620-2700.
+fn compile_image_fill(
+    rel_id: &str,
+    rotation_deg: f64,
+    flip_h: bool,
+    flip_v: bool,
+    alpha: f32,
+    spec: ImageFillSpec<'_>,
+) -> Option<VectorPaint> {
+    if rel_id.is_empty() {
+        return None;
+    }
+    // §20.1.8.55 keeps the *logical* window so negative outsets survive as a
+    // wider tiled extent (ref renderer.ts:2408-2417).
+    let src_rect = match spec.src_rect {
+        Some(sr) if [sr.l, sr.t, sr.r, sr.b].iter().all(|v| v.is_finite()) => NormalizedRect {
+            x: sr.l as f32,
+            y: sr.t as f32,
+            w: 1.0 - (sr.l + sr.r) as f32,
+            h: 1.0 - (sr.t + sr.b) as f32,
+        },
+        _ => NormalizedRect::default(),
+    };
+    // A source window with no visible area paints nothing (ref crop.ts:100-105).
+    if src_rect.w <= 0.0 || src_rect.h <= 0.0 {
+        return None;
+    }
+    let fill_rect = spec.fill_rect.and_then(|fr| {
+        if ![fr.l, fr.t, fr.r, fr.b].iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        Some(NormalizedRect {
+            x: fr.l as f32,
+            y: fr.t as f32,
+            w: 1.0 - (fr.l + fr.r) as f32,
+            h: 1.0 - (fr.t + fr.b) as f32,
+        })
+    });
+    let tile = spec.tile.map(|tile| VectorTile {
+        algn: tile.algn.clone().unwrap_or_else(|| "tl".to_string()),
+        tx: tile.tx.unwrap_or(0) as f32,
+        ty: tile.ty.unwrap_or(0) as f32,
+        sx: tile.sx.map(|v| v as f32).unwrap_or(1.0),
+        sy: tile.sy.map(|v| v as f32).unwrap_or(1.0),
+        flip: tile.flip.clone().unwrap_or_else(|| "none".to_string()),
+    });
+
+    // `a:alphaModFix` is parsed into blip effects; the legacy field (if any)
+    // stays a whole-placement multiplier beside the caller alpha.
+    let alpha = (spec.alpha.unwrap_or(1.0) * alpha).clamp(0.0, 1.0);
+
+    Some(VectorPaint::Image(Box::new(VectorImageFill {
+        rel_id: rel_id.to_string(),
+        src_rect,
+        fill_rect,
+        tile,
+        stretch: spec.stretch,
+        alpha,
+        rot_with_shape: spec.rot_with_shape,
+        dpi: spec.dpi,
+        effects: spec.effects,
+        rotation_deg: rotation_deg as f32,
+        flip_h,
+        flip_v,
+    })))
+}
+
+/// §20.1.8.32 `CT_RelativeRect` as the IR's fractional window
+/// (`x = l`, `y = t`, `w = 1-l-r`, `h = 1-t-b`). A non-finite edge drops the
+/// frame (`ref paint.ts:2467-2477` treats it as absent).
+pub fn normalized_rect(rect: &ooxml_common::fill::FillRect) -> Option<NormalizedRect> {
+    if ![rect.l, rect.t, rect.r, rect.b]
+        .iter()
+        .all(|v| v.is_finite())
+    {
+        return None;
+    }
+    Some(NormalizedRect {
+        x: rect.l as f32,
+        y: rect.t as f32,
+        w: 1.0 - (rect.l + rect.r) as f32,
+        h: 1.0 - (rect.t + rect.b) as f32,
+    })
 }
 
 /// Convert a pptx_model::Stroke to VectorStroke.
 pub fn compile_stroke(stroke: &pptx_model::Stroke) -> Option<VectorStroke> {
+    compile_stroke_for_shape(stroke, 0.0, false, false)
+}
+
+/// [`compile_stroke`] with the owning shape's authored frame, which the
+/// `a:ln` gradient's `rotWithShape="0"` counter-rotation needs (the reference
+/// passes `shapeRotationDeg` into `applyStroke`). ref renderer.ts:7542-7565
+pub fn compile_stroke_for_shape(
+    stroke: &pptx_model::Stroke,
+    rotation_deg: f64,
+    flip_h: bool,
+    flip_v: bool,
+) -> Option<VectorStroke> {
     let color = parse_hex_color(&stroke.color);
     let width_emu = stroke.width;
     let dash_segments = compile_dash_segments(stroke);
+
+    // §20.1.8.14/40: a line's own gradient/pattern fill replaces its flat
+    // colour entirely (ref renderer.ts:7542-7565 `applyStroke`).
+    let paint = stroke
+        .fill
+        .as_ref()
+        .and_then(|fill| compile_shape_fill(fill, 1.0, rotation_deg, flip_h, flip_v))
+        .map(Box::new);
 
     // ref packages/core/src/shape/stroke-geometry.ts:19 — the DrawingML
     // default cap is butt, not square.
@@ -129,6 +320,7 @@ pub fn compile_stroke(stroke: &pptx_model::Stroke) -> Option<VectorStroke> {
         dash_segments,
         line_cap,
         line_join,
+        paint,
     })
 }
 

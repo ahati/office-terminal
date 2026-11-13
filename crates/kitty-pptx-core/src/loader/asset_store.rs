@@ -3,6 +3,9 @@ use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use crate::error::AssetError;
 
+/// Decoder target for one blip: the native grid, or a bounded grid the store
+/// resizes down to (ref core/src/image/raster-target.ts:50-73).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SizeHint {
     Native,
     AtMost { width: u32, height: u32 },

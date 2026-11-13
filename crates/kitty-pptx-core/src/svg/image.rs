@@ -1,5 +1,7 @@
+use std::fmt::Write as _;
+
 use base64::prelude::*;
-use crate::contracts::{AffineTransform, NormalizedRect, RectF32};
+use crate::contracts::{AffineTransform, NormalizedRect, RectF32, VectorImageFill, VectorPattern};
 use crate::loader::{AssetStore, SizeHint};
 use super::path::format_transform_attr;
 
@@ -154,4 +156,196 @@ fn detect_mime(path: &str, bytes: &[u8]) -> String {
     } else {
         "image/png".to_string()
     }
+}
+
+/// Paint-server def for a non-background `a:blipFill` (§20.1.8.14) on the shape
+/// box `(x, y, w, h)` in shape-local EMU.
+///
+/// Both fill modes become a `<pattern patternUnits="userSpaceOnUse">` so the
+/// brush keeps the shape's own transform and the two placements stay one code
+/// path: stretch registers one cell over the `fillRect` destination, tile
+/// registers the native repeated cell at its `algn`/`tx`/`ty` phase.
+/// ref renderer.ts:2434-2585, 2620-2700.
+pub fn emit_image_fill_def(
+    assets: &dyn AssetStore,
+    defs: &mut String,
+    id: &str,
+    fill: &VectorImageFill,
+    fill_box: (f32, f32, f32, f32),
+) -> bool {
+    if !fill.mode_is_paintable() {
+        return false;
+    }
+    let (box_x, box_y, box_w, box_h) = fill_box;
+    if !(box_w > 0.0 && box_h > 0.0) {
+        return false;
+    }
+    // §20.1.8.58 tile period: the cropped logical source extent at its authored
+    // DPI, scaled by sx/sy (ref renderer.ts:2451-2460).
+    let pixel_to_emu = if fill.dpi > 0.0 {
+        9525.0 * 96.0 / fill.dpi
+    } else {
+        9525.0
+    };
+    let (cell_w, cell_h, phase_x, phase_y) = match &fill.tile {
+        Some(tile) => {
+            let Ok(decoded) = assets.get(&fill.rel_id, SizeHint::Native) else {
+                return false;
+            };
+            if decoded.width == 0 || decoded.height == 0 {
+                return false;
+            }
+            let tile_w = decoded.width as f32 * pixel_to_emu * fill.src_rect.w * tile.sx;
+            let tile_h = decoded.height as f32 * pixel_to_emu * fill.src_rect.h * tile.sy;
+            if ![tile_w, tile_h].iter().all(|v| v.is_finite() && *v > 0.0) {
+                return false;
+            }
+            let (ax, ay) = tile_anchor(&tile.algn, box_w, box_h, tile_w, tile_h);
+            let phase_x = ax + tile.tx;
+            let phase_y = ay + tile.ty;
+            if ![phase_x, phase_y].iter().all(|v| v.is_finite()) {
+                return false;
+            }
+            let cell_w = tile_w * if tile.flip_x() { 2.0 } else { 1.0 };
+            let cell_h = tile_h * if tile.flip_y() { 2.0 } else { 1.0 };
+            (cell_w, cell_h, phase_x, phase_y)
+        }
+        None => {
+            let (l, t, w, h) = match &fill.fill_rect {
+                Some(fr) => (fr.x, fr.y, fr.w, fr.h),
+                None => (0.0, 0.0, 1.0, 1.0),
+            };
+            let dw = w * box_w;
+            let dh = h * box_h;
+            if !(dw.is_finite() && dh.is_finite() && dw > 0.0 && dh > 0.0) {
+                return false;
+            }
+            (dw, dh, box_x + l * box_w, box_y + t * box_h)
+        }
+    };
+
+    let tile_element = |w: f32, h: f32| {
+        serialize_svg_image(
+            assets,
+            &fill.rel_id,
+            &fill.src_rect,
+            &RectF32::new(0.0, 0.0, w, h),
+            1.0,
+            &AffineTransform::default(),
+            &fill.effects,
+        )
+    };
+    let tile_w = cell_w / if fill.tile.as_ref().is_some_and(|t| t.flip_x()) {
+        2.0
+    } else {
+        1.0
+    };
+    let tile_h = cell_h / if fill.tile.as_ref().is_some_and(|t| t.flip_y()) {
+        2.0
+    } else {
+        1.0
+    };
+    let cell = tile_element(tile_w, tile_h);
+    if cell.is_empty() {
+        return false;
+    }
+
+    let _ = writeln!(
+        defs,
+        r#"    <pattern id="{id}" patternUnits="userSpaceOnUse" x="{phase_x}" y="{phase_y}" width="{cell_w}" height="{cell_h}">"#
+    );
+    let cell_id = format!("{id}_cell");
+    let _ = writeln!(defs, r#"      <g id="{cell_id}">"#);
+    for line in cell.lines() {
+        defs.push_str("        ");
+        defs.push_str(line.trim_start());
+        defs.push('\n');
+    }
+    let _ = writeln!(defs, "      </g>");
+    let _ = writeln!(defs, r##"      <use href="#{cell_id}"/>"##);
+    if let Some(tile) = &fill.tile {
+        // The mirrored neighbours reproduce the tile-flip cadence
+        // (ref renderer.ts:2462-2471, 2511-2520).
+        if tile.flip_x() {
+            let _ = writeln!(
+                defs,
+                r##"      <use href="#{cell_id}" transform="translate({} 0) scale(-1 1)"/>"##,
+                tile_w * 2.0
+            );
+        }
+        if tile.flip_y() {
+            let _ = writeln!(
+                defs,
+                r##"      <use href="#{cell_id}" transform="translate(0 {}) scale(1 -1)"/>"##,
+                tile_h * 2.0
+            );
+        }
+        if tile.flip_x() && tile.flip_y() {
+            let _ = writeln!(
+                defs,
+                r##"      <use href="#{cell_id}" transform="translate({} {}) scale(-1 -1)"/>"##,
+                tile_w * 2.0,
+                tile_h * 2.0
+            );
+        }
+    }
+    let _ = writeln!(defs, "    </pattern>");
+    true
+}
+
+/// Paint-server def for a preset `a:pattFill` (§20.1.8.40).
+///
+/// The measured 64×64 cell is emitted on the `PATTERN_CELL_EMU` grid anchored at
+/// the slide origin, so the point grid is independent of the brush path
+/// (ref core/src/shape/paint.ts:459-479, pattern-bitmaps.ts:80-108).
+pub fn emit_pattern_fill_def(defs: &mut String, id: &str, pattern: &VectorPattern) {
+    let Some(rows) = crate::compiler::pattern::pattern_rows(&pattern.preset) else {
+        return;
+    };
+    let rows: Vec<&str> = rows.split('/').collect();
+    let cell = crate::contracts::PATTERN_CELL_EMU;
+    let midpoint = [
+        u16::from(pattern.fg[0]).wrapping_add(u16::from(pattern.bg[0])).div_ceil(2) as u8,
+        u16::from(pattern.fg[1]).wrapping_add(u16::from(pattern.bg[1])).div_ceil(2) as u8,
+        u16::from(pattern.fg[2]).wrapping_add(u16::from(pattern.bg[2])).div_ceil(2) as u8,
+        u16::from(pattern.fg[3]).wrapping_add(u16::from(pattern.bg[3])).div_ceil(2) as u8,
+    ];
+    let _ = writeln!(
+        defs,
+        r#"    <pattern id="{id}" patternUnits="userSpaceOnUse" x="0" y="0" width="{tile}" height="{tile}">"#,
+        tile = cell * 8.0
+    );
+    for (y, row) in rows.iter().enumerate() {
+        for (x, ch) in row.as_bytes().iter().enumerate() {
+            let [r, g, b, a] = match ch {
+                b'#' => pattern.fg,
+                b'+' => midpoint,
+                _ => pattern.bg,
+            };
+            let _ = writeln!(
+                defs,
+                r#"      <rect x="{}" y="{}" width="{cell}" height="{cell}" fill="rgb({r},{g},{b})" fill-opacity="{:.3}"/>"#,
+                x as f32 * cell,
+                y as f32 * cell,
+                a as f32 / 255.0
+            );
+        }
+    }
+    let _ = writeln!(defs, "    </pattern>");
+}
+
+/// Anchor of the first tile for an `ST_RectAlignment` value
+/// (ref renderer.ts:2377-2403, `tileAnchorOffset`).
+fn tile_anchor(algn: &str, box_w: f32, box_h: f32, tile_w: f32, tile_h: f32) -> (f32, f32) {
+    let ax = match algn {
+        "t" | "ctr" | "b" => (box_w - tile_w) / 2.0,
+        "tr" | "r" | "br" => box_w - tile_w,
+        _ => 0.0,
+    };
+    let ay = match algn {
+        "l" | "ctr" | "r" => (box_h - tile_h) / 2.0,
+        "bl" | "b" | "br" => box_h - tile_h,
+        _ => 0.0,
+    };
+    (ax, ay)
 }

@@ -103,6 +103,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
         let mut effect_refs: Vec<Option<filters::EffectRefs>> = Vec::new();
         let mut draw_path_index = 0usize;
         let mut clip_ids: Vec<Option<String>> = Vec::with_capacity(scene.commands.len());
+        let mut stroke_paint_ids: Vec<Option<String>> = Vec::with_capacity(scene.commands.len());
         let mut clip_counter = 0usize;
         for cmd in &scene.commands {
             // Picture silhouettes become `<clipPath>` defs, one per PushClip
@@ -121,9 +122,9 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
             if let VectorCommand::DrawPath {
                 path: v_path,
                 fill,
+                stroke,
                 transform,
                 effects,
-                ..
             } = cmd
             {
                 let refs = filters::emit_effect_defs(
@@ -150,11 +151,54 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                         path::emit_radial_gradient_def(&mut defs, &id, grad, v_path);
                         path_grad_ids.push(Some(id));
                     }
+                    Some(VectorPaint::Image(ref image_fill)) => {
+                        grad_id_counter += 1;
+                        let id = format!("imgfill_{}", grad_id_counter);
+                        let box_ = path::path_bounds(v_path)
+                            .map(|(x0, y0, x1, y1)| (x0, y0, x1 - x0, y1 - y0));
+                        match box_ {
+                            Some(box_) if image::emit_image_fill_def(
+                                assets, &mut defs, &id, image_fill, box_,
+                            ) => path_grad_ids.push(Some(id)),
+                            _ => path_grad_ids.push(None),
+                        }
+                    }
+                    Some(VectorPaint::Pattern(ref pattern)) => {
+                        grad_id_counter += 1;
+                        let id = format!("pattfill_{}", grad_id_counter);
+                        image::emit_pattern_fill_def(&mut defs, &id, pattern);
+                        path_grad_ids.push(Some(id));
+                    }
                     _ => path_grad_ids.push(None),
                 }
+
+                // `a:ln` paints its own gradient/pattern, which replaces the
+                // flat stroke colour (ref renderer.ts:7542-7565).
+                stroke_paint_ids.push(match stroke.as_ref().and_then(|s| s.paint.as_deref()) {
+                    Some(VectorPaint::LinearGradient(ref grad)) => {
+                        grad_id_counter += 1;
+                        let id = format!("sgrad_{}", grad_id_counter);
+                        path::emit_linear_gradient_def(&mut defs, &id, grad, v_path);
+                        Some(id)
+                    }
+                    Some(VectorPaint::RadialGradient(ref grad)) => {
+                        grad_id_counter += 1;
+                        let id = format!("sgrad_{}", grad_id_counter);
+                        path::emit_radial_gradient_def(&mut defs, &id, grad, v_path);
+                        Some(id)
+                    }
+                    Some(VectorPaint::Pattern(ref pattern)) => {
+                        grad_id_counter += 1;
+                        let id = format!("spattfill_{}", grad_id_counter);
+                        image::emit_pattern_fill_def(&mut defs, &id, pattern);
+                        Some(id)
+                    }
+                    _ => None,
+                });
             } else {
                 effect_refs.push(None);
                 path_grad_ids.push(None);
+                stroke_paint_ids.push(None);
             }
         }
 
@@ -239,7 +283,8 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     let d = path::path_to_svg_d(v_path);
                     let grad_id = path_grad_ids.get(cmd_idx).and_then(|id| id.as_deref());
                     let fill_attr = path::format_fill_attr(fill.as_ref(), grad_id);
-                    let stroke_attr = path::format_stroke_attr(stroke.as_ref());
+                    let stroke_id = stroke_paint_ids.get(cmd_idx).and_then(|id| id.as_deref());
+                    let stroke_attr = path::format_stroke_attr(stroke.as_ref(), stroke_id);
                     let transform_attr = filters::format_path_transform(
                         v_path,
                         transform,
