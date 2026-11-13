@@ -1,3 +1,4 @@
+use ooxml_common::chart::ChartSeries;
 use pptx_model::ChartModel;
 use crate::contracts::{
     AffineTransform, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun,
@@ -6,6 +7,59 @@ use crate::contracts::{
 use crate::compiler::style::parse_hex_color;
 use super::color::{resolve_series_color, resolve_slice_color};
 use super::types::{get_category_label, ChartFamily};
+
+/// Points per CSS pixel at the reference renderer's 96 dpi host scale.
+const PT_PER_PX: f32 = 0.75;
+/// EMU per CSS pixel at 96 dpi.
+const EMU_PER_PX: f32 = 9525.0;
+
+/// Convert an OOXML DrawingML `ST_TextFontSize` (hundredths of a point) to
+/// points.
+///
+/// ref core/src/chart/layout.ts:146-154 (`chartTextFontSizePx`): the schema
+/// range is 100..=400000 hpt and the conversion is `sizeHpt / 100`. Values
+/// outside that range are rejected and fall back at the call site.
+pub fn chart_text_font_pt(size_hpt: Option<i32>) -> Option<f32> {
+    size_hpt
+        .filter(|hpt| (100..=400_000).contains(hpt))
+        .map(|hpt| hpt as f32 / 100.0)
+}
+
+/// Axis tick-label font size in points.
+///
+/// ref core/src/chart/shared/axis.ts:584 (`axisLabelPx`):
+/// `chartTextFontSizePx(...) ?? Math.max(8, h * 0.045)` where `h` is the chart
+/// height in CSS px. `chart_h` is in EMU, so convert through px.
+pub fn axis_label_font_pt(size_hpt: Option<i32>, chart_h: f32) -> f32 {
+    chart_text_font_pt(size_hpt)
+        .unwrap_or_else(|| ((chart_h / EMU_PER_PX) * 0.045).max(8.0) * PT_PER_PX)
+}
+
+/// Data-label font size in points for one series.
+///
+/// ref core/src/chart/shared/data-labels.ts:118-121: series `dLbls@sz` wins,
+/// then chart-level `dataLabelFontSizeHpt`; the fallback is
+/// `Math.max(9, Math.min(11, ph / 25))` CSS px (`ph` = plot height).
+pub fn series_data_label_font_pt(
+    chart: &ChartModel,
+    series: &ChartSeries,
+    plot_h: f32,
+) -> f32 {
+    let hpt = series
+        .series_data_labels
+        .as_ref()
+        .and_then(|labels| labels.font_size_hpt)
+        .or(chart.data_label_font_size_hpt);
+    chart_text_font_pt(hpt)
+        .unwrap_or_else(|| ((plot_h / EMU_PER_PX) / 25.0).clamp(9.0, 11.0) * PT_PER_PX)
+}
+
+/// Legend entry font size in points.
+///
+/// ref core/src/chart/shared/resource.ts:33: `?? 10 * ptToPx`.
+pub fn legend_font_pt(size_hpt: Option<i32>) -> f32 {
+    chart_text_font_pt(size_hpt).unwrap_or(10.0)
+}
 
 #[derive(Clone, Debug)]
 pub struct ChartLayout {
@@ -201,10 +255,9 @@ pub fn compile_chart_title(
         None => return Vec::new(),
     };
 
-    let font_size_pt = chart
-        .title_font_size_hpt
-        .map(|hpt| (hpt as f32) / 2.0)
-        .unwrap_or(14.0);
+    // ref core/src/chart/layout.ts:155-158 (`chartTitleFontPx`): authored hpt
+    // wins, otherwise the shared 14pt product fallback.
+    let font_size_pt = chart_text_font_pt(chart.title_font_size_hpt).unwrap_or(14.0);
 
     let color = chart
         .title_font_color
@@ -251,7 +304,7 @@ pub fn compile_chart_legend(
     }
 
     let mut commands = Vec::new();
-    let font_size_pt = 9.5;
+    let font_size_pt = legend_font_pt(chart.legend_font_size_hpt);
     let swatch_size = font_size_pt * 12700.0 * 0.75;
     let text_color = [60, 60, 60, 255];
 

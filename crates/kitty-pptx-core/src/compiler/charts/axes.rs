@@ -4,7 +4,7 @@ use crate::contracts::{
     VectorStroke,
 };
 use crate::compiler::style::parse_hex_color;
-use super::layout::{make_simple_run, ChartLayout};
+use super::layout::{axis_label_font_pt, make_simple_run, ChartLayout};
 use super::types::{get_category_label, ChartDataBounds, ChartFamily};
 
 pub fn compile_axes(
@@ -44,7 +44,11 @@ pub fn compile_axes(
         line_join: LineJoin::Miter,
     };
 
-    let font_size_pt = 8.5;
+    // ref core/src/chart/shared/axis.ts:584 (`axisLabelPx`): the authored
+    // `@sz` is hundredths of a point; absent values use the chart-height
+    // fallback. Category and value axes resolve independently.
+    let cat_font_pt = axis_label_font_pt(chart.cat_axis_font_size_hpt, layout.h);
+    let val_font_pt = axis_label_font_pt(chart.val_axis_font_size_hpt, layout.h);
     let label_color = [80, 80, 80, 255];
 
     if is_horizontal {
@@ -82,7 +86,7 @@ pub fn compile_axes(
             if !chart.val_axis_hidden {
                 let label_text = format_number_label(val, family.is_percent_stacked());
                 let ty = layout.plot_y + layout.plot_h + 120_000.0;
-                let run = make_simple_run(&label_text, font_size_pt, label_color, vx, ty, "center");
+                let run = make_simple_run(&label_text, val_font_pt, label_color, vx, ty, "center");
                 commands.push(VectorCommand::DrawText {
                     runs: vec![run],
                     transform,
@@ -99,7 +103,7 @@ pub fn compile_axes(
                 let cy = layout.plot_y + (i as f32 + 0.5) * slot_h;
                 let cat_name = get_category_label(chart, i);
                 let tx = layout.plot_x - 50_000.0;
-                let run = make_simple_run(&cat_name, font_size_pt, label_color, tx, cy, "right");
+                let run = make_simple_run(&cat_name, cat_font_pt, label_color, tx, cy, "right");
                 commands.push(VectorCommand::DrawText {
                     runs: vec![run],
                     transform,
@@ -187,7 +191,7 @@ pub fn compile_axes(
             if !chart.val_axis_hidden {
                 let label_text = format_number_label(val, family.is_percent_stacked());
                 let tx = layout.plot_x - 50_000.0;
-                let run = make_simple_run(&label_text, font_size_pt, label_color, tx, vy + 30_000.0, "right");
+                let run = make_simple_run(&label_text, val_font_pt, label_color, tx, vy + 30_000.0, "right");
                 commands.push(VectorCommand::DrawText {
                     runs: vec![run],
                     transform,
@@ -204,7 +208,7 @@ pub fn compile_axes(
                 let cx = layout.plot_x + (i as f32 + 0.5) * slot_w;
                 let cat_name = get_category_label(chart, i);
                 let ty = layout.plot_y + layout.plot_h + 140_000.0;
-                let run = make_simple_run(&cat_name, font_size_pt, label_color, cx, ty, "center");
+                let run = make_simple_run(&cat_name, cat_font_pt, label_color, cx, ty, "center");
                 commands.push(VectorCommand::DrawText {
                     runs: vec![run],
                     transform,

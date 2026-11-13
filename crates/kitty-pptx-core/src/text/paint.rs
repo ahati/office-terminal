@@ -1,0 +1,361 @@
+//! Glyph placement for a laid-out text body, plus the stacked WordArt path.
+//!
+//! Split out of [`super::emit`] so the layout half (wrap / spacing / anchor /
+//! baselines) and the paint half (per-line pen, justification gaps, run
+//! emission) stay independently testable and under the 600-line file limit.
+//!
+//! Reference: `renderer.ts:5680-5925` (tab/justify draw loop), `4849-5028`
+//! (stacked WordArt) and the kernels in `packages/core/src/drawingml-text/`.
+
+use crossbeam_channel::Sender;
+
+use super::emit::{build_paragraphs, LineLayout, Measurer, ParagraphLayout};
+use crate::compiler::math::{self, MathPiece};
+use crate::contracts::{
+    AffineTransform, PositionedGlyph, PositionedGlyphRun, RectF32, VectorCommand, WarningEvent,
+};
+use crate::text::justify::{self, JustifyMode, JustifyPlan};
+use crate::text::linebreak::{BreakItem, BrokenLine, LineItem};
+use crate::text::measure::{StyleId, TextMeasure};
+use crate::text::metrics::{self, FaceMetrics};
+use crate::text::shape;
+use crate::text::vertical;
+
+/// Vertical space an equation claims per unit of its own ascent/descent
+/// (`compiler/text.rs:314`, PRD 09 §1.2).
+const MATH_BLOCK_SCALE: f32 = 1.4;
+
+/// `powerPointNaturalLine` over the line's runs, then widened by any equation
+/// the line carries.
+///
+/// An inline equation contributes the typographic box the math engine laid out,
+/// not its font size: PRD 09 §1.2 and the pre-port compiler
+/// (`compiler/text.rs:314`) give an equation `(ascent + descent) * 1.4` of
+/// vertical space, split on its own baseline. Without that a fractions-heavy
+/// `m:oMathPara` block would be shorter than the text it replaces.
+pub(super) fn natural_box(
+    measurer: &Measurer,
+    line: &BrokenLine,
+    para: &ParagraphLayout,
+    pieces: &[&MathPiece],
+) -> (f32, f32) {
+    let mut sizes: Vec<(f32, FaceMetrics)> = Vec::new();
+    for item in &line.items {
+        let style = match item {
+            LineItem::Text { style, .. } => *style,
+            LineItem::Tab { style, .. } => *style,
+            LineItem::Object { style, .. } => *style,
+        };
+        let def = measurer.style(style);
+        sizes.push((
+            def.size_emu,
+            FaceMetrics {
+                ascent_share: shape::ascent_share_for(&def.family, def.bold, def.italic),
+            },
+        ));
+    }
+    if sizes.is_empty() {
+        let def = measurer.style(para.default_style);
+        sizes.push((
+            def.size_emu,
+            FaceMetrics {
+                ascent_share: shape::ascent_share_for(&def.family, def.bold, def.italic),
+            },
+        ));
+    }
+    let (mut ascent, mut descent) = metrics::natural_line_box(&sizes);
+    for piece in pieces {
+        ascent = ascent.max(piece.ascent * MATH_BLOCK_SCALE);
+        descent = descent.max(piece.descent * MATH_BLOCK_SCALE);
+    }
+    (ascent, descent)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn place_line(
+    measurer: &Measurer,
+    para: &ParagraphLayout,
+    line: &LineLayout,
+    line_x: f32,
+    baseline_y: f32,
+    transform: &AffineTransform,
+    justify: Option<&JustifyPlan>,
+    final_runs: &mut Vec<PositionedGlyphRun>,
+    commands: &mut Vec<VectorCommand>,
+) {
+    let mut pen_x = 0.0f32;
+    // Position in the line's flat unit stream, see `justify::JustifyPlan`.
+    let mut unit = 0usize;
+    for item in &line.items {
+        match item {
+            LineItem::Text { text, style, width } => {
+                let extra = place_text(
+                    measurer,
+                    text,
+                    *style,
+                    line_x + pen_x,
+                    baseline_y,
+                    justify.map(|plan| (plan, unit)),
+                    final_runs,
+                );
+                pen_x += width + extra;
+                unit += text.chars().count();
+            }
+            LineItem::Tab { width, .. } => {
+                pen_x += width + gap_at(justify, unit);
+                unit += 1;
+            }
+            LineItem::Object { width, .. } => {
+                let extra = gap_at(justify, unit);
+                let offset = line_x + pen_x + extra;
+                let mut cursor = para.object_cursor.borrow_mut();
+                if let Some(piece) = para.math.get(*cursor) {
+                    let mut runs = piece.runs.clone();
+                    for run in &mut runs {
+                        for glyph in &mut run.glyphs {
+                            glyph.x += offset;
+                            glyph.y += baseline_y;
+                        }
+                    }
+                    final_runs.extend(runs);
+                    for path in &piece.paths {
+                        let shifted = math::translate_math_path(path, offset, baseline_y);
+                        commands.push(math::math_path_command(&shifted, transform));
+                    }
+                }
+                *cursor += 1;
+                pen_x += width + extra;
+                unit += 1;
+            }
+        }
+    }
+}
+
+/// The justification plan for one line, or `None` when it stays ragged.
+///
+/// ref renderer.ts:5885-5925: only the four fill alignments justify, the
+/// paragraph's final line and a line closed by `<a:br/>` stay natural under
+/// `just`, and a tabbed or bidi line is never re-spaced.
+pub(super) fn justify_plan(
+    para: &ParagraphLayout,
+    line: &LineLayout,
+    avail: f32,
+) -> Option<JustifyPlan> {
+    let mode = match para.alignment.as_str() {
+        "just" | "justLow" => JustifyMode::Just,
+        "dist" => JustifyMode::Dist,
+        "thaiDist" => JustifyMode::ThaiDist,
+        _ => return None,
+    };
+    if !metrics::should_justify(&para.alignment, line.is_last_line, line.ends_with_break) {
+        return None;
+    }
+    // ref renderer.ts:5917 `justifyMode && !paraNeedsBidi && !hasTab` (the bidi
+    // probe is approximated by the paragraph's base direction).
+    if para.rtl
+        || line
+            .items
+            .iter()
+            .any(|item| matches!(item, LineItem::Tab { .. }))
+    {
+        return None;
+    }
+    justify::justify_line(
+        &line.items,
+        avail,
+        line.width,
+        mode,
+        line.is_last_line,
+        line.ends_with_break,
+    )
+}
+
+/// `per_gap` when the plan opens a boundary immediately before flat unit
+/// `unit` (`JustifyPlan::gap_after` is indexed by boundary, len = units + 1).
+fn gap_at(plan: Option<&JustifyPlan>, unit: usize) -> f32 {
+    match plan {
+        Some(plan) if plan.gap_after.get(unit).copied().unwrap_or(false) => plan.per_gap,
+        _ => 0.0,
+    }
+}
+
+/// Paint one text item, splitting it at every open justification boundary the
+/// way `justifyLine` splits a segment (`text-justify.ts:118-141`), and return
+/// the extra advance the gaps added. The pen still advances by the breaker's
+/// item width, so the split never shifts what follows.
+///
+/// `justification` pairs the line's plan with this item's offset in the flat
+/// unit stream (`JustifyPlan::gap_after` is indexed by boundary).
+fn place_text(
+    measurer: &Measurer,
+    text: &str,
+    style: StyleId,
+    x: f32,
+    baseline_y: f32,
+    justification: Option<(&JustifyPlan, usize)>,
+    out: &mut Vec<PositionedGlyphRun>,
+) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    let mut extra = 0.0f32;
+    let Some((plan, unit_start)) = justification else {
+        emit_run(measurer, text, style, x, baseline_y, out);
+        return extra;
+    };
+    let mut pen = 0.0f32;
+    let mut start = 0usize;
+    for (boundary, (offset, _ch)) in text.char_indices().enumerate() {
+        if !plan
+            .gap_after
+            .get(unit_start + boundary)
+            .copied()
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        // A gap only ever falls between two code points, so the piece before
+        // it is never empty (`line-gaps.ts:139-171`).
+        if boundary > 0 {
+            let piece = &text[start..offset];
+            emit_run(measurer, piece, style, x + pen + extra, baseline_y, out);
+            pen += measurer.advance(piece, style);
+            start = offset;
+        }
+        extra += plan.per_gap;
+    }
+    emit_run(
+        measurer,
+        &text[start..],
+        style,
+        x + pen + extra,
+        baseline_y,
+        out,
+    );
+    extra
+}
+
+/// Shape and place one run at pen position `x` on `baseline_y`.
+fn emit_run(
+    measurer: &Measurer,
+    text: &str,
+    style: StyleId,
+    x: f32,
+    baseline_y: f32,
+    out: &mut Vec<PositionedGlyphRun>,
+) {
+    let def = measurer.style(style);
+    let shaped = shape::shape(text, &def.family, def.size_emu, def.bold, def.italic);
+    let glyphs: Vec<PositionedGlyph> = shaped
+        .glyphs
+        .iter()
+        .map(|(id, glyph_x, advance)| PositionedGlyph {
+            glyph_id: *id,
+            x: x + *glyph_x,
+            y: baseline_y,
+            advance: *advance,
+            warp_u: None,
+        })
+        .collect();
+    out.push(PositionedGlyphRun {
+        text: text.to_string(),
+        font_family: def.family.clone(),
+        font_size_pt: def.size_pt,
+        color: def.color,
+        bold: def.bold,
+        italic: def.italic,
+        glyphs,
+        underline: def.underline,
+        strikethrough: def.strikethrough,
+        warp: None,
+    });
+}
+
+/// `renderStackedTextBody` (`renderer.ts:4849-5028`) reduced to one grapheme
+/// per column: upright glyphs read down a column, columns left-to-right for
+/// `wordArtVert` and right-to-left for `wordArtVertRtl`.
+///
+/// Approximations (see `text::vertical`): a grapheme is one column, so no
+/// column ever wraps; `a:lnSpc`, `spcBef`/`spcAft` column gaps and inline
+/// objects are not laid out, and the paragraph alignment is not applied along
+/// the column (the single glyph is centred).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn compile_stacked(
+    text_body: &pptx_model::TextBody,
+    box_w: i64,
+    box_h: i64,
+    base_transform: &AffineTransform,
+    measurer: &mut Measurer,
+    default_style: StyleId,
+    default_color: [u8; 4],
+    rtl: bool,
+    warning_sink: &Sender<WarningEvent>,
+) -> Vec<VectorCommand> {
+    let font_scale = text_body.font_scale.unwrap_or(1.0) as f32;
+    let paragraphs = build_paragraphs(
+        text_body,
+        default_style,
+        font_scale,
+        default_color,
+        measurer,
+        warning_sink,
+    );
+    let mut glyphs: Vec<vertical::StackedGlyph> = Vec::new();
+    for para in &paragraphs {
+        for item in &para.items {
+            let BreakItem::Text { text, style } = item else {
+                continue;
+            };
+            let def = measurer.style(*style);
+            let (ascent, descent) = metrics::natural_line_box(&[(
+                def.size_emu,
+                FaceMetrics {
+                    ascent_share: shape::ascent_share_for(&def.family, def.bold, def.italic),
+                },
+            )]);
+            for grapheme in vertical::graphemes(text) {
+                let advance = measurer.advance(grapheme, *style).max(1.0);
+                glyphs.push(vertical::StackedGlyph {
+                    text: grapheme.to_string(),
+                    style: *style,
+                    advance,
+                    thickness: advance,
+                    ascent,
+                    descent,
+                });
+            }
+        }
+    }
+    let rect = RectF32::new(
+        text_body.l_ins as f32,
+        text_body.t_ins as f32,
+        (box_w as f32 - text_body.l_ins as f32 - text_body.r_ins as f32).max(0.0),
+        (box_h as f32 - text_body.t_ins as f32 - text_body.b_ins as f32).max(0.0),
+    );
+    let slots = vertical::place_stacked(
+        &glyphs,
+        rect,
+        &text_body.vertical_anchor,
+        "ctr",
+        text_body.anchor_ctr,
+        rtl,
+    );
+    let mut runs = Vec::new();
+    for slot in &slots {
+        emit_run(
+            measurer,
+            &slot.text,
+            slot.style,
+            slot.x,
+            slot.baseline,
+            &mut runs,
+        );
+    }
+    if runs.is_empty() {
+        return Vec::new();
+    }
+    vec![VectorCommand::DrawText {
+        runs,
+        transform: *base_transform,
+    }]
+}

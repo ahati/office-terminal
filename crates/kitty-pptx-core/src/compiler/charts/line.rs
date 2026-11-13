@@ -5,7 +5,7 @@ use crate::contracts::{
 };
 use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::{resolve_series_color, resolve_series_line_color};
-use super::layout::{make_simple_run, ChartLayout};
+use super::layout::{make_simple_run, series_data_label_font_pt, ChartLayout};
 use super::types::ChartDataBounds;
 
 pub fn compile_lines(
@@ -98,6 +98,7 @@ pub fn compile_lines(
         }
 
         // 3. Optional data labels
+        let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
         if chart.show_data_labels {
             for &(px, py, val) in &points {
                 let label_text = if (val - val.round()).abs() < 1e-4 {
@@ -107,7 +108,7 @@ pub fn compile_lines(
                 };
                 let run = make_simple_run(
                     &label_text,
-                    7.5,
+                    label_pt,
                     [60, 60, 60, 255],
                     px,
                     py - marker_r - 20_000.0,

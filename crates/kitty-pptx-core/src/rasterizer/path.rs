@@ -1,6 +1,7 @@
+use crate::compiler::style::{linear_gradient_axis_for_path, radial_gradient_frame_for_path};
 use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorPaint, VectorPath,
-    VectorStroke,
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint,
+    VectorPath, VectorStroke,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -15,10 +16,6 @@ pub fn render_path(
     offset_y: f32,
 ) {
     let mut pb = tiny_skia::PathBuilder::new();
-    let mut min_x = f32::MAX;
-    let mut min_y = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut max_y = f32::MIN;
 
     for seg in &path.segments {
         match seg {
@@ -26,14 +23,12 @@ pub fn render_path(
                 let (tx, ty) = transform.transform_point(*x, *y);
                 let px = offset_x + tx * scale;
                 let py = offset_y + ty * scale;
-                update_bounds(px, py, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
                 pb.move_to(px, py);
             }
             PathSegment::LineTo { x, y } => {
                 let (tx, ty) = transform.transform_point(*x, *y);
                 let px = offset_x + tx * scale;
                 let py = offset_y + ty * scale;
-                update_bounds(px, py, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
                 pb.line_to(px, py);
             }
             PathSegment::QuadTo { x1, y1, x, y } => {
@@ -43,8 +38,6 @@ pub fn render_path(
                 let py1 = offset_y + ty1 * scale;
                 let px = offset_x + tx * scale;
                 let py = offset_y + ty * scale;
-                update_bounds(px1, py1, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
-                update_bounds(px, py, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
                 pb.quad_to(px1, py1, px, py);
             }
             PathSegment::CubicTo {
@@ -64,9 +57,6 @@ pub fn render_path(
                 let py2 = offset_y + ty2 * scale;
                 let px = offset_x + tx * scale;
                 let py = offset_y + ty * scale;
-                update_bounds(px1, py1, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
-                update_bounds(px2, py2, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
-                update_bounds(px, py, &mut min_x, &mut min_y, &mut max_x, &mut max_y);
                 pb.cubic_to(px1, py1, px2, py2, px, py);
             }
             PathSegment::Close => {
@@ -104,82 +94,73 @@ pub fn render_path(
                 );
             }
             VectorPaint::LinearGradient(grad) => {
-                let w = (max_x - min_x).max(1.0);
-                let h = (max_y - min_y).max(1.0);
-                let cx = (min_x + max_x) / 2.0;
-                let cy = (min_y + max_y) / 2.0;
-                let l = 0.5 * (w * w + h * h).sqrt();
-
-                let rad = grad.angle_deg.to_radians();
-                let cos = rad.cos();
-                let sin = rad.sin();
-
-                let p0 = tiny_skia::Point::from_xy(cx - l * cos, cy - l * sin);
-                let p1 = tiny_skia::Point::from_xy(cx + l * cos, cy + l * sin);
-
-                let stops: Vec<tiny_skia::GradientStop> = grad
-                    .stops
-                    .iter()
-                    .map(|(pos, [r, g, b, a])| {
-                        tiny_skia::GradientStop::new(
-                            *pos,
-                            tiny_skia::Color::from_rgba8(*r, *g, *b, *a),
-                        )
-                    })
-                    .collect();
-
-                if let Some(shader) = tiny_skia::LinearGradient::new(
-                    p0,
-                    p1,
-                    stops,
-                    tiny_skia::SpreadMode::Pad,
-                    tiny_skia::Transform::identity(),
-                ) {
-                    paint.shader = shader;
-                    pixmap.fill_path(
-                        &ts_path,
-                        &paint,
-                        ts_fill_rule,
-                        tiny_skia::Transform::identity(),
-                        None,
-                    );
+                // ref packages/core/src/shape/paint.ts:377-379: no stops paint
+                // nothing, a single stop paints a solid colour.
+                if grad.stops.len() == 1 {
+                    fill_solid(pixmap, &ts_path, ts_fill_rule, grad.stops[0].1);
+                } else if !grad.stops.is_empty() {
+                    // ref paint.ts:290-300: the axis is framed on the shape box,
+                    // centred, with half-length (|cos|·w + |sin|·h) / 2.
+                    if let Some(((x0, y0), (x1, y1))) =
+                        linear_gradient_axis_for_path(grad.angle_deg, path)
+                    {
+                        let p0 =
+                            device_point(transform, x0, y0, scale, offset_x, offset_y);
+                        let p1 =
+                            device_point(transform, x1, y1, scale, offset_x, offset_y);
+                        if let Some(shader) = tiny_skia::LinearGradient::new(
+                            p0,
+                            p1,
+                            gradient_stops(grad),
+                            tiny_skia::SpreadMode::Pad,
+                            tiny_skia::Transform::identity(),
+                        ) {
+                            paint.shader = shader;
+                            pixmap.fill_path(
+                                &ts_path,
+                                &paint,
+                                ts_fill_rule,
+                                tiny_skia::Transform::identity(),
+                                None,
+                            );
+                        }
+                    }
                 }
             }
             VectorPaint::RadialGradient(grad) => {
-                let w = (max_x - min_x).max(1.0);
-                let h = (max_y - min_y).max(1.0);
-                let cx = (min_x + max_x) / 2.0;
-                let cy = (min_y + max_y) / 2.0;
-                let r = 0.5 * w.max(h);
-
-                let center = tiny_skia::Point::from_xy(cx, cy);
-                let stops: Vec<tiny_skia::GradientStop> = grad
-                    .stops
-                    .iter()
-                    .map(|(pos, [r, g, b, a])| {
-                        tiny_skia::GradientStop::new(
-                            *pos,
-                            tiny_skia::Color::from_rgba8(*r, *g, *b, *a),
-                        )
-                    })
-                    .collect();
-
-                if let Some(shader) = tiny_skia::RadialGradient::new(
-                    center,
-                    center,
-                    r,
-                    stops,
-                    tiny_skia::SpreadMode::Pad,
-                    tiny_skia::Transform::identity(),
-                ) {
-                    paint.shader = shader;
-                    pixmap.fill_path(
-                        &ts_path,
-                        &paint,
-                        ts_fill_rule,
-                        tiny_skia::Transform::identity(),
-                        None,
-                    );
+                if grad.stops.len() == 1 {
+                    fill_solid(pixmap, &ts_path, ts_fill_rule, grad.stops[0].1);
+                } else if !grad.stops.is_empty() {
+                    // ref paint.ts:114-140: focus frame defaults to the whole
+                    // shape box, so centre = box centre and the circle radius
+                    // is the half-diagonal. `fillToRect`/`path` are not in the
+                    // IR; the `rect` max-axis branch is therefore unavailable.
+                    if let Some(((cx, cy), radius)) = radial_gradient_frame_for_path(path) {
+                        let center =
+                            device_point(transform, cx, cy, scale, offset_x, offset_y);
+                        // tiny-skia only has circular device-space shaders, so a
+                        // non-uniform transform is approximated by its largest
+                        // column norm (shape transforms are rotations/flips).
+                        let radius_px =
+                            (radius * scale * transform_scale(transform)).max(1e-6);
+                        if let Some(shader) = tiny_skia::RadialGradient::new(
+                            center,
+                            center,
+                            radius_px,
+                            gradient_stops(grad),
+                            tiny_skia::SpreadMode::Pad,
+                            tiny_skia::Transform::identity(),
+                        ) {
+                            paint.shader = shader;
+                            pixmap.fill_path(
+                                &ts_path,
+                                &paint,
+                                ts_fill_rule,
+                                tiny_skia::Transform::identity(),
+                                None,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -194,7 +175,9 @@ pub fn render_path(
         let [r, g, b, a] = s.color;
         paint.set_color_rgba8(r, g, b, a);
 
-        let width_px = (s.width_emu as f32 * scale).max(1.0); // Hairline preservation
+        // ref packages/core/src/shape/stroke-geometry.ts:15 — hairline floor
+        // is 0.5 px, not a full pixel.
+        let width_px = (s.width_emu as f32 * scale).max(0.5);
 
         let line_cap = match s.line_cap {
             LineCap::Butt => tiny_skia::LineCap::Butt,
@@ -215,7 +198,9 @@ pub fn render_path(
 
         let ts_stroke = tiny_skia::Stroke {
             width: width_px,
-            miter_limit: 4.0,
+            // ref stroke-geometry.ts:22 — authored or 10; the IR has no
+            // miter-limit field, so the reference default is used.
+            miter_limit: 10.0,
             line_cap,
             line_join,
             dash,
@@ -228,6 +213,62 @@ pub fn render_path(
             tiny_skia::Transform::identity(),
             None,
         );
+    }
+}
+
+fn fill_solid(
+    pixmap: &mut tiny_skia::Pixmap,
+    path: &tiny_skia::Path,
+    fill_rule: tiny_skia::FillRule,
+    [r, g, b, a]: [u8; 4],
+) {
+    let mut paint = tiny_skia::Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
+    paint.set_color_rgba8(r, g, b, a);
+    pixmap.fill_path(
+        path,
+        &paint,
+        fill_rule,
+        tiny_skia::Transform::identity(),
+        None,
+    );
+}
+
+fn gradient_stops(grad: &VectorGradient) -> Vec<tiny_skia::GradientStop> {
+    grad.stops
+        .iter()
+        .map(|(pos, [r, g, b, a])| {
+            // ref paint.ts:317 clamps stop positions into [0, 1].
+            tiny_skia::GradientStop::new(
+                pos.clamp(0.0, 1.0),
+                tiny_skia::Color::from_rgba8(*r, *g, *b, *a),
+            )
+        })
+        .collect()
+}
+
+fn device_point(
+    transform: &AffineTransform,
+    x: f32,
+    y: f32,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) -> tiny_skia::Point {
+    let (tx, ty) = transform.transform_point(x, y);
+    tiny_skia::Point::from_xy(offset_x + tx * scale, offset_y + ty * scale)
+}
+
+fn transform_scale(transform: &AffineTransform) -> f32 {
+    let sx = (transform.sx * transform.sx + transform.ky * transform.ky).sqrt();
+    let sy = (transform.kx * transform.kx + transform.sy * transform.sy).sqrt();
+    let scale = sx.max(sy);
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
     }
 }
 

@@ -1,8 +1,68 @@
 use pptx_model::ChartModel;
 use crate::contracts::{AffineTransform, VectorCommand, VectorPaint};
 use super::color::resolve_series_color;
-use super::layout::{make_simple_run, rect_path, ChartLayout};
+use super::layout::{make_simple_run, rect_path, series_data_label_font_pt, ChartLayout};
 use super::types::{ChartDataBounds, ChartFamily};
+
+/// Bar cluster geometry resolved from the chart group's `gapWidth`/`overlap`.
+///
+/// ref core/src/chart/families/bar.ts:1289-1333 (`clusterGeometry`):
+/// ECMA-376 §21.2.2.13 `gapWidth` is the gap between categories as a percent
+/// of one bar width (default 150) and §21.2.2.25 `overlap` is the signed
+/// percent by which bars inside a cluster overlap (default 0, clamped to
+/// -100..100). Stacked charts render one bar per category (`effective = 1`)
+/// with `overlap = 0`, but the authored gap width still applies.
+#[derive(Clone, Copy, Debug)]
+struct ClusterGeometry {
+    /// Bar thickness: width for columns, height for bars.
+    bar_w: f32,
+    /// Pitch between consecutive bars inside a cluster.
+    cluster_gap: f32,
+    /// Offset of the cluster from the start of its category slot.
+    cat_start: f32,
+}
+
+fn cluster_geometry(
+    chart: &ChartModel,
+    num_series: usize,
+    is_stacked: bool,
+    category_size: f32,
+) -> ClusterGeometry {
+    let effective = if is_stacked {
+        1.0
+    } else {
+        num_series.max(1) as f32
+    };
+    let owner = chart.series.first();
+    let raw_overlap = owner
+        .and_then(|s| s.bar_group_overlap)
+        .or(chart.bar_overlap)
+        .unwrap_or(0) as f32;
+    let overlap_pct = if is_stacked {
+        0.0
+    } else {
+        raw_overlap.clamp(-100.0, 100.0)
+    };
+    let authored_gap = owner
+        .and_then(|s| s.bar_group_gap_width)
+        .or(chart.bar_gap_width);
+    // ref category-spacing.ts:126-134 (`resolveCategoryGapWidthPercent`):
+    // legacy policy default 150, authored values clamped to 0..500.
+    let gap_width_pct = authored_gap.map_or(150.0, |gap| (gap as f32).clamp(0.0, 500.0));
+    let denom = 1.0 + (effective - 1.0) * (1.0 - overlap_pct / 100.0) + gap_width_pct / 100.0;
+    let bar_w = category_size / denom;
+    let cluster_gap = if is_stacked {
+        0.0
+    } else {
+        bar_w * (1.0 - overlap_pct / 100.0)
+    };
+    let cluster_width = bar_w + (effective - 1.0) * cluster_gap;
+    ClusterGeometry {
+        bar_w,
+        cluster_gap,
+        cat_start: (category_size - cluster_width) / 2.0,
+    }
+}
 
 pub fn compile_bars(
     chart: &ChartModel,
@@ -35,9 +95,10 @@ fn compile_vertical_columns(
     let is_pct = family.is_percent_stacked();
 
     if is_stacked {
-        let bar_w = slot_w * 0.6;
+        let geom = cluster_geometry(chart, 1, true, slot_w);
+        let bar_w = geom.bar_w;
         for c in 0..num_cats {
-            let cat_x = layout.plot_x + (c as f32) * slot_w + (slot_w - bar_w) / 2.0;
+            let cat_x = layout.plot_x + (c as f32) * slot_w + geom.cat_start;
 
             let cat_total: f64 = if is_pct {
                 chart
@@ -57,6 +118,7 @@ fn compile_vertical_columns(
                     Some(v) if v > 0.0 => v,
                     _ => continue,
                 };
+                let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
 
                 let norm_fraction = if is_pct {
                     if cat_total > 0.0 {
@@ -89,7 +151,7 @@ fn compile_vertical_columns(
                     };
                     let tx = cat_x + bar_w / 2.0;
                     let ty = bar_y + bar_h / 2.0 + 30_000.0;
-                    let run = make_simple_run(&lbl_text, 7.5, [255, 255, 255, 255], tx, ty, "center");
+                    let run = make_simple_run(&lbl_text, label_pt, [255, 255, 255, 255], tx, ty, "center");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
                         transform,
@@ -100,22 +162,22 @@ fn compile_vertical_columns(
             }
         }
     } else {
-        // Clustered columns
-        let gap_ratio = 0.25f32;
-        let inner_w = slot_w * (1.0 - gap_ratio);
-        let bar_w = inner_w / (num_series as f32);
+        // Clustered columns: ref bar.ts:1289-1333 cluster geometry.
+        let geom = cluster_geometry(chart, num_series, false, slot_w);
+        let bar_w = geom.bar_w;
 
         for c in 0..num_cats {
-            let cat_start_x = layout.plot_x + (c as f32) * slot_w + (slot_w * gap_ratio) / 2.0;
+            let cat_start_x = layout.plot_x + (c as f32) * slot_w + geom.cat_start;
 
             for (s_idx, s) in chart.series.iter().enumerate() {
                 let val = match s.values.get(c).copied().flatten() {
                     Some(v) => v,
                     None => continue,
                 };
+                let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
 
                 let norm_h = (((val - bounds.min_val) / bounds.max_val.max(1e-6)) as f32).clamp(0.0, 1.0) * layout.plot_h;
-                let bar_x = cat_start_x + (s_idx as f32) * bar_w;
+                let bar_x = cat_start_x + (s_idx as f32) * geom.cluster_gap;
                 let bar_y = layout.plot_y + layout.plot_h - norm_h;
 
                 let path = rect_path(bar_x, bar_y, bar_w, norm_h);
@@ -132,7 +194,7 @@ fn compile_vertical_columns(
                     let lbl_text = format_val(val);
                     let tx = bar_x + bar_w / 2.0;
                     let ty = bar_y - 20_000.0;
-                    let run = make_simple_run(&lbl_text, 7.5, [60, 60, 60, 255], tx, ty, "center");
+                    let run = make_simple_run(&lbl_text, label_pt, [60, 60, 60, 255], tx, ty, "center");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
                         transform,
@@ -162,9 +224,10 @@ fn compile_horizontal_bars(
     let is_pct = family.is_percent_stacked();
 
     if is_stacked {
-        let bar_h = slot_h * 0.6;
+        let geom = cluster_geometry(chart, 1, true, slot_h);
+        let bar_h = geom.bar_w;
         for c in 0..num_cats {
-            let cat_y = layout.plot_y + (c as f32) * slot_h + (slot_h - bar_h) / 2.0;
+            let cat_y = layout.plot_y + (c as f32) * slot_h + geom.cat_start;
 
             let cat_total: f64 = if is_pct {
                 chart
@@ -184,6 +247,7 @@ fn compile_horizontal_bars(
                     Some(v) if v > 0.0 => v,
                     _ => continue,
                 };
+                let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
 
                 let norm_fraction = if is_pct {
                     if cat_total > 0.0 {
@@ -214,7 +278,7 @@ fn compile_horizontal_bars(
                     };
                     let tx = cum_x + bar_w / 2.0;
                     let ty = cat_y + bar_h / 2.0 + 30_000.0;
-                    let run = make_simple_run(&lbl_text, 7.5, [255, 255, 255, 255], tx, ty, "center");
+                    let run = make_simple_run(&lbl_text, label_pt, [255, 255, 255, 255], tx, ty, "center");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
                         transform,
@@ -225,22 +289,22 @@ fn compile_horizontal_bars(
             }
         }
     } else {
-        // Clustered horizontal bars
-        let gap_ratio = 0.25f32;
-        let inner_h = slot_h * (1.0 - gap_ratio);
-        let bar_h = inner_h / (num_series as f32);
+        // Clustered horizontal bars: ref bar.ts:1289-1333 cluster geometry.
+        let geom = cluster_geometry(chart, num_series, false, slot_h);
+        let bar_h = geom.bar_w;
 
         for c in 0..num_cats {
-            let cat_start_y = layout.plot_y + (c as f32) * slot_h + (slot_h * gap_ratio) / 2.0;
+            let cat_start_y = layout.plot_y + (c as f32) * slot_h + geom.cat_start;
 
             for (s_idx, s) in chart.series.iter().enumerate() {
                 let val = match s.values.get(c).copied().flatten() {
                     Some(v) => v,
                     None => continue,
                 };
+                let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
 
                 let norm_w = (((val - bounds.min_val) / bounds.max_val.max(1e-6)) as f32).clamp(0.0, 1.0) * layout.plot_w;
-                let bar_y = cat_start_y + (s_idx as f32) * bar_h;
+                let bar_y = cat_start_y + (s_idx as f32) * geom.cluster_gap;
                 let bar_x = layout.plot_x;
 
                 let path = rect_path(bar_x, bar_y, norm_w, bar_h);
@@ -257,7 +321,7 @@ fn compile_horizontal_bars(
                     let lbl_text = format_val(val);
                     let tx = bar_x + norm_w + 30_000.0;
                     let ty = bar_y + bar_h / 2.0 + 30_000.0;
-                    let run = make_simple_run(&lbl_text, 7.5, [60, 60, 60, 255], tx, ty, "left");
+                    let run = make_simple_run(&lbl_text, label_pt, [60, 60, 60, 255], tx, ty, "left");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
                         transform,

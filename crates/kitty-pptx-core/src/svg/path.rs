@@ -1,7 +1,10 @@
 use std::fmt::Write;
+use crate::compiler::style::{
+    linear_gradient_axis, linear_gradient_axis_for_path, radial_gradient_frame_for_path,
+};
 use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorPaint, VectorPath,
-    VectorStroke,
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint,
+    VectorPath, VectorStroke,
 };
 
 pub fn path_to_svg_d(path: &VectorPath) -> String {
@@ -95,6 +98,10 @@ pub fn format_stroke_attr(stroke: Option<&VectorStroke>) -> String {
                 LineJoin::Bevel => out.push_str(r#" stroke-linejoin="bevel""#),
             }
 
+            // SVG defaults to 4; the renderer uses the DrawingML default 10
+            // (authored limits are not in the IR). ref stroke-geometry.ts:22
+            out.push_str(r#" stroke-miterlimit="10""#);
+
             if let Some(ref dash) = s.dash_segments {
                 let dash_str: Vec<String> = dash
                     .iter()
@@ -149,5 +156,99 @@ fn round_coord(v: f32) -> String {
         format!("{:.0}", v)
     } else {
         format!("{:.2}", v)
+    }
+}
+
+/// Emit a linear gradient definition in the path's local user space using the
+/// same frame math as the rasterizer.
+/// ref packages/core/src/shape/paint.ts:290-300
+pub fn emit_linear_gradient_def(
+    defs: &mut String,
+    id: &str,
+    grad: &VectorGradient,
+    path: &VectorPath,
+) {
+    if let Some(((x1, y1), (x2, y2))) = linear_gradient_axis_for_path(grad.angle_deg, path) {
+        emit_linear_gradient_range(defs, id, grad, x1, y1, x2, y2);
+    }
+}
+
+/// [`emit_linear_gradient_def`] for a known fill box (used by the slide
+/// background, where the box is `0..slide_width` × `0..slide_height`).
+pub fn emit_linear_gradient_def_for_box(
+    defs: &mut String,
+    id: &str,
+    grad: &VectorGradient,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) {
+    let ((x1, y1), (x2, y2)) = linear_gradient_axis(grad.angle_deg, x, y, w, h);
+    emit_linear_gradient_range(defs, id, grad, x1, y1, x2, y2);
+}
+
+fn emit_linear_gradient_range(
+    defs: &mut String,
+    id: &str,
+    grad: &VectorGradient,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+) {
+    let _ = writeln!(
+        defs,
+        r#"    <linearGradient id="{}" gradientUnits="userSpaceOnUse" x1="{}" y1="{}" x2="{}" y2="{}">"#,
+        id,
+        round_coord(x1),
+        round_coord(y1),
+        round_coord(x2),
+        round_coord(y2)
+    );
+    emit_gradient_stops(defs, grad);
+    let _ = writeln!(defs, "    </linearGradient>");
+}
+
+/// Emit a radial gradient definition in the path's local user space.
+/// ref packages/core/src/shape/paint.ts:114-140
+pub fn emit_radial_gradient_def(
+    defs: &mut String,
+    id: &str,
+    grad: &VectorGradient,
+    path: &VectorPath,
+) {
+    let Some(((cx, cy), radius)) = radial_gradient_frame_for_path(path) else {
+        return;
+    };
+    let cx = round_coord(cx);
+    let cy = round_coord(cy);
+    let _ = writeln!(
+        defs,
+        r#"    <radialGradient id="{}" gradientUnits="userSpaceOnUse" cx="{}" cy="{}" fx="{}" fy="{}" r="{}">"#,
+        id,
+        cx,
+        cy,
+        cx,
+        cy,
+        round_coord(radius)
+    );
+    emit_gradient_stops(defs, grad);
+    let _ = writeln!(defs, "    </radialGradient>");
+}
+
+fn emit_gradient_stops(defs: &mut String, grad: &VectorGradient) {
+    for (pos, [r, g, b, a]) in &grad.stops {
+        let opacity = *a as f32 / 255.0;
+        // ref paint.ts:317 clamps stop positions into [0, 1].
+        let _ = writeln!(
+            defs,
+            r#"      <stop offset="{}%" stop-color="rgb({},{},{})" stop-opacity="{:.2}"/>"#,
+            round_coord(pos.clamp(0.0, 1.0) * 100.0),
+            r,
+            g,
+            b,
+            opacity
+        );
     }
 }

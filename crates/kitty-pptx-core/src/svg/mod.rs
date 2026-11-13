@@ -5,7 +5,7 @@ mod text;
 
 use std::fmt::Write;
 use crate::contracts::{
-    sanitize_hyperlink_url, HyperlinkTarget, PathSegment, SlideLink, SvgTextMode,
+    sanitize_hyperlink_url, FillRule, HyperlinkTarget, PathSegment, SlideLink, SvgTextMode,
     VectorBackground, VectorCommand, VectorPaint, VectorSlide,
 };
 use crate::error::RenderError;
@@ -71,16 +71,39 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
         let bg_grad_id = match scene.background {
             Some(VectorBackground::Gradient(ref grad)) => {
                 let id = "bg_grad".to_string();
-                emit_linear_gradient_def(&mut defs, &id, grad);
+                path::emit_linear_gradient_def_for_box(
+                    &mut defs,
+                    &id,
+                    grad,
+                    0.0,
+                    0.0,
+                    scene.width_emu as f32,
+                    scene.height_emu as f32,
+                );
                 Some(id)
             }
             _ => None,
         };
 
-        // Command gradients and shape-effect filter graphs
+        // Command gradients, clip defs, and shape-effect filter graphs
         let mut effect_refs: Vec<Option<filters::EffectRefs>> = Vec::new();
         let mut draw_path_index = 0usize;
+        let mut clip_ids: Vec<Option<String>> = Vec::with_capacity(scene.commands.len());
+        let mut clip_counter = 0usize;
         for cmd in &scene.commands {
+            // Picture silhouettes become `<clipPath>` defs, one per PushClip
+            // (ref renderer.ts:6985-7036 builds the preset/custom silhouette
+            // and calls ctx.clip() before painting the bitmap).
+            clip_ids.push(match cmd {
+                VectorCommand::PushClip(clip_path) if !clip_path.segments.is_empty() => {
+                    clip_counter += 1;
+                    let id = format!("clip_{}", clip_counter);
+                    emit_clip_path_def(&mut defs, &id, clip_path);
+                    Some(id)
+                }
+                _ => None,
+            });
+
             if let VectorCommand::DrawPath {
                 path: v_path,
                 fill,
@@ -104,13 +127,13 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     Some(VectorPaint::LinearGradient(ref grad)) => {
                         grad_id_counter += 1;
                         let id = format!("grad_{}", grad_id_counter);
-                        emit_linear_gradient_def(&mut defs, &id, grad);
+                        path::emit_linear_gradient_def(&mut defs, &id, grad, v_path);
                         path_grad_ids.push(Some(id));
                     }
                     Some(VectorPaint::RadialGradient(ref grad)) => {
                         grad_id_counter += 1;
                         let id = format!("grad_{}", grad_id_counter);
-                        emit_radial_gradient_def(&mut defs, &id, grad);
+                        path::emit_radial_gradient_def(&mut defs, &id, grad, v_path);
                         path_grad_ids.push(Some(id));
                     }
                     _ => path_grad_ids.push(None),
@@ -175,8 +198,32 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
             .unwrap();
         }
 
-        // 3. Render vector commands
+        // 3. Render vector commands. A PushClip opens a `<g clip-path>` group;
+        //    nested pushes nest groups so the regions intersect exactly like
+        //    the reference's save()/clip() pairs. PopClip closes the innermost
+        //    group; unmatched or empty clips are simply skipped.
+        let mut open_clips: Vec<bool> = Vec::new();
         for (cmd_idx, cmd) in scene.commands.iter().enumerate() {
+            match cmd {
+                VectorCommand::PushClip(_) => {
+                    match clip_ids.get(cmd_idx).and_then(|id| id.as_deref()) {
+                        Some(id) => {
+                            let _ = writeln!(&mut svg, r#"  <g clip-path="url(#{})">"#, id);
+                            open_clips.push(true);
+                        }
+                        None => open_clips.push(false),
+                    }
+                    continue;
+                }
+                VectorCommand::PopClip => {
+                    if open_clips.pop().unwrap_or(false) {
+                        let _ = writeln!(&mut svg, "  </g>");
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+
             let mut element = String::new();
             match cmd {
                 VectorCommand::DrawPath {
@@ -267,9 +314,31 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
             }
         }
 
+        // Close groups left open by an unbalanced PushClip so the document
+        // always stays well-formed.
+        let unclosed = open_clips.iter().filter(|open| **open).count();
+        for _ in 0..unclosed {
+            let _ = writeln!(&mut svg, "  </g>");
+        }
+
         writeln!(&mut svg, "</svg>").unwrap();
         Ok(svg)
     }
+}
+
+fn emit_clip_path_def(defs: &mut String, id: &str, path: &crate::contracts::VectorPath) {
+    let d = path::path_to_svg_d(path);
+    let rule = match path.fill_rule {
+        FillRule::NonZero => r#" clip-rule="nonzero""#,
+        FillRule::EvenOdd => r#" clip-rule="evenodd""#,
+    };
+    let _ = writeln!(
+        defs,
+        r#"    <clipPath id="{}" clipPathUnits="userSpaceOnUse">"#,
+        id
+    );
+    let _ = writeln!(defs, r#"      <path d="{}"{}/>"#, d, rule);
+    let _ = writeln!(defs, "    </clipPath>");
 }
 
 fn find_command_link<'a>(links: &'a [SlideLink], command: &VectorCommand) -> Option<&'a SlideLink> {
@@ -411,52 +480,4 @@ fn xml_escape_attr(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
-}
-
-fn emit_linear_gradient_def(defs: &mut String, id: &str, grad: &crate::contracts::VectorGradient) {
-    let rad = grad.angle_deg.to_radians();
-    let x1 = 50.0 - 50.0 * rad.cos();
-    let y1 = 50.0 - 50.0 * rad.sin();
-    let x2 = 50.0 + 50.0 * rad.cos();
-    let y2 = 50.0 + 50.0 * rad.sin();
-
-    let _ = writeln!(
-        defs,
-        r#"    <linearGradient id="{}" x1="{:.1}%" y1="{:.1}%" x2="{:.1}%" y2="{:.1}%">"#,
-        id, x1, y1, x2, y2
-    );
-    for (pos, [r, g, b, a]) in &grad.stops {
-        let opacity = *a as f32 / 255.0;
-        let _ = writeln!(
-            defs,
-            r#"      <stop offset="{:.1}%" stop-color="rgb({},{},{})" stop-opacity="{:.2}"/>"#,
-            pos * 100.0,
-            r,
-            g,
-            b,
-            opacity
-        );
-    }
-    let _ = writeln!(defs, "    </linearGradient>");
-}
-
-fn emit_radial_gradient_def(defs: &mut String, id: &str, grad: &crate::contracts::VectorGradient) {
-    let _ = writeln!(
-        defs,
-        r#"    <radialGradient id="{}" cx="50%" cy="50%" r="50%">"#,
-        id
-    );
-    for (pos, [r, g, b, a]) in &grad.stops {
-        let opacity = *a as f32 / 255.0;
-        let _ = writeln!(
-            defs,
-            r#"      <stop offset="{:.1}%" stop-color="rgb({},{},{})" stop-opacity="{:.2}"/>"#,
-            pos * 100.0,
-            r,
-            g,
-            b,
-            opacity
-        );
-    }
-    let _ = writeln!(defs, "    </radialGradient>");
 }

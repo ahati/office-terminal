@@ -12,7 +12,11 @@ use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
 use crossbeam_channel::Sender;
 
 thread_local! {
-    static FONT_SYSTEM: RefCell<FontSystem> = RefCell::new(FontSystem::new());
+    static FONT_SYSTEM: RefCell<FontSystem> = RefCell::new({
+        let mut fs = FontSystem::new();
+        crate::text::fonts::install_into_font_system(&mut fs);
+        fs
+    });
 }
 
 struct ShapedText {
@@ -65,7 +69,40 @@ fn shape_text_run(
     })
 }
 
+/// Lay out a text body.
+///
+/// WordArt bodies keep the warp-aware emitter; everything else goes through the
+/// parity port in [`crate::text::emit`] (wrap, spacing, anchor, per-line
+/// baselines). Reference: `renderer.ts:4989` dispatches the warp path first.
 pub fn compile_text_body(
+    text_body: &pptx_model::TextBody,
+    box_w: i64,
+    box_h: i64,
+    base_transform: &AffineTransform,
+    default_shape_text_color: Option<&str>,
+    warning_sink: &Sender<WarningEvent>,
+) -> Vec<VectorCommand> {
+    if text_body.text_warp.is_none() {
+        return crate::text::emit::compile_text_body(
+            text_body,
+            box_w,
+            box_h,
+            base_transform,
+            default_shape_text_color,
+            warning_sink,
+        );
+    }
+    compile_text_body_warped(
+        text_body,
+        box_w,
+        box_h,
+        base_transform,
+        default_shape_text_color,
+        warning_sink,
+    )
+}
+
+fn compile_text_body_warped(
     text_body: &pptx_model::TextBody,
     box_w: i64,
     box_h: i64,
@@ -423,6 +460,17 @@ pub fn compile_text_body(
                     let u = (follow_offset + ((pen_w + advance * 0.5) / line_w) * follow)
                         .clamp(0.0, 1.0);
                     glyph.warp_u = Some(u);
+                    if std::env::var("KITTY_PPTX_DEBUG_WARP").is_ok() {
+                        eprintln!(
+                            "line {} run {:?} adv={:.0} pen={:.0} u={:.3} hscale={:.3}",
+                            line_index + 1,
+                            run.text,
+                            advance,
+                            pen_w,
+                            u,
+                            h_scale
+                        );
+                    }
                     pen_w += advance;
                 }
             }

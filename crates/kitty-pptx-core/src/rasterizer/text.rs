@@ -11,13 +11,15 @@ use std::cell::RefCell;
 
 thread_local! {
     static FONT_CONTEXT: RefCell<(FontSystem, SwashCache)> = RefCell::new({
-        let fs = FontSystem::new();
+        let mut fs = FontSystem::new();
+        crate::text::fonts::install_into_font_system(&mut fs);
         let sc = SwashCache::new();
         (fs, sc)
     });
     static WARP_FONT_DB: RefCell<Database> = RefCell::new({
         let mut db = Database::new();
         db.load_system_fonts();
+        crate::text::fonts::install_into_db(&mut db);
         db
     });
 }
@@ -77,8 +79,17 @@ pub fn render_text_runs(
             buffer.set_text(font_system, &run.text, attrs, Shaping::Advanced);
             buffer.shape_until_scroll(font_system, false);
 
+            // `glyph.y` is the compiled baseline in EMU (reference
+            // `renderer.ts:5783`: baseline = cursorY + metric ascent). Place the
+            // buffer so that its own baseline lands on that point instead of
+            // guessing an ascent fraction (the old `0.85 * size`).
+            let line_y = buffer
+                .layout_runs()
+                .next()
+                .map(|layout| layout.line_y)
+                .unwrap_or(sz_px * 0.8);
             let draw_x = origin_x.round() as i32;
-            let draw_y = (origin_y - sz_px * 0.85).round() as i32;
+            let draw_y = (origin_y - line_y).round() as i32;
 
             let text_color = Color::rgba(r, g, b, a);
             let pix_data = pixmap.data_mut();
@@ -204,21 +215,7 @@ fn render_warped_run(
     }
     WARP_FONT_DB.with(|cell| {
         let db = cell.borrow();
-        let query = DbQuery {
-            families: &[DbFamily::Name(&run.font_family), DbFamily::SansSerif],
-            weight: if run.bold {
-                DbWeight::BOLD
-            } else {
-                DbWeight::NORMAL
-            },
-            stretch: DbStretch::Normal,
-            style: if run.italic {
-                DbStyle::Italic
-            } else {
-                DbStyle::Normal
-            },
-        };
-        let Some(face_id) = db.query(&query) else {
+        let Some(face_id) = query_face(&db, run) else {
             return;
         };
         let _ = db.with_face_data(face_id, |data, index| {
@@ -268,6 +265,65 @@ fn render_warped_run(
             }
         });
     });
+}
+
+fn query_face(db: &Database, run: &PositionedGlyphRun) -> Option<fontdb::ID> {
+    let lower = run.font_family.to_ascii_lowercase();
+    let serif = lower.contains("serif")
+        || lower.contains("cambria")
+        || lower.contains("caladea")
+        || lower.contains("georgia")
+        || lower.contains("times");
+    let mono = lower.contains("mono") || lower.contains("consol") || lower.contains("courier");
+    let mut families = vec![run.font_family.clone()];
+    if serif {
+        families.extend([
+            "Caladea".to_string(),
+            "Liberation Serif".to_string(),
+            "DejaVu Serif".to_string(),
+            "Times New Roman".to_string(),
+        ]);
+    } else if mono {
+        families.extend([
+            "Liberation Mono".to_string(),
+            "DejaVu Sans Mono".to_string(),
+        ]);
+    } else {
+        families.extend([
+            "Carlito".to_string(),
+            "Liberation Sans".to_string(),
+            "DejaVu Sans".to_string(),
+            "Arial".to_string(),
+        ]);
+    }
+
+    let requested_weight = if run.bold {
+        DbWeight::BOLD
+    } else {
+        DbWeight::NORMAL
+    };
+    let requested_style = if run.italic {
+        DbStyle::Italic
+    } else {
+        DbStyle::Normal
+    };
+    for family in &families {
+        for (weight, style) in [
+            (requested_weight, requested_style),
+            (DbWeight::NORMAL, DbStyle::Normal),
+        ] {
+            let query = DbQuery {
+                families: &[DbFamily::Name(family)],
+                weight,
+                stretch: DbStretch::Normal,
+                style,
+            };
+            if let Some(id) = db.query(&query) {
+                return Some(id);
+            }
+        }
+    }
+    None
 }
 
 struct WarpOutlineBuilder<'a> {

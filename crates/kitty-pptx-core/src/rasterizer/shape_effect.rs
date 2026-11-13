@@ -1,10 +1,11 @@
 //! Multi-pass shape-effect compositing for the `tiny-skia` backend (PRD 08 §4).
 //!
 //! A path carrying [`ShapeEffects`] is rendered into a scratch layer so the
-//! silhouette alpha can drive shadow, glow, soft-edge, reflection, and inner
-//! shadow passes. Passes composite in the DrawingML order from PRD 08 §1.1:
-//! reflection → outer shadow → glow → extrusion/bevel → fill/stroke → inner
-//! shadow → soft edges.
+//! silhouette alpha can drive the outer shadow, reflection, glow, soft-edge and
+//! inner-shadow passes. The pass order mirrors the reference dispatcher
+//! (ref packages/pptx/src/renderer.ts:3789-3860 `paintWithRasterEffects`):
+//! outer shadow → reflection → glow → body (softEdge REPLACES the body) →
+//! inner shadow. Everything except the body itself is painted behind it.
 
 use crate::contracts::{
     AffineTransform, LineCap, LineJoin, ShapeEffects, VectorInnerShadow, VectorOuterShadow,
@@ -12,17 +13,13 @@ use crate::contracts::{
 };
 use crate::rasterizer::bevel::apply_bevel_shading;
 use crate::rasterizer::filters;
-use crate::rasterizer::mask::{
-    alpha_mask, pixmap_from_premultiplied, shift_mask, tint_mask, warp_mask,
-};
+use crate::rasterizer::mask::{alpha_mask, pixmap_from_premultiplied, tint_mask};
 use crate::rasterizer::path;
 use crate::scene3d;
 
-/// Safety cap for authored blur radii (PRD 08 §6.1).
-pub const MAX_BLUR_PX: f32 = 64.0;
-/// Threshold used by the soft-edge erosion remap (PRD 08 §3.4).
-const SOFT_EDGE_THRESHOLD: f32 = 0.1587;
 /// Upper bound on scratch-layer pixels to keep memory pressure predictable.
+/// This is the only blur guard kept: effect reaches are capped by the canvas
+/// diagonal instead of a fixed constant (the reference has no fixed cap either).
 const MAX_LAYER_PIXELS: usize = 16_000_000;
 
 /// Resolve a path's effective transform, applying the 3D scene camera
@@ -87,13 +84,19 @@ pub fn render_path_with_effects(
     }
     let shape_h_px = (max_px.1 - min_px.1).max(1.0);
 
-    let padding = effect_padding(effects, scale, shape_h_px);
     let canvas_w = pixmap.width() as f32;
     let canvas_h = pixmap.height() as f32;
-    let x0 = (min_px.0 - padding.0).floor().max(0.0) as i32;
-    let y0 = (min_px.1 - padding.1).floor().max(0.0) as i32;
-    let x1 = (max_px.0 + padding.2).ceil().min(canvas_w) as i32;
-    let y1 = (max_px.1 + padding.3).ceil().min(canvas_h) as i32;
+    let reach_cap = (canvas_w * canvas_w + canvas_h * canvas_h).sqrt();
+
+    // ref renderer.ts:4385-4400 — effect bounds start from the painted geometry
+    // grown by the stroke half width / contour extent so outlines are never
+    // clipped by the effect crop.
+    let painted_pad = painted_padding(stroke, effects, scale) + 2.0;
+    let padding = effect_padding(effects, scale, shape_h_px, reach_cap);
+    let x0 = (min_px.0 - padding.0 - painted_pad).floor().max(0.0) as i32;
+    let y0 = (min_px.1 - padding.1 - painted_pad).floor().max(0.0) as i32;
+    let x1 = (max_px.0 + padding.2 + painted_pad).ceil().min(canvas_w) as i32;
+    let y1 = (max_px.1 + padding.3 + painted_pad).ceil().min(canvas_h) as i32;
     if x1 <= x0 || y1 <= y0 {
         path::render_path(pixmap, path, fill, stroke, &effective, scale, offset_x, offset_y);
         return;
@@ -124,40 +127,55 @@ pub fn render_path_with_effects(
     );
 
     let base_mask = alpha_mask(layer.data());
-    let layer_origin = (x0 as f32, y0 as f32);
+    let origin = (x0 as f32, y0 as f32);
+    // The painted body box in layer-local pixels.
+    let bbox = (
+        min_px.0 - origin.0,
+        min_px.1 - origin.1,
+        max_px.0 - min_px.0,
+        max_px.1 - min_px.1,
+    );
+    // ref renderer.ts:3806 — shadow rotations follow the live transform.
+    let rotation_deg = effective.ky.atan2(effective.sx).to_degrees();
 
+    // 1. Outer shadow (ref renderer.ts:3794-3810): painted first, bottom-most.
+    if let Some(shadow) = effects.outer_shadow.as_ref() {
+        composite_outer_shadow(
+            pixmap,
+            &base_mask,
+            layer_w,
+            layer_h,
+            shadow,
+            scale,
+            reach_cap,
+            origin,
+            bbox,
+            rotation_deg,
+        );
+    }
+    // 2. Reflection (ref renderer.ts:3811-3817): above the shadow.
     if let Some(reflection) = effects.reflection.as_ref() {
         composite_reflection(
             pixmap,
             &layer,
             reflection,
             scale,
+            reach_cap,
             min_px,
             max_px,
-            layer_origin,
+            origin,
             shape_h_px,
         );
     }
-    if let Some(shadow) = effects.outer_shadow.as_ref() {
-        composite_outer_shadow(pixmap, &base_mask, layer_w, layer_h, shadow, scale, layer_origin);
-    }
+    // 3. Glow (ref renderer.ts:3818-3819): still behind the body.
     if let Some(glow) = effects.glow.as_ref() {
-        composite_glow(pixmap, &base_mask, layer_w, layer_h, glow, scale, layer_origin);
+        composite_glow(pixmap, &base_mask, layer_w, layer_h, glow, scale, reach_cap, origin);
     }
 
-    // Inner shadow is composited inside the layer so the following soft-edge
-    // pass feathers it together with the shape silhouette (PRD 08 §1.1).
-    if let Some(inner) = effects.inner_shadow.as_ref() {
-        composite_inner_shadow(&mut layer, &base_mask, layer_w, layer_h, inner, scale, (0.0, 0.0));
-    }
-
+    // 4. Body — `softEdge` replaces the body paint instead of layering on it.
     if let Some(soft) = effects.soft_edge.as_ref() {
-        let radius_px = clamp_radius_px(soft.radius_emu, scale);
-        if radius_px > 0.0 {
-            apply_soft_edge(&mut layer, &base_mask, layer_w, layer_h, radius_px);
-        }
+        apply_soft_edge(&mut layer, &base_mask, layer_w, layer_h, soft, scale, reach_cap, bbox);
     }
-
     pixmap.draw_pixmap(
         x0,
         y0,
@@ -166,6 +184,26 @@ pub fn render_path_with_effects(
         tiny_skia::Transform::identity(),
         None,
     );
+
+    // 5. Inner shadow (ref renderer.ts:3838-3848): painted over the body,
+    // clipped to its interior.
+    if let Some(inner) = effects.inner_shadow.as_ref() {
+        composite_inner_shadow(pixmap, &base_mask, layer_w, layer_h, inner, scale, reach_cap, origin);
+    }
+}
+
+/// Painted extent outside the geometry: stroke half width, contour width
+/// (ref renderer.ts:4361-4389 `paintedPad`). Line-end extents are not in the IR.
+fn painted_padding(stroke: Option<&VectorStroke>, effects: &ShapeEffects, scale: f32) -> f32 {
+    let stroke_half = stroke
+        .map(|s| (s.width_emu as f32 * scale).max(0.5) / 2.0)
+        .unwrap_or(0.0);
+    let contour = effects
+        .shape_3d
+        .as_ref()
+        .map(|s| s.contour_width_emu as f32 * scale)
+        .unwrap_or(0.0);
+    stroke_half.max(contour)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -259,7 +297,7 @@ fn draw_contour(
     path::render_path(layer, path, None, Some(&contour), transform, scale, offset_x, offset_y);
 }
 
-
+#[allow(clippy::too_many_arguments)]
 fn composite_outer_shadow(
     pixmap: &mut tiny_skia::Pixmap,
     base_mask: &[u8],
@@ -267,30 +305,44 @@ fn composite_outer_shadow(
     height: usize,
     shadow: &VectorOuterShadow,
     scale: f32,
+    reach_cap: f32,
     origin: (f32, f32),
+    bbox: (f32, f32, f32, f32),
+    shape_rotation_deg: f32,
 ) {
-    let radius_px = clamp_radius_px(shadow.blur_radius_emu, scale);
+    // ref effects.ts:applyOuterShadow — `ctx.filter='blur(r)'` takes the
+    // Gaussian standard deviation, i.e. sigma = the authored blur radius.
+    let sigma = filters::clamp_reach_px(shadow.blur_radius_emu, scale, reach_cap);
     let distance_px = shadow.distance_emu as f32 * scale;
-    if radius_px <= 0.0 && distance_px <= 0.0 {
+    if sigma <= 0.0 && distance_px == 0.0 {
         return;
     }
 
+    // rotWithShape defaults to true (§20.1.8.45). A false value keeps the
+    // effect in page space while the silhouette stays rotated.
+    let effect_rotation = if shadow.rotate_with_shape { shape_rotation_deg } else { 0.0 };
+    let (dx, dy) =
+        filters::directional_offset(shadow.direction_deg + effect_rotation as f64, distance_px);
+
     let mut mask = base_mask.to_vec();
-    filters::gaussian_blur_alpha(&mut mask, width, height, radius_px / 2.0);
+    filters::gaussian_blur_alpha(&mut mask, width, height, sigma);
+    // ref effects.ts:shadowAlignmentPoint — `algn` is not in the IR, so the
+    // spec default `b` (bottom centre of the shape box) anchors the transform.
+    let anchor = (bbox.0 + bbox.2 * 0.5, bbox.1 + bbox.3);
+    let mask = filters::warp_shadow_mask(
+        &mask,
+        width,
+        height,
+        shadow,
+        anchor,
+        effect_rotation,
+        (dx, dy),
+    );
 
-    if (shadow.scale_x - 1.0).abs() > 1e-4
-        || (shadow.scale_y - 1.0).abs() > 1e-4
-        || shadow.skew_x_deg.abs() > 1e-4
-        || shadow.skew_y_deg.abs() > 1e-4
-    {
-        mask = warp_mask(&mask, width, height, shadow);
-    }
-
-    let (dx, dy) = filters::directional_offset(shadow.direction_deg, distance_px);
     if let Some(tinted) = tint_mask(&mask, width, height, shadow.color, |a| a) {
         pixmap.draw_pixmap(
-            origin.0.round() as i32 + dx.round() as i32,
-            origin.1.round() as i32 + dy.round() as i32,
+            origin.0 as i32,
+            origin.1 as i32,
             tinted.as_ref(),
             &tiny_skia::PixmapPaint::default(),
             tiny_skia::Transform::identity(),
@@ -299,6 +351,7 @@ fn composite_outer_shadow(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn composite_glow(
     pixmap: &mut tiny_skia::Pixmap,
     base_mask: &[u8],
@@ -306,29 +359,22 @@ fn composite_glow(
     height: usize,
     glow: &crate::contracts::VectorGlow,
     scale: f32,
+    reach_cap: f32,
     origin: (f32, f32),
 ) {
-    let radius_px = clamp_radius_px(glow.radius_emu, scale);
+    let radius_px = filters::clamp_reach_px(glow.radius_emu, scale, reach_cap);
     if radius_px <= 0.0 {
         return;
     }
+    // ref renderer.ts:2701 `applyGlow` — canvas `shadowBlur = rad` blurs with
+    // sigma = rad / 2, and there is no additional intensity curve.
     let mut mask = base_mask.to_vec();
-    filters::gaussian_blur_alpha(&mut mask, width, height, radius_px / 2.5);
+    filters::gaussian_blur_alpha(&mut mask, width, height, radius_px / 2.0);
 
-    // Perceptual non-linear falloff: A' = alpha * (1 - (1 - A)^2).
-    let falloff: Vec<u8> = mask
-        .iter()
-        .map(|&a| {
-            let norm = a as f32 / 255.0;
-            let expanded = 1.0 - (1.0 - norm) * (1.0 - norm);
-            (expanded * 255.0).round() as u8
-        })
-        .collect();
-
-    if let Some(tinted) = tint_mask(&falloff, width, height, glow.color, |a| a) {
+    if let Some(tinted) = tint_mask(&mask, width, height, glow.color, |a| a) {
         pixmap.draw_pixmap(
-            origin.0.round() as i32,
-            origin.1.round() as i32,
+            origin.0 as i32,
+            origin.1 as i32,
             tinted.as_ref(),
             &tiny_skia::PixmapPaint::default(),
             tiny_skia::Transform::identity(),
@@ -337,6 +383,7 @@ fn composite_glow(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn composite_inner_shadow(
     pixmap: &mut tiny_skia::Pixmap,
     base_mask: &[u8],
@@ -344,21 +391,23 @@ fn composite_inner_shadow(
     height: usize,
     shadow: &VectorInnerShadow,
     scale: f32,
+    reach_cap: f32,
     origin: (f32, f32),
 ) {
-    let radius_px = clamp_radius_px(shadow.blur_radius_emu, scale);
+    let sigma = filters::clamp_reach_px(shadow.blur_radius_emu, scale, reach_cap);
     let distance_px = shadow.distance_emu as f32 * scale;
-    if radius_px <= 0.0 && distance_px <= 0.0 {
+    if sigma <= 0.0 && distance_px == 0.0 {
         return;
     }
 
     let (dx, dy) = filters::directional_offset(shadow.direction_deg, distance_px);
     let inverted: Vec<u8> = base_mask.iter().map(|&a| 255 - a).collect();
-    let shifted = shift_mask(&inverted, width, height, dx.round() as i32, dy.round() as i32);
+    // ref effects.ts:applyInnerShadow — offset the mask, blur it, then clip the
+    // surviving crescent back to the un-offset interior.
+    let shifted = filters::shift_mask_subpixel(&inverted, width, height, dx, dy);
     let mut blurred = shifted;
-    filters::gaussian_blur_alpha(&mut blurred, width, height, radius_px / 2.0);
+    filters::gaussian_blur_alpha(&mut blurred, width, height, sigma);
 
-    // Clip the blurred inverted mask to the shape interior.
     let clipped: Vec<u8> = blurred
         .iter()
         .zip(base_mask.iter())
@@ -367,8 +416,8 @@ fn composite_inner_shadow(
 
     if let Some(tinted) = tint_mask(&clipped, width, height, shadow.color, |a| a) {
         pixmap.draw_pixmap(
-            origin.0.round() as i32,
-            origin.1.round() as i32,
+            origin.0 as i32,
+            origin.1 as i32,
             tinted.as_ref(),
             &tiny_skia::PixmapPaint::default(),
             tiny_skia::Transform::identity(),
@@ -383,6 +432,7 @@ fn composite_reflection(
     layer: &tiny_skia::Pixmap,
     reflection: &crate::contracts::VectorReflection,
     scale: f32,
+    reach_cap: f32,
     min_px: (f32, f32),
     max_px: (f32, f32),
     origin: (f32, f32),
@@ -411,9 +461,10 @@ fn composite_reflection(
         tile[dst_start..dst_start + tw * 4].copy_from_slice(&src[src_start..src_start + tw * 4]);
     }
 
-    let radius_px = clamp_radius_px(reflection.blur_radius_emu, scale);
+    // ref effects.ts:applyReflection — `filter='blur(r)'`, sigma = r.
+    let radius_px = filters::clamp_reach_px(reflection.blur_radius_emu, scale, reach_cap);
     if radius_px > 0.0 {
-        filters::gaussian_blur_premultiplied(&mut tile, tw, th, radius_px / 2.0);
+        filters::gaussian_blur_premultiplied(&mut tile, tw, th, radius_px);
     }
 
     // Linear opacity ramp from the shape boundary down the reflection.
@@ -433,60 +484,56 @@ fn composite_reflection(
     let Some(tile_pixmap) = pixmap_from_premultiplied(&tile, tw, th) else {
         return;
     };
+    // Mirror about the shape's bottom edge, then push along `dir` by `dist`
+    // (ref effects.ts:applyReflection step 3).
     let distance_px = reflection.distance_emu as f32 * scale;
-    let dest_x = origin.0.round() as i32 + cx0 as i32;
-    let dest_y = (max_px.1 + distance_px).round() as i32;
-    pixmap.draw_pixmap(dest_x, dest_y, tile_pixmap.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+    let (off_x, off_y) = filters::directional_offset(reflection.direction_deg, distance_px);
+    let dest_x = (min_px.0 + off_x).round() as i32;
+    let dest_y = (max_px.1 + off_y).round() as i32;
+    pixmap.draw_pixmap(
+        dest_x,
+        dest_y,
+        tile_pixmap.as_ref(),
+        &tiny_skia::PixmapPaint::default(),
+        tiny_skia::Transform::identity(),
+        None,
+    );
 }
 
-/// Feather the shape layer's own alpha (PRD 08 §3.4).
+/// Feather the body symmetrically about the geometry
+/// (ref effects.ts:applySoftEdge, sigma = radius / 3, outward bleed of radius).
+#[allow(clippy::too_many_arguments)]
 fn apply_soft_edge(
     layer: &mut tiny_skia::Pixmap,
     base_mask: &[u8],
     width: usize,
     height: usize,
-    radius_px: f32,
+    soft: &crate::contracts::VectorSoftEdge,
+    scale: f32,
+    reach_cap: f32,
+    bbox: (f32, f32, f32, f32),
 ) {
-    let mut softened = base_mask.to_vec();
-    filters::gaussian_blur_alpha(&mut softened, width, height, radius_px / 2.0);
-    let span = (1.0 - SOFT_EDGE_THRESHOLD).max(1e-4);
-    for value in &mut softened {
-        let norm = *value as f32 / 255.0;
-        let remapped = ((norm - SOFT_EDGE_THRESHOLD) / span).clamp(0.0, 1.0);
-        *value = (remapped * 255.0).round() as u8;
+    let radius_px = filters::clamp_reach_px(soft.radius_emu, scale, reach_cap);
+    if radius_px <= 0.0 {
+        return;
     }
-
-    let data = layer.data_mut();
-    for i in 0..width * height {
-        let original = base_mask[i] as f32;
-        if original <= 0.0 {
-            continue;
-        }
-        let ratio = softened[i] as f32 / original;
-        for channel in 0..4 {
-            data[i * 4 + channel] = (data[i * 4 + channel] as f32 * ratio)
-                .round()
-                .clamp(0.0, 255.0) as u8;
-        }
-    }
+    filters::feather_alpha_bleed(layer.data_mut(), width, height, base_mask, bbox, radius_px);
 }
 
-fn clamp_radius_px(radius_emu: i64, scale: f32) -> f32 {
-    (radius_emu as f32 * scale).clamp(0.0, MAX_BLUR_PX)
-}
-
-fn emu_px(emu: i64, scale: f32) -> f32 {
-    emu as f32 * scale
-}
-
-fn effect_padding(effects: &ShapeEffects, scale: f32, shape_h_px: f32) -> (f32, f32, f32, f32) {
+fn effect_padding(
+    effects: &ShapeEffects,
+    scale: f32,
+    shape_h_px: f32,
+    reach_cap: f32,
+) -> (f32, f32, f32, f32) {
     let mut left = 0.0f32;
     let mut top = 0.0f32;
     let mut right = 0.0f32;
     let mut bottom = 0.0f32;
     if let Some(shadow) = effects.outer_shadow.as_ref() {
-        let pad = clamp_radius_px(shadow.blur_radius_emu, scale)
-            + emu_px(shadow.distance_emu, scale).abs()
+        // ref effects.ts:margin — three blur radii plus the offset reach.
+        let pad = 3.0 * filters::clamp_reach_px(shadow.blur_radius_emu, scale, reach_cap)
+            + (shadow.distance_emu as f32 * scale).abs()
             + 2.0;
         left = left.max(pad);
         top = top.max(pad);
@@ -494,24 +541,25 @@ fn effect_padding(effects: &ShapeEffects, scale: f32, shape_h_px: f32) -> (f32, 
         bottom = bottom.max(pad);
     }
     if let Some(glow) = effects.glow.as_ref() {
-        let pad = clamp_radius_px(glow.radius_emu, scale) + 2.0;
+        // sigma = rad / 2, so 3σ = 1.5·rad.
+        let pad = 1.5 * filters::clamp_reach_px(glow.radius_emu, scale, reach_cap) + 2.0;
         left = left.max(pad);
         top = top.max(pad);
         right = right.max(pad);
         bottom = bottom.max(pad);
     }
     if let Some(soft) = effects.soft_edge.as_ref() {
-        // The feather needs transparent pixels around the silhouette so the
-        // blur can erode inwards (PRD 08 §3.4).
-        let pad = clamp_radius_px(soft.radius_emu, scale) + 2.0;
+        // The outward colour bleed reaches exactly `rad`.
+        let pad = filters::clamp_reach_px(soft.radius_emu, scale, reach_cap) + 2.0;
         left = left.max(pad);
         top = top.max(pad);
         right = right.max(pad);
         bottom = bottom.max(pad);
     }
     if let Some(inner) = effects.inner_shadow.as_ref() {
-        let pad = clamp_radius_px(inner.blur_radius_emu, scale)
-            + emu_px(inner.distance_emu, scale).abs()
+        // ref effects.ts:innerShadowMargin — |dist| + 3·blur, +2 px guard.
+        let pad = 3.0 * filters::clamp_reach_px(inner.blur_radius_emu, scale, reach_cap)
+            + (inner.distance_emu as f32 * scale).abs()
             + 2.0;
         left = left.max(pad);
         top = top.max(pad);
@@ -519,20 +567,24 @@ fn effect_padding(effects: &ShapeEffects, scale: f32, shape_h_px: f32) -> (f32, 
         bottom = bottom.max(pad);
     }
     if let Some(reflection) = effects.reflection.as_ref() {
-        bottom = bottom.max(emu_px(reflection.distance_emu, scale) + shape_h_px + 2.0);
+        let blur = filters::clamp_reach_px(reflection.blur_radius_emu, scale, reach_cap);
+        bottom = bottom.max(
+            (reflection.distance_emu as f32 * scale).abs() + shape_h_px + 3.0 * blur + 2.0,
+        );
     }
     if let Some(shape_3d) = effects.shape_3d.as_ref() {
         let bevel = (shape_3d.bevel_top_width_emu.max(shape_3d.bevel_top_height_emu) as f32
             * scale)
             .clamp(0.0, 48.0)
             + 2.0;
-        let contour = emu_px(shape_3d.contour_width_emu, scale).clamp(0.0, 24.0) + 1.0;
+        let contour = (shape_3d.contour_width_emu as f32 * scale).clamp(0.0, 24.0) + 1.0;
         let pad = bevel.max(contour);
         left = left.max(pad);
         top = top.max(pad);
         right = right.max(pad);
         bottom = bottom.max(pad);
-        bottom = bottom.max(emu_px(shape_3d.extrusion_depth_emu, scale).clamp(0.0, 120.0) + 2.0);
+        bottom = bottom
+            .max((shape_3d.extrusion_depth_emu as f32 * scale).clamp(0.0, 120.0) + 2.0);
     }
     (left, top, right, bottom)
 }
