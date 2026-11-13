@@ -417,26 +417,42 @@ fn compile_text_body_warped(
             .max(1.0);
         let ink_h = max_size * 12700.0;
 
+        // Paired-edge (envelope) warp parameters, ref `renderer.ts:3236-3305`:
+        // the shape's height is split into `line_count` horizontal bands (one
+        // per laid-out line, `v0 = li/n` → `v1 = (li+1)/n`) and each line's
+        // flat ink box fills its whole band. `warp_box_h` is therefore the
+        // line's ink height DIVIDED by its band share, i.e. `inkH / (v1 - v0)`
+        // — the band fraction (`band_frac`) places the same line's BASELINE at
+        // the synthetic em box's ascent share inside that band, so the ink top
+        // lands on `T(u)` and the ink bottom on `B(u)`.
+        //
+        // `h_scale` is the reference's `hScale = boxW / totalW`; the paired map
+        // already contains it (the envelope follows `u` across the glyph), so
+        // only single-edge Follow Path callers consume it.
+        let ascent_share = crate::text::metrics::SYNTHETIC_ASCENT_EM;
         let (band_frac, warp_box_h, h_scale, follow, follow_offset) =
             if let Some(envelope) = &warp_envelope {
                 if envelope.single_edge {
+                    // Follow Path keeps the natural glyph size; `band_frac` is
+                    // the flat renderer's ascent fallback used as the baseline
+                    // drop below the arc (ref `renderer.ts:3287`).
                     let follow = follow_path_u_scale(envelope, line_w);
                     let offset = match line.alignment.as_str() {
                         "r" => 1.0,
                         "ctr" => 0.5,
                         _ => 0.0,
                     } * (1.0 - follow);
-                    (0.8, ink_h, 1.0, follow, offset)
+                    (ascent_share, ink_h, 1.0, follow, offset)
                 } else {
                     let v0 = line_index as f32 / line_count as f32;
                     let v1 = (line_index + 1) as f32 / line_count as f32;
-                    let band_frac = v0 + 0.8 * (v1 - v0);
+                    let band_frac = v0 + ascent_share * (v1 - v0);
                     let band_height = (v1 - v0).max(f32::EPSILON);
                     let h_scale = box_w as f32 / line_w;
                     (band_frac, ink_h / band_height, h_scale, 1.0, 0.0)
                 }
             } else {
-                (0.8, ink_h, 1.0, 1.0, 0.0)
+                (ascent_share, ink_h, 1.0, 1.0, 0.0)
             };
         let line_warp = warp_envelope.as_ref().map(|envelope| {
             Arc::new(RunWarp {

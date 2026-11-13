@@ -49,7 +49,7 @@ pub fn render_text_runs(
 
             if run.warp.is_some()
                 && run.glyphs.iter().any(|glyph| glyph.warp_u.is_some())
-                && run.text.chars().count() == run.glyphs.len()
+                && run.glyphs.len() <= run.text.chars().count()
             {
                 render_warped_run(pixmap, run, transform, scale, offset_x, offset_y);
                 continue;
@@ -227,11 +227,25 @@ fn render_warped_run(
                 return;
             }
             let emu_per_unit = run.font_size_pt * 12700.0 / units_per_em;
-            for (glyph, ch) in run.glyphs.iter().zip(run.text.chars()) {
+            // `run.glyphs` is the shaped glyph stream while `run.text` is the
+            // authored character stream; cosmic_text drops the odd whitespace
+            // glyph (it carries no ink), so a plain zip can silently shift every
+            // following glyph onto the wrong character. Realign by skipping a
+            // whitespace character while the glyphs run short.
+            let chars: Vec<char> = run.text.chars().collect();
+            let mut glyph_index = 0usize;
+            for (char_index, ch) in chars.iter().enumerate() {
+                let Some(glyph) = run.glyphs.get(glyph_index) else {
+                    break;
+                };
+                if ch.is_whitespace() && chars.len() - char_index > run.glyphs.len() - glyph_index {
+                    continue;
+                }
+                glyph_index += 1;
                 let Some(u_center) = glyph.warp_u else {
                     continue;
                 };
-                let Some(glyph_id) = face.glyph_index(ch) else {
+                let Some(glyph_id) = face.glyph_index(*ch) else {
                     continue;
                 };
                 let mut builder = WarpOutlineBuilder {
@@ -339,6 +353,24 @@ struct WarpOutlineBuilder<'a> {
 }
 
 impl WarpOutlineBuilder<'_> {
+    /// Map one outline point (font units, y-up) into device space.
+    ///
+    /// Paired-edge presets use the exact continuous envelope map
+    /// `P(u, v) = (1 − v)·T(u) + v·B(u)` (ref `renderer.ts:3320`
+    /// `drawWarpedGlyphStrips`, whose per-strip affines converge to it). The
+    /// horizontal fraction `u` comes from the point's FLAT pen offset, so the
+    /// envelope itself already widens the glyph by `boxW / lineW`; adding the
+    /// advance again (`h_scale`), as the earlier revision did, doubled every
+    /// glyph's width and sheared it into the shards this path used to emit.
+    ///
+    /// `v` is the point's height fraction across the local band: the baseline
+    /// sits at `band_frac`, and `warp_box_h` spans the line's share of the gap,
+    /// so the flat ink box maps 1:1 onto its band (ref `renderer.ts:3298`
+    /// `warpBoxH = inkH / (v1 - v0)`).
+    ///
+    /// Single-edge (arch/circle/Follow Path) presets keep the rigid per-glyph
+    /// placement on the baseline curve: natural size, rotated to the curve
+    /// normal, no shear (ref `renderer.ts:3400`, `text-warp.ts:319`).
     fn point(&self, x: f32, y: f32) -> (f32, f32) {
         let local_x = x * self.emu_per_unit;
         let local_y = -y * self.emu_per_unit;
@@ -353,13 +385,25 @@ impl WarpOutlineBuilder<'_> {
         ) else {
             return (self.offset_x, self.offset_y);
         };
-        let scaled_x = centered_x * self.run_warp.h_scale;
-        let scaled_y = local_y * warp.scale_y;
-        let sheared_x = scaled_x + warp.shear * scaled_y;
-        let cos = warp.angle.cos();
-        let sin = warp.angle.sin();
-        let warped_x = warp.x + sheared_x * cos - scaled_y * sin;
-        let warped_y = warp.y + sheared_x * sin + scaled_y * cos;
+        let paired = crate::compiler::text_warp::warp_point(
+            &self.run_warp.envelope,
+            u,
+            self.run_warp.band_frac + local_y / self.run_warp.warp_box_h.max(1.0),
+        );
+        let (warped_x, warped_y) = match paired {
+            Some(point) => point,
+            None => {
+                let scaled_x = centered_x * self.run_warp.h_scale;
+                let scaled_y = local_y * warp.scale_y;
+                let sheared_x = scaled_x + warp.shear * scaled_y;
+                let cos = warp.angle.cos();
+                let sin = warp.angle.sin();
+                (
+                    warp.x + sheared_x * cos - scaled_y * sin,
+                    warp.y + sheared_x * sin + scaled_y * cos,
+                )
+            }
+        };
         let (slide_x, slide_y) = self.transform.transform_point(warped_x, warped_y);
         (
             self.offset_x + slide_x * self.scale,

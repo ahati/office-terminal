@@ -1,12 +1,17 @@
-# External renderer comparison (opt-in)
+# External renderer comparison (opt-in, perceptual)
 
-An expensive, locally-run comparison against a second PPTX renderer:
-[`office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer)
-driven through Playwright. It is **not** run by `cargo test` or CI.
+An independent check that `kitty-pptx` still produces the right structure when
+another implementation draws the same LibreOffice QA deck. This is **not**
+PowerPoint ground truth and **not** a pixel-identity test: fonts come from the
+host, so glyphs and anti-aliasing differ between renderers.
 
-The point is not pixel identity or authority. It is an independent check that
-our renderer still produces the right structure when another implementation
-draws the same LibreOffice QA deck.
+Provenance:
+
+- Fixtures: [LibreOffice core](https://github.com/LibreOffice/core), **MPL-2.0**,
+  fetched at test time from the commit pinned in `fixtures.json`. They are not
+  distributed with this repository.
+- References: [`@silurus/ooxml`](https://github.com/yukiyokotani/office-open-xml-viewer),
+  **MIT**, driven through Playwright (Apache-2.0) in headless Chromium.
 
 ## One command
 
@@ -15,64 +20,84 @@ python3 crates/kitty-pptx-core/tests/golden/external/run.py
 ```
 
 The first run needs network access, Git, Node.js/npm, and downloads Playwright
-Chromium. Later runs use the cache under `target/external/` and only rerun the
-Rust comparison.
+Chromium. It fetches the pinned fixtures, renders the references, and runs the
+comparison. Later runs reuse the cache and rerun only the Rust comparison.
 
 Useful flags:
 
 ```sh
-# Rebuild both caches
-python3 .../run.py --force
-
-# Refetch fixtures but reuse rendered references
-python3 .../run.py --force-fetch
-
-# Re-render references but reuse fixtures
-python3 .../run.py --force-render
-
-# Use existing caches only
-python3 .../run.py --offline
+python3 .../run.py --force          # rebuild both caches
+python3 .../run.py --force-fetch    # refetch fixtures, reuse references
+python3 .../run.py --force-render   # rerender references, reuse fixtures
+python3 .../run.py --skip-test      # only populate caches
+python3 .../run.py --offline        # use existing caches only
 ```
 
-## What it does
+## Cache layout and stamp
 
-1. **Fetch pinned fixtures** — `fetch_fixtures.py` performs a deliberately
-   narrow partial clone of `https://github.com/LibreOffice/core`:
-   `--depth=1 --filter=tree:0` plus non-cone sparse checkout for exactly the
-   paths in `fixtures.json`. Only those blobs are downloaded; the temporary
-   clone is deleted. Files are SHA-256 verified and cached at
-   `target/external/fixtures/<commit>/`.
-2. **Render references** — `viewer/render.mjs` serves the viewer and fixtures
-   locally, loads each deck in headless Chromium through Playwright, and writes
-   PNGs to `target/external/goldens/<commit>/`. Reference PNGs are not checked
-   in.
-3. **Compare** — `cargo test -p kitty-pptx-core --test external_fixture_tests
-   -- --ignored --nocapture` renders the same fixtures through the production
-   pipeline and compares coarse colour cells, global RGB difference, and ink
-   coverage.
+```text
+target/external/
+├── fixtures/<commit>/
+│   ├── Bar_List.pptx
+│   └── ...
+└── goldens/<commit>/
+    ├── stamp.json
+    ├── Bar_List/slide_001.png
+    └── ...
+```
 
-A stamp in `target/external/goldens/<commit>/stamp.json` records the manifest,
-renderer scripts, fixture hashes, and pinned viewer/Playwright versions. If it
-matches, rendering is skipped.
+`fetch_fixtures.py` performs a deliberately narrow partial clone of LibreOffice
+core: `--depth=1 --filter=tree:0` plus a non-cone sparse checkout of exactly the
+manifest paths, then deletes the temporary clone. Every file is SHA-256
+verified. `viewer/render.mjs` serves the viewer and fixtures locally and writes
+one PNG per slide.
 
-## Licensing
+`stamp.json` records the manifest SHA-256, pinned commit, render width,
+per-fixture name/sha256/slide count, renderer script hashes, and pinned
+`@silurus/ooxml`/Playwright versions. `run.py` rerenders when any of it
+changes. The Rust test only requires the stamped commit, width, and fixture
+identities (name, sha256, slides) to match `fixtures.json`, so editing a
+threshold or note does not invalidate cached pixels.
 
-The fixtures are fetched at test time from LibreOffice core at the pinned
-commit and are **not distributed with this repository**. LibreOffice core is
-MPL-2.0; the manifest records the upstream URL, commit, and per-file SHA-256.
-The viewer (`@silurus/ooxml`) is MIT; Playwright is Apache-2.0. Do not add
-downloaded fixture binaries or generated reference PNGs to git.
+`ExternalCorpus::discover()` reads `fixtures.json` and derives the commit and
+cache paths from it; nothing is hard-coded in the test, so adding a manifest
+entry needs no test edit. `KITTY_PPTX_EXTERNAL_FIXTURES` and
+`KITTY_PPTX_EXTERNAL_GOLDENS` override the two cache directories.
 
-## Determinism and scope
+## Skip vs run
 
-- `@silurus/ooxml`, Playwright, and the renderer scripts are pinned. Changing
-  any of them invalidates the reference stamp.
-- Fonts still come from the host. The comparison is perceptual and tolerant;
-  regenerate references when changing fonts or the viewer.
-- The viewer is an independent implementation, not PowerPoint ground truth. A
-  failure means "these two renderers disagree enough to inspect", not
-  necessarily "we are wrong".
-- The tier is not a CI gate.
+The comparison is a normal `#[test]` (not `#[ignore]`) that self-skips:
+
+- Missing, incomplete, or stale cache: prints one line such as
+  `skipping external corpus comparison: ...; run python3 .../run.py` and
+  returns. `cargo test` passes on a machine that never opted in.
+- Complete cache and matching stamp: renders every manifest fixture through the
+  production pipeline and compares it against the cached references.
+
+`run.py` still invokes `cargo test ... -- --ignored`, so the file keeps an
+ignored alias test for that filter. The alias can be removed once `run.py`
+passes `--include-ignored`.
+
+## Thresholds
+
+Actual and reference images are resized to 400 px wide with box averaging and
+split into 10x10 px cells. Defaults, overridable per fixture via `thresholds`:
+
+| key | default | meaning |
+| --- | --- | --- |
+| `min_cell_pass_ratio` | `0.90` | fraction of cells whose mean per-channel difference is at most 40/255 |
+| `max_global_mean_abs_diff` | `8.0` | mean per-cell per-channel difference, in 0-255 units |
+| `max_ink_fraction_delta` | `0.03` | absolute difference in non-white pixel fraction (3 percentage points) |
+
+`strict: false` prints the metrics as a diagnostic but never fails the test.
+The current diagnostic fixture is `3columns` (known column and inter-word
+spacing gap). The other four entries are enforced. If a budget must change,
+regenerate references with `--force-render` and review the metric drift first.
+
+`manifest_is_internally_consistent` validates the manifest without the cache:
+unique safe names, 40/64-character lowercase hex commit and SHA-256 values,
+slide counts greater than zero, LibreOffice QA paths, non-empty notes, sane
+thresholds, and at least one enforced fixture.
 
 ## Adding a fixture
 
@@ -94,12 +119,11 @@ Add an entry to `fixtures.json`:
 }
 ```
 
-Then rebuild:
+Then run:
 
 ```sh
 python3 .../run.py --force-fetch --force-render
 ```
 
-`strict: false` keeps a fixture as a printed diagnostic without failing the
-test. The current `3columns` entry uses that for a known column/inter-word
-spacing gap.
+The comparison test picks the entry up automatically. Do not add fixture
+binaries or generated reference PNGs to git.

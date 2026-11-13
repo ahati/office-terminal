@@ -387,6 +387,32 @@ fn sample(polyline: &WarpPolyline, u: f32) -> (f32, f32, f32, f32) {
     )
 }
 
+/// Exact paired-edge envelope map `P(u, v) = (1 − v)·T(u) + v·B(u)`.
+///
+/// This is the continuous warp the reference approximates with its piecewise
+/// affine glyph STRIPS (`renderer.ts:3320` `drawWarpedGlyphStrips`): each strip
+/// re-anchors the local Jacobian at its own centre-`u`, so as the strip width
+/// shrinks the composite converges to exactly this map. Evaluating it per
+/// outline point gives the smooth limit directly, with no strip subdivision and
+/// no double-counted advance (a strip's `x` offset is already contained in
+/// `T(u)`'s motion across the glyph).
+///
+/// `u` is the arc-length fraction along the flat line, `v` the fraction across
+/// the envelope's height (0 = top edge, 1 = bottom edge). Returns `None` for
+/// single-edge presets, which have no interior band; callers use
+/// [`warp_glyph_transform`] for those (ref `text-warp.ts:319`).
+pub fn warp_point(envelope: &WarpEnvelope, u: f32, v: f32) -> Option<(f32, f32)> {
+    if envelope.single_edge {
+        return None;
+    }
+    let (top_x, top_y, _, _) = sample(&envelope.top, u);
+    let (bottom_x, bottom_y, _, _) = sample(&envelope.bottom, u);
+    Some((
+        top_x + (bottom_x - top_x) * v,
+        top_y + (bottom_y - top_y) * v,
+    ))
+}
+
 /// Map a flat glyph baseline into the envelope's local jacobian.
 pub fn warp_glyph_transform(
     envelope: &WarpEnvelope,

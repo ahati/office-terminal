@@ -1,6 +1,7 @@
 use clap::Parser;
 use kitty_pptx_cli::cli::{Cli, Commands};
 use kitty_pptx_cli::commands::*;
+use kitty_pptx_cli::commands::export::run_export_with_width;
 use kitty_pptx_cli::config::Config;
 use kitty_pptx_core::{
     DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, TinySkiaRasterizer,
@@ -29,12 +30,14 @@ fn main() -> ExitCode {
             out,
             format,
             dpi,
+            width,
             slides,
-        }) => run_export(
+        }) => run_export_with_width(
             file,
             out,
             format,
             dpi,
+            width,
             slides,
             &loader,
             &compiler,
