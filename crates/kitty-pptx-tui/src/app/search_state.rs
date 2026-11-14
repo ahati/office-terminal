@@ -18,6 +18,9 @@ pub struct SearchState {
     matched_indices: Vec<usize>,
     selected_cursor: usize,
     entries: Vec<SlideSearchEntry>,
+    /// Per-slide `<p:sld show="0">` flags, index-aligned with `entries`.
+    hidden: Vec<bool>,
+    skip_hidden: bool,
 }
 
 impl SearchState {
@@ -100,6 +103,23 @@ impl SearchState {
         notes: &[Option<String>],
         total_slides: usize,
     ) {
+        self.sync_entries_filtered(slides, notes, total_slides, &[], false);
+    }
+
+    /// Populate the search index with the hidden-slide policy applied: in
+    /// `skip` mode hidden slides never match (ref viewer.ts:971-975).
+    pub fn sync_entries_filtered(
+        &mut self,
+        slides: &[Slide],
+        notes: &[Option<String>],
+        total_slides: usize,
+        hidden: &[bool],
+        skip_hidden: bool,
+    ) {
+        self.hidden = hidden.to_vec();
+        // An all-hidden deck degenerates to `show`, so search matches every
+        // slide again (ref viewer-hidden-skip.test.ts:50-60).
+        self.skip_hidden = skip_hidden && hidden.iter().any(|flag| !flag);
         self.entries.clear();
         for i in 0..total_slides {
             let slide_number = i + 1;
@@ -128,13 +148,18 @@ impl SearchState {
     pub fn recompute_matches(&mut self) {
         let q = self.query.trim().to_lowercase();
         if q.is_empty() {
-            self.matched_indices = (0..self.entries.len()).collect();
+            self.matched_indices = (0..self.entries.len())
+                .filter(|&index| !self.is_excluded(index))
+                .collect();
             return;
         }
 
         let mut scored_matches: Vec<(usize, u32)> = Vec::new();
 
         for entry in &self.entries {
+            if self.is_excluded(entry.slide_index) {
+                continue;
+            }
             let score = calculate_match_score(&q, entry);
             if score > 0 {
                 scored_matches.push((entry.slide_index, score));
@@ -144,6 +169,19 @@ impl SearchState {
         // Sort descending by score; on tie, preserve ascending slide index
         scored_matches.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         self.matched_indices = scored_matches.into_iter().map(|(idx, _)| idx).collect();
+    }
+
+    /// Whether the hidden-slide policy excludes this slide from matches.
+    fn is_excluded(&self, slide_index: usize) -> bool {
+        self.skip_hidden && self.hidden.get(slide_index).copied().unwrap_or(false)
+    }
+
+    /// Drop the current result set and active match without touching the query.
+    /// Entering or leaving `skip` mode does this (`_invalidateFind`).
+    // ref viewer.ts:545-554
+    pub fn clear_matches(&mut self) {
+        self.matched_indices.clear();
+        self.selected_cursor = 0;
     }
 }
 
@@ -166,10 +204,7 @@ impl PresentationState {
     }
 
     pub fn open_search(&mut self) {
-        let total = self.total_slides();
-        let slides = self.slides.clone();
-        let notes = self.notes.clone();
-        self.search.sync_entries(&slides, &notes, total);
+        self.sync_search_entries();
         self.search.clear_query();
         self.search.set_selected_cursor(self.current_slide());
         self.enter_overlay(AppMode::TocSearchModal);

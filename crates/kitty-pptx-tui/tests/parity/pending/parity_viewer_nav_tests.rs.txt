@@ -8,30 +8,16 @@
 // tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
 // recorded there.
 //
-// Wave 3 reinstates each function below (with its doc comment and attributes)
-// into the compiled test file as soon as the named API lands.
+// Re-scoped cases (GAP_PLAN §5.1, "re-scope"): a case whose API belongs to a
+// later workstream is moved here with the owning workstream named. It is NOT a
+// V1/V8 case.
 //
 // Missing API per blocked case:
-//   skip_mode_go_to_hidden_slide_lands_on_the_next_shown_slide BLOCKED: no hidden-slide policy (PresentationState has no set_hidden_slide_mode/next_visible_index)
-//   find_text_excludes_hidden_slides                           BLOCKED: no run-level find controller (PresentationState search is a slide-title fuzzy matcher, not PptxFindController)
-//   caller_callback_owns_the_internal_click                    BLOCKED: no on_hyperlink_click delegation seam (dispatch_link always navigates)
+//   find_text_excludes_hidden_slides   BLOCKED (V2, wave 4): no run-level find controller (PresentationState search is a slide-title fuzzy matcher, not PptxFindController). The hidden-slide policy itself is landed and already excludes hidden slides from the fuzzy index in `skip` mode.
 
 // ============================================================================
-/// ref viewer-hidden-skip.test.ts:31-44 — `goToSlide` on a hidden slide lands on
-/// the next shown one.
-#[test]
-#[ignore = "BLOCKED: no hidden-slide policy (PresentationState has no \
-            set_hidden_slide_mode/next_visible_index)"]
-fn skip_mode_go_to_hidden_slide_lands_on_the_next_shown_slide() {}
-
 /// ref viewer-hidden-skip.test.ts:95-111 — findText/findNext skip hidden slides.
+/// Re-scoped to V2 (`core/src/text/find.rs` + `tui/src/app/find_state.rs`).
 #[test]
-#[ignore = "BLOCKED: no run-level find controller (PresentationState search is a \
-            slide-title fuzzy matcher, not PptxFindController)"]
+#[ignore = "BLOCKED (V2, wave 4): no run-level find controller (PptxFindController)"]
 fn find_text_excludes_hidden_slides() {}
-
-/// ref viewer-internal-nav.test.ts:52-72 — a caller-supplied `onHyperlinkClick`
-/// owns the click and the viewer does not navigate.
-#[test]
-#[ignore = "BLOCKED: no on_hyperlink_click delegation seam (dispatch_link always navigates)"]
-fn caller_callback_owns_the_internal_click() {}
