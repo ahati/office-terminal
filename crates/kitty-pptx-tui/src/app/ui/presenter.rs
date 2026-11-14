@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Wrap};
 
 use crate::app::state::PresentationState;
-use crate::app::ui::{current_slide_widget, preview_slide_widget};
+use crate::app::ui::{current_slide_widget, preview_slide_widget, render_render_failure_note};
 
 /// Render the split-pane presenter mode console.
 pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -30,6 +30,7 @@ pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
 
     let slide_widget = current_slide_widget(state);
     f.render_widget(slide_widget, inner_slide_area);
+    render_render_failure_note(state, f, inner_slide_area);
 
     // 2. Right pane: Next slide preview + Speaker notes
     let right_split = Layout::default()

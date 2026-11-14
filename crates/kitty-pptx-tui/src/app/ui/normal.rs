@@ -5,13 +5,14 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::app::state::PresentationState;
-use crate::app::ui::current_slide_widget;
+use crate::app::ui::{current_slide_widget, render_render_failure_note};
 
 /// Render the standard fullscreen presentation mode.
 pub fn render_normal(state: &PresentationState, f: &mut Frame, area: Rect) {
     if !state.status_line_visible() {
         // True fullscreen without any status line overlay
         f.render_widget(current_slide_widget(state), area);
+        render_render_failure_note(state, f, area);
         return;
     }
 
@@ -23,6 +24,7 @@ pub fn render_normal(state: &PresentationState, f: &mut Frame, area: Rect) {
 
     // Slide canvas
     f.render_widget(current_slide_widget(state), chunks[0]);
+    render_render_failure_note(state, f, chunks[0]);
 
     // Status line
     let status_line = if !state.digit_buffer().is_empty() {

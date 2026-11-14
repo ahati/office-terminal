@@ -9,7 +9,7 @@ use crate::app::nav_state::NavState;
 use crate::app::search_state::SearchState;
 use crate::app::sorter_state::SorterState;
 use crate::app::warnings_state::WarningsState;
-use kitty_pptx_core::{HiddenSlideMode, SlideLink};
+use kitty_pptx_core::{FidelityClass, HiddenSlideMode, SlideLink, WarningEvent};
 
 /// Presentation navigation and UI state machine.
 pub struct PresentationState {
@@ -51,6 +51,10 @@ pub struct PresentationState {
     // Notification toast
     pub(crate) toast_message: Option<String>,
     pub(crate) toast_time: Option<Instant>,
+
+    /// The slide a background render failed for, with its message. Surfaced
+    /// on the canvas (a silent blank otherwise reads as a broken projector).
+    pub(crate) render_failure: Option<(usize, String)>,
 }
 
 impl PresentationState {
@@ -85,6 +89,7 @@ impl PresentationState {
             preview_placement_rect: Arc::new(Mutex::new(None)),
             toast_message: None,
             toast_time: None,
+            render_failure: None,
         }
     }
 
@@ -559,5 +564,48 @@ impl PresentationState {
     pub fn clear_toast(&mut self) {
         self.toast_message = None;
         self.toast_time = None;
+    }
+
+    /// Records a failed background render for `slide` and files one
+    /// placeholder-class warning so the drawer explains the blank canvas.
+    /// Idempotent per (slide, message) pair — the syncer calls this every
+    /// frame while the failure stands.
+    pub fn note_render_failure(&mut self, slide: usize, message: String) {
+        let first_for_slide = !matches!(
+            self.render_failure.as_ref(),
+            Some((failed_slide, _)) if *failed_slide == slide
+        );
+        if self.render_failure.as_ref() == Some(&(slide, message.clone())) {
+            return;
+        }
+        self.render_failure = Some((slide, message));
+        if first_for_slide {
+            self.warnings.add_warning(
+                Some(slide),
+                WarningEvent::FidelityDegraded {
+                    element_id: format!("slide/{}", slide + 1),
+                    feature: "render",
+                    class: FidelityClass::Placeholder,
+                },
+            );
+        }
+    }
+
+    /// Clears the failure record once `slide` renders successfully again.
+    pub fn clear_render_failure_for(&mut self, slide: usize) {
+        if self
+            .render_failure
+            .as_ref()
+            .is_some_and(|(failed_slide, _)| *failed_slide == slide)
+        {
+            self.render_failure = None;
+        }
+    }
+
+    /// The failed slide and message, if a background render failed.
+    pub fn render_failure(&self) -> Option<(usize, &str)> {
+        self.render_failure
+            .as_ref()
+            .map(|(slide, message)| (*slide, message.as_str()))
     }
 }

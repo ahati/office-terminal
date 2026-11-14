@@ -125,7 +125,7 @@ fn test_direct_positioning_stages_and_presents_once() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     let expected = state.placement_rects().0.expect("slide rect recorded");
     {
@@ -135,7 +135,7 @@ fn test_direct_positioning_stages_and_presents_once() {
     }
 
     // An unchanged frame must not re-stage or re-place the image.
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged.len(), 1);
@@ -146,7 +146,7 @@ fn test_direct_positioning_stages_and_presents_once() {
     // Slide change: the old id is released and the new one placed.
     state.next_slide();
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged, vec![1, 2]);
@@ -160,18 +160,18 @@ fn test_direct_positioning_stages_and_presents_once() {
 fn test_rect_change_uses_reposition() {
     let pipeline = MockPipeline { slides: 2 };
     let (mut driver, log) = MockDriver::new();
-    let state = PresentationState::new(2, vec![]);
+    let mut state = PresentationState::new(2, vec![]);
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     // Simulate a resize: new rect for the same slide/id.
     let backend = TestBackend::new(60, 20);
     let mut terminal = Terminal::new(backend).unwrap();
     state.clear_placement_rects();
     terminal.draw(|f| render_app(&state, f)).unwrap();
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.presented.len(), 1);
@@ -189,7 +189,7 @@ fn test_presenter_mode_places_preview() {
 
     draw_frame(&state);
     let (current, preview) = state.placement_rects();
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.staged, vec![1, 10]);
@@ -207,13 +207,13 @@ fn test_presenter_navigation_keeps_current_image() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     // Slide 1 was the preview (id 10) and becomes the current slide (id 2).
     // Releasing the old preview must not release the new current image.
     state.next_slide();
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     let log = log.lock().unwrap();
     assert!(
@@ -234,15 +234,15 @@ fn test_presenter_navigation_keeps_current_image() {
 fn test_missing_rect_releases_previous_image() {
     let pipeline = MockPipeline { slides: 2 };
     let (mut driver, log) = MockDriver::new();
-    let state = PresentationState::new(2, vec![]);
+    let mut state = PresentationState::new(2, vec![]);
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     // No slide widget drawn this frame (e.g. sorter).
     state.clear_placement_rects();
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.released, vec![1]);
@@ -256,16 +256,16 @@ fn test_blank_screen_suppresses_graphics_once_then_resumes() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
 
     state.toggle_blank(BlankMode::Black);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
     assert_eq!(log.lock().unwrap().released_all, 1);
 
     state.unblank();
     draw_frame(&state);
-    syncer.sync(&state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
     let log = log.lock().unwrap();
     assert_eq!(log.staged.len(), 2);
     assert_eq!(log.presented.len(), 2);
@@ -287,4 +287,120 @@ fn test_resize_preserves_slide_aspect_ratio() {
         target.height_px
     );
     assert!((app.state.aspect_ratio() - 4.0 / 3.0).abs() < 0.001);
+}
+
+// ── failed-render surfacing ─────────────────────────────────────────────────
+
+struct FailingPipeline;
+
+impl RenderPipeline for FailingPipeline {
+    fn prefetch(&self, _plan: &PrefetchPlan, _target: &RenderTargetSpec) {}
+    fn entry(&self, _index: usize) -> PipelineEntry {
+        PipelineEntry::Failed {
+            error: kitty_pptx_core::RenderError::RasterizationError(
+                "boom: glyph atlas overflow".to_string(),
+            ),
+        }
+    }
+    fn invalidate(&self, _cause: InvalidateCause) {}
+}
+
+/// A failed background render must be recorded (canvas note + one placeholder
+/// warning) instead of leaving the slide silently blank forever.
+#[test]
+fn a_failed_render_is_surfaced_in_state_and_not_staged() {
+    let (mut driver, log) = MockDriver::new();
+    let mut syncer = GraphicsSyncer::new();
+    let mut state = PresentationState::new(2, vec![]);
+
+    draw_frame(&state);
+    syncer.sync(&mut state, &FailingPipeline, &mut driver).unwrap();
+
+    assert!(
+        log.lock().unwrap().staged.is_empty(),
+        "nothing can be staged from a Failed entry"
+    );
+    let (slide, message) = state
+        .render_failure()
+        .expect("the failure is recorded on the state");
+    assert_eq!(slide, 0);
+    assert!(message.contains("boom"), "message preserved: {message}");
+    assert_eq!(state.warnings.len(), 1, "exactly one drawer entry");
+    assert!(
+        !state.warnings.warnings_for_slide(0).is_empty(),
+        "the warning is attached to the failed slide"
+    );
+
+    // Idempotent per (slide, message): syncing every frame must not spam.
+    for _ in 0..3 {
+        syncer.sync(&mut state, &FailingPipeline, &mut driver).unwrap();
+    }
+    assert_eq!(state.warnings.len(), 1, "no duplicate warning entries");
+}
+
+/// Once the pipeline produces the bitmap, the failure record clears and the
+/// slide stages normally.
+#[test]
+fn a_recovered_render_clears_the_failure_record() {
+    let (mut driver, log) = MockDriver::new();
+    let mut syncer = GraphicsSyncer::new();
+    let mut state = PresentationState::new(2, vec![]);
+
+    draw_frame(&state);
+    syncer.sync(&mut state, &FailingPipeline, &mut driver).unwrap();
+    assert!(state.render_failure().is_some());
+
+    let pipeline = MockPipeline { slides: 2 };
+    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    assert!(
+        state.render_failure().is_none(),
+        "a successful stage clears the failure"
+    );
+    assert_eq!(log.lock().unwrap().staged, vec![1]);
+}
+
+/// The canvas draws a visible degraded-render note for the failed slide.
+#[test]
+fn a_failed_render_draws_a_note_on_the_canvas() {
+    let mut state = PresentationState::new(2, vec![]);
+    state.note_render_failure(0, "boom: glyph atlas overflow".to_string());
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    state.clear_placement_rects();
+    terminal.draw(|f| render_app(&state, f)).unwrap();
+
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(
+        text.contains("RENDER FAILED"),
+        "the canvas shows the failure badge: {text:?}"
+    );
+    assert!(
+        text.contains("glyph atlas overflow"),
+        "the canvas shows the failure message"
+    );
+
+    // Navigating to a healthy slide hides the note.
+    let mut other = PresentationState::new(2, vec![]);
+    other.note_render_failure(1, "unrelated slide".to_string());
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| render_app(&other, f)).unwrap();
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(
+        !text.contains("RENDER FAILED"),
+        "no note for a failure on another slide"
+    );
 }

@@ -13,6 +13,10 @@ use crate::app::state::PresentationState;
 use crate::widget::SlideWidget;
 use kitty_pptx_display::{CellRect, ImageId, PlacementMode};
 use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use std::sync::{Arc, Mutex};
 
 pub use blank::render_blank_screen;
@@ -43,6 +47,40 @@ fn slide_widget(
     SlideWidget::new(image_id, PlacementMode::Interactive)
         .with_aspect_ratio(state.aspect_ratio())
         .with_direct_sink(sink)
+}
+
+/// Draws the degraded-render note over a slide canvas whose background render
+/// failed. Without it the canvas is silently blank and reads as a broken
+/// projector; the note names the slide and points at the warning drawer.
+pub(crate) fn render_render_failure_note(state: &PresentationState, f: &mut Frame, area: Rect) {
+    let Some((slide, message)) = state.render_failure() else {
+        return;
+    };
+    if slide != state.current_slide() {
+        return;
+    }
+    let badge_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Red)
+        .add_modifier(Modifier::BOLD);
+    let detail_style = Style::default().fg(Color::Red);
+    let first_line = message.lines().next().unwrap_or("render failed");
+    let note = Paragraph::new(vec![
+        Line::from(Span::styled(" RENDER FAILED ", badge_style)),
+        Line::from(Span::styled(
+            format!(" slide {} could not be rendered", slide + 1),
+            detail_style,
+        )),
+        Line::from(Span::styled(format!(" {first_line}"), detail_style)),
+        Line::from(Span::styled(
+            " see warnings for details",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ])
+    .block(Block::default().borders(Borders::NONE));
+    let height = 4.min(area.height);
+    let row = area.y + (area.height.saturating_sub(height)) / 2;
+    f.render_widget(note, Rect::new(area.x, row, area.width, height));
 }
 
 /// Render the presentation UI based on the current state.

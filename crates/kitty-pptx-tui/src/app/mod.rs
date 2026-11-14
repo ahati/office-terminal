@@ -195,7 +195,7 @@ impl PresentationApp {
     /// slide, its rect, or the blank state actually changed.
     pub fn sync_graphics(&mut self) -> Result<(), kitty_pptx_core::DisplayError> {
         self.graphics
-            .sync(&self.state, self.pipeline.as_ref(), self.driver.as_mut())
+            .sync(&mut self.state, self.pipeline.as_ref(), self.driver.as_mut())
     }
 
     /// Runs the interactive presentation event loop.
