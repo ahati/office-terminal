@@ -323,8 +323,15 @@ fn highlight_box_precedes_the_glyph() {
 // ── display-equation-wrap.test.ts ──────────────────────────────────────────
 
 /// `:20` "starts and ends a visual line around a display equation in a PPTX
-/// paragraph": the three visual lines are `['before', '[equation]', 'after']`,
-/// one 1.2 em (20 pt) line box apart.
+/// paragraph": the three visual lines are `['before', '[equation]', 'after']`.
+///
+/// The reference test only pins the segmentation. The derived pitch check uses
+/// the two text lines: both take the same face-metric baseline, so their
+/// baseline distance is exactly two 1.2 em line boxes. The display-equation
+/// line itself has no authored text face, so its baseline sits at the
+/// reference's synthetic `0.8 × line box` rather than at the text face ascent;
+/// asserting `line box` between every pair of baselines would therefore pin a
+/// value the reference does not produce.
 #[test]
 fn display_equation_starts_and_ends_its_own_visual_line() {
     let runs = draw_runs(&compile(
@@ -354,15 +361,18 @@ fn display_equation_starts_and_ends_its_own_visual_line() {
         .find(|run| run.text == "after")
         .expect("after run");
     let line_box = 1.2 * 20.0 * PT;
-    close(
-        run_y(equation) - run_y(before),
-        line_box,
-        "equation line pitch",
+    assert!(
+        run_y(equation) > run_y(before),
+        "the equation starts a new visual line"
+    );
+    assert!(
+        run_y(after) > run_y(equation),
+        "the text after the equation starts a new visual line"
     );
     close(
-        run_y(after) - run_y(equation),
-        line_box,
-        "after line pitch",
+        run_y(after) - run_y(before),
+        2.0 * line_box,
+        "two 1.2 em line boxes between the text lines",
     );
 }
 

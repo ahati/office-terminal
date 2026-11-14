@@ -68,8 +68,13 @@ pub fn compile_chart(
         return compile_unsupported_chart_placeholder(chart_elem);
     }
 
-    let bounds = ChartDataBounds::compute(chart, family);
     let layout = compute_chart_layout(chart, w, h, family);
+    let axis_len_pt = if family.is_horizontal_bar() {
+        layout.plot_w / 12700.0
+    } else {
+        layout.plot_h / 12700.0
+    };
+    let bounds = ChartDataBounds::compute(chart, family, axis_len_pt);
 
     let mut commands = Vec::new();
 

@@ -113,8 +113,8 @@ impl AssetStore for DefaultAssetStore {
 
         // Check cache
         {
-            let mut cache = self.cache.lock().unwrap();
-            let mut clock = self.access_clock.lock().unwrap();
+            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut clock = self.access_clock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             *clock += 1;
             if let Some(entry) = cache.get_mut(&cache_key) {
                 entry.access_counter = *clock;
@@ -134,8 +134,8 @@ impl AssetStore for DefaultAssetStore {
 
         // Insert into LRU cache
         {
-            let mut cache = self.cache.lock().unwrap();
-            let mut clock = self.access_clock.lock().unwrap();
+            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut clock = self.access_clock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             *clock += 1;
 
             // Evict if cache exceeds max_cache_bytes
@@ -175,7 +175,7 @@ impl AssetStore for DefaultAssetStore {
     }
 
     fn stats(&self) -> AssetStoreStats {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let cached_entries = cache.len();
         let cached_bytes = cache.values().map(|e| e.image.pixels.len()).sum();
         AssetStoreStats {

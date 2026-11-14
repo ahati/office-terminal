@@ -348,3 +348,58 @@ fn horizontal_bars_use_gap_width_and_overlap() {
     assert_close(bars[0].h, bar_h, "horizontal overlapped bar height");
     assert_close(bars[1].y - bars[0].y, bar_h / 2.0, "horizontal overlap pitch");
 }
+
+fn texts(commands: &[VectorCommand]) -> Vec<String> {
+    commands
+        .iter()
+        .filter_map(|cmd| match cmd {
+            VectorCommand::DrawText { runs, .. } => {
+                Some(runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>())
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+#[test]
+fn series_level_show_val_paints_labels_when_the_legacy_projection_is_false() {
+    // The sample deck authors `<c:dLbls><c:showVal val="1"/>` on the series
+    // while the chart-wide legacy projection stays false. Checking only
+    // `chart.show_data_labels` used to drop every label.
+    let mut c = chart("clusteredColumn", &["A"], &[&[42.5]]);
+    c.show_data_labels = false;
+    c.series[0].series_data_labels = Some(ChartSeriesDataLabels {
+        show_val: true,
+        ..ChartSeriesDataLabels::default()
+    });
+
+    let commands = compile(c, W, H);
+    assert!(
+        texts(&commands).iter().any(|text| text == "42.5"),
+        "series showVal must paint its value label: {:?}",
+        texts(&commands)
+    );
+}
+
+#[test]
+fn bounded_axis_uses_the_reference_auto_unit() {
+    // Reference `planLinearValueAxis` on a vertical 60..72 span: one interval
+    // per ~28 pt chooses a 2-unit step, not the old 5-unit ladder.
+    let mut c = chart("clusteredColumn", &["A", "B"], &[&[63.1, 69.1]]);
+    c.val_min = Some(60.0);
+    c.val_max = Some(72.0);
+
+    let commands = compile(c, W, H);
+    let labels = texts(&commands);
+    for expected in ["60", "62", "70", "72"] {
+        assert!(
+            labels.iter().any(|text| text == expected),
+            "expected value-axis tick {expected}: {labels:?}"
+        );
+    }
+    assert!(
+        !labels.iter().any(|text| text == "65"),
+        "the 5-unit ladder must not survive: {labels:?}"
+    );
+}

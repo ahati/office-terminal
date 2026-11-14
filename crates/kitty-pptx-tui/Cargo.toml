@@ -9,6 +9,7 @@ kitty-pptx-display = { workspace = true }
 pptx-model = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
+signal-hook = { workspace = true }
 thiserror = { workspace = true }
 crossbeam-channel = { workspace = true }
 

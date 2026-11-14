@@ -2,7 +2,8 @@ use pptx_model::ChartModel;
 use crate::contracts::{AffineTransform, VectorCommand, VectorPaint};
 use super::color::resolve_series_color;
 use super::layout::{
-    data_label_position, make_simple_run, rect_path, series_data_label_font_pt, ChartLayout,
+    data_label_position, make_simple_run, rect_path, series_data_label_font_pt,
+    series_shows_percent_labels, series_shows_value_labels, ChartLayout,
 };
 use super::types::{ChartDataBounds, ChartFamily};
 
@@ -145,7 +146,11 @@ fn compile_vertical_columns(
                     transform,
                 ));
 
-                if chart.show_data_labels {
+                if if is_pct {
+                    series_shows_percent_labels(chart, s)
+                } else {
+                    series_shows_value_labels(chart, s)
+                } {
                     let lbl_text = if is_pct {
                         format!("{:.0}%", norm_fraction * 100.0)
                     } else {
@@ -193,7 +198,7 @@ fn compile_vertical_columns(
                     transform,
                 ));
 
-                if chart.show_data_labels {
+                if series_shows_value_labels(chart, s) {
                     let lbl_text = format_val(val);
                     let pos = data_label_position(chart, s, "outEnd");
                     let tx = bar_x + bar_w / 2.0;
@@ -274,7 +279,11 @@ fn compile_horizontal_bars(
                     transform,
                 ));
 
-                if chart.show_data_labels {
+                if if is_pct {
+                    series_shows_percent_labels(chart, s)
+                } else {
+                    series_shows_value_labels(chart, s)
+                } {
                     let lbl_text = if is_pct {
                         format!("{:.0}%", norm_fraction * 100.0)
                     } else {
@@ -322,7 +331,7 @@ fn compile_horizontal_bars(
                     transform,
                 ));
 
-                if chart.show_data_labels {
+                if series_shows_value_labels(chart, s) {
                     let lbl_text = format_val(val);
                     let pos = data_label_position(chart, s, "outEnd");
                     let (tx, align) = horizontal_label_anchor(bar_x, bar_x + norm_w, label_pt * 12700.0, &pos);

@@ -5,7 +5,10 @@ use crate::contracts::{
 };
 use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::{resolve_series_color, resolve_series_line_color};
-use super::layout::{data_label_position, make_simple_run, series_data_label_font_pt, ChartLayout};
+use super::layout::{
+    data_label_position, make_simple_run, series_data_label_font_pt, series_shows_value_labels,
+    ChartLayout,
+};
 use super::types::ChartDataBounds;
 
 pub fn compile_lines(
@@ -103,7 +106,7 @@ pub fn compile_lines(
 
         // 3. Optional data labels
         let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
-        if chart.show_data_labels {
+        if series_shows_value_labels(chart, s) {
             let pos = data_label_position(chart, s, "r");
             let font = label_pt * 12700.0;
             // ref data-label-layout.ts:84-94 (`anchor.kind === 'point'`): one

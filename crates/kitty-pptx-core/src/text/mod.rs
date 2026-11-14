@@ -19,6 +19,7 @@ pub mod measure;
 pub mod power_point;
 pub mod shape;
 pub mod metrics;
+mod natural_box;
 mod decor;
 mod paint;
 mod paragraphs;

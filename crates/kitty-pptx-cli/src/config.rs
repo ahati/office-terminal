@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use kitty_pptx_core::SvgTextMode;
+
+use crate::cli::{ExportFormat, FitMode};
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -40,6 +44,33 @@ impl Default for ExportConfig {
 }
 
 impl Config {
+    /// `export.format`, falling back to PNG for an unknown value.
+    pub fn resolved_format(&self) -> ExportFormat {
+        match self.export.default_format.trim().to_ascii_lowercase().as_str() {
+            "svg" => ExportFormat::Svg,
+            "all" => ExportFormat::All,
+            _ => ExportFormat::Png,
+        }
+    }
+
+    /// `export.default_dpi`, clamped to a renderable minimum.
+    pub fn resolved_dpi(&self) -> u32 {
+        self.export.default_dpi.max(1)
+    }
+
+    /// `export.svg_text_mode`: `paths` (default), `selectable`, or `text`.
+    pub fn resolved_svg_text_mode(&self) -> SvgTextMode {
+        parse_svg_text_mode(&self.export.svg_text_mode)
+    }
+
+    /// `display.fit`: `contain` (default) or `width`.
+    pub fn resolved_fit(&self) -> FitMode {
+        match self.display.fit.trim().to_ascii_lowercase().as_str() {
+            "width" | "fillwidth" => FitMode::Width,
+            _ => FitMode::Contain,
+        }
+    }
+
     pub fn load() -> Self {
         if let Some(mut path) = dirs_next_config_dir() {
             path.push("kitty-pptx");
@@ -63,5 +94,14 @@ fn dirs_next_config_dir() -> Option<PathBuf> {
         Some(PathBuf::from(home).join(".config"))
     } else {
         None
+    }
+}
+
+/// Parse the CLI/config SVG text-mode spelling.
+pub fn parse_svg_text_mode(value: &str) -> SvgTextMode {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "selectable" | "selectabletext" | "text" => SvgTextMode::SelectableText,
+        "texttags" => SvgTextMode::TextTags,
+        _ => SvgTextMode::VectorGlyphs,
     }
 }

@@ -14,13 +14,13 @@ impl TtyWriter {
 
     /// Atomically writes an escape sequence.
     pub fn write_seq(&self, seq: &str) -> io::Result<()> {
-        let mut out = self.stdout.lock().unwrap();
+        let mut out = self.stdout.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         out.write_all(seq.as_bytes())?;
         out.flush()
     }
 
     pub fn write_raw(&self, bytes: &[u8]) -> io::Result<()> {
-        let mut out = self.stdout.lock().unwrap();
+        let mut out = self.stdout.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         out.write_all(bytes)?;
         out.flush()
     }

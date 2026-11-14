@@ -37,22 +37,26 @@ pub enum Commands {
         slide: usize,
         #[arg(short, long)]
         all: bool,
-        #[arg(long, value_enum, default_value = "contain")]
-        fit: FitMode,
+        #[arg(long, value_enum, help = "Fit mode; defaults to display.fit in config.toml")]
+        fit: Option<FitMode>,
     },
     #[command(about = "Headless batch slide export to PNG or vector SVG")]
     Export {
         file: PathBuf,
         #[arg(short, long, help = "Output directory")]
         out: PathBuf,
-        #[arg(short, long, value_enum, default_value = "png")]
-        format: ExportFormat,
+        #[arg(
+            short,
+            long,
+            value_enum,
+            help = "Output format; defaults to export.default_format in config.toml"
+        )]
+        format: Option<ExportFormat>,
         #[arg(
             long,
-            default_value = "150",
-            help = "Render DPI for PNG exports (ignored when --width is given)"
+            help = "Render DPI for PNG exports (ignored when --width is given); defaults to export.default_dpi"
         )]
-        dpi: u32,
+        dpi: Option<u32>,
         #[arg(
             long,
             value_name = "PX",
@@ -61,6 +65,13 @@ pub enum Commands {
         width: Option<u32>,
         #[arg(short, long, help = "Slide range (e.g. '1-3,5,10-')")]
         slides: Option<String>,
+        #[arg(
+            long,
+            value_enum,
+            value_name = "MODE",
+            help = "SVG text mode (config: export.svg_text_mode)"
+        )]
+        svg_text_mode: Option<SvgTextModeArg>,
     },
     #[command(about = "Extract text, notes, comments, or AST")]
     Dump {
@@ -84,6 +95,25 @@ pub enum Commands {
         )]
         shell: clap_complete::Shell,
     },
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum, Debug)]
+pub enum SvgTextModeArg {
+    /// Outline glyphs (smallest file, no selectable text).
+    Paths,
+    /// Real `<text>` elements with the shaped positions.
+    Selectable,
+    /// Same as Selectable, kept as the reference's spelling.
+    Text,
+}
+
+impl SvgTextModeArg {
+    pub fn to_mode(self) -> kitty_pptx_core::SvgTextMode {
+        match self {
+            Self::Paths => kitty_pptx_core::SvgTextMode::VectorGlyphs,
+            Self::Selectable | Self::Text => kitty_pptx_core::SvgTextMode::SelectableText,
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug, Default)]

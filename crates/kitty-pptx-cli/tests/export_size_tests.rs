@@ -77,7 +77,7 @@ fn width_flag_parses_for_export() {
     .expect("parsing CLI failed");
     match args.command {
         Some(Commands::Export { dpi, width, .. }) => {
-            assert_eq!(dpi, 169);
+            assert_eq!(dpi, Some(169));
             assert_eq!(width, Some(1600));
         }
         _ => panic!("Expected Export subcommand"),

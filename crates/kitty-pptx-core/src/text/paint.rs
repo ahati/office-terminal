@@ -13,20 +13,16 @@ use std::collections::HashMap;
 use super::decor;
 use super::emit::{marker_visible, LineLayout, Measurer, StyleDef};
 use super::paragraphs::ParagraphLayout;
-use crate::compiler::math::{self, MathPiece};
+use crate::compiler::math;
 use crate::contracts::{AffineTransform, PositionedGlyph, PositionedGlyphRun, VectorCommand};
 use crate::text::bidi::{BidiSegment, LineVisualOrder};
 use crate::text::bullets::MarkerBitmap;
 use crate::text::justify::{self, JustifyMode, JustifyPlan};
-use crate::text::linebreak::{BrokenLine, LineItem};
+use crate::text::linebreak::LineItem;
 use crate::text::measure::{StyleId, TextMeasure};
-use crate::text::metrics::{self, FaceMetrics};
+use crate::text::metrics;
 use crate::text::shape;
 use crate::text::vertical::{self, EaVertFrame};
-
-/// Vertical space an equation claims per unit of its own ascent/descent
-/// (`compiler/text.rs:314`, PRD 09 §1.2).
-const MATH_BLOCK_SCALE: f32 = 1.4;
 
 /// `baselineDrawSizePx` (`renderer.ts:1549-1553`): PowerPoint paints a
 /// non-zero DrawingML `rPr@baseline` run at 65 % of its authored size. The
@@ -69,54 +65,6 @@ impl StyleDef {
             _ => 0.0,
         }
     }
-}
-
-/// `powerPointNaturalLine` over the line's runs, then widened by any equation
-/// the line carries.
-///
-/// An inline equation contributes the typographic box the math engine laid out,
-/// not its font size: PRD 09 §1.2 and the pre-port compiler
-/// (`compiler/text.rs:314`) give an equation `(ascent + descent) * 1.4` of
-/// vertical space, split on its own baseline. Without that a fractions-heavy
-/// `m:oMathPara` block would be shorter than the text it replaces.
-pub(super) fn natural_box(
-    measurer: &Measurer,
-    line: &BrokenLine,
-    para: &ParagraphLayout,
-    pieces: &[&MathPiece],
-) -> (f32, f32) {
-    let mut sizes: Vec<(f32, FaceMetrics)> = Vec::new();
-    for item in &line.items {
-        let style = match item {
-            LineItem::Text { style, .. } => *style,
-            LineItem::Tab { style, .. } => *style,
-            LineItem::Object { style, .. } => *style,
-        };
-        let def = measurer.style(style);
-        // Always the authored size: a baseline-shifted run is painted at 65 %
-        // but still owns its full 1.2 em line box (`renderer.ts:1549-1553`).
-        sizes.push((
-            def.size_emu,
-            FaceMetrics {
-                ascent_share: shape::ascent_share_for(&def.family, def.bold, def.italic),
-            },
-        ));
-    }
-    if sizes.is_empty() {
-        let def = measurer.style(para.default_style);
-        sizes.push((
-            def.size_emu,
-            FaceMetrics {
-                ascent_share: shape::ascent_share_for(&def.family, def.bold, def.italic),
-            },
-        ));
-    }
-    let (mut ascent, mut descent) = metrics::natural_line_box(&sizes);
-    for piece in pieces {
-        ascent = ascent.max(piece.ascent * MATH_BLOCK_SCALE);
-        descent = descent.max(piece.descent * MATH_BLOCK_SCALE);
-    }
-    (ascent, descent)
 }
 
 #[allow(clippy::too_many_arguments)]

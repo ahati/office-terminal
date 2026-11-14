@@ -467,6 +467,55 @@ pub fn data_label_position(chart: &ChartModel, series: &ChartSeries, default: &s
         .unwrap_or_else(|| default.to_string())
 }
 
+/// Whether this series paints value labels.
+///
+/// The effective flags live on `series_data_labels` (group defaults merged with
+/// the direct `<c:dLbls>`); `show_data_labels` is the parser's legacy
+/// chart-wide projection and is false whenever the labels are authored on the
+/// series instead. Checking only the legacy flag dropped every per-series label
+/// (e.g. the sample deck's line chart, whose series carries `showVal="1"`).
+/// ref core/src/chart/shared/data-labels.ts:118-130.
+pub fn series_shows_value_labels(chart: &ChartModel, series: &ChartSeries) -> bool {
+    match series.series_data_labels.as_ref() {
+        Some(labels) if labels.deleted == Some(true) => false,
+        Some(labels) => {
+            let authored_flag = labels.show_val
+                || labels.show_cat_name
+                || labels.show_ser_name
+                || labels.show_percent;
+            if authored_flag {
+                labels.show_val
+            } else {
+                // A style-only `<c:dLbls>` (font/position override) carries no
+                // content flag; the legacy chart-wide projection still governs.
+                chart.show_data_labels
+            }
+        }
+        None => chart.show_data_labels,
+    }
+}
+
+/// Whether this series paints percentage labels (pie / doughnut / 100 %
+/// stacked). Falls back to `show_val` because Office producers often set only
+/// `showVal` on a percent label.
+pub fn series_shows_percent_labels(chart: &ChartModel, series: &ChartSeries) -> bool {
+    match series.series_data_labels.as_ref() {
+        Some(labels) if labels.deleted == Some(true) => false,
+        Some(labels) => {
+            let authored_flag = labels.show_val
+                || labels.show_cat_name
+                || labels.show_ser_name
+                || labels.show_percent;
+            if authored_flag {
+                labels.show_percent || labels.show_val
+            } else {
+                chart.show_data_labels
+            }
+        }
+        None => chart.show_data_labels,
+    }
+}
+
 pub fn make_simple_run(
     text: &str,
     sz_pt: f32,

@@ -299,7 +299,7 @@ pub struct ChartDataBounds {
 }
 
 impl ChartDataBounds {
-    pub fn compute(chart: &ChartModel, family: ChartFamily) -> Self {
+    pub fn compute(chart: &ChartModel, family: ChartFamily, axis_len_pt: f32) -> Self {
         let num_categories = chart.categories.len().max(
             chart
                 .series
@@ -310,11 +310,19 @@ impl ChartDataBounds {
         ).max(1);
 
         if family.is_percent_stacked() {
+            // Percent axes keep their exact normalized extent; only the auto
+            // unit uses the shared 1/2/5 ceiling ladder (ref
+            // `automaticPercentMajorUnit`, axis-scale.ts:44-58).
+            let horizontal = family.is_horizontal_bar();
+            let intervals = if horizontal || axis_len_pt < 120.0 { 5 } else { 10 };
+            let step = ceiling_nice_step(100.0 / intervals as f64);
+            let min_val = chart.val_min.unwrap_or(0.0);
+            let max_val = chart.val_max.unwrap_or(100.0);
             return Self {
-                min_val: 0.0,
-                max_val: 100.0,
+                min_val,
+                max_val,
                 num_categories,
-                nice_ticks: vec![0.0, 25.0, 50.0, 75.0, 100.0],
+                nice_ticks: indexed_ticks(min_val, max_val, step),
             };
         }
 
@@ -354,31 +362,15 @@ impl ChartDataBounds {
             raw_max = 1.0;
         }
 
-        let mut min_val = chart.val_min.unwrap_or(if raw_min >= 0.0 {
-            0.0
-        } else {
-            raw_min
-        });
-
-        let mut max_val = chart.val_max.unwrap_or(if raw_max <= 0.0 && min_val < 0.0 {
-            0.0
-        } else {
-            raw_max
-        });
-
-        if max_val <= min_val {
-            max_val = min_val + 1.0;
-        }
-
-        let nice_ticks = compute_ticks(min_val, max_val);
-        if let (Some(&first), Some(&last)) = (nice_ticks.first(), nice_ticks.last()) {
-            if chart.val_min.is_none() && first < min_val {
-                min_val = first;
-            }
-            if chart.val_max.is_none() && last > max_val {
-                max_val = last;
-            }
-        }
+        let (min_val, max_val, _step, nice_ticks) = plan_linear_axis(
+            raw_min,
+            raw_max,
+            chart.val_min,
+            chart.val_max,
+            axis_len_pt,
+            family.is_horizontal_bar(),
+            chart.val_axis_major_unit,
+        );
 
         Self {
             min_val,
@@ -389,47 +381,161 @@ impl ChartDataBounds {
     }
 }
 
-fn compute_ticks(min: f64, max: f64) -> Vec<f64> {
-    let span = max - min;
-    if span <= 0.0 {
-        return vec![min, min + 1.0];
+/// Smallest `1 / 2 / 5 × 10ⁿ` step at least as large as `raw`
+/// (ref `ceilingNiceStep`, axis-scale.ts:145-157).
+fn ceiling_nice_step(raw: f64) -> f64 {
+    if raw <= 0.0 || !raw.is_finite() {
+        return 1.0;
     }
-
-    let raw_step = span / 4.0;
-    let magnitude = 10f64.powf(raw_step.log10().floor());
-    let normalized = raw_step / magnitude;
-
-    let step_mult = if normalized < 1.5 {
+    let mag = 10f64.powf(raw.log10().floor());
+    if mag <= 0.0 || !mag.is_finite() {
+        return raw;
+    }
+    let normalized = raw / mag;
+    let factor = if normalized <= 1.0 {
         1.0
-    } else if normalized < 3.0 {
+    } else if normalized <= 2.0 {
         2.0
-    } else if normalized < 7.0 {
+    } else if normalized <= 5.0 {
         5.0
     } else {
         10.0
     };
+    factor * mag
+}
 
-    let step = step_mult * magnitude;
-    let start = (min / step).floor() * step;
-    let end = (max / step).ceil() * step;
-
-    let mut ticks = Vec::new();
-    let mut current = start;
-    let count_limit = 20;
-    let mut count = 0;
-
-    while current <= end + step * 0.001 && count < count_limit {
-        ticks.push(current);
-        current += step;
-        count += 1;
+/// Round step yielding roughly `target_steps` intervals
+/// (ref `niceStep`, axis-scale.ts:30-38).
+fn nice_step(range: f64, target_steps: f64) -> f64 {
+    if range == 0.0 {
+        return 1.0;
     }
+    let raw = range / target_steps;
+    let mag = 10f64.powf(raw.log10().floor());
+    let normed = raw / mag;
+    let nice = if normed < 1.5 {
+        1.0
+    } else if normed < 3.5 {
+        2.0
+    } else if normed < 7.5 {
+        5.0
+    } else {
+        10.0
+    };
+    nice * mag
+}
 
+/// Axis ticks from `min`, stepping by `unit`, bounded at 512 positions
+/// (ref `indexedTicks`, axis-scale.ts:201-242).
+fn indexed_ticks(min: f64, max: f64, unit: f64) -> Vec<f64> {
+    if !(min.is_finite() && max.is_finite() && unit > 0.0 && unit.is_finite()) || max < min {
+        return vec![min, max];
+    }
+    let expected = ((max - min) / unit).floor() + 1.0;
+    if !expected.is_finite() || expected < 1.0 {
+        return vec![min];
+    }
+    let count = (expected as usize).min(512);
+    let epsilon = unit.max(max - min) * 1.0e-9;
+    let mut ticks = Vec::with_capacity(count);
+    for index in 0..count {
+        let value = min + index as f64 * unit;
+        if value > max + epsilon {
+            break;
+        }
+        ticks.push(value);
+    }
     if ticks.is_empty() {
-        vec![min, max]
+        vec![min]
     } else {
         ticks
     }
 }
+
+/// Port of `planLinearValueAxis` (`axis-scale.ts:250-388`). The automatic
+/// bounds use Excel's zero-anchoring and 5 % padding; fully bounded axes choose
+/// their omitted unit from the physical plot length (vertical: one interval per
+/// ~28 pt, horizontal: one per ~38 pt).
+#[allow(clippy::too_many_arguments)]
+fn plan_linear_axis(
+    data_min: f64,
+    data_max: f64,
+    explicit_min: Option<f64>,
+    explicit_max: Option<f64>,
+    axis_len_pt: f32,
+    horizontal: bool,
+    authored_major: Option<f64>,
+) -> (f64, f64, f64, Vec<f64>) {
+    let axis_len_pt = axis_len_pt as f64;
+    let mut data_min = if data_min.is_finite() { data_min } else { 0.0 };
+    let mut data_max = if data_max.is_finite() { data_max } else { 1.0 };
+    if data_min > data_max {
+        std::mem::swap(&mut data_min, &mut data_max);
+    }
+
+    let (auto_min, auto_max, auto_major) = if data_min == 0.0 && data_max == 0.0 {
+        (0.0, 1.0, 0.1)
+    } else {
+        let mut lo_data = data_min;
+        let mut hi_data = data_max;
+        if lo_data == hi_data {
+            lo_data = lo_data.min(0.0);
+            hi_data = hi_data.max(0.0);
+        }
+        let anchor_positive = lo_data >= 0.0 && (lo_data == 0.0 || hi_data > 1.2 * lo_data);
+        let anchor_negative = hi_data <= 0.0 && (hi_data == 0.0 || lo_data.abs() > 1.2 * hi_data.abs());
+        let padded_min = if anchor_positive { 0.0 } else { lo_data };
+        let padded_max = if anchor_negative { 0.0 } else { hi_data };
+        let span = padded_max - padded_min;
+        let padding = if span.is_finite() { span * 0.05 } else { padded_max * 0.05 - padded_min * 0.05 };
+        let lo = if anchor_positive { 0.0 } else { lo_data - padding };
+        let hi = if anchor_negative { 0.0 } else { hi_data + padding };
+        let major = ceiling_nice_step(hi / 10.0 - lo / 10.0);
+        ( (lo / major).floor() * major, (hi / major).ceil() * major, major )
+    };
+
+    let authored = authored_major.filter(|unit| unit.is_finite() && *unit > 0.0);
+    let min = explicit_min.unwrap_or_else(|| match authored {
+        Some(unit) => (auto_min / unit).floor() * unit,
+        None => auto_min,
+    });
+    let max = explicit_max.unwrap_or_else(|| match authored {
+        Some(unit) => (auto_max / unit).ceil() * unit,
+        None => auto_max,
+    });
+
+    let mut automatic_major = auto_major;
+    if authored.is_none() {
+        if let (Some(lo), Some(hi)) = (explicit_min, explicit_max) {
+            if hi > lo {
+                if horizontal {
+                    let target = if axis_len_pt.is_finite() && axis_len_pt > 0.0 {
+                        (axis_len_pt / 38.0).round().max(5.0)
+                    } else {
+                        8.0
+                    };
+                    automatic_major = ceiling_nice_step((hi - lo) / target);
+                } else {
+                    let target = if axis_len_pt.is_finite() && axis_len_pt > 0.0 {
+                        (axis_len_pt / 28.0).round().max(5.0)
+                    } else {
+                        7.0
+                    };
+                    automatic_major = ceiling_nice_step((hi - lo) / 10.0)
+                        .max(nice_step((hi - lo) / target, 1.0));
+                }
+            }
+        }
+    }
+
+    let step = authored.unwrap_or(automatic_major);
+    let mut ticks = indexed_ticks(min, max, step);
+    if ticks.len() > 512 {
+        ticks.truncate(512);
+    }
+    (min, max, step, ticks)
+}
+
 
 pub fn get_category_label(chart: &ChartModel, index: usize) -> String {
     if let Some(cat) = chart.categories.get(index) {
