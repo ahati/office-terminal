@@ -6,23 +6,21 @@
 //! Reference (read-only @ `1f5c6e1d`): `/tmp/oooxml/packages/pptx/src/`
 //! `slide-nav.test.ts:62-79` (relative show-jump arithmetic),
 //! `viewer-internal-nav.test.ts:41-81` (click dispatch branches),
-//! `viewer-hidden-skip.test.ts:31-95` (goToSlide in show/dim mode),
-//! `viewer-zoom-contract.test.ts:113-118` and `scroll-viewer.test.ts:1198-1204`
-//! (fit-page scale, ported to the terminal cell fit).
+//! `viewer-hidden-skip.test.ts:31-95` (goToSlide in show/skip/dim mode),
+//! `scroll-viewer-hidden.test.ts:83-160` (absolute indices, mode switch),
+//! `viewer-zoom-contract.test.ts:58-72` (scale clamp + change gate) and
+//! `scroll-viewer.test.ts:1198-1204` (fit-page scale, ported to the terminal
+//! cell fit).
 //!
-//! BLOCKED (no production API, see `tests/parity/coverage/viewer.md`):
-//! `HiddenSlideMode` / `nextVisibleIndex` / `resolveVisibleIndex` (no
-//! hidden-slide policy reaches navigation), `onHyperlinkClick` (no delegation
-//! seam; `dispatch_link` always navigates) and `setScale` / `zoomMin` /
-//! `zoomMax` (no presenter zoom).
-//!
-//! Blocked cases (no production API yet) are archived, not compiled, in
-//! `tests/parity/pending/parity_viewer_nav_tests.rs.txt`; the
-//! ledger keeps their rows.
+//! The hidden-slide policy (`HiddenSlideMode`, `next_visible`, `resolve_visible`,
+//! `count_visible`) lives in `kitty_pptx_core::navigation` and is covered here
+//! through `PresentationState`; its pure half is asserted in the core nav
+//! target. The run-level find controller (`PptxFindController`) is V2 (wave 4);
+//! the fuzzy search index here already excludes hidden slides under `skip`.
 
 use crossbeam_channel::unbounded;
 use kitty_pptx_core::contracts::{HyperlinkTarget, RectF32, SlideAction, SlideLink};
-use kitty_pptx_core::extract_slide_hyperlinks;
+use kitty_pptx_core::{extract_slide_hyperlinks, HiddenSlideMode};
 use kitty_pptx_tui::app::link_state::LinkDispatch;
 use kitty_pptx_tui::app::state::PresentationState;
 use kitty_pptx_tui::widget::layout::{compute_slide_rect, DEFAULT_CELL_ASPECT_RATIO};
@@ -76,6 +74,13 @@ fn presentation(deck: Vec<Slide>) -> PresentationState {
     state.set_slide_dimensions(SLIDE_W, SLIDE_H);
     state.set_layout_dimensions(80, 24);
     state.set_slides(deck);
+    state
+}
+
+/// A `skip`-mode presenter over `deck`.
+fn skip_presentation(deck: Vec<Slide>) -> PresentationState {
+    let mut state = presentation(deck);
+    state.set_hidden_slide_mode(HiddenSlideMode::Skip);
     state
 }
 
@@ -342,4 +347,215 @@ fn base_fit_spans_the_container_width_when_it_fits() {
     // folded in: (cols / rows) * cell_aspect == 4/3.
     let rendered_aspect = (wide.width as f32 / wide.height as f32) * DEFAULT_CELL_ASPECT_RATIO;
     assert!((rendered_aspect - 4.0 / 3.0).abs() < 0.01);
+}
+
+// ── hidden-slide policy (ref viewer-hidden-skip.test.ts / scroll-viewer-hidden)
+
+/// A deck of `count` slides with `hidden` indices flagged `<p:sld show="0">`.
+fn deck_with_hidden(count: usize, hidden: &[usize]) -> Vec<Slide> {
+    (0..count)
+        .map(|index| slide(index, hidden.contains(&index), None, None))
+        .collect()
+}
+
+/// "goToSlide on a hidden slide lands on the next shown slide, else the
+/// previous one" — including the clamped out-of-range target, and no hidden
+/// slide is ever drawn. ref viewer-hidden-skip.test.ts:31-48
+#[test]
+fn skip_mode_go_to_hidden_slide_lands_on_the_next_shown_slide() {
+    let mut state = skip_presentation(deck_with_hidden(5, &[1, 2, 4]));
+    assert!(state.set_current_slide(1));
+    assert_eq!(state.current_slide(), 3);
+    // No shown slide after 4 -> the nearest shown slide before it.
+    assert!(!state.set_current_slide(4), "the target resolves to 3 again");
+    assert_eq!(state.current_slide(), 3);
+    // Clamped out-of-range index follows the same rule, slide 0 stays put.
+    assert!(!state.set_current_slide(99));
+    assert_eq!(state.current_slide(), 3);
+    assert!(state.set_current_slide(0), "slide 0 is shown");
+    assert_eq!(state.current_slide(), 0);
+    assert!(!state.set_current_slide(0));
+    assert!(!state.is_slide_hidden(0));
+}
+
+/// Sequential navigation jumps over runs of hidden slides and stops at the
+/// deck edges — the last slide being hidden leaves the previous shown slide.
+/// ref viewer.ts:466-510, scroll-viewer-hidden.test.ts:103-121
+#[test]
+fn sequential_navigation_skips_hidden_slides() {
+    let mut state = skip_presentation(deck_with_hidden(6, &[1, 3, 5]));
+    assert!(state.next_slide());
+    assert_eq!(state.current_slide(), 2);
+    assert!(state.next_slide());
+    assert_eq!(state.current_slide(), 4);
+    assert!(!state.next_slide(), "the last slide is hidden: stay on 4");
+    assert!(state.prev_slide());
+    assert_eq!(state.current_slide(), 2);
+    assert!(state.prev_slide());
+    assert_eq!(state.current_slide(), 0);
+    assert!(!state.prev_slide());
+    // The presenter preview follows the same policy.
+    assert_eq!(state.next_slide_index(), Some(2));
+}
+
+/// "every slide hidden: navigates and searches as in show" — `skip` degenerates
+/// to `show`, so hidden slides are addressable and searchable again.
+/// ref viewer-hidden-skip.test.ts:50-60, scroll-viewer-hidden.test.ts:138-146
+#[test]
+fn all_hidden_deck_navigates_as_in_show_mode() {
+    let mut state = skip_presentation(deck_with_hidden(3, &[0, 1, 2]));
+    assert!(state.set_current_slide(1));
+    assert_eq!(state.current_slide(), 1);
+    assert!(state.next_slide());
+    assert_eq!(state.current_slide(), 2);
+    assert!(state.prev_slide());
+    assert_eq!(state.current_slide(), 1);
+    assert_eq!(state.visible_slide_count(), 0);
+    state.open_search();
+    assert_eq!(state.search_state().matched_indices(), &[0, 1, 2]);
+}
+
+/// "show and dim modes still honour goToSlide on a hidden slide".
+/// ref viewer-hidden-skip.test.ts:84-90
+#[test]
+fn show_and_dim_modes_still_honour_go_to_slide_on_a_hidden_slide() {
+    for mode in [HiddenSlideMode::Show, HiddenSlideMode::Dim] {
+        let mut state = presentation(deck_with_hidden(3, &[1]));
+        state.set_hidden_slide_mode(mode);
+        assert!(state.set_current_slide(1));
+        assert_eq!(state.current_slide(), 1, "{mode:?} keeps hidden addressable");
+    }
+}
+
+/// "an internal hyperlink to a hidden slide follows the goToSlide rule".
+/// ref viewer-hidden-skip.test.ts:93-104
+#[test]
+fn internal_link_to_a_hidden_slide_follows_the_go_to_slide_rule() {
+    let mut deck = deck_with_hidden(3, &[1]);
+    deck[0] = slide(0, false, Some("../slides/slide2.xml"), Some("ppaction://hlinksldjump"));
+    let link = link_of(&deck, 0);
+    assert_eq!(link.target, HyperlinkTarget::SlideIndex(1));
+    let mut state = skip_presentation(deck);
+    assert_eq!(
+        state.dispatch_link(&link),
+        LinkDispatch::Navigate { changed: true }
+    );
+    assert_eq!(state.current_slide(), 2, "hidden slide 1 resolves forward");
+}
+
+/// Initial slide selection: entering `skip` with a hidden opening slide lands
+/// on the first shown one. ref viewer.ts:512-522 (`_initialSlide`), :120-121
+#[test]
+fn initial_slide_selection_lands_on_the_first_shown_slide() {
+    let mut state = PresentationState::new(4, vec![]);
+    state.set_hidden_slide_mode(HiddenSlideMode::Skip);
+    state.set_slides(deck_with_hidden(4, &[0, 1]));
+    assert_eq!(state.current_slide(), 2);
+    assert_eq!(state.total_slides(), 4);
+    assert_eq!(state.visible_slide_count(), 2);
+}
+
+/// `visibleSlideCount` counts shown slides only; indices stay absolute.
+/// ref viewer.ts:577-582, scroll-viewer-hidden.test.ts:83-101
+#[test]
+fn visible_slide_count_reports_shown_slides_only() {
+    let state = skip_presentation(deck_with_hidden(6, &[1, 2, 4]));
+    assert_eq!(state.visible_slide_count(), 3);
+    assert_eq!(state.total_slides(), 6);
+    assert!(state.is_slide_hidden(2));
+    assert!(!state.is_slide_hidden(3));
+}
+
+/// Entering `skip` while on a hidden slide advances forward, else backward.
+/// ref viewer.ts:545-566, scroll-viewer-hidden.test.ts:207-219
+#[test]
+fn entering_skip_mode_moves_off_a_hidden_slide() {
+    let deck = deck_with_hidden(4, &[1, 3]);
+    let mut state = presentation(deck);
+    state.set_current_slide(1);
+    assert!(state.set_hidden_slide_mode(HiddenSlideMode::Skip));
+    assert_eq!(state.current_slide(), 2);
+    // In `show` a hidden slide is addressable; entering `skip` moves backward
+    // when no shown slide follows it.
+    state.set_hidden_slide_mode(HiddenSlideMode::Show);
+    assert!(state.set_current_slide(3));
+    assert_eq!(state.current_slide(), 3);
+    assert!(state.set_hidden_slide_mode(HiddenSlideMode::Skip));
+    assert_eq!(state.current_slide(), 2);
+    assert!(!state.set_hidden_slide_mode(HiddenSlideMode::Skip), "same mode");
+    // Returning to `show` keeps the current slide.
+    assert!(!state.set_hidden_slide_mode(HiddenSlideMode::Show));
+    assert_eq!(state.current_slide(), 2);
+}
+
+/// "switching to Skip clears the active match and keeps a shown current
+/// slide". ref scroll-viewer-hidden.test.ts:185-205
+#[test]
+fn switching_to_skip_clears_the_active_search_and_keeps_a_shown_slide() {
+    let mut state = presentation(deck_with_hidden(6, &[1, 2]));
+    state.set_current_slide(3);
+    state.open_search();
+    assert!(state.search_state().selected_slide_index().is_some());
+    state.set_hidden_slide_mode(HiddenSlideMode::Skip);
+    assert_eq!(state.current_slide(), 3, "slide 3 is shown");
+    assert_eq!(state.search_state().selected_slide_index(), None);
+}
+
+/// "find does not match hidden slides" — the fuzzy search index follows the
+/// same policy the run-level find controller will (V2).
+/// ref scroll-viewer-hidden.test.ts:123-128
+#[test]
+fn search_never_matches_a_hidden_slide_under_skip() {
+    let mut state = skip_presentation(deck_with_hidden(4, &[1]));
+    state.open_search();
+    assert_eq!(state.search_state().matched_indices(), &[0, 2, 3]);
+    state.set_hidden_slide_mode(HiddenSlideMode::Show);
+    state.open_search();
+    assert_eq!(state.search_state().matched_indices(), &[0, 1, 2, 3]);
+}
+
+/// "setScale clamps to [zoomMin, zoomMax]". ref viewer-zoom-contract.test.ts:58-63
+#[test]
+fn zoom_scale_clamps_to_the_configured_range() {
+    let mut state = presentation(plain_deck(3));
+    state.set_zoom_bounds(0.5, 2.0);
+    assert!(state.set_scale(10.0));
+    assert_eq!(state.scale(), 2.0);
+    assert!(state.set_scale(0.01));
+    assert_eq!(state.scale(), 0.5);
+    // Family defaults clamp to [0.1, 4].
+    let mut default_state = presentation(plain_deck(3));
+    assert_eq!(default_state.zoom_bounds(), (0.1, 4.0));
+    default_state.set_scale(99.0);
+    assert_eq!(default_state.scale(), 4.0);
+}
+
+/// "setScale does not fire onScaleChange when the factor is unchanged".
+/// ref viewer-zoom-contract.test.ts:65-72
+#[test]
+fn set_scale_does_not_fire_for_an_unchanged_factor() {
+    let mut state = presentation(plain_deck(3));
+    assert!(state.set_scale(1.5));
+    assert_eq!(state.scale_changes(), 1);
+    assert!(!state.set_scale(1.5), "same factor: no change event");
+    assert_eq!(state.scale_changes(), 1);
+}
+
+/// "delegates to a caller-supplied onHyperlinkClick with slideIndex populated,
+/// and does NOT navigate". ref viewer-internal-nav.test.ts:52-72
+#[test]
+fn caller_callback_owns_the_internal_click() {
+    let deck = vec![
+        slide(0, false, Some("../slides/slide3.xml"), Some("ppaction://hlinksldjump")),
+        slide(1, false, None, None),
+        slide(2, false, None, None),
+    ];
+    let link = link_of(&deck, 0);
+    let mut state = presentation(deck);
+    state.set_internal_link_delegation(true);
+    assert_eq!(
+        state.dispatch_link(&link),
+        LinkDispatch::Internal { slide_index: 2 }
+    );
+    assert_eq!(state.current_slide(), 0, "the callback owns the click");
 }

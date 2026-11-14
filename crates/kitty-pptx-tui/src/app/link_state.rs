@@ -79,6 +79,10 @@ pub enum LinkDispatch {
     OpenExternal(String),
     /// Slide navigation completed; `changed` reports whether the index moved.
     Navigate { changed: bool },
+    /// A caller-owned internal click (the `onHyperlinkClick` delegation seam):
+    /// the enriched slide index is reported and the viewer does not navigate.
+    /// ref viewer-internal-nav.test.ts:52-72
+    Internal { slide_index: usize },
     /// `ppaction://hlinkshowjump?jump=endshow` — terminate the presentation.
     EndShow,
 }
@@ -225,6 +229,14 @@ impl PresentationState {
         match &link.target {
             HyperlinkTarget::ExternalUri(url) => LinkDispatch::OpenExternal(url.clone()),
             HyperlinkTarget::SlideIndex(index) => {
+                // A caller-supplied callback owns the click; the reference hands
+                // it the enriched target (slide index populated) and does not
+                // navigate. ref viewer-internal-nav.test.ts:52-72
+                if self.delegates_internal_links() {
+                    return LinkDispatch::Internal {
+                        slide_index: *index,
+                    };
+                }
                 let changed = self.set_current_slide(*index);
                 LinkDispatch::Navigate { changed }
             }
@@ -328,6 +340,9 @@ fn action_for_dispatch(dispatch: LinkDispatch) -> AppAction {
         LinkDispatch::OpenExternal(url) => AppAction::OpenExternal(url),
         LinkDispatch::Navigate { changed: true } => AppAction::SlideChanged,
         LinkDispatch::Navigate { changed: false } => AppAction::Redraw,
+        // The delegated target belongs to a caller callback this app does not
+        // install; the terminal presenter keeps the current slide.
+        LinkDispatch::Internal { .. } => AppAction::None,
         LinkDispatch::EndShow => AppAction::Quit,
     }
 }

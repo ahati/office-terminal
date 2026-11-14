@@ -5,10 +5,11 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::app::link_state::LinkPickerState;
 pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
+use crate::app::nav_state::NavState;
 use crate::app::search_state::SearchState;
 use crate::app::sorter_state::SorterState;
 use crate::app::warnings_state::WarningsState;
-use kitty_pptx_core::SlideLink;
+use kitty_pptx_core::{HiddenSlideMode, SlideLink};
 
 /// Presentation navigation and UI state machine.
 pub struct PresentationState {
@@ -22,6 +23,11 @@ pub struct PresentationState {
     pub(crate) start_time: Instant,
     pub(crate) digit_buffer: String,
     pub(crate) aspect_ratio: f32,
+
+    // Navigation policy: hidden-slide mode + zoom factor.
+    pub(crate) nav: NavState,
+    /// A caller-owned hyperlink callback owns internal clicks (no navigation).
+    pub(crate) internal_link_delegation: bool,
 
     // Sub-states
     pub(crate) sorter: SorterState,
@@ -49,6 +55,8 @@ pub struct PresentationState {
 
 impl PresentationState {
     pub fn new(total_slides: usize, notes: Vec<Option<String>>) -> Self {
+        let mut nav = NavState::new();
+        nav.set_total(total_slides);
         Self {
             current_slide: 0,
             total_slides,
@@ -60,6 +68,8 @@ impl PresentationState {
             start_time: Instant::now(),
             digit_buffer: String::new(),
             aspect_ratio: 16.0 / 9.0,
+            nav,
+            internal_link_delegation: false,
             sorter: SorterState::new(),
             search: SearchState::new(),
             warnings: WarningsState::new(),
@@ -116,67 +126,133 @@ impl PresentationState {
         }
     }
 
+    // ─── Hidden-slide policy (ref hidden.ts, viewer.ts:437-582) ─────
+
+    pub fn hidden_slide_mode(&self) -> HiddenSlideMode {
+        self.nav.hidden_mode()
+    }
+
+    /// Switch the hidden-slide mode. Returns whether the current slide moved.
+    /// Entering or leaving `skip` clears the active search match (`find` may
+    /// only match shown slides in `skip` mode). ref viewer.ts:545-575
+    pub fn set_hidden_slide_mode(&mut self, mode: HiddenSlideMode) -> bool {
+        let previous = self.nav.hidden_mode();
+        if !self.nav.set_hidden_mode(mode) {
+            return false;
+        }
+        if previous.is_skip() || mode.is_skip() {
+            self.sync_search_entries();
+            self.search.clear_matches();
+        }
+        let target = if self.total_slides == 0 {
+            0
+        } else {
+            self.nav.resolve(self.current_slide.min(self.total_slides - 1))
+        };
+        let changed = self.current_slide != target;
+        self.current_slide = target;
+        if changed {
+            self.comments_scroll = 0;
+        }
+        changed
+    }
+
+    /// `<p:sld show="0">` for an absolute slide index.
+    pub fn is_slide_hidden(&self, index: usize) -> bool {
+        self.nav.is_hidden(index)
+    }
+
+    /// Shown slides only; the absolute slide count is unchanged.
+    // ref viewer.ts:577-582
+    pub fn visible_slide_count(&self) -> usize {
+        self.nav.visible_count()
+    }
+
+    // ─── Zoom factor (ref viewer-zoom-contract.test.ts:58-72) ───────
+
+    pub fn scale(&self) -> f32 {
+        self.nav.scale()
+    }
+
+    /// Clamp and apply a zoom factor; `true` only when the factor moved (the
+    /// `onScaleChange` gate). ref viewer-zoom-contract.test.ts:58-72
+    pub fn set_scale(&mut self, scale: f32) -> bool {
+        self.nav.set_scale(scale)
+    }
+
+    /// Count of effective scale changes (the observer seam).
+    pub fn scale_changes(&self) -> u64 {
+        self.nav.scale_changes()
+    }
+
+    pub fn zoom_bounds(&self) -> (f32, f32) {
+        self.nav.zoom_bounds()
+    }
+
+    pub fn set_zoom_bounds(&mut self, min: f32, max: f32) {
+        self.nav.set_zoom_bounds(min, max);
+    }
+
+    /// When set, internal link clicks are reported to the caller instead of
+    /// navigating (`onHyperlinkClick`). ref viewer-internal-nav.test.ts:52-72
+    pub fn set_internal_link_delegation(&mut self, delegate: bool) {
+        self.internal_link_delegation = delegate;
+    }
+
+    pub fn delegates_internal_links(&self) -> bool {
+        self.internal_link_delegation
+    }
+
     pub fn set_current_slide(&mut self, slide_0based: usize) -> bool {
         if self.total_slides == 0 {
             self.current_slide = 0;
             return false;
         }
         let clamped = slide_0based.min(self.total_slides.saturating_sub(1));
-        let changed = self.current_slide != clamped;
-        self.current_slide = clamped;
+        // `skip` mode replaces a hidden target with the nearest shown slide.
+        // ref viewer.ts:437-462
+        let target = self.nav.resolve(clamped);
+        let changed = self.current_slide != target;
+        self.current_slide = target;
         if changed {
             self.comments_scroll = 0;
         }
         changed
     }
 
-    /// Advance to the next slide, clamping to the last slide.
+    /// Advance one slide under the hidden-slide policy, clamping at the last.
+    // ref viewer.ts:466-510
     pub fn next_slide(&mut self) -> bool {
-        if self.total_slides == 0 {
-            return false;
-        }
-        if self.current_slide + 1 < self.total_slides {
-            self.current_slide += 1;
-            self.comments_scroll = 0;
-            true
-        } else {
-            false
-        }
+        self.step_slide(1)
     }
 
-    /// Move to the previous slide, clamping to slide 0.
+    /// Move back one slide under the hidden-slide policy, clamping at slide 0.
     pub fn prev_slide(&mut self) -> bool {
-        if self.current_slide > 0 {
-            self.current_slide -= 1;
-            self.comments_scroll = 0;
-            true
-        } else {
-            false
+        self.step_slide(-1)
+    }
+
+    fn step_slide(&mut self, direction: i8) -> bool {
+        match self.nav.step(self.current_slide, direction) {
+            Some(next) => {
+                self.current_slide = next;
+                self.comments_scroll = 0;
+                true
+            }
+            None => false,
         }
     }
 
-    /// Jump to the first slide (slide 0).
+    /// Jump to the first slide (slide 0, or the first shown slide under `skip`).
     pub fn first_slide(&mut self) -> bool {
-        let changed = self.current_slide != 0;
-        self.current_slide = 0;
-        if changed {
-            self.comments_scroll = 0;
-        }
-        changed
+        self.set_current_slide(0)
     }
 
-    /// Jump to the last slide (`total_slides - 1`).
+    /// Jump to the last slide (or the nearest shown slide under `skip`).
     pub fn last_slide(&mut self) -> bool {
         if self.total_slides == 0 {
             return false;
         }
-        let last = self.total_slides.saturating_sub(1);
-        let changed = self.current_slide != last;
-        self.current_slide = last;
-        if changed {
-            self.comments_scroll = 0;
-        }
-        changed
+        self.set_current_slide(self.total_slides - 1)
     }
 
     /// Jump to a 1-based slide index.
@@ -184,13 +260,7 @@ impl PresentationState {
         if self.total_slides == 0 {
             return false;
         }
-        let target_0based = slide_1based.saturating_sub(1).min(self.total_slides - 1);
-        let changed = self.current_slide != target_0based;
-        self.current_slide = target_0based;
-        if changed {
-            self.comments_scroll = 0;
-        }
-        changed
+        self.set_current_slide(slide_1based.saturating_sub(1))
     }
 
     /// Push a digit for slide jumping.
@@ -295,13 +365,9 @@ impl PresentationState {
         &self.notes
     }
 
-    /// Next slide index if available.
+    /// Next slide index under the hidden-slide policy (presenter preview).
     pub fn next_slide_index(&self) -> Option<usize> {
-        if self.current_slide + 1 < self.total_slides {
-            Some(self.current_slide + 1)
-        } else {
-            None
-        }
+        self.nav.step(self.current_slide, 1)
     }
 
     /// ImageId for the current slide.
@@ -407,18 +473,39 @@ impl PresentationState {
     }
 
     pub fn set_slides(&mut self, slides: Vec<Slide>) {
+        self.nav.set_hidden(
+            slides.iter().map(|slide| slide.hidden).collect(),
+            self.total_slides,
+        );
         self.slide_links = kitty_pptx_core::extract_deck_hyperlinks(&slides);
         self.slides = slides;
-        self.search
-            .sync_entries(&self.slides, &self.notes, self.total_slides);
+        // Initial-slide selection: in `skip` mode a hidden opening slide lands
+        // on the first shown one. ref viewer.ts:512-522 (`_initialSlide`)
+        if self.total_slides > 0 {
+            self.current_slide = self
+                .nav
+                .resolve(self.current_slide.min(self.total_slides - 1));
+        }
+        self.sync_search_entries();
     }
 
     pub fn with_slides(mut self, slides: Vec<Slide>) -> Self {
-        self.slide_links = kitty_pptx_core::extract_deck_hyperlinks(&slides);
-        self.slides = slides;
-        self.search
-            .sync_entries(&self.slides, &self.notes, self.total_slides);
+        self.set_slides(slides);
         self
+    }
+
+    /// Rebuild the search index, excluding hidden slides while in `skip` mode.
+    pub(crate) fn sync_search_entries(&mut self) {
+        let hidden: Vec<bool> = (0..self.total_slides)
+            .map(|index| self.nav.is_hidden(index))
+            .collect();
+        self.search.sync_entries_filtered(
+            &self.slides,
+            &self.notes,
+            self.total_slides,
+            &hidden,
+            self.nav.hidden_mode().is_skip(),
+        );
     }
 
     /// Set the physical slide dimensions used for mouse hit-testing.
