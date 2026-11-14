@@ -496,3 +496,61 @@ fn stacked_picture_markers_keep_their_source_aspect() {
 
 #[path = "text_box_b_support/stacked_decor_cases.rs"]
 mod stacked_decor_cases;
+
+fn math_fallback_body(vert: &str) -> pptx_model::TextBody {
+    let math = |text: &str| {
+        json!({
+            "type": "math",
+            "fallbackText": null,
+            "nodes": [{ "kind": "run", "text": text, "style": "roman" }],
+            "display": false,
+            "fontSize": 18
+        })
+    };
+    let value = json!({
+        "verticalAnchor": "t",
+        "paragraphs": [{
+            "alignment": "l", "marL": 0, "marR": 0, "indent": 0,
+            "spaceBefore": null, "spaceAfter": null, "spaceLine": null,
+            "lvl": 0, "bullet": { "type": "none" },
+            "defFontSize": null, "defColor": null, "defBold": null,
+            "defItalic": null, "defFontFamily": null, "tabStops": [],
+            "defTabSz": null, "rtl": false, "eaLnBrk": true, "fontAlgn": null,
+            "runs": [math("x"), math("y")],
+            "mathFallbacks": [{ "start": 0, "end": 2, "text": "authored preview" }]
+        }],
+        "defaultFontSize": 18,
+        "defaultBold": null, "defaultItalic": null,
+        "lIns": 0, "rIns": 0, "tIns": 0, "bIns": 0,
+        "wrap": "square", "vert": vert, "autoFit": "none",
+        "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false
+    });
+    serde_json::from_value(value).expect("fallback body")
+}
+
+#[test]
+fn stacked_complete_inline_equation_branch_is_replaced() {
+    for vert in ["horz", "wordArtVert", "wordArtVertRtl"] {
+        let commands = compile(&math_fallback_body(vert), 200.0, 200.0);
+        let drawn = texts(&draw_runs(&commands));
+        let joined = drawn.concat();
+        assert_eq!(joined, "authored preview", "{vert}: fallback branch");
+        assert!(!drawn.iter().any(|text| text == "x" || text == "y"));
+    }
+}
+
+#[test]
+fn stacked_reserves_autonum_prefix_cells() {
+    let mut text_body = body("ABCDEFGHIJKLMNO", "wordArtVert");
+    text_body.paragraphs[0].bullet = pptx_model::Bullet::AutoNum {
+        num_type: "arabicPeriod".to_string(),
+        start_at: Some(12),
+        color: None,
+        size_pct: None,
+        size_pts: None,
+        font_family: None,
+    };
+    let commands = compile(&text_body, 300.0, 250.0);
+    let first: String = texts(&draw_runs(&commands)).into_iter().take(3).collect();
+    assert_eq!(first, "12.", "auto-number prefix occupies three cells");
+}
