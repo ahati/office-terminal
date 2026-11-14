@@ -1,5 +1,6 @@
 pub mod blank;
 pub mod comments;
+pub mod find;
 pub mod help;
 pub mod link_picker;
 pub mod normal;
@@ -21,6 +22,7 @@ use std::sync::{Arc, Mutex};
 
 pub use blank::render_blank_screen;
 pub use comments::render_comments_drawer;
+pub use find::render_find_modal;
 pub use help::render_help_modal;
 pub use link_picker::render_link_picker;
 pub use normal::render_normal;
@@ -115,6 +117,7 @@ pub fn render_app(state: &PresentationState, f: &mut Frame) {
         AppMode::CommentsDrawer => render_comments_drawer(state, f, area),
         AppMode::WarningDrawer => render_warning_drawer(state, f, area),
         AppMode::TocSearchModal => render_search_modal(state, f, area),
+        AppMode::FindModal => render_find_modal(state, f, area),
         AppMode::LinkPickerModal => render_link_picker(state, f, area),
         _ => {}
     }

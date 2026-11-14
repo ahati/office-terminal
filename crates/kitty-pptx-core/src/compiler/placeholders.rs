@@ -1,6 +1,6 @@
 use crate::contracts::{
-    FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun,
-    VectorCommand, VectorPath, VectorStroke,
+    FillRule, LineCap, LineJoin, NormalizedRect, PathSegment, PositionedGlyph,
+    PositionedGlyphRun, RectF32, VectorCommand, VectorPath, VectorStroke,
 };
 use super::transform::compute_shape_transform;
 
@@ -122,6 +122,20 @@ pub fn compile_media_placeholder(media_elem: &pptx_model::MediaElement) -> Vec<V
     let h = media_elem.height as f32;
 
     let mut commands = Vec::new();
+
+    // Decoded poster frame (P4): the bitmap planner sees this DrawImage and
+    // the raster/SVG backends paint the poster under the media chrome. The
+    // compiler itself never decodes bytes.
+    if !media_elem.poster_path.is_empty() {
+        commands.push(VectorCommand::DrawImage {
+            rel_id: media_elem.poster_path.clone(),
+            src_rect: NormalizedRect::default(),
+            dest_rect: RectF32::new(0.0, 0.0, w, h),
+            opacity: 1.0,
+            transform,
+            effects: Vec::new(),
+        });
+    }
 
     // Dashed frame
     let frame_path = VectorPath::new(

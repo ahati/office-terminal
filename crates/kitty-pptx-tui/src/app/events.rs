@@ -13,6 +13,8 @@ pub enum AppAction {
     Redraw,
     /// Exit presentation.
     Quit,
+    /// Effective zoom factor changed; recompute the render target.
+    ScaleChanged,
     /// Launch a validated external URL in the OS browser.
     OpenExternal(String),
 }
@@ -36,16 +38,23 @@ pub fn handle_key_event(key: KeyEvent, state: &mut PresentationState) -> AppActi
         AppMode::CommentsDrawer => return handle_comments_key(key, state),
         AppMode::WarningDrawer => return handle_warnings_key(key, state),
         AppMode::TocSearchModal => return handle_search_key(key, state),
+        AppMode::FindModal => {
+            return crate::app::find_state::handle_find_key(key, state)
+        }
         AppMode::LinkPickerModal => {
             return crate::app::link_state::handle_link_picker_key(key, state)
         }
         _ => {}
     }
 
-    // 4. Check Ctrl-F global shortcut (outside modal)
+    // 4. Ctrl-F toggles the in-document find modal; `/` keeps the TOC search.
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('f') {
         state.clear_digits();
-        state.open_search();
+        if state.mode() == AppMode::FindModal {
+            state.close_find();
+        } else {
+            state.open_find();
+        }
         return AppAction::Redraw;
     }
 
@@ -316,6 +325,24 @@ fn handle_presentation_key(key: KeyEvent, state: &mut PresentationState) -> AppA
         KeyCode::Char('?') | KeyCode::Char('h') => {
             state.toggle_help();
             AppAction::Redraw
+        }
+
+        // Zoom steppers (`+`/`=` and `-`/`_`).
+        KeyCode::Char('+') | KeyCode::Char('=') => {
+            state.clear_digits();
+            if state.nav_mut().zoom_in() {
+                AppAction::ScaleChanged
+            } else {
+                AppAction::Redraw
+            }
+        }
+        KeyCode::Char('-') | KeyCode::Char('_') => {
+            state.clear_digits();
+            if state.nav_mut().zoom_out() {
+                AppAction::ScaleChanged
+            } else {
+                AppAction::Redraw
+            }
         }
 
         // Toggle Presenter Mode

@@ -237,9 +237,9 @@ fn test_toc_search_toggling_and_navigation() {
     assert_eq!(handle_key_event(make_key(KeyCode::Esc), &mut state), AppAction::Redraw);
     assert_eq!(state.mode(), AppMode::Fullscreen);
 
-    // Open via Ctrl+F
+    // Ctrl+F opens the in-document find modal; `/` remains the TOC search.
     assert_eq!(handle_key_event(make_ctrl_key('f'), &mut state), AppAction::Redraw);
-    assert_eq!(state.mode(), AppMode::TocSearchModal);
+    assert_eq!(state.mode(), AppMode::FindModal);
 
     // Dismiss with Ctrl+F
     assert_eq!(handle_key_event(make_ctrl_key('f'), &mut state), AppAction::Redraw);
@@ -378,4 +378,31 @@ fn test_help_modal_opaque_edge_to_edge() {
         }
     }
     assert_eq!(opaque, total, "every help-modal cell must carry an opaque bg");
+}
+
+#[test]
+fn test_content_find_jumps_to_matching_slide() {
+    let mut state = PresentationState::new(2, vec![]);
+    state.set_slides(vec![
+        create_sample_slide(0, "Alpha Report", None),
+        create_sample_slide(1, "Beta Findings", None),
+    ]);
+
+    handle_key_event(make_ctrl_key('f'), &mut state);
+    assert_eq!(state.mode(), AppMode::FindModal);
+    for ch in "Beta".chars() {
+        handle_key_event(make_key(KeyCode::Char(ch)), &mut state);
+    }
+    assert_eq!(state.find_state().matches().len(), 1);
+    assert_eq!(
+        state.find_state().matches()[0].slide,
+        1,
+        "find indexes the second slide body"
+    );
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Enter), &mut state),
+        AppAction::SlideChanged
+    );
+    assert_eq!(state.current_slide(), 1);
+    assert_eq!(state.mode(), AppMode::Fullscreen);
 }

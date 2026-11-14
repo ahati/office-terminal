@@ -96,6 +96,19 @@ impl AffineTransform {
         }
     }
 
+    /// Rotation by `radians` clockwise (screen y-down).
+    pub fn from_rotation(radians: f32) -> Self {
+        let (sin, cos) = radians.sin_cos();
+        Self {
+            sx: cos,
+            ky: sin,
+            kx: -sin,
+            sy: cos,
+            tx: 0.0,
+            ty: 0.0,
+        }
+    }
+
     pub fn scale(sx: f32, sy: f32) -> Self {
         Self {
             sx,

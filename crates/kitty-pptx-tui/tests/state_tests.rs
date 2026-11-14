@@ -80,3 +80,27 @@ fn test_blank_screen_toggle() {
     state.unblank();
     assert_eq!(state.blank_mode(), BlankMode::None);
 }
+
+#[test]
+fn test_zoom_fit_uses_the_slide_aspect() {
+    let mut state = PresentationState::new(3, vec![None, None, None]);
+    state.set_slide_dimensions(9_144_000, 6_858_000); // 960 x 720 px at 9525 EMU/px
+    assert!(state.fit_width(480.0));
+    assert!((state.scale() - 0.5).abs() < 1e-5);
+    state.set_scale(1.0);
+    assert!(state.fit_page(960.0, 360.0));
+    assert!((state.scale() - 0.5).abs() < 1e-5);
+    assert!(!state.fit_width(0.0), "unlaid-out container defers");
+}
+
+#[test]
+fn test_zoom_steppers_and_change_gate() {
+    let mut state = PresentationState::new(1, vec![None]);
+    assert!(state.nav_mut().zoom_in());
+    assert!((state.scale() - 1.1).abs() < 1e-6);
+    assert!(state.nav_mut().zoom_out());
+    assert!((state.scale() - 1.0).abs() < 1e-6);
+    let changes = state.scale_changes();
+    assert!(!state.set_scale(1.0));
+    assert_eq!(state.scale_changes(), changes);
+}

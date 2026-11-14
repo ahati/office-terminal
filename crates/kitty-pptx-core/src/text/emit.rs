@@ -13,8 +13,10 @@ use crate::text::metrics;
 use crate::text::shape;
 use crate::text::vertical::{self, VertMode};
 
+use super::columns;
 use super::natural_box;
 use super::paint;
+use super::preflight;
 use super::paragraphs::{self, ParagraphLayout};
 
 /// One authored text segment's resolved styling.
@@ -213,7 +215,15 @@ pub fn compile_text_body_with_markers(
     // `eaVert` per-glyph uprighting (`renderer.ts:5083` `eaVertUpright`); the
     // upright cells are painted with the element transform instead of the frame.
     let ea = vertical::ea_vert_frame(mode, box_w, box_h, base_transform);
-    let avail_w = (layout_w - l_ins - r_ins).max(0.0);
+    let content_w = (layout_w - l_ins - r_ins).max(0.0);
+    let num_col = text_body.num_col.max(1) as usize;
+    let column_gap = text_body.spc_col.max(0) as f32;
+    let column_width = if num_col > 1 {
+        (content_w - (num_col - 1) as f32 * column_gap).max(0.0) / num_col as f32
+    } else {
+        content_w
+    };
+    let avail_w = column_width;
 
     let paragraphs = paragraphs::build_paragraphs(
         text_body,
@@ -224,7 +234,17 @@ pub fn compile_text_body_with_markers(
         warning_sink,
     );
 
-    let do_wrap = text_body.wrap != "none";
+    // `spAutoFit`: a shape grows instead of wrapping when every paragraph's
+    // natural width fits the box. If one overflows, the ordinary wrap applies.
+    let sp_grows = text_body.auto_fit == "sp"
+        && !preflight::natural_width_exceeds_bbox(
+            &paragraphs,
+            layout_w,
+            l_ins,
+            r_ins,
+            &measurer,
+        );
+    let do_wrap = text_body.wrap != "none" && !sp_grows;
     let mut lines: Vec<LineLayout> = Vec::new();
     for (p_index, para) in paragraphs.iter().enumerate() {
         let budget = (avail_w - para.mar_l - para.mar_r).max(0.0);
@@ -289,19 +309,54 @@ pub fn compile_text_body_with_markers(
         .iter()
         .map(|l| l.top_gap + l.ascent + l.descent + l.after_gap)
         .sum();
+    // The final paragraph's trailing space-after cannot by itself fill a
+    // column (ECMA-376 §21.1.2.1.1 bodyPr@numCol).
+    let trailing_after = lines.last().map(|line| line.after_gap).unwrap_or(0.0);
+    let column_capacity = (layout_h - t_ins - b_ins).max(0.0);
+    let plan = columns::plan_columns(
+        lines.len(),
+        (total_h - trailing_after).max(0.0),
+        column_capacity,
+        num_col,
+    );
+    let mut column_heights = vec![0.0f32; plan.used_columns.max(1)];
+    for (index, line) in lines.iter().enumerate() {
+        let column = plan.line_col.get(index).copied().unwrap_or(0);
+        if let Some(height) = column_heights.get_mut(column) {
+            *height += line.top_gap + line.ascent + line.descent + line.after_gap;
+        }
+    }
+    let anchor_h = column_heights
+        .iter()
+        .copied()
+        .fold(0.0_f32, f32::max);
     let mut cur_y = metrics::block_top(
         &text_body.vertical_anchor,
         0.0,
         layout_h,
         t_ins,
         b_ins,
-        total_h,
+        anchor_h,
     );
+    let column_top = cur_y;
 
     let mut final_runs: Vec<PositionedGlyphRun> = Vec::new();
     let mut commands: Vec<VectorCommand> = Vec::new();
 
-    for line in lines.iter_mut() {
+    let mut previous_column = 0usize;
+    for (line_index, line) in lines.iter_mut().enumerate() {
+        let column = plan.line_col.get(line_index).copied().unwrap_or(0);
+        if column != previous_column {
+            cur_y = column_top;
+            previous_column = column;
+        }
+        let x_shift = columns::column_x(
+            column,
+            num_col,
+            column_width,
+            column_gap,
+            text_body.rtl_col,
+        );
         cur_y += line.top_gap;
         let para = &paragraphs[line.para_index];
         let indent = if line.first_line {
@@ -333,10 +388,10 @@ pub fn compile_text_body_with_markers(
         let segments = paint::bidi_segments(&line.items);
         let visual = (para.rtl || bidi::segments_have_rtl(&segments))
             .then(|| bidi::compute_line_visual_order(&segments, para.rtl));
-        let region_left = l_ins + para.mar_l;
+        let region_left = l_ins + x_shift + para.mar_l;
         let region_w = (avail_w - para.mar_l - para.mar_r - indent).max(0.0);
         // `leadingEdgeX = textX + textMaxW` (`renderer.ts:5811`).
-        let leading_edge = l_ins + avail_w - para.mar_r;
+        let leading_edge = l_ins + x_shift + avail_w - para.mar_r;
         // Reading-frame marker placement under an RTL base (issue #930): the
         // marker's RIGHT edge sits on the leading edge and the text is laid
         // contiguously to its left, so the pen reserves the marker advance

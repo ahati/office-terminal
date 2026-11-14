@@ -130,3 +130,64 @@ fn table_cell_horz_overflow_disables_the_horizontal_clip() {
     assert!(!cell_clips_with("horz", Some("overflow")));
     assert!(cell_clips_with("horz", Some("clip")));
 }
+
+#[test]
+fn table_cell_image_fill_reaches_the_display_list_with_its_crop() {
+    // renderer-table-image-fill.test.ts: the cell blip is a `VectorPaint::Image`
+    // on the cell rectangle, with the authored srcRect preserved for the
+    // raster/SVG tile painter to clip.
+    let value = json!({
+        "x": 0, "y": 0,
+        "width": 60 * 12_700, "height": 20 * 12_700,
+        "rotation": 0.0, "flipH": false, "flipV": false,
+        "cols": [60 * 12_700],
+        "rows": [{
+            "height": 20 * 12_700,
+            "cells": [{
+                "textBody": null,
+                "fill": {
+                    "fillType": "image",
+                    "imagePath": "ppt/media/cell.png",
+                    "mimeType": "image/png",
+                    "stretch": true,
+                    "srcRect": { "l": 0.1, "t": 0.0, "r": 0.0, "b": 0.0 }
+                },
+                "horzOverflow": null,
+                "borderL": null, "borderR": null, "borderT": null, "borderB": null,
+                "gridSpan": 1, "rowSpan": 1, "hMerge": false, "vMerge": false
+            }]
+        }],
+        "rtl": false
+    });
+    let table: pptx_model::TableElement = serde_json::from_value(value).expect("table fixture");
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let commands = compile_table_element(&table, &tx);
+    let fill = commands.iter().find_map(|command| match command {
+        VectorCommand::DrawPath {
+            fill: Some(kitty_pptx_core::contracts::VectorPaint::Image(image)),
+            path,
+            ..
+        } => Some((image, path)),
+        _ => None,
+    });
+    if fill.is_none() {
+        eprintln!("commands={:#?}", commands);
+    }
+    let (image, path) = fill.expect("cell image fill");
+    assert_eq!(image.rel_id, "ppt/media/cell.png");
+    assert!((image.src_rect.x - 0.1).abs() < 1e-6);
+    assert!((image.src_rect.w - 0.9).abs() < 1e-6);
+    // The paint path is the cell rectangle, so the painter's implicit clip is
+    // the cell frame (the srcRect crop is applied by the image-fill backend).
+    let bounds = path.segments.iter().fold(
+        (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+        |(min_x, min_y, max_x, max_y), segment| match segment {
+            kitty_pptx_core::contracts::PathSegment::MoveTo { x, y }
+            | kitty_pptx_core::contracts::PathSegment::LineTo { x, y } => {
+                (min_x.min(*x), min_y.min(*y), max_x.max(*x), max_y.max(*y))
+            }
+            _ => (min_x, min_y, max_x, max_y),
+        },
+    );
+    assert_eq!(bounds, (0.0, 0.0, 60.0 * 12_700.0, 20.0 * 12_700.0));
+}

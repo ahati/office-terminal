@@ -15,6 +15,8 @@ pub enum AppMode {
     WarningDrawer,
     /// Fuzzy TOC search modal popup.
     TocSearchModal,
+    /// In-document text find modal (`Ctrl+F`).
+    FindModal,
     /// Active-slide hyperlink picker modal (`o` / Ctrl+O).
     LinkPickerModal,
 }
@@ -35,6 +37,7 @@ impl AppMode {
                 | AppMode::CommentsDrawer
                 | AppMode::WarningDrawer
                 | AppMode::TocSearchModal
+                | AppMode::FindModal
                 | AppMode::LinkPickerModal
         )
     }

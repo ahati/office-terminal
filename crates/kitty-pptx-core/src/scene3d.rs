@@ -9,6 +9,7 @@
 use crate::contracts::{AffineTransform, VectorScene3d};
 
 pub mod bevel_inputs;
+pub mod bevel_profiles;
 pub mod camera;
 pub mod homography;
 pub mod projection;
@@ -176,35 +177,11 @@ pub fn camera_affine(
 /// boundary distance `u` in `[0, 1]` (PRD 08 §3.6.2).
 pub fn bevel_curve(preset: &str, u: f32, height: f32) -> (f32, f32) {
     let u = u.clamp(0.0, 1.0);
-    let h = height;
-    match preset {
-        "relaxed" => {
-            let v = h * 0.5 * (1.0 - (std::f32::consts::PI * u).cos());
-            let d = 0.5 * std::f32::consts::PI * h * (std::f32::consts::PI * u).sin();
-            (v, d)
-        }
-        "convex" => {
-            let a = std::f32::consts::FRAC_PI_2 * u;
-            (h * a.sin(), 0.5 * std::f32::consts::PI * h * a.cos())
-        }
-        "slant" => (h * u, h),
-        "riblet" => (
-            h * u.powi(3) * (10.0 - 15.0 * u + 6.0 * u * u),
-            30.0 * h * u * u * (1.0 - u) * (1.0 - u),
-        ),
-        // "circle" and unknown presets fall back to a circular arc.
-        _ => {
-            let one_minus = 1.0 - u;
-            let root = (1.0 - one_minus * one_minus).max(0.0).sqrt();
-            let value = h * root;
-            let slope = if root > 1e-4 {
-                h * one_minus / root
-            } else {
-                0.0
-            };
-            (value, slope)
-        }
-    }
+    // Every ST_BevelPresetType name (and unknown names, which resolve to
+    // circle) comes from the Office control-point table.
+    let profile_h = bevel_profiles::profile_height(preset, u);
+    let profile_s = bevel_profiles::profile_slope(preset, u);
+    (profile_h * height, profile_s * height)
 }
 
 /// Build the normalized surface normal for a bevel point.

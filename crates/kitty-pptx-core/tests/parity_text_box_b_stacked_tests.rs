@@ -19,7 +19,9 @@ use crossbeam_channel::unbounded;
 use kitty_pptx_core::contracts::{
     AffineTransform, PositionedGlyphRun, RectF32, VectorCommand,
 };
+use kitty_pptx_core::contracts::HyperlinkTarget;
 use kitty_pptx_core::text::emit::compile_text_body;
+use kitty_pptx_core::SlideCompiler;
 use kitty_pptx_core::text::vertical::{
     graphemes, place_stacked, vertical_form, StackedGlyph, VertMode,
 };
@@ -116,10 +118,15 @@ fn arial_glyphs(text: &str) -> Vec<StackedGlyph> {
         .map(|ch| StackedGlyph {
             text: ch.to_string(),
             style: kitty_pptx_core::text::StyleId(0),
-            advance: 0.6 * 24.0 * PT,
+            advance: CELL * PT,
+            width: 0.6 * 24.0 * PT,
             thickness: CELL * PT,
             ascent: (CELL - ARIAL_DESCENT * 24.0) * PT,
             descent: ARIAL_DESCENT * 24.0 * PT,
+            rotation: 0.0,
+            object: None,
+            paragraph: 0,
+            break_before: false,
         })
         .collect()
 }
@@ -223,4 +230,154 @@ fn cluster_segmentation_is_linear_in_the_paragraph_length() {
 fn stacked_modes_dispatch_on_body_pr_vert() {
     assert_eq!(VertMode::of("wordArtVert"), VertMode::Stacked { rtl: false });
     assert_eq!(VertMode::of("wordArtVertRtl"), VertMode::Stacked { rtl: true });
+}
+
+#[test]
+fn stacked_glyphs_advance_one_cell_along_the_column() {
+    let glyphs = arial_glyphs("AB");
+    let slots = place_stacked(&glyphs, text_rect(), "t", "l", false, false);
+    close((slots[1].baseline - slots[0].baseline) / PT, CELL, "cell pitch");
+}
+
+#[test]
+fn stacked_ascii_bracket_is_turned_ninety_degrees() {
+    let commands = compile(&body("(A", "wordArtVert"), 60.0, 470.0);
+    let rotated = commands.iter().any(|command| match command {
+        VectorCommand::DrawText { transform, .. } => {
+            transform.kx.abs() > 0.1 || transform.ky.abs() > 0.1
+        }
+        _ => false,
+    });
+    assert!(rotated, "ASCII bracket must use a rotated DrawText frame");
+}
+
+#[test]
+fn stacked_reserves_a_character_prefix_cell() {
+    let mut text_body = body("ABCDEFGHIJKLMNO", "wordArtVert");
+    text_body.paragraphs[0].bullet = pptx_model::Bullet::Char {
+        ch: "R".to_string(),
+        color: None,
+        size_pct: None,
+        size_pts: None,
+        font_family: None,
+    };
+    let commands = compile(&text_body, 300.0, 250.0);
+    let runs = draw_runs(&commands);
+    assert_eq!(runs.first().map(|run| run.text.as_str()), Some("R"));
+}
+
+fn math_body(text: &str, vert: &str) -> pptx_model::TextBody {
+    let value = json!({
+        "verticalAnchor": "t",
+        "paragraphs": [{
+            "alignment": "l", "marL": 0, "marR": 0, "indent": 0,
+            "spaceBefore": null, "spaceAfter": null, "spaceLine": null,
+            "lvl": 0, "bullet": { "type": "none" },
+            "defFontSize": null, "defColor": null, "defBold": null,
+            "defItalic": null, "defFontFamily": null, "tabStops": [],
+            "defTabSz": null, "rtl": false, "eaLnBrk": true, "fontAlgn": null,
+            "runs": [{
+                "type": "math",
+                "fallbackText": null,
+                "nodes": [{ "kind": "run", "text": text, "style": "italic" }],
+                "display": false,
+                "fontSize": 18
+            }]
+        }],
+        "defaultFontSize": 18,
+        "defaultBold": null, "defaultItalic": null,
+        "lIns": 0, "rIns": 0, "tIns": 0, "bIns": 0,
+        "wrap": "square", "vert": vert, "autoFit": "none",
+        "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false
+    });
+    serde_json::from_value(value).expect("math body")
+}
+
+#[test]
+fn stacked_cached_equation_keeps_a_drawable_cell() {
+    let commands = compile(&math_body("x", "wordArtVert"), 200.0, 200.0);
+    assert!(!draw_runs(&commands).is_empty(), "equation runs reach paint");
+}
+
+#[test]
+fn stacked_glyphs_carry_the_run_hyperlink() {
+    let mut text_body = body("AB", "wordArtVert");
+    if let pptx_model::TextRun::Text(run) = &mut text_body.paragraphs[0].runs[0] {
+        run.hyperlink = Some("https://example.com/".to_string());
+    }
+    let mut shape: pptx_model::ShapeElement = serde_json::from_value(json!({
+        "x": 0, "y": 0, "width": 4_572_000, "height": 2_286_000,
+        "rotation": 0.0, "flipH": false, "flipV": false,
+        "geometry": "rect", "fill": null, "stroke": null,
+        "textBody": null, "custGeom": null
+    }))
+    .expect("shape fixture");
+    shape.text_body = Some(text_body);
+    let slide = pptx_model::Slide {
+        theme: None,
+        index: 0,
+        slide_number: 1,
+        part_name: Some("ppt/slides/slide1.xml".into()),
+        background: None,
+        elements: vec![pptx_model::SlideElement::Shape(shape)],
+        element_sources: vec![],
+        notes: None,
+        comments: Vec::new(),
+        hidden: false,
+        parse_error: None,
+    };
+    let (tx, _rx) = unbounded();
+    let vector_slide = kitty_pptx_core::DefaultSlideCompiler::new()
+        .compile(&slide, 9_144_000, 6_858_000, &tx)
+        .expect("compile");
+    let target = HyperlinkTarget::ExternalUri("https://example.com/".to_string());
+    let resolved: Vec<HyperlinkTarget> = vector_slide
+        .hyperlinks
+        .iter()
+        .map(|link| link.target.clone())
+        .collect();
+    assert_eq!(resolved, vec![target.clone(), target]);
+}
+
+#[test]
+fn stacked_body_rotation_follows_the_frame_flips() {
+    use kitty_pptx_core::text::vertical::shape_text_rotation;
+    assert_eq!(shape_text_rotation("wordArtVert", 0.0, true, false), 0.0);
+    assert_eq!(shape_text_rotation("wordArtVertRtl", 0.0, false, true), 180.0);
+    assert_eq!(shape_text_rotation("horz", 0.0, false, true), 0.0);
+}
+
+#[test]
+fn stacked_cluster_split_across_runs_stays_one_cell() {
+    let mut text_body = body("葛", "wordArtVert");
+    let second = json!({
+        "type": "text", "text": "\u{e0100}B", "bold": true, "italic": null,
+        "underline": false, "strikethrough": false, "strikeDouble": false,
+        "hyperlinkUsesTextFill": false, "fieldType": null,
+        "fontSize": FONT_PX, "color": "000000", "fontFamily": "Arial"
+    });
+    text_body.paragraphs[0].runs.push(
+        serde_json::from_value(second).expect("second run"),
+    );
+    let commands = compile(&text_body, 60.0, 470.0);
+    assert_eq!(texts(&draw_runs(&commands)), ["葛\u{e0100}", "B"]);
+}
+
+#[test]
+fn stacked_cell_follows_an_exceptional_drawing_face() {
+    let mut text_body = body("日日", "wordArtVert");
+    if let pptx_model::TextRun::Text(run) = &mut text_body.paragraphs[0].runs[0] {
+        run.font_family = Some("Yu Gothic".to_string());
+    }
+    let commands = compile(&text_body, 100.0, 470.0);
+    let runs = draw_runs(&commands);
+    assert_eq!(runs.len(), 2);
+    let y0 = runs[0].glyphs[0].y;
+    let y1 = runs[1].glyphs[0].y;
+    let expected = (7.0 / 6.0) * (2636.0 / 2048.0) * 24.0 * PT;
+    assert!(
+        (y1 - y0 - expected).abs() < 0.5,
+        "Yu Gothic cell: expected {expected}, got {}",
+        y1 - y0
+    );
 }

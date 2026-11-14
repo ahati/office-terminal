@@ -1,0 +1,74 @@
+# Parity status after the wave-4/5 pass
+
+Measured at the commit that lands V2–V7, S4, S5, P3/P4 and the partial L0
+ledger guard. `GAP_PLAN.md` remains the plan of record; this file records what
+the current tree actually contains.
+
+## Project tests
+
+| crate | tests |
+| :--- | --: |
+| `kitty-pptx-core` | 921 |
+| `kitty-pptx-tui` | 107 |
+| `kitty-pptx-display` | 12 |
+| `kitty-pptx-cli` | 28 |
+| **total** | **1068** |
+
+`cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
+-D warnings` is clean; every project source file is < 600 lines.
+
+## Landed in this pass
+
+- **V2 find over slide text** — `core/src/text/find.rs` (run-level
+  `FindController`, case-insensitive non-overlapping matches, table-cell and
+  hidden-slide boundaries) + `tui/src/app/find_state.rs` and the `Ctrl+F` find
+  modal. `/` remains the fuzzy TOC search.
+- **V3 element selection** — `core/src/selection.rs`: reverse paint-order hit
+  test, inverse rotation/flip frame, line tolerance, bounded UTF-16 text,
+  chart-context summary and id-based bounds lookup.
+- **V4 part-failure delivery** — `collect_part_failures` sorted/deduplicated.
+- **V5 pipeline hardening** — cancellation is checked again before
+  `put_vector`; `DeckReload` clears the per-slide failure latch; regression
+  tests.
+- **V6 container guard** — CFB `EncryptedPackage` → `PasswordProtected`,
+  legacy `PowerPoint Document` → typed legacy error, unknown CFB/plain bytes →
+  not-an-OOXML error.
+- **V7 zoom/fit** — shared 0.25…4 ladder, `fit_width`/`fit_page`, latched
+  scale applied to the render target, `+`/`-` keys.
+- **S4 SmartArt contrast** — background/gradient luminance, synthetic-shape
+  fingerprint and the white-on-dark fallback.
+- **S5 multi-column text** — `text/columns.rs` balanced overflow columns and
+  `rtlCol` mirroring, wired into the emitter.
+- **P3 table image fill** — verified the cell blip reaches the display list
+  with its `srcRect`; regression test.
+- **P4 media poster** — media placeholder emits a `DrawImage` for `posterPath`
+  before the vector chrome.
+- **S8 helper** — `rasterizer/reflection_blur.rs` band planner (pure API);
+  shape reflection keeps its uniform authored-sigma blur.
+- **T6 (partial)** — `spAutoFit` natural-width preflight suppresses wrapping
+  when every paragraph fits the box.
+- **T8 stacked layout** — `text/vertical/stacked_layout.rs`: multiple glyphs
+  per column, cell-pitch advance, balanced column wrapping, RTL mirroring,
+  per-face usWin cell metrics, grapheme clusters spanning authored runs,
+  ASCII-bracket rotation, character prefixes and inline equation cells.
+- **T9 stacked content (partial)** — equation objects paint their math paths,
+  per-glyph hyperlinks are projected into `VectorSlide.hyperlinks`, and the
+  shape text-rotation/flip helper is landed. Decorations and picture-prefix
+  coverage remain.
+- **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
+  fallback (`scene3d/bevel_profiles.rs`), replacing the four hand-written
+  profiles.
+- **S7b (partial)** — `legacyWireframe` paints front/extrusion rims with no
+  filled face; extrusion/contour code split into `shape_effect/extrusion.rs`.
+- **L0 (partial)** — `parity_ledger_tests.rs`: zero `#[ignore]`, pending-archive
+  hygiene and ledger arithmetic. Full per-case re-derivation and the external
+  corpus still require `target/external` and a fresh reference run.
+
+## Still open
+
+T4 (RTL tab frame), T5 (kinsoku across run seams), T7 (glyph decorations),
+T8/T9 residual cases (vert feature coverage, stacked decorations, picture
+prefix cells), T10 (warp residuals), the full S7a/S7b multi-light rig/shading
+and rear-plane bevel compositor, P5 (bubble3D/ChartEx/marker fills), and the
+full L0 corpus/ledger re-derivation. The ledger in `COVERAGE.md` is still the
+wave-3 snapshot; do not treat its BLOCKED counts as current.

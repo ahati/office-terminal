@@ -1,3 +1,4 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kitty_pptx_display::ImageId;
 use kitty_pptx_tui::app::state::PresentationState;
 use kitty_pptx_tui::widget::layout::{
@@ -98,4 +99,22 @@ fn test_timer_formatting() {
 
     let wall_clock = state.wall_clock_formatted();
     assert!(wall_clock.ends_with("UTC"));
+}
+
+#[test]
+fn zoom_keys_emit_a_scale_change() {
+    let mut state = PresentationState::new(1, vec![None]);
+    let plus = KeyEvent::new(KeyCode::Char('+'), KeyModifiers::SHIFT);
+    assert_eq!(
+        kitty_pptx_tui::app::events::handle_key_event(plus, &mut state),
+        kitty_pptx_tui::app::events::AppAction::ScaleChanged
+    );
+    assert!((state.scale() - 1.1).abs() < 1e-6);
+
+    let minus = KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE);
+    assert_eq!(
+        kitty_pptx_tui::app::events::handle_key_event(minus, &mut state),
+        kitty_pptx_tui::app::events::AppAction::ScaleChanged
+    );
+    assert!((state.scale() - 1.0).abs() < 1e-6);
 }

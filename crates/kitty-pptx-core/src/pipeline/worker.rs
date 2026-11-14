@@ -366,6 +366,17 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                 &ctx.warning_sink,
             ) {
                 Ok(v) => {
+                    // A cancellation that arrived during compilation must not
+                    // publish a stale scene into the cache (the deck may have
+                    // been reloaded while the compiler was running).
+                    if task.cancellation.is_canceled()
+                        || shutdown.load(AtomicOrdering::Acquire)
+                    {
+                        if let Ok(mut inf) = ctx.in_flight.lock() {
+                            inf.remove(&index);
+                        }
+                        return;
+                    }
                     ctx.cache.put_vector(index, v.clone());
                     v
                 }

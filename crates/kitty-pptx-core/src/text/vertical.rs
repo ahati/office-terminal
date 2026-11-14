@@ -20,9 +20,8 @@
 //!   `a:lnSpc` per column and seeds `spcBef`/`spcAft` gaps, none of which can
 //!   change a single-glyph column.
 
-use crate::contracts::{AffineTransform, RectF32};
+use crate::contracts::AffineTransform;
 use crate::text::linebreak::rules::is_cjk_break_char;
-use crate::text::measure::StyleId;
 
 /// How `a:bodyPr@vert` reshapes the body.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -336,80 +335,22 @@ pub fn em_centre_above(size_emu: f32, ascent_share: f32) -> f32 {
     1.2 * size_emu * (ascent_share - 0.5)
 }
 
-/// One grapheme measured by the host, before column placement.
-#[derive(Clone, Debug)]
-pub struct StackedGlyph {
-    pub text: String,
-    pub style: StyleId,
-    /// Advance along the column (an upright glyph's width).
-    pub advance: f32,
-    /// Column thickness the glyph claims (its face cell).
-    pub thickness: f32,
-    pub ascent: f32,
-    pub descent: f32,
-}
-
-/// A placed stacked glyph: left edge of the glyph box and its baseline.
-#[derive(Clone, Debug)]
-pub struct StackedSlot {
-    pub text: String,
-    pub style: StyleId,
-    pub x: f32,
-    pub baseline: f32,
-}
-
-/// Column placement of `layoutStackedText` (`stacked.ts:137-260`) reduced to
-/// one glyph per column.
+/// Text-frame rotation for a stacked body under the shape's flips.
 ///
-/// `rect` is the text rectangle after insets. `anchor` places the column block
-/// across the columns (`t` = the start side: left for `wordArtVert`, right for
-/// `wordArtVertRtl`; `b` = the end side; `ctr` = centred) and `anchor_ctr`
-/// centres the block's longest column instead (`stacked.ts` "anchorCtr centres
-/// the block's longest column"). `alignment` places the glyph along its column:
-/// `l` = top, `ctr` = centre, `r`/the fill alignments = bottom.
-pub fn place_stacked(
-    glyphs: &[StackedGlyph],
-    rect: RectF32,
-    anchor: &str,
-    alignment: &str,
-    anchor_ctr: bool,
-    rtl: bool,
-) -> Vec<StackedSlot> {
-    let total: f32 = glyphs.iter().map(|g| g.thickness).sum();
-    let block_left = if anchor_ctr {
-        rect.x + (rect.w - total) * 0.5
+/// A stacked body is already upright in its own frame; a horizontal flip keeps
+/// `wordArtVert` upright, while reversing a `wordArtVertRtl` column frame turns
+/// the body 180°. Horizontal bodies are unaffected. ref
+/// `stacked-text.test.ts:207` (`shapeTextRotation`).
+mod stacked_layout;
+pub use stacked_layout::{place_stacked, StackedGlyph, StackedSlot};
+
+/// Text-frame rotation for a stacked body under the shape's flips.
+pub fn shape_text_rotation(vert: &str, rotation: f32, flip_h: bool, flip_v: bool) -> f32 {
+    if vert == "wordArtVertRtl" && flip_h != flip_v {
+        (rotation + 180.0).rem_euclid(360.0)
     } else {
-        match anchor {
-            "b" => rect.right() - total,
-            "ctr" => rect.x + (rect.w - total) * 0.5,
-            _ => rect.x,
-        }
-    };
-    let mut out = Vec::with_capacity(glyphs.len());
-    let mut offset = 0.0f32;
-    for glyph in glyphs {
-        // `wordArtVertRtl` stacks the same reading-order items right to left.
-        let left = if rtl {
-            block_left + total - offset - glyph.thickness
-        } else {
-            block_left + offset
-        };
-        let cell = glyph.ascent + glyph.descent;
-        let top = match alignment {
-            "ctr" => rect.y + (rect.h - cell) * 0.5,
-            "r" | "just" | "justLow" | "dist" | "thaiDist" => rect.y + rect.h - cell,
-            _ => rect.y,
-        };
-        out.push(StackedSlot {
-            text: glyph.text.clone(),
-            style: glyph.style,
-            // The glyph cell is centred on the column axis.
-            x: left + (glyph.thickness - glyph.advance) * 0.5,
-            baseline: top + glyph.ascent,
-        });
-        offset += glyph.thickness;
+        rotation.rem_euclid(360.0)
     }
-    out
 }
 
 /// Grapheme clusters, approximated: a base code point plus trailing combining
@@ -488,6 +429,8 @@ fn is_regional_indicator(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contracts::RectF32;
+    use crate::text::measure::StyleId;
 
     fn placed(mode: VertMode, w: f32, h: f32) -> AffineTransform {
         let (_, _, frame) = layout_frame(mode, w as i64, h as i64);
@@ -565,28 +508,36 @@ mod tests {
         assert!(graphemes("").is_empty());
     }
 
-    /// One grapheme per column; `wordArtVertRtl` mirrors the columns.
+    /// Glyphs stack down a column; overflow wraps to the next column and
+    /// `wordArtVertRtl` mirrors the columns.
     #[test]
-    fn stacked_columns_follow_the_direction() {
+    fn stacked_columns_wrap_and_follow_the_direction() {
         let glyphs: Vec<StackedGlyph> = ["A", "B", "C"]
             .iter()
             .map(|text| StackedGlyph {
                 text: (*text).to_string(),
                 style: StyleId(0),
                 advance: 8.0,
+                width: 8.0,
                 thickness: 10.0,
                 ascent: 8.0,
                 descent: 2.0,
+                rotation: 0.0,
+                object: None,
+                paragraph: 0,
+                break_before: false,
             })
             .collect();
-        let rect = RectF32::new(0.0, 0.0, 40.0, 100.0);
+        // One cell per column: each 8 px glyph fills the 10 px column and the
+        // next glyph wraps.
+        let rect = RectF32::new(0.0, 0.0, 40.0, 10.0);
         let ltr = place_stacked(&glyphs, rect, "t", "ctr", false, false);
         assert_eq!(ltr.len(), 3);
         close(ltr[0].x, 1.0);
         close(ltr[1].x, 11.0);
         close(ltr[2].x, 21.0);
-        // Centred along the column: cell 10 in a 100 high box.
-        close(ltr[0].baseline, 45.0 + 8.0);
+        // Centred along the column: cell 8 in a 10 high box.
+        close(ltr[0].baseline, 1.0 + 8.0);
 
         let rtl = place_stacked(&glyphs, rect, "t", "ctr", false, true);
         close(rtl[0].x, 21.0);
