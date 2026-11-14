@@ -35,11 +35,12 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
 use kitty_pptx_core::contracts::{
-    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, VectorSlide,
-    WarningEvent,
+    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
+    VectorSlide, WarningEvent,
 };
 use kitty_pptx_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use kitty_pptx_core::pipeline::{PrefetchTask, WorkerPool};
+use kitty_pptx_core::rasterizer::SlideRasterizer;
 use kitty_pptx_core::{
     AssetError, CancellationToken, DefaultRenderPipeline, DefaultSlideCompiler, RenderError,
     SlideCompiler, TinySkiaRasterizer,
@@ -419,4 +420,81 @@ fn entry_name(entry: &PipelineEntry) -> &'static str {
         PipelineEntry::NotLoaded => "NotLoaded",
         PipelineEntry::Failed { .. } => "Failed",
     }
+}
+
+// ── worker panic barrier (worker hardening) ──────────────────────────────────
+
+/// A rasterizer that panics on its first call, then succeeds. `VectorSlide`
+/// carries no identity, so the once-flag pins the blast radius to the first
+/// (highest-priority) task deterministically.
+struct PanicsOnce {
+    armed: AtomicBool,
+}
+
+impl SlideRasterizer for PanicsOnce {
+    fn rasterize(
+        &self,
+        _scene: &VectorSlide,
+        _target: &RenderTargetSpec,
+        _assets: &dyn AssetStore,
+    ) -> Result<RgbaSlide, RenderError> {
+        if self.armed.swap(false, Ordering::AcqRel) {
+            panic!("rasterizer exploded on the first slide");
+        }
+        Ok(RgbaSlide {
+            width: 2,
+            height: 2,
+            pixels: Arc::from(vec![0u8; 16].into_boxed_slice()),
+        })
+    }
+}
+
+/// A panicking rasterize must surface as `PipelineEntry::Failed`, clear the
+/// slide from `in_flight`, and leave the worker thread able to render the
+/// next slide. Without the barrier the entry stays `Rendering` forever and
+/// the presenter canvas stays silently blank.
+#[test]
+fn a_panicking_worker_fails_the_slide_and_keeps_the_pool_alive() {
+    let compiler = Arc::new(GatedCompiler::new(None));
+    let rasterizer = Arc::new(PanicsOnce {
+        armed: AtomicBool::new(true),
+    });
+    let compiler_dyn: Arc<dyn SlideCompiler> = compiler.clone();
+    let rasterizer_dyn: Arc<dyn SlideRasterizer> = rasterizer;
+    let pipeline = DefaultRenderPipeline::with_worker_count(
+        deck_of(8),
+        Arc::new(NoAssets),
+        compiler_dyn,
+        rasterizer_dyn,
+        1,
+    );
+
+    pipeline.prefetch(&plan(4, 0, 0), &TARGET);
+    assert!(wait_until(|| !compiler.started().is_empty()));
+    compiler.release();
+
+    assert!(
+        wait_until(|| matches!(pipeline.entry(4), PipelineEntry::Failed { .. })),
+        "the panic surfaces as Failed, not an eternal Rendering"
+    );
+    match pipeline.entry(4) {
+        PipelineEntry::Failed { error } => {
+            assert!(
+                error.to_string().contains("exploded"),
+                "the panic payload is preserved: {error}"
+            );
+        }
+        other => panic!("expected Failed for slide 4, got {}", entry_name(&other)),
+    }
+    assert!(
+        !pipeline.workers().is_in_flight(4),
+        "the wedged in-flight slot is released"
+    );
+
+    // The same worker thread still serves the next task.
+    pipeline.prefetch(&plan(2, 0, 0), &TARGET);
+    assert!(
+        wait_until(|| matches!(pipeline.entry(2), PipelineEntry::Ready { .. })),
+        "the pool survives the panic and renders the next slide"
+    );
 }
