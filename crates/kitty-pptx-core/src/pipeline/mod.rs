@@ -280,8 +280,11 @@ impl RenderPipeline for DefaultRenderPipeline {
                 self.cache.clear_raster();
             }
             InvalidateCause::DeckReload => {
-                // Entire presentation reloaded; cancel workers and clear all caches
+                // Entire presentation reloaded; cancel workers, clear all caches
+                // and drop the per-slide failure latch so a stale compile error
+                // cannot poison the freshly loaded deck.
                 self.workers.cancel_all();
+                self.workers.clear_failed();
                 self.cache.clear_all();
             }
         }

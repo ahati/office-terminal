@@ -99,3 +99,35 @@ impl std::fmt::Debug for CompileOptions {
             .finish()
     }
 }
+
+/// Collect the parser-reported per-slide failures in delivery order.
+///
+/// The reference delivers a sorted, deduplicated list once per load
+/// (`part-failures.ts:18-72`); the compiler already paints each slide's card,
+/// so this is the document-level reporting seam.
+pub fn collect_part_failures(
+    presentation: &pptx_model::Presentation,
+) -> Vec<PartFailure> {
+    let mut failures: Vec<PartFailure> = presentation
+        .slides
+        .iter()
+        .enumerate()
+        .filter_map(|(index, slide)| {
+            slide.parse_error.as_ref().map(|message| PartFailure {
+                kind: "slide",
+                slide_index: index,
+                slide_number: index + 1,
+                message: message.clone(),
+            })
+        })
+        .collect();
+    failures.sort_by(|left, right| {
+        left.slide_index
+            .cmp(&right.slide_index)
+            .then_with(|| left.message.cmp(&right.message))
+    });
+    failures.dedup_by(|left, right| {
+        left.slide_index == right.slide_index && left.message == right.message
+    });
+    failures
+}

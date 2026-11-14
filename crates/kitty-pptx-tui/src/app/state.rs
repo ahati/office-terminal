@@ -3,6 +3,7 @@ use pptx_model::{PptxComment, Slide};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::app::find_state::FindState;
 use crate::app::link_state::LinkPickerState;
 pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
 use crate::app::nav_state::NavState;
@@ -34,6 +35,7 @@ pub struct PresentationState {
     pub(crate) search: SearchState,
     pub(crate) warnings: WarningsState,
     pub(crate) link_picker: LinkPickerState,
+    pub(crate) find: FindState,
     pub(crate) comments_scroll: usize,
 
     // Slide models & media
@@ -78,6 +80,7 @@ impl PresentationState {
             search: SearchState::new(),
             warnings: WarningsState::new(),
             link_picker: LinkPickerState::new(),
+            find: FindState::new(),
             comments_scroll: 0,
             slides: Vec::new(),
             slide_links: Vec::new(),
@@ -171,31 +174,6 @@ impl PresentationState {
     // ref viewer.ts:577-582
     pub fn visible_slide_count(&self) -> usize {
         self.nav.visible_count()
-    }
-
-    // ─── Zoom factor (ref viewer-zoom-contract.test.ts:58-72) ───────
-
-    pub fn scale(&self) -> f32 {
-        self.nav.scale()
-    }
-
-    /// Clamp and apply a zoom factor; `true` only when the factor moved (the
-    /// `onScaleChange` gate). ref viewer-zoom-contract.test.ts:58-72
-    pub fn set_scale(&mut self, scale: f32) -> bool {
-        self.nav.set_scale(scale)
-    }
-
-    /// Count of effective scale changes (the observer seam).
-    pub fn scale_changes(&self) -> u64 {
-        self.nav.scale_changes()
-    }
-
-    pub fn zoom_bounds(&self) -> (f32, f32) {
-        self.nav.zoom_bounds()
-    }
-
-    pub fn set_zoom_bounds(&mut self, min: f32, max: f32) {
-        self.nav.set_zoom_bounds(min, max);
     }
 
     /// When set, internal link clicks are reported to the caller instead of
@@ -475,6 +453,7 @@ impl PresentationState {
             &hidden,
             self.nav.hidden_mode().is_skip(),
         );
+        self.sync_find_index();
     }
 
     /// Set the physical slide dimensions used for mouse hit-testing.

@@ -9,6 +9,7 @@ pub mod pattern;
 pub mod placeholders;
 pub mod pictures;
 pub mod shape_effects;
+pub mod smartart_contrast;
 pub mod shapes;
 pub mod slide_nav;
 pub mod style;
@@ -17,7 +18,9 @@ pub mod text;
 pub mod text_warp;
 pub mod transform;
 
-pub use options::{CompileOptions, ErrorPlaceholder, ErrorPlaceholderFn, PartFailure};
+pub use options::{
+    collect_part_failures, CompileOptions, ErrorPlaceholder, ErrorPlaceholderFn, PartFailure,
+};
 pub use style::parse_hex_color;
 pub use hyperlinks::{extract_deck_hyperlinks, extract_slide_hyperlinks, resolve_hyperlink};
 pub use slide_nav::resolve_internal_slide;
@@ -160,6 +163,15 @@ impl SlideCompiler for DefaultSlideCompiler {
         }
 
         let background = background::compile_slide_background(slide.background.as_ref());
+        let theme_default_text_color = slide
+            .theme
+            .as_ref()
+            .and_then(|theme| theme.default_text_color.as_deref())
+            .unwrap_or("000000");
+        let smart_art_text_color = smartart_contrast::smart_art_fallback_text_color(
+            slide.background.as_ref(),
+            theme_default_text_color,
+        );
         let mut commands = Vec::new();
 
         for elem in &slide.elements {
@@ -273,12 +285,23 @@ impl SlideCompiler for DefaultSlideCompiler {
                             (shape.width, shape.height, transform)
                         };
 
+                        let fallback_text_color = if smartart_contrast::is_smart_art_fallback_shape(
+                            shape.id.as_deref(),
+                            shape.name.as_deref(),
+                        ) {
+                            smart_art_text_color.as_deref()
+                        } else {
+                            None
+                        };
                         let text_cmds = text::compile_text_body(
                             text_body,
                             text_w,
                             text_h,
                             &text_transform,
-                            shape.default_text_color.as_deref(),
+                            shape
+                                .default_text_color
+                                .as_deref()
+                                .or(fallback_text_color),
                             warning_sink,
                         );
                         commands.extend(text_cmds);

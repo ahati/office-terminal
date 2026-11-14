@@ -571,3 +571,12 @@ fn parsed_text_colour_chain_ignores_the_theme_default() {
 
     assert_eq!(colour_of(&compile(&slide), "Provenance"), [0, 0, 0, 255]);
 }
+
+#[test]
+fn dark_smartart_fallback_uses_the_contrast_default() {
+    // The parser's synthetic shape carries no id and no authored default
+    // colour; on a dark slide its null-colour runs become white.
+    let shape = fallback_shape("Task one");
+    let slide = compile(&slide_with(Some(solid(DARK_BG)), vec![shape]));
+    assert_eq!(colour_of(&slide, "Task one"), [255, 255, 255, 255]);
+}

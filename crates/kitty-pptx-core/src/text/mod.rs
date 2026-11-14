@@ -6,12 +6,14 @@
 //! `packages/core/src/drawingml-text/`.
 
 pub mod bidi;
+pub mod columns;
 pub mod east_asian_default;
 mod east_asian_coverage;
 pub mod bullets;
 pub mod emit;
 mod face_cache;
 pub mod faces;
+pub mod find;
 pub mod fonts;
 pub mod linebreak;
 pub mod justify;
@@ -20,6 +22,7 @@ pub mod power_point;
 pub mod shape;
 pub mod metrics;
 mod natural_box;
+mod preflight;
 mod decor;
 mod paint;
 mod paragraphs;

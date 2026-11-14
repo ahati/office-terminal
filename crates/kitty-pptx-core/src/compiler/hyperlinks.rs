@@ -141,6 +141,37 @@ fn collect_text_links(
     let top = clip.y + text_body.t_ins.max(0) as f32;
     let mut y = top;
 
+    // Stacked WordArt paints one glyph cell per grapheme, so a run's link is
+    // installed per glyph by the text layer. The horizontal loop would collapse
+    // "AB" into one wide link; emit the per-glyph boxes the stacked painter uses.
+    if text_body.vert.starts_with("wordArtVert") {
+        for paragraph in &text_body.paragraphs {
+            let size = paragraph
+                .def_font_size
+                .or(text_body.default_font_size)
+                .unwrap_or(18.0) as f32
+                * scale;
+            let cell = size * 12700.0 * 1.2;
+            for run in &paragraph.runs {
+                let TextRun::Text(data) = run else {
+                    continue;
+                };
+                let Some(target) =
+                    run_hyperlink(data, source_part, deck, element_id, warning_sink)
+                else {
+                    continue;
+                };
+                for _ in crate::text::vertical::graphemes(&data.text) {
+                    let rect = clamp_rect(RectF32::new(left, y, cell, cell), &clip);
+                    out.push(SlideLink::new(target.clone(), rect, None));
+                    y += cell;
+                }
+            }
+            y += size * 12700.0 * 1.2;
+        }
+        return;
+    }
+
     for paragraph in &text_body.paragraphs {
         let default_size = paragraph
             .def_font_size

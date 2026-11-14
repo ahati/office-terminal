@@ -425,3 +425,43 @@ fn rasterizer_extrusion_layers_below_the_shape() {
         "extrusion color expected below the shape, got {pixel:?}"
     );
 }
+
+#[test]
+fn legacy_wireframe_paints_rims_not_a_filled_face() {
+    let effects = ShapeEffects {
+        shape_3d: Some(VectorShape3d {
+            extrusion_depth_emu: 100_000,
+            extrusion_color: None,
+            contour_width_emu: 0,
+            contour_color: None,
+            prst_material: "legacyWireframe".to_string(),
+            bevel_top: None,
+            bevel_bottom: None,
+        }),
+        ..Default::default()
+    };
+    let slide = effects_slide(effects);
+    let rendered = TinySkiaRasterizer::new()
+        .rasterize(
+            &slide,
+            &RenderTargetSpec {
+                width_px: 200,
+                height_px: 100,
+            },
+            &NoAssets,
+        )
+        .expect("rasterize");
+    let px = |x: usize, y: usize| {
+        let base = (y * 200 + x) * 4;
+        [
+            rendered.pixels[base],
+            rendered.pixels[base + 1],
+            rendered.pixels[base + 2],
+            rendered.pixels[base + 3],
+        ]
+    };
+    // The face interior stays the white background (no solid fill).
+    assert_eq!(px(50, 30), [255, 255, 255, 255], "wireframe has no face");
+    // The silhouette rim is painted.
+    assert_ne!(px(10, 30), [255, 255, 255, 255], "front rim is stroked");
+}

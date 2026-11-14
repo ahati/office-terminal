@@ -14,6 +14,7 @@ mod bevel;
 mod image;
 mod image_fill;
 mod mask;
+pub mod reflection_blur;
 mod path;
 mod shape_effect;
 mod text;

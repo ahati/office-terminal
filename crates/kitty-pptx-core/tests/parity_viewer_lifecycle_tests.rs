@@ -540,3 +540,26 @@ fn out_of_range_slide_reads_fail_typed() {
         Err(other) => panic!("expected a typed bounds error, got {other:?}"),
     }
 }
+
+/// A deck reload clears the per-slide failure latch, not just the caches.
+/// ref `presentation-resource-poison.test.ts:39-64` (the latch survives cache
+/// work but not a reload).
+#[test]
+fn deck_reload_clears_latched_failures() {
+    let pipeline = failing_pipeline(2, 1);
+    pipeline.workers().schedule(1, 10, TARGET);
+    for _ in 0..200 {
+        if pipeline.workers().get_failed(1).is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(pipeline.workers().get_failed(1).is_some(), "failure latched");
+
+    pipeline.invalidate(InvalidateCause::DeckReload);
+    assert!(
+        pipeline.workers().get_failed(1).is_none(),
+        "a reload drops the stale failure"
+    );
+    assert!(matches!(pipeline.entry(1), PipelineEntry::NotLoaded));
+}

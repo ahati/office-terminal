@@ -1,4 +1,5 @@
 pub mod events;
+mod find_state;
 mod graphics;
 #[cfg(test)]
 mod graphics_tests;
@@ -24,6 +25,7 @@ use kitty_pptx_core::{InvalidateCause, PrefetchPlan, RenderPipeline, RenderTarge
 use kitty_pptx_display::TerminalGraphicsDriver;
 
 pub use events::{handle_key_event, handle_resize_event, AppAction};
+pub use find_state::FindState;
 pub use link_state::{handle_mouse_event, launch_external_browser, LinkDispatch, LinkPickerState};
 pub use media::{find_slide_media, has_slide_media, try_play_current_slide_media};
 pub use mode::{AppMode, BlankMode, PresenterMode};
@@ -163,12 +165,68 @@ impl PresentationApp {
                         .set_toast("[Error: Unable to launch web browser]");
                 }
             }
+            AppAction::ScaleChanged => self.apply_scale(),
             AppAction::None | AppAction::Redraw => {}
         }
     }
 
-    /// Handle terminal window resize cleanly, adjusting target resolution and re-staging.
-    pub fn handle_resize(&mut self, cols: u16, rows: u16) {
+    /// Zoom by an explicit factor. Returns whether the factor changed.
+    pub fn set_scale(&mut self, scale: f32) -> bool {
+        if !self.state.set_scale(scale) {
+            return false;
+        }
+        self.apply_scale();
+        true
+    }
+
+    /// Step to the next / previous ladder rung.
+    pub fn zoom_in(&mut self) -> bool {
+        if !self.state.nav_mut().zoom_in() {
+            return false;
+        }
+        self.apply_scale();
+        true
+    }
+
+    pub fn zoom_out(&mut self) -> bool {
+        if !self.state.nav_mut().zoom_out() {
+            return false;
+        }
+        self.apply_scale();
+        true
+    }
+
+    /// Fit the slide width / whole slide to the current terminal grid.
+    pub fn fit_width(&mut self) -> bool {
+        let (cols, _) = self.state.layout_size();
+        if !self.state.fit_width(cols as f32) {
+            return false;
+        }
+        self.apply_scale();
+        true
+    }
+
+    pub fn fit_page(&mut self) -> bool {
+        let (cols, rows) = self.state.layout_size();
+        if !self.state.fit_page(cols as f32, rows as f32) {
+            return false;
+        }
+        self.apply_scale();
+        true
+    }
+
+    /// Recompute the render target from the latched layout and zoom factor
+    /// without changing the terminal grid. Used after a zoom step.
+    fn apply_scale(&mut self) {
+        let (cols, rows) = self.state.layout_size();
+        self.recompute_target(cols, rows);
+        self.pipeline.invalidate(InvalidateCause::TargetChanged);
+        self.graphics.reset();
+        self.trigger_prefetch();
+    }
+
+    /// Base target for the terminal grid, multiplied by the latched zoom.
+    fn recompute_target(&mut self, cols: u16, rows: u16) {
         // Approximate pixel target based on terminal dimensions (typical cell is ~10x20 px).
         // The slide aspect ratio is authoritative: fit the slide inside the terminal
         // pixel budget so resizing never stretches it.
@@ -176,15 +234,21 @@ impl PresentationApp {
         let slide_aspect = slide_width as f64 / slide_height as f64;
         let max_width = (cols as u32 * 10).max(640);
         let max_height = (rows as u32 * 20).max(360);
-        let width_px = max_width
+        let base_width = max_width
             .min((max_height as f64 * slide_aspect).round() as u32)
             .max(1);
-        let height_px = (width_px as f64 / slide_aspect).round().max(1.0) as u32;
+        let scale = self.state.scale().max(0.01);
+        let width_px = ((base_width as f32 * scale).round() as u32).max(1);
+        let height_px = ((width_px as f64 / slide_aspect).round().max(1.0)) as u32;
         self.current_target = RenderTargetSpec {
             width_px,
             height_px,
         };
+    }
 
+    /// Handle terminal window resize cleanly, adjusting target resolution and re-staging.
+    pub fn handle_resize(&mut self, cols: u16, rows: u16) {
+        self.recompute_target(cols, rows);
         self.state.update_layout_dimensions(cols, rows);
         self.pipeline.invalidate(InvalidateCause::Resize);
         // Re-stage at the new target resolution and re-place at the new rect.

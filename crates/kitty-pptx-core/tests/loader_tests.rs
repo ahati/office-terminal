@@ -73,3 +73,52 @@ fn test_asset_store_caching_and_lru_eviction() {
     let raw = store.get_raw_bytes("ppt/media/image1.png").unwrap();
     assert!(!raw.is_empty());
 }
+
+fn load_bytes(bytes: Vec<u8>) -> Result<pptx_model::Presentation, ParseError> {
+    DefaultPresentationLoader
+        .load(Source::Bytes(bytes))
+        .map(|(presentation, _assets)| presentation)
+}
+
+fn cfb_with(stream: &str) -> Vec<u8> {
+    let mut bytes = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+    bytes.extend([0u8; 512]);
+    bytes.extend(stream.encode_utf16().flat_map(|unit| unit.to_le_bytes()));
+    bytes
+}
+
+#[test]
+fn encrypted_cfb_is_reported_as_password_protected() {
+    let error = load_bytes(cfb_with("EncryptedPackage")).expect_err("encrypted package");
+    assert!(matches!(error, ParseError::PasswordProtected), "{error:?}");
+}
+
+#[test]
+fn legacy_powerpoint_cfb_names_the_binary_format() {
+    let error = load_bytes(cfb_with("PowerPoint Document")).expect_err("legacy ppt");
+    match error {
+        ParseError::ArchiveError(message) => {
+            assert!(message.contains("legacy"), "{message}");
+            assert!(message.contains(".pptx"), "{message}");
+        }
+        other => panic!("expected ArchiveError, got {other:?}"),
+    }
+}
+
+#[test]
+fn unknown_cfb_is_not_reported_as_corrupt_zip() {
+    let error = load_bytes(cfb_with("Some Other Stream")).expect_err("unknown cfb");
+    match error {
+        ParseError::ArchiveError(message) => assert!(message.contains("not an OOXML"), "{message}"),
+        other => panic!("expected ArchiveError, got {other:?}"),
+    }
+}
+
+#[test]
+fn non_zip_bytes_are_rejected_before_the_parser() {
+    let error = load_bytes(b"not a package at all".to_vec()).expect_err("plain bytes");
+    match error {
+        ParseError::ArchiveError(message) => assert!(message.contains("not an OOXML"), "{message}"),
+        other => panic!("expected ArchiveError, got {other:?}"),
+    }
+}
