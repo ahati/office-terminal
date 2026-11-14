@@ -11,13 +11,23 @@
 //! cut" investigation suspected a double-applied scale, and these inputs are
 //! what pin its absence.
 //!
-//! Divergence from the reference: the IR stores the *resolved* light azimuth
-//! (`VectorScene3d::light_direction_deg`) instead of `lightRig@rig`/`@dir`, so
-//! `lightDirFromRig`'s per-rig light tables (`bevel-light-rigs.ts`) are not
-//! reproduced here. See `tests/parity/coverage/shapes-b.md`.
+//! The IR now carries the authored `lightRig@rig`/`@dir`/`@rot`
+//! (`VectorScene3d::{light_rig_type,light_dir,light_rot}`) for the per-rig
+//! tables. This pass still resolves the flat azimuth
+//! (`light_direction_deg`) because `lightDirFromRig`'s 23-entry light rig table
+//! (`bevel-light-rigs.ts`) belongs to the S7a shading work; that is the
+//! recorded divergence in `tests/parity/coverage/shapes-b.md`.
 
 use crate::contracts::{VectorScene3d, VectorShape3d};
 use crate::scene3d::light_vector;
+
+fn preset_name(preset: &str) -> String {
+    if preset.is_empty() {
+        "circle".to_string()
+    } else {
+        preset.to_string()
+    }
+}
 
 /// `ST_PresetMaterialType` surface class (ref `PresetMaterial`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,12 +101,15 @@ impl PresetMaterial {
 }
 
 /// One bevel lip to shade, already in device px (ref `BevelInput`).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BevelInput {
     /// Bevel `w` converted to device px.
     pub width_px: f64,
     /// Bevel `h` (profile height) converted to device px.
     pub height_px: f64,
+    /// `ST_BevelPresetType` profile name; empty authors resolve to `circle`
+    /// (ref `buildBevelInputs`: `prst || 'circle'`).
+    pub preset: String,
     pub material: PresetMaterial,
     /// Unit surface-to-light vector for the rig/direction.
     pub light: [f64; 3],
@@ -132,12 +145,16 @@ pub fn build_bevel_inputs(
     let mut out: Vec<BevelInput> = Vec::new();
 
     let band = |w: i64, h: i64| (w as f64 * emu_to_dev, h as f64 * emu_to_dev);
-    if shape_3d.bevel_top_width_emu > 0 && shape_3d.bevel_top_height_emu > 0 {
-        let (width_px, height_px) =
-            band(shape_3d.bevel_top_width_emu, shape_3d.bevel_top_height_emu);
+    if let Some(top) = shape_3d
+        .bevel_top
+        .as_ref()
+        .filter(|bevel| bevel.width_emu > 0 && bevel.height_emu > 0)
+    {
+        let (width_px, height_px) = band(top.width_emu, top.height_emu);
         out.push(BevelInput {
             width_px,
             height_px,
+            preset: preset_name(&top.preset),
             material,
             light,
             bottom: false,
@@ -145,12 +162,16 @@ pub fn build_bevel_inputs(
             wireframe_line_px: dev_scale,
         });
     }
-    if shape_3d.bevel_bottom_width_emu > 0 && shape_3d.bevel_bottom_height_emu > 0 {
-        let (width_px, height_px) =
-            band(shape_3d.bevel_bottom_width_emu, shape_3d.bevel_bottom_height_emu);
+    if let Some(bottom) = shape_3d
+        .bevel_bottom
+        .as_ref()
+        .filter(|bevel| bevel.width_emu > 0 && bevel.height_emu > 0)
+    {
+        let (width_px, height_px) = band(bottom.width_emu, bottom.height_emu);
         out.push(BevelInput {
             width_px,
             height_px,
+            preset: preset_name(&bottom.preset),
             material,
             light,
             bottom: true,
@@ -166,6 +187,7 @@ pub fn build_bevel_inputs(
                 out.push(BevelInput {
                     width_px: 0.0,
                     height_px: 0.0,
+                    preset: "circle".to_string(),
                     material,
                     light,
                     bottom,
@@ -185,6 +207,7 @@ pub fn build_bevel_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contracts::VectorBevel;
 
     fn shape() -> VectorShape3d {
         VectorShape3d {
@@ -192,13 +215,13 @@ mod tests {
             extrusion_color: None,
             contour_width_emu: 0,
             contour_color: None,
-            bevel_top_width_emu: 304_800,
-            bevel_top_height_emu: 152_400,
-            bevel_top_type: "hardEdge".to_string(),
-            bevel_bottom_width_emu: 0,
-            bevel_bottom_height_emu: 0,
-            bevel_bottom_type: String::new(),
             prst_material: "matte".to_string(),
+            bevel_top: Some(VectorBevel {
+                width_emu: 304_800,
+                height_emu: 152_400,
+                preset: "hardEdge".to_string(),
+            }),
+            bevel_bottom: None,
         }
     }
 
@@ -214,7 +237,7 @@ mod tests {
     #[test]
     fn no_bevel_needs_no_input() {
         let mut flat = shape();
-        flat.bevel_top_width_emu = 0;
+        flat.bevel_top = None;
         assert!(build_bevel_inputs(Some(&flat), None, 1.0, 1.0).is_empty());
         assert!(build_bevel_inputs(None, None, 1.0, 1.0).is_empty());
     }

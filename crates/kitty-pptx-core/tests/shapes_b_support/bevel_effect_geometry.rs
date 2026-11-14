@@ -32,13 +32,13 @@ fn beveled(width_emu: i64, height_emu: i64, material: &str) -> VectorShape3d {
         extrusion_color: None,
         contour_width_emu: 0,
         contour_color: None,
-        bevel_top_width_emu: width_emu,
-        bevel_top_height_emu: height_emu,
-        bevel_top_type: "hardEdge".to_string(),
-        bevel_bottom_width_emu: 0,
-        bevel_bottom_height_emu: 0,
-        bevel_bottom_type: String::new(),
         prst_material: material.to_string(),
+        bevel_top: Some(VectorBevel {
+            width_emu,
+            height_emu,
+            preset: "hardEdge".to_string(),
+        }),
+        bevel_bottom: None,
     }
 }
 
@@ -57,7 +57,7 @@ fn bevel_inputs_match_the_declared_emu_width_at_every_device_scale() {
     for dev_scale in [1.0, 4.0, 8.0] {
         let inputs = scene3d::build_bevel_inputs(Some(&shape), None, css_scale(), dev_scale);
         assert_eq!(inputs.len(), 1, "one front lip at devScale {dev_scale}");
-        let bevel = inputs[0];
+        let bevel = &inputs[0];
         let expect_width = BEVEL_W_EMU as f64 * css_scale() * dev_scale;
         let expect_height = BEVEL_H_EMU as f64 * css_scale() * dev_scale;
         assert!(
@@ -260,8 +260,11 @@ fn projected_effect_bounds_keep_a_camera_crossing_rear_face_finite() {
 fn bottom_bevel_inputs_sit_at_the_extrusion_base_behind_the_front_face() {
     let mut shape = beveled(BEVEL_W_EMU, BEVEL_H_EMU, "matte");
     shape.extrusion_depth_emu = 228_600; // 24 px at one px per 9525 EMU
-    shape.bevel_bottom_width_emu = BEVEL_W_EMU;
-    shape.bevel_bottom_height_emu = BEVEL_H_EMU;
+    shape.bevel_bottom = Some(VectorBevel {
+        width_emu: BEVEL_W_EMU,
+        height_emu: BEVEL_H_EMU,
+        preset: "hardEdge".to_string(),
+    });
     let inputs = scene3d::build_bevel_inputs(Some(&shape), None, 1.0 / 9525.0, 1.0);
     assert_eq!(inputs.len(), 2, "front and bottom lips");
     let bottom = inputs.iter().find(|bevel| bevel.bottom).expect("bottom lip");
@@ -317,4 +320,80 @@ fn raster_bevel_band_is_not_clamped() {
     assert_ne!(at(&beveled, 960, 155), at(&plain, 960, 155), "row at distance 55 is shaded");
     // ... and one row beyond the authored band is flat again.
     assert_eq!(at(&beveled, 960, 170), at(&plain, 960, 170), "row at distance 70 is flat");
+}
+
+// ── scene3d camera homography (supplementary S6 coverage) ───────────────────
+
+fn scene3d(camera: &str, fov: f32, zoom: f32, units_per_inch: f32) -> VectorScene3d {
+    VectorScene3d {
+        camera_type: camera.to_string(),
+        fov_deg: fov,
+        zoom,
+        rot: None,
+        light_rig_type: "threePt".to_string(),
+        light_dir: "t".to_string(),
+        light_rot: None,
+        light_direction_deg: 270.0,
+        units_per_inch,
+    }
+}
+
+fn projected_slide(scene: VectorScene3d) -> VectorSlide {
+    let path = VectorPath::new(
+        vec![
+            PathSegment::MoveTo { x: 0.0, y: 0.0 },
+            PathSegment::LineTo { x: 200.0, y: 0.0 },
+            PathSegment::LineTo { x: 200.0, y: 100.0 },
+            PathSegment::LineTo { x: 0.0, y: 100.0 },
+            PathSegment::Close,
+        ],
+        FillRule::NonZero,
+    );
+    let mut slide = VectorSlide::new(220, 120);
+    slide.background = Some(VectorBackground::Solid(WHITE));
+    slide.commands.push(VectorCommand::DrawPath {
+        path,
+        fill: Some(VectorPaint::Solid([0x44, 0x72, 0xC4, 255])),
+        stroke: None,
+        transform: AffineTransform::identity(),
+        effects: Box::new(ShapeEffects {
+            scene_3d: Some(scene),
+            ..ShapeEffects::default()
+        }),
+    });
+    slide
+}
+
+/// A perspective camera warps the authored face through the quad homography
+/// (ref `renderer.ts:6400-6640` `projectScene3dPaint` + `drawProjected`).
+///
+/// `perspectiveContrastingRightFacing` (lat 10.4°, lon 316.1°) maps a 200 × 100
+/// face at the origin to the quad (23.907,11.284) (169.240,−9.286)
+/// (168.425,84.814) (24.891,114.311): the authored top-left corner is far from
+/// the painted silhouette, so a flat billboard would ink it.
+#[test]
+fn perspective_camera_warps_the_face_through_the_quad_homography() {
+    let slide = projected_slide(scene3d("perspectiveContrastingRightFacing", 0.0, 1.0, 96.0));
+    let img = raster(&slide, 220, 120);
+
+    // The camera quad's interior is painted, including the far right lobe.
+    assert_eq!(at(&img, 100, 50), [0x44, 0x72, 0xC4, 255], "projected face is painted");
+    assert_eq!(at(&img, 150, 40), [0x44, 0x72, 0xC4, 255], "projected face reaches x=150");
+    // The authored top-left corner is outside the projected quad.
+    assert_eq!(at(&img, 2, 2), WHITE, "no flat billboard at the authored corner");
+    assert_eq!(at(&img, 20, 20), WHITE, "perspective leaves the top-left corner empty");
+}
+
+/// A face-on perspective camera still multiplies the face by `a:camera@zoom`
+/// (ref `computeScene3dQuad`: `projected * zoom`).
+#[test]
+fn perspective_camera_zoom_scales_the_projected_face() {
+    let slide = projected_slide(scene3d("perspectiveFront", 0.0, 2.0, 96.0));
+    let img = raster(&slide, 220, 120);
+
+    // zoom 2 about the centre: the 200 × 100 face covers x ∈ [−100, 300],
+    // y ∈ [−50, 150], so the authored bottom-right corner and beyond paint.
+    assert_eq!(at(&img, 100, 50), [0x44, 0x72, 0xC4, 255], "face centre");
+    assert_eq!(at(&img, 210, 110), [0x44, 0x72, 0xC4, 255], "zoom 2 reaches (210,110)");
+    assert_eq!(at(&img, 5, 5), [0x44, 0x72, 0xC4, 255], "zoom 2 covers the top-left");
 }

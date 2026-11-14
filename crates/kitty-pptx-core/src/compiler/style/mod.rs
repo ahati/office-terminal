@@ -3,8 +3,9 @@ pub mod line_end;
 pub mod stroke;
 
 use crate::contracts::{
-    GradientFrame, LineCap, LineJoin, NormalizedRect, PathSegment, VectorGradient,
-    VectorImageFill, VectorPaint, VectorPath, VectorStroke, VectorTile,
+    CompoundLine, GradientFrame, LineCap, LineJoin, LineEnd, LineEndKind, LineEndSize,
+    NormalizedRect, PathSegment, VectorGradient, VectorImageFill, VectorPaint, VectorPath,
+    VectorStroke, VectorTile, DEFAULT_MITER_LIMIT,
 };
 /// Synchronous-canvas ceiling kept in parity with the reference parser
 /// (`MAX_DRAWINGML_CUSTOM_DASH_STOPS`).
@@ -314,6 +315,13 @@ pub fn compile_stroke_for_shape(
         _ => LineJoin::Miter,
     };
 
+    // ref stroke-geometry.ts:21-25: `stroke.miterLimit ?? 10`, and a
+    // non-positive or non-finite author is rejected in favour of the default.
+    let miter_limit = match stroke.miter_limit {
+        Some(limit) if limit.is_finite() && limit > 0.0 => limit as f32,
+        _ => DEFAULT_MITER_LIMIT,
+    };
+
     Some(VectorStroke {
         color,
         width_emu,
@@ -321,7 +329,41 @@ pub fn compile_stroke_for_shape(
         line_cap,
         line_join,
         paint,
+        miter_limit,
+        head_end: stroke.head_end.as_ref().and_then(compile_line_end),
+        tail_end: stroke.tail_end.as_ref().and_then(compile_line_end),
+        compound: compile_compound(stroke.cmpd.as_deref()),
     })
+}
+
+/// One authored `a:headEnd` / `a:tailEnd` (ECMA-376 §20.1.8.38 / §20.1.8.57).
+/// `type="none"` — the schema default — and any unrecognised type paint
+/// nothing, so they compile to `None` (ref arrow-geometry.ts:106, 186).
+fn compile_line_end(end: &pptx_model::ArrowEnd) -> Option<LineEnd> {
+    let kind = match end.kind.as_str() {
+        "triangle" => LineEndKind::Triangle,
+        "stealth" => LineEndKind::Stealth,
+        "diamond" => LineEndKind::Diamond,
+        "oval" => LineEndKind::Oval,
+        "arrow" => LineEndKind::Arrow,
+        _ => return None,
+    };
+    Some(LineEnd {
+        kind,
+        w: LineEndSize::parse(&end.w),
+        len: LineEndSize::parse(&end.len),
+    })
+}
+
+/// `a:ln@cmpd` (`ST_CompoundLine`, §20.1.10.15); omitted or `sng` = one line.
+fn compile_compound(cmpd: Option<&str>) -> CompoundLine {
+    match cmpd {
+        Some("dbl") => CompoundLine::Dbl,
+        Some("thinThick") => CompoundLine::ThinThick,
+        Some("thickThin") => CompoundLine::ThickThin,
+        Some("tri") => CompoundLine::Tri,
+        _ => CompoundLine::Sng,
+    }
 }
 
 /// Authored custom dash wins over the preset; unknown styles fall through to

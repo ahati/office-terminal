@@ -15,10 +15,10 @@ pub mod projection;
 
 pub use bevel_inputs::{build_bevel_inputs, BevelInput, PresetMaterial};
 pub use camera::{
-    camera_rotation, compute_depth_offset, compute_scene3d_quad, is_back_facing, CameraInput, Rot3d,
-    Scene3dQuad,
+    camera_rotation, compute_depth_offset, compute_scene3d_quad, is_back_facing,
+    is_scene3d_non_identity, scene3d_surface_frame, CameraInput, Rot3d, Scene3dQuad,
 };
-pub use homography::{expand_projected_quad, project_quad_point, unit_square_to_quad};
+pub use homography::{expand_projected_quad, invert_h, project_quad_point, unit_square_to_quad};
 pub use projection::{
     authored_alignment_anchor, projected_effect_geometry, projected_surface,
     transformed_effect_bounds, Alignment, Bounds, EffectTransform, ProjectedEffectGeometry,
@@ -58,6 +58,13 @@ impl Default for CameraAngles {
 /// Whether the preset uses a perspective (depth-dividing) projection.
 pub fn is_perspective(camera_type: &str) -> bool {
     camera_type.starts_with("perspective") || camera_type.starts_with("legacyPerspective")
+}
+
+/// Whether the preset is a modern *parallel* (orthographic/isometric/oblique)
+/// camera. The reference's oblique presets shear the rotated depth, so they are
+/// affine but not identity (ref `scene3d-camera.ts:151-206`).
+pub fn is_scene3d_orthographic(camera_type: &str) -> bool {
+    !is_perspective(camera_type)
 }
 
 /// Map a DrawingML preset camera name to its base orientation.
@@ -104,6 +111,7 @@ pub fn camera_angles(camera_type: &str) -> CameraAngles {
 
 /// Project a local point `(x, y, 0)` through the camera and return slide-local
 /// coordinates. `d_cam` is `None` for orthographic presets.
+#[allow(dead_code)] // Kept for the legacy `CameraAngles` lookup API.
 fn project_point(
     x: f32,
     y: f32,
@@ -136,46 +144,31 @@ fn project_point(
 /// Build the affine approximation of the scene camera for a shape whose local
 /// drawing occupies `(0, 0, local_w, local_h)`.
 ///
-/// Orthographic presets are exactly affine. Perspective presets are projected
-/// through their homography and approximated by the affine that maps the three
-/// local box corners `(0,0)`, `(w,0)`, `(0,h)` exactly (PRD 08 §3.6.1,
-/// DEGRADED 3D policy).
+/// This is the SVG backend's *documented degradation* when the reference quad
+/// is projective: the affine is fitted to the three local box corners `(0,0)`,
+/// `(w,0)`, `(0,h)` of the reference [`compute_scene3d_quad`]. Orthographic
+/// presets are reproduced exactly. The rasterizer uses the true homography
+/// instead (`rasterizer::shape_effect::projection`).
 pub fn camera_affine(
     scene: &VectorScene3d,
     local_w: f32,
     local_h: f32,
-    slide_width_emu: i64,
+    _slide_width_emu: i64,
 ) -> AffineTransform {
     if local_w <= 0.0 || local_h <= 0.0 {
         return AffineTransform::identity();
     }
-    let angles = camera_angles(&scene.camera_type);
-    let center = (local_w / 2.0, local_h / 2.0);
-
-    let fov = if scene.fov_deg > 0.0 {
-        scene.fov_deg
-    } else {
-        angles.default_fov_deg
-    };
-    let d_cam = if is_perspective(&scene.camera_type) {
-        let half = (fov.clamp(20.0, 120.0) / 2.0).to_radians();
-        let d = (slide_width_emu.max(1) as f32) / (2.0 * half.tan());
-        Some(d.max(1.0))
-    } else {
-        None
-    };
-
-    let q0 = project_point(0.0, 0.0, center, angles, d_cam);
-    let q1 = project_point(local_w, 0.0, center, angles, d_cam);
-    let q2 = project_point(0.0, local_h, center, angles, d_cam);
+    let camera = CameraInput::from_scene(scene);
+    let quad = compute_scene3d_quad(&camera, local_w as f64, local_h as f64, 0.0);
+    let [q0, q1, _, q3] = quad.corners;
 
     AffineTransform {
-        sx: (q1.0 - q0.0) / local_w,
-        ky: (q1.1 - q0.1) / local_w,
-        kx: (q2.0 - q0.0) / local_h,
-        sy: (q2.1 - q0.1) / local_h,
-        tx: q0.0,
-        ty: q0.1,
+        sx: ((q1.0 - q0.0) / local_w as f64) as f32,
+        ky: ((q1.1 - q0.1) / local_w as f64) as f32,
+        kx: ((q3.0 - q0.0) / local_h as f64) as f32,
+        sy: ((q3.1 - q0.1) / local_h as f64) as f32,
+        tx: q0.0 as f32,
+        ty: q0.1 as f32,
     }
 }
 
@@ -293,7 +286,10 @@ mod tests {
             zoom: 1.0,
             rot: None,
             light_rig_type: "threePt".to_string(),
+            light_dir: "t".to_string(),
+            light_rot: None,
             light_direction_deg: 225.0,
+            units_per_inch: 914_400.0,
         }
     }
 
@@ -317,9 +313,15 @@ mod tests {
 
     #[test]
     fn isometric_top_compresses_and_skews() {
+        // `isometricTopUp` PRESETS entry (lat 324.6°, lon 314.7°, rev 60.2°,
+        // ref scene3d-camera.ts:190-235). The reference maps the 200 × 100 box
+        // to (0,0)-anchored basis (141.375,−81.150) along +X and
+        // (70.734,81.150) along +Y.
         let affine = camera_affine(&scene("isometricTopUp", 0.0), 200.0, 100.0, 9144000);
-        // Vertical extent is foreshortened by cos(35.264°) ≈ 0.8165.
-        assert!(affine.sy < 0.9 && affine.sy > 0.7);
+        assert!((affine.sx - 0.706_874).abs() < 1e-4, "sx {}", affine.sx);
+        assert!((affine.ky + 0.405_751).abs() < 1e-4, "ky {}", affine.ky);
+        assert!((affine.kx - 0.707_340).abs() < 1e-4, "kx {}", affine.kx);
+        assert!((affine.sy - 0.405_097).abs() < 1e-4, "sy {}", affine.sy);
         // Perspective preset still returns a finite affine.
         let p = camera_affine(&scene("perspectiveRelaxed", 45.0), 200.0, 100.0, 9144000);
         assert!(p.sx.is_finite() && p.sy.is_finite());
@@ -344,5 +346,92 @@ mod tests {
         let len = (l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).sqrt();
         assert!((len - 1.0).abs() < 1e-5);
         assert!(l[0] < -0.5 && l[1] < -0.5 && l[2] > 0.5);
+    }
+
+    #[test]
+    fn authored_zoom_scales_a_face_on_perspective_face() {
+        // ref scene3d-camera.ts:355-446: zoom multiplies the projected plane
+        // about the shape centre, after the perspective divide.
+        let camera = CameraInput {
+            prst: "perspectiveFront".to_string(),
+            fov: Some(90.0),
+            zoom: 2.0,
+            rot: None,
+            units_per_inch: 96.0,
+            scene_depth: 0.0,
+        };
+        let quad = compute_scene3d_quad(&camera, 200.0, 100.0, 0.0);
+        assert!(!quad.is_identity);
+        assert!(quad.is_affine);
+        for (got, want) in quad
+            .corners
+            .iter()
+            .zip([(-100.0, -50.0), (300.0, -50.0), (300.0, 150.0), (-100.0, 150.0)])
+        {
+            assert!((got.0 - want.0).abs() < 1e-9 && (got.1 - want.1).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn units_per_inch_drive_the_fixed_physical_lens() {
+        // ref scene3d-camera.ts:283-333: d = 6.28 in · unitsPerInch /
+        // tan(fov/2), independent of the shape size. Doubling the unit count
+        // halves the foreshortening of the tilted face.
+        let camera = |units| CameraInput {
+            prst: "perspectiveAbove".to_string(),
+            fov: None,
+            zoom: 1.0,
+            rot: None,
+            units_per_inch: units,
+            scene_depth: 0.0,
+        };
+        let near = compute_scene3d_quad(&camera(96.0), 200.0, 100.0, 0.0);
+        let far = compute_scene3d_quad(&camera(192.0), 200.0, 100.0, 0.0);
+        let top = |q: &Scene3dQuad| (q.corners[1].0 - q.corners[0].0).abs();
+        let bottom = |q: &Scene3dQuad| (q.corners[2].0 - q.corners[3].0).abs();
+        assert!((top(&near) - 197.677_412).abs() < 1e-6);
+        assert!((bottom(&near) - 202.377_815).abs() < 1e-6);
+        assert!((top(&far) - 198.831_924).abs() < 1e-6);
+        assert!((bottom(&far) - 201.181_882).abs() < 1e-6);
+        assert!(top(&far) > top(&near) && bottom(&far) < bottom(&near));
+    }
+
+    #[test]
+    fn identity_gate_accounts_for_zoom_and_rear_depth() {
+        let front = CameraInput {
+            prst: "orthographicFront".to_string(),
+            ..CameraInput::default()
+        };
+        assert!(!is_scene3d_non_identity(&front, Some(100.0), Some(100.0), 0.0));
+        let zoomed = CameraInput { zoom: 2.0, ..front.clone() };
+        assert!(is_scene3d_non_identity(&zoomed, Some(100.0), Some(100.0), 0.0));
+        // An oblique preset keeps the front plane but shears the rear plane:
+        // it only becomes visible once the solid has an extrusion depth.
+        let oblique = CameraInput {
+            prst: "obliqueBottom".to_string(),
+            ..CameraInput::default()
+        };
+        assert!(!is_scene3d_non_identity(&oblique, Some(100.0), Some(100.0), 0.0));
+        assert!(is_scene3d_non_identity(&oblique, Some(100.0), Some(100.0), 40.0));
+        // A face-on modern perspective camera contracts the rear plane inside
+        // the front face: the hidden surface adds no visible wall, so it must
+        // not introduce another front-face resampling (ref
+        // `isScene3dNonIdentity`, scene3d-camera.ts:486-490).
+        let perspective = CameraInput {
+            prst: "perspectiveFront".to_string(),
+            fov: Some(45.0),
+            ..CameraInput::default()
+        };
+        assert!(!is_scene3d_non_identity(&perspective, Some(100.0), Some(100.0), 0.0));
+        assert!(!is_scene3d_non_identity(&perspective, Some(100.0), Some(100.0), 40.0));
+        // Tilting the same lens exposes the rear plane and the front quad.
+        let tilted = CameraInput {
+            rot: Some(Rot3d { lat: 0.0, lon: 150.0, rev: 0.0 }),
+            ..perspective.clone()
+        };
+        assert!(is_scene3d_non_identity(&tilted, Some(100.0), Some(100.0), 40.0));
+        // The geometry-free form uses the mathematical identity test.
+        assert!(!is_scene3d_non_identity(&front, None, None, 0.0));
+        assert!(is_scene3d_non_identity(&zoomed, None, None, 0.0));
     }
 }

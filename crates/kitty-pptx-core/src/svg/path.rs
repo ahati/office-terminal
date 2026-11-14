@@ -158,9 +158,12 @@ pub fn format_stroke_attr(stroke: Option<&VectorStroke>, paint_id: Option<&str>)
                 LineJoin::Bevel => out.push_str(r#" stroke-linejoin="bevel""#),
             }
 
-            // SVG defaults to 4; the renderer uses the DrawingML default 10
-            // (authored limits are not in the IR). ref stroke-geometry.ts:22
-            out.push_str(r#" stroke-miterlimit="10""#);
+            // SVG defaults to 4; DrawingML authors `a:ln@miterLim` (default
+            // 10). ref stroke-geometry.ts:21
+            out.push_str(&format!(
+                r#" stroke-miterlimit="{}""#,
+                round_coord(s.effective_miter_limit())
+            ));
 
             if let Some(ref dash) = s.dash_segments {
                 let dash_str: Vec<String> = dash

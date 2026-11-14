@@ -1,10 +1,10 @@
 # Coverage — batch `shapes-b`
 
 Reference: `/tmp/oooxml/packages/pptx/src` @ `1f5c6e1d`.
-Rust target: `crates/kitty-pptx-core/tests/parity_shapes_b_tests.rs` (527 lines, 13 `#[test]`) +
-modules `tests/shapes_b_support/line_end_cases.rs` (line ends / compound lines) and
-`tests/shapes_b_support/bevel_effect_geometry.rs` (bevel inputs, scene3d transform order,
-projected effect geometry). 22 `#[test]`, all pass, 0 ignored.
+Rust target: `crates/kitty-pptx-core/tests/parity_shapes_b_tests.rs` (532 lines, 8 `#[test]`) +
+modules `tests/shapes_b_support/line_end_cases.rs` (8 tests: line ends / compound lines) and
+`tests/shapes_b_support/bevel_effect_geometry.rs` (11 tests: bevel inputs, scene3d transform
+order, projected effect geometry, camera homography). 27 `#[test]`, all pass, 0 ignored.
 
 | reference file | cases | EXACT | BEHAVIOURAL | N/A | BLOCKED | Rust target | notes |
 | :--- | --: | --: | --: | --: | --: | :--- | :--- |
@@ -83,11 +83,10 @@ projected effect geometry). 22 `#[test]`, all pass, 0 ignored.
 
 The sixth case (`arcTo` custom geometry) is covered by the same cubic trim path: the preset
 engine already flattens authored arcs, so a custom `arcTo` reaches the trimmer as cubics.
-The reference cases themselves stay in the `text-box-b` ledger
-(`parity_text_box_b_highlight_tests.rs`); that target's six blocked stubs (archived
-under `tests/parity/pending/`) cannot be enabled from here because their fixture
-serialises non-integer EMU values and their `shaft_ends` recorder also counts the (now
-emitted) decoration paths.
+All six reference cases now run as ledger cases in
+`parity_text_box_b_highlight_tests` (the `stroke` pass reinstated them; the recorder reads
+`DrawPath` only, so the `DrawLineEnd` decorations are never counted as shafts). The five
+tests here stay as the painted twin and as the source of the compound-rail assertions.
 
 ## BLOCKED (missing symbol)
 
@@ -126,9 +125,13 @@ emitted) decoration paths.
    band is `bevelT@w` (not `max(w, h)`).
 2. inner shadow loses its offset when `|dist|` leaves the target pixmap
    (`mask::shift_mask:41` returns zeros); the reference pads its aux canvas.
-3. ~~`VectorStroke` carries no line-end decoration…~~ **Closed** by `paint-b`:
-   `compiler::style::stroke::compile_stroked_paths` emits the trimmed shaft, the
-   `a:ln@cmpd` rails and the `a:headEnd`/`a:tailEnd` decorations into the display list.
+3. ~~`VectorStroke` carries no line-end decoration…~~ **Closed**: the `stroke` pass
+   finished **C2** — `VectorStroke::{head_end,tail_end,compound,miter_limit}`,
+   `LineEnd*`/`CompoundLine` in `contracts/paint.rs` and `VectorCommand::DrawLineEnd` —
+   and `compiler::style::stroke::compile_stroked_paths` emits the trimmed shaft, the
+   `a:ln@cmpd` rails and the `a:headEnd`/`a:tailEnd` decorations (the latter as
+   `DrawLineEnd`, the IR form of the reference's translated tip frame; both backends
+   dispatch it and honour `a:ln@miterLim`).
    One divergence remains: the reference composites the decorations into the same paint
    target, so an outer shadow follows the arrowhead; the IR gives every command its own
    effect layer, so decoration paths carry no effects.
@@ -166,12 +169,12 @@ Production landed (all reference-cited):
 
 Documented divergences that remain:
 
-1. The **paint** path (`rasterizer::shape_effect::projected_transform`,
-   `svg::filters`) still projects through `scene3d::camera_affine`, the older
-   affine approximation, and still crops effects from `path::transformed_bounds`.
-   `scene3d::projected_effect_geometry` is the API the effect dispatcher should
-   consume instead; wiring it is an integration task outside this batch (it
-   changes where every `scene3d` effect crop and anchor lands).
+1. The **svg** path (`svg::filters`) still projects through
+   `scene3d::camera_affine`, the affine fit of the reference quad; SVG emits a
+   `matrix(..)` while the quad is affine and the fitted matrix plus the
+   documented `scene3d_perspective` degradation otherwise. The **raster** path
+   now warps through the reference homography
+   (`rasterizer::shape_effect::projection`, `projectScene3dPaint`).
 2. `build_bevel_inputs` resolves its light from the IR's authored azimuth
    (`VectorScene3d::light_direction_deg`) rather than `lightDirFromRig`, because
    the IR does not carry `lightRig@rig/@dir/@rot`; the reference's per-rig light
@@ -185,3 +188,32 @@ Documented divergences that remain:
 
 No golden output changed (`UPDATE_GOLDENS` not run; no committed golden deck
 carries `a:sp3d`), and `parity_shapes_b_tests` grew from 13 to 22 passing tests.
+
+## Pass-4 note (S6 / contract gate C3)
+
+`VectorScene3d` now carries every reference camera input: `zoom`, `rot`
+(`VectorRot3d`), `light_dir`, `light_rot` and `units_per_inch` (914 400 for EMU
+paths, 96 for CSS-px fixtures). `VectorShape3d` exposes `VectorBevel` values as
+`bevel_top`/`bevel_bottom`, plus `prst_material` (`a:sp3d@prstMaterial`).
+`compiler::shape_effects` extracts `a:lightRig@{rig,dir,rot}` and both bevels.
+
+The raster paint path replaces the three-corner affine with
+`project_body_layer`: the authored face is painted into a padded
+device-resolution buffer (bevel/extrusion included), then warped onto the slide
+through `computeScene3dQuad` + `unitSquareToQuad`/`invert_h` with bilinear
+sampling (`ref renderer.ts:6400-6640`, `core/src/shape/scene3d-draw.ts`).
+Identity cameras (`isScene3dNonIdentity`, including the oblique rear-plane and
+perspective-depth gates) keep the flat path; a failed buffer allocation or an
+oversized layer degrades to `camera_affine`.
+
+Two supplementary tests pin the new path (not reference cases, so the case
+counts are unchanged): `perspective_camera_warps_the_face_through_the_quad_homography`
+and `perspective_camera_zoom_scales_the_projected_face`. Unit coverage in
+`scene3d::{authored_zoom_scales_a_face_on_perspective_face,
+units_per_inch_drive_the_fixed_physical_lens,
+identity_gate_accounts_for_zoom_and_rear_depth,
+homography::the_inverse_maps_projected_points_back_to_the_unit_square}`.
+
+`scene3d-transform-order` and all four `shape-effect-transform` geometry cases
+(cases 3-6) are live in this target; the archive has no `parity_shapes_b_tests`
+entry to reinstate.

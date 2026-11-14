@@ -250,6 +250,7 @@ fn hairline_stroke_floors_at_half_a_pixel() {
                 line_cap: LineCap::Butt,
                 line_join: kitty_pptx_core::LineJoin::Miter,
                 paint: None,
+                ..VectorStroke::default()
             }),
             transform: AffineTransform::default(),
             effects: Box::default(),
@@ -302,6 +303,7 @@ fn sharp_miter_join_is_not_clipped_at_the_reference_limit() {
                 line_cap: LineCap::Butt,
                 line_join: kitty_pptx_core::LineJoin::Miter,
                 paint: None,
+                ..VectorStroke::default()
             }),
             transform: AffineTransform::default(),
             effects: Box::default(),

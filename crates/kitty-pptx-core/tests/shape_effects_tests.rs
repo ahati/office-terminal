@@ -135,16 +135,23 @@ fn extraction_maps_every_effect_into_the_ir() {
     assert_eq!(scene.camera_type, "perspectiveRelaxed");
     assert!((scene.fov_deg - 45.0).abs() < 1e-4);
     assert_eq!(scene.light_rig_type, "threePt");
+    assert_eq!(scene.light_dir, "tl");
+    assert!(scene.light_rot.is_none());
     assert!((scene.light_direction_deg - 225.0).abs() < 1e-4);
+    assert!((scene.zoom - 1.0).abs() < 1e-6);
+    assert!(scene.rot.is_none());
+    assert!((scene.units_per_inch - 914_400.0).abs() < 1e-4);
 
     let shape_3d = effects.shape_3d.as_ref().expect("sp3d");
     assert_eq!(shape_3d.extrusion_depth_emu, 12700);
     assert_eq!(shape_3d.extrusion_color, Some([0x7F, 0x7F, 0x7F, 255]));
     assert_eq!(shape_3d.contour_width_emu, 6350);
     assert_eq!(shape_3d.contour_color, Some([0x96, 0x96, 0x96, 255]));
-    assert_eq!(shape_3d.bevel_top_width_emu, 25400);
-    assert_eq!(shape_3d.bevel_top_height_emu, 12700);
-    assert_eq!(shape_3d.bevel_top_type, "circle");
+    let bevel_top = shape_3d.bevel_top.as_ref().expect("bevelT");
+    assert_eq!(bevel_top.width_emu, 25400);
+    assert_eq!(bevel_top.height_emu, 12700);
+    assert_eq!(bevel_top.preset, "circle");
+    assert!(shape_3d.bevel_bottom.is_none());
 
     // 3D surfaces are approximated, so exactly one degraded warning is
     // appropriate; 2D effects are fully supported.
@@ -344,7 +351,10 @@ fn rasterizer_scene_camera_projects_the_path() {
         zoom: 1.0,
         rot: None,
         light_rig_type: "threePt".to_string(),
+        light_dir: "tl".to_string(),
+        light_rot: None,
         light_direction_deg: 225.0,
+        units_per_inch: 914_400.0,
     };
     let effects = ShapeEffects { scene_3d: Some(scene), ..Default::default() };
     let slide = effects_slide(effects);
@@ -394,13 +404,9 @@ fn rasterizer_extrusion_layers_below_the_shape() {
             extrusion_color: Some([0x7F, 0x7F, 0x7F, 255]),
             contour_width_emu: 0,
             contour_color: None,
-            bevel_top_width_emu: 0,
-            bevel_top_height_emu: 0,
-            bevel_top_type: String::new(),
-            bevel_bottom_width_emu: 0,
-            bevel_bottom_height_emu: 0,
-            bevel_bottom_type: String::new(),
             prst_material: String::new(),
+            bevel_top: None,
+            bevel_bottom: None,
         }),
         ..Default::default()
     };

@@ -17,20 +17,14 @@
 //! resolution) or in `kitty-pptx-tui/tests/parity_viewer_nav_tests.rs` (state
 //! machine); each reference case is counted exactly once.
 //!
-//! BLOCKED (no production API, see `tests/parity/coverage/viewer.md`):
-//! `nextVisibleIndex` / `resolveVisibleIndex` / `countVisible` have no Rust
-//! port (`Slide::hidden` is parsed but never consumed by navigation);
-//! `setScale` / `zoomIn` / `zoomOut` / `fitWidth` / `fitPage` have no
-//! `PresentationState::set_scale` / `zoom_min` / `zoom_max`; the
-//! `onScaleChange` seam has no zoom observer.
-//!
-//! Blocked cases (no production API yet) are archived, not compiled, in
-//! `tests/parity/pending/parity_viewer_nav_tests.rs.txt`; the
-//! ledger keeps their rows.
+//! The hidden-slide policy is ported in `kitty_pptx_core::navigation`
+//! (`HiddenSlideMode`, `next_visible`, `resolve_visible`, `count_visible`) and
+//! covered here; the viewer zoom contract lives on `PresentationState`.
 
 use crossbeam_channel::unbounded;
 use kitty_pptx_core::contracts::{HyperlinkTarget, RenderTargetSpec, SlideAction, WarningEvent};
 use kitty_pptx_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
+use kitty_pptx_core::navigation::{count_visible, next_visible, resolve_visible};
 use kitty_pptx_core::{
     extract_deck_hyperlinks, resolve_hyperlink, resolve_internal_slide, AssetError,
     DefaultSlideCompiler, SlideCompiler, SlideRasterizer, TinySkiaRasterizer,
@@ -209,6 +203,48 @@ fn an_empty_deck_resolves_no_internal_target() {
         resolve_internal_slide("../slides/slide1.xml", "ppt/slides/slide1.xml", &[]),
         None
     );
+}
+
+/// The part map keys the deck slice in `sldIdLst` order, never the slide's own
+/// (possibly stale) `index` field. ref slide-nav.ts:24-34
+#[test]
+fn part_index_uses_sld_id_lst_order_not_the_slide_index_field() {
+    let mut deck = three_slide_deck();
+    deck[0].index = 7;
+    deck[1].index = 3;
+    deck[2].index = 5;
+    assert_eq!(
+        resolve_internal_slide("../slides/slide2.xml", PART_NAMES[0], &deck),
+        Some(1),
+        "slide2.xml is the second entry of sldIdLst"
+    );
+    assert_eq!(
+        resolve_internal_slide("ppt/slides/slide3.xml", PART_NAMES[0], &deck),
+        Some(2)
+    );
+}
+
+// ── hidden-slide helpers (ref viewer-hidden.test.ts:27-32) ────────────────
+
+/// "skip navigation jumps over hidden slides via the tested helpers":
+/// `nextVisibleIndex(0, 1, i === 1, 3) == 2` and
+/// `resolveVisibleIndex(1, i === 1, 3) == 2`; `countVisible` counts shown only.
+/// ref core/src/nav/visible-index.ts:8-40
+#[test]
+fn skip_navigation_jumps_over_hidden_slides() {
+    let hidden_one = |index: usize| index == 1;
+    assert_eq!(next_visible(0, 1, hidden_one, 3), 2);
+    assert_eq!(resolve_visible(1, hidden_one, 3), 2);
+    assert_eq!(count_visible(hidden_one, 3), 2);
+
+    // No shown slide after it ⇒ the nearest shown slide before it.
+    assert_eq!(resolve_visible(2, |index| index == 2, 3), 1);
+    // Every slide hidden ⇒ skip degenerates to show and keeps the index.
+    assert_eq!(resolve_visible(1, |_| true, 3), 1);
+    assert_eq!(next_visible(1, 1, |_| true, 3), 1);
+    // Empty decks resolve nothing.
+    assert_eq!(count_visible(|_| false, 0), 0);
+    assert_eq!(resolve_visible(0, |_| false, 0), 0);
 }
 
 // ── resolveInternalSlideTarget (ref slide-nav.test.ts:57-89) ────────────────

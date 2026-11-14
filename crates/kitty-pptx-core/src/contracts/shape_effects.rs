@@ -142,11 +142,40 @@ pub struct VectorScene3d {
     #[serde(default)]
     pub rot: Option<VectorRot3d>,
     pub light_rig_type: String,
+    /// `a:lightRig@dir` (`ST_LightRigDirection`); empty/absent = `t`.
+    #[serde(default)]
+    pub light_dir: String,
+    /// Authored `a:lightRig/a:rot`; `None` = the rig's default direction.
+    #[serde(default)]
+    pub light_rot: Option<VectorRot3d>,
+    /// Resolved light azimuth clockwise from East in screen coordinates
+    /// (x right, y down). The shading pass consumes this single angle; the
+    /// authored `light_dir`/`light_rot` are retained for the per-rig tables.
     pub light_direction_deg: f32,
+    /// Projection units per document inch (renderer context, not OOXML).
+    /// EMU-based paths use 914 400; CSS-pixel paths use 96 (ref
+    /// `scene3d-camera.ts:24-34` `CameraInput.unitsPerInch`).
+    #[serde(default = "default_units_per_inch")]
+    pub units_per_inch: f32,
 }
 
 fn default_zoom() -> f32 {
     1.0
+}
+
+fn default_units_per_inch() -> f32 {
+    // The vector IR stores lengths in EMU (AGENTS.md §4); the reference works
+    // in CSS px and defaults to 96.
+    914_400.0
+}
+
+/// One `<a:bevel>` lip (ECMA-376 §20.1.5.3 `CT_Bevel`): band width/height in
+/// EMU and the `ST_BevelPresetType` profile name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct VectorBevel {
+    pub width_emu: i64,
+    pub height_emu: i64,
+    pub preset: String,
 }
 
 /// 3D Shape bevel (`bevelT`/`bevelB`, ECMA-376 §20.1.5.3) and extrusion
@@ -157,19 +186,13 @@ pub struct VectorShape3d {
     pub extrusion_color: Option<[u8; 4]>,
     pub contour_width_emu: i64,
     pub contour_color: Option<[u8; 4]>,
-    pub bevel_top_width_emu: i64,
-    pub bevel_top_height_emu: i64,
-    pub bevel_top_type: String,
-    /// `bevelB@w` — MS-OI29500 §2.1.1268 places this lip at the extrusion base.
-    #[serde(default)]
-    pub bevel_bottom_width_emu: i64,
-    /// `bevelB@h`.
-    #[serde(default)]
-    pub bevel_bottom_height_emu: i64,
-    /// `bevelB@prst`; empty = `circle`.
-    #[serde(default)]
-    pub bevel_bottom_type: String,
     /// `sp3d@prstMaterial` (`ST_PresetMaterialType`); empty = `matte`.
     #[serde(default)]
     pub prst_material: String,
+    /// `bevelT` — the front lip.
+    #[serde(default)]
+    pub bevel_top: Option<VectorBevel>,
+    /// `bevelB` — MS-OI29500 §2.1.1268 places this lip at the extrusion base.
+    #[serde(default)]
+    pub bevel_bottom: Option<VectorBevel>,
 }

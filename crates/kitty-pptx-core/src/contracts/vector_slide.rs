@@ -114,6 +114,21 @@ pub enum VectorCommand {
         transform: AffineTransform,
         effects: Box<ShapeEffects>,
     },
+    /// One `a:headEnd` / `a:tailEnd` decoration.
+    ///
+    /// The reference paints decorations inside a translated tip frame after the
+    /// shaft, so a tip can never be mistaken for a shaft segment
+    /// (`drawArrowHead`, ref renderer.ts:4513-4535). The geometry is authored in
+    /// that frame (tip at the origin, `-x` back into the line,
+    /// `arrow-geometry.ts:161-188`); the compiler already places it at the
+    /// tip by folding the frame into `transform`, so both backends paint it
+    /// exactly like a path command.
+    DrawLineEnd {
+        path: VectorPath,
+        fill: Option<VectorPaint>,
+        stroke: Option<VectorStroke>,
+        transform: AffineTransform,
+    },
     DrawText {
         runs: Vec<PositionedGlyphRun>,
         transform: AffineTransform,
@@ -161,6 +176,21 @@ impl VectorCommand {
             stroke,
             transform,
             effects: Box::new(effects),
+        }
+    }
+
+    /// Helper to construct a DrawLineEnd command.
+    pub fn draw_line_end(
+        path: VectorPath,
+        fill: Option<VectorPaint>,
+        stroke: Option<VectorStroke>,
+        transform: AffineTransform,
+    ) -> Self {
+        Self::DrawLineEnd {
+            path,
+            fill,
+            stroke,
+            transform,
         }
     }
 

@@ -30,6 +30,9 @@ use wasm_bindgen::prelude::*;
 
 mod table_style_presets;
 
+mod error;
+pub use error::PptxError;
+
 mod types;
 pub(crate) use types::*;
 
@@ -229,6 +232,29 @@ pub fn parse_pptx_model_native(data: &[u8]) -> Result<pptx_model::Presentation, 
     parse_presentation_from_bytes(data).map_err(|e| e.to_string())
 }
 
+/// [`parse_pptx_model_native`] that keeps a governed ceiling typed.
+///
+/// A package-wide resource crossing is returned as [`PptxError::Resource`]
+/// carrying the same violation the wire envelope serialises, so a native
+/// caller never has to classify a quota as a malformed archive.
+/// ref `core/src/errors/ooxml-error.ts` `OoxmlResourceLimitError`.
+pub fn parse_pptx_model_native_checked(
+    data: &[u8],
+) -> Result<pptx_model::Presentation, PptxError> {
+    let mut zip = open_presentation_package(data.to_vec(), None, None, None)
+        .map_err(PptxError::Format)?;
+    let result = zip.run_operation("parse", |zip| {
+        parse_presentation(zip).map_err(|error| error.to_string())
+    });
+    match result {
+        Ok(presentation) => Ok(presentation),
+        Err(message) => Err(match zip.first_violation() {
+            Some(violation) => PptxError::Resource(Box::new(violation)),
+            None => PptxError::Format(message),
+        }),
+    }
+}
+
 /// Parse a pptx and produce a best-effort, text-focused GitHub-flavoured
 /// markdown projection. Explicit headings, bullets, tables, charts, and notes
 /// are retained where available; review comments are collected separately.
@@ -301,6 +327,34 @@ pub fn extract_font(
     )
     .map_err(|e| JsValue::from_str(&e))?;
     zip.read_font_part(path).map_err(|e| JsValue::from_str(&e))
+}
+
+/// [`extract_font`] with the package's typed resource violation preserved.
+///
+/// The reference's `extractFont` rejects with the original
+/// `OoxmlResourceLimitError`, so a measured archive-entry crossing reports
+/// `{resource: "archive-entry", metric: "declared-inflated-bytes", limit,
+/// observed}` instead of a formatted string
+/// (ref `embedded-fonts-load.test.ts:60-105`).
+pub fn extract_font_checked(
+    data: &[u8],
+    path: &str,
+    max_archive_entry_bytes: Option<u64>,
+    max_total_inflated_bytes: Option<u64>,
+) -> Result<Vec<u8>, PptxError> {
+    let zip = open_zip_with_limits(
+        data.to_vec(),
+        max_archive_entry_bytes,
+        max_total_inflated_bytes,
+    )
+    .map_err(PptxError::Format)?;
+    match zip.read_font_part(path) {
+        Ok(bytes) => Ok(bytes),
+        Err(message) => Err(match zip.first_violation() {
+            Some(violation) => PptxError::Resource(Box::new(violation)),
+            None => PptxError::Format(message),
+        }),
+    }
 }
 
 /// A stateful handle over an opened pptx archive.
@@ -967,6 +1021,11 @@ impl PptxZip {
 
     fn read_font_part(&self, path: &str) -> Result<Vec<u8>, String> {
         self.read_font_part_with_limit(path, HARD_MAX_EMBEDDED_FONT_BYTES)
+    }
+
+    /// The latched typed violation of this package, if any.
+    fn first_violation(&self) -> Option<ooxml_common::resource::ResourceViolation> {
+        self.session.first_violation()
     }
 
     fn read_font_part_with_limit(&self, path: &str, max_bytes: u64) -> Result<Vec<u8>, String> {

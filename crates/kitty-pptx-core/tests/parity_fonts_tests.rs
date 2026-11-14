@@ -520,3 +520,72 @@ fn keeps_raw_font_bytes_and_skips_an_unreadable_part() {
         .expect("readable font part");
     assert_eq!(extracted, RAW);
 }
+
+/// ref embedded-fonts-load.test.ts:60-95 — a Font part measured beyond
+/// `maxArchiveEntryBytes` rejects with the **typed** violation (limit `4096`,
+/// observed `4097`), still part-tagged, never as a malformed-font string.
+#[test]
+fn extract_font_reports_the_measured_archive_entry_limit() {
+    const OVERSIZED: &[u8] = &[b'x'; 4097];
+    let deck = embedded_deck(&[EmbeddedSlot(
+        "Font 3",
+        "regular",
+        "ppt/fonts/font3.fntdata",
+        Some(OVERSIZED),
+    )]);
+
+    let error = pptx_parser::extract_font_checked(&deck, "ppt/fonts/font3.fntdata", Some(4096), None)
+        .expect_err("4097 declared bytes exceed the 4096 cap");
+    match error {
+        pptx_parser::PptxError::Resource(violation) => {
+            assert_eq!(violation.stage, "container");
+            assert_eq!(violation.resource, "archive-entry");
+            assert_eq!(violation.metric, "declared-inflated-bytes");
+            assert_eq!((violation.limit, violation.observed), (4096, 4097));
+            assert_eq!(
+                violation.part.as_deref(),
+                Some("ppt/fonts/font3.fntdata"),
+                "the violation names the part"
+            );
+            assert!(violation.configurable, "the public limit is the binding one");
+        }
+        other => panic!("expected a typed resource violation, got {other:?}"),
+    }
+}
+
+/// ref embedded-fonts.test.ts:160-165 — `loadEmbeddedFonts` must re-throw a
+/// typed resource-limit rejection **by identity** instead of re-labelling the
+/// part as a malformed font.
+#[test]
+fn a_typed_image_limit_is_not_reported_as_a_malformed_font() {
+    use kitty_pptx_core::loader::load_embedded_fonts;
+    use ooxml_common::resource::{ResourceUsage, ResourceViolation};
+    use pptx_model::{EmbeddedFontStyle, PptxEmbeddedFontRef};
+
+    // ref `new OoxmlDecodedImageLimitError('active-decoded-bytes', 1, 2)`.
+    let violation = ResourceViolation {
+        stage: "parsing",
+        resource: "decoded-image",
+        metric: "active-decoded-bytes",
+        part: None,
+        limit: 1,
+        observed: 2,
+        configurable: false,
+        usage: ResourceUsage::default(),
+    };
+    let refs = vec![PptxEmbeddedFontRef {
+        font_name: "Limited".to_string(),
+        style: EmbeddedFontStyle::Regular,
+        part_path: "font.ttf".to_string(),
+        content_type: "application/x-font-ttf".to_string(),
+    }];
+
+    let error = load_embedded_fonts(&refs, &|_path| {
+        Err(AssetError::ResourceLimit(Box::new(violation.clone())))
+    })
+    .expect_err("the quota rejection propagates");
+    match error {
+        AssetError::ResourceLimit(same) => assert_eq!(*same, violation),
+        other => panic!("a quota must not become a font diagnostic, got {other:?}"),
+    }
+}

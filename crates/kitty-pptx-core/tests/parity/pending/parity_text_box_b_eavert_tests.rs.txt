@@ -18,7 +18,6 @@
 //   helper_keeps_uncovered_glyphs_on_the_plain_fallback        blocked: no "vert " font-feature model; ea_vert_pieces cannot distinguish feature coverage from glyph presence
 //   helper_installs_no_fallback_matrix                         N/A: no canvas transform stack / fallback mirror or shear in the Rust eaVert path
 //   helper_advances_by_measure_plus_spacing                    blocked: per-glyph letter spacing (letterSpacingPx) is not modelled; only justification gaps move a cell
-//   latin_faces_classify_by_panose_serif_style                 blocked: no east_asian_default module (is_serif_latin_face / is_east_asian_face)
 //   east_asian_default_face_covers_the_whole_text              blocked: no east_asian_default module (east_asian_default_faces tier table)
 //   east_asian_latin_face_keeps_its_own_stack                  blocked: no east_asian_default module (east_asian_default_faces stack)
 //   complex_script_default_face_follows_the_script             blocked: no east_asian_default module (complex_script_default_face)
@@ -88,22 +87,6 @@ fn helper_installs_no_fallback_matrix() {}
 fn helper_advances_by_measure_plus_spacing() {
     let plain = upright_column("国国", "l", 200.0, 400.0);
     assert!((column_pitch(&plain) - 20.0 * PT).abs() < 1.0, "one em step");
-}
-
-/// `:19` "classifies Latin faces by their installed PANOSE serif style"
-/// (`Perpetua`/`Georgia`/`Garamond` serif; `Corbel`/`Arial`/`Tahoma`/
-/// `Gill Sans MT`/unknown not) plus `isEastAsianFace('Yu Gothic')`.
-#[test]
-#[ignore = "blocked: no east_asian_default module (is_serif_latin_face / is_east_asian_face)"]
-fn latin_faces_classify_by_panose_serif_style() {
-    for face in ["Perpetua", "Georgia", "Garamond"] {
-        assert_eq!(serif_latin_face(face), Some(true), "{face} is serif");
-    }
-    for face in ["Corbel", "Arial", "Tahoma", "Gill Sans MT", "No Such Face"] {
-        assert_eq!(serif_latin_face(face), Some(false), "{face} is sans");
-    }
-    assert_eq!(east_asian_face("Yu Gothic"), Some(true));
-    assert_eq!(east_asian_face("Tahoma"), Some(false));
 }
 
 /// `:29` "uses the first tier face that covers the whole East Asian text"

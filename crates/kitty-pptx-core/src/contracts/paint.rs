@@ -250,6 +250,18 @@ pub struct VectorStroke {
     /// box (`applyStroke`, ref renderer.ts:7542-7565). `None` paints `color`.
     /// Boxed so `VectorCommand` stays small.
     pub paint: Option<Box<VectorPaint>>,
+    /// `a:ln@miterLim / 100000` (ECMA-376 §20.1.8.35). The reference resolves
+    /// `stroke.miterLimit ?? 10` and rejects a non-positive or non-finite value
+    /// (ref core/src/shape/stroke-geometry.ts:21-25), so an invalid author falls
+    /// back to the DrawingML default 10.
+    pub miter_limit: f32,
+    /// `a:headEnd` (ECMA-376 §20.1.8.38): the decoration at the start of the
+    /// line. `None` = absent or `type="none"`.
+    pub head_end: Option<LineEnd>,
+    /// `a:tailEnd` (ECMA-376 §20.1.8.57): the decoration at the line's end.
+    pub tail_end: Option<LineEnd>,
+    /// `a:ln@cmpd` (ECMA-376 §20.1.8.42).
+    pub compound: CompoundLine,
 }
 
 impl Default for VectorStroke {
@@ -261,6 +273,110 @@ impl Default for VectorStroke {
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
             paint: None,
+            miter_limit: DEFAULT_MITER_LIMIT,
+            head_end: None,
+            tail_end: None,
+            compound: CompoundLine::Sng,
         }
+    }
+}
+
+/// The DrawingML `a:ln@miterLim` default (ECMA-376 Part 1 §20.1.8.35): an
+/// omitted or invalid limit is 10 line widths.
+/// ref core/src/shape/stroke-geometry.ts:21-25
+pub const DEFAULT_MITER_LIMIT: f32 = 10.0;
+
+impl VectorStroke {
+    /// The finite positive miter limit to hand to a stroking backend.
+    pub fn effective_miter_limit(&self) -> f32 {
+        if self.miter_limit.is_finite() && self.miter_limit > 0.0 {
+            self.miter_limit
+        } else {
+            DEFAULT_MITER_LIMIT
+        }
+    }
+}
+
+/// `ST_LineEndType` (ECMA-376 Part 1 §20.1.10.33): the outline a line end
+/// paints. `None` is the schema default and paints nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LineEndKind {
+    #[default]
+    None,
+    Triangle,
+    Stealth,
+    Diamond,
+    Oval,
+    /// The open two-arm arrow (`arrow-geometry.ts:118-123`).
+    Arrow,
+}
+
+/// `ST_LineEndWidth` / `ST_LineEndLength` (ECMA-376 Part 1 §20.1.10.34 /
+/// §20.1.10.32). A missing or unknown value is `med`, the schema default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LineEndSize {
+    Sm,
+    #[default]
+    Med,
+    Lg,
+}
+
+impl LineEndSize {
+    /// Parse an `sm`/`med`/`lg` attribute; anything else is `med`.
+    /// ref core/src/shape/arrow-geometry.ts:89
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "sm" => Self::Sm,
+            "lg" => Self::Lg,
+            _ => Self::Med,
+        }
+    }
+}
+
+/// One `a:headEnd` / `a:tailEnd` decoration (`CT_LineEndProperties`,
+/// ECMA-376 Part 1 §20.1.8.38 / §20.1.8.57). The width and length attributes
+/// are independent (`arrow-geometry.ts:44-50`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineEnd {
+    pub kind: LineEndKind,
+    /// `a:headEnd@w` — full span across the line.
+    pub w: LineEndSize,
+    /// `a:headEnd@len` — extent along the line.
+    pub len: LineEndSize,
+}
+
+impl LineEnd {
+    pub fn new(kind: LineEndKind, w: LineEndSize, len: LineEndSize) -> Self {
+        Self { kind, w, len }
+    }
+
+    /// An `lg`/`lg` open arrow, the shape most reference fixtures author.
+    pub fn large_arrow() -> Self {
+        Self::new(LineEndKind::Arrow, LineEndSize::Lg, LineEndSize::Lg)
+    }
+
+    /// `type="none"` paints nothing (ref arrow-geometry.ts:106).
+    pub fn is_none(&self) -> bool {
+        self.kind == LineEndKind::None
+    }
+}
+
+/// `ST_CompoundLine` (ECMA-376 Part 1 §20.1.10.15): the parallel rails a line
+/// splits into (`a:ln@cmpd`). The reference's rail table is
+/// `renderer.ts:7478-7510`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CompoundLine {
+    #[default]
+    Sng,
+    Dbl,
+    ThinThick,
+    ThickThin,
+    Tri,
+}
+
+impl CompoundLine {
+    /// Several rails: the line paints as parallel runs instead of one stroke.
+    pub fn is_compound(&self) -> bool {
+        !matches!(self, Self::Sng)
     }
 }

@@ -20,9 +20,12 @@
 //! `assertNotCfbContainer` (no CFB sniff: `pptx-parser` reports a CFB payload as
 //! an archive error, never `ParseError::PasswordProtected`), `decryptOoxml`
 //! (no Agile decryption), `PresentationPreflightBuilder` (no deck-level font
-//! union / structural projection), `Slide::parse_error` placeholder painting
-//! (the compiler ignores `parse_error`), `WarningEvent::MediaFailed` (never
-//! emitted) and the worker init timeout (`WorkerPool` has no hang bound).
+//! union / structural projection), `WarningEvent::MediaFailed` (never emitted)
+//! and the worker init timeout (`WorkerPool` has no hang bound).
+//!
+//! The `Slide::parse_error` placeholder case is enabled: the compiler paints the
+//! labelled card (ref renderer.ts:8188-8274) and resolves `CompileOptions`
+//! `error_placeholder` on the calling thread.
 //!
 //! Blocked cases (no production API yet) are archived, not compiled, in
 //! `tests/parity/pending/parity_viewer_lifecycle_tests.rs.txt`; the
@@ -169,6 +172,90 @@ fn a_healthy_deck_reports_no_part_failure() {
         .iter()
         .all(|slide| slide.parse_error.is_none()));
     assert!(presentation.slides.iter().all(|slide| !slide.hidden));
+}
+
+/// The broken slide paints the caller's placeholder text and the healthy slide
+/// never consults the resolver. The reference resolves `errorPlaceholder` on
+/// the main thread, records one failure and forwards the resolved text to the
+/// worker render request; here the same split is the resolver (main thread) and
+/// the compiled display list (the request payload).
+/// ref presentation-part-failures.test.ts:112-145
+#[test]
+fn broken_slide_paints_the_error_placeholder() {
+    use std::sync::Mutex;
+
+    use kitty_pptx_core::compiler::{CompileOptions, ErrorPlaceholder, PartFailure};
+    use kitty_pptx_core::contracts::VectorCommand;
+
+    let presentation = load(deck_with_broken_second_slide(Some(&[0xff, 0xfe, 0x00])))
+        .expect("the deck still loads");
+    let seen: Arc<Mutex<Vec<PartFailure>>> = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::clone(&seen);
+    let options = CompileOptions::with_placeholder_fn(move |failure| {
+        capture.lock().expect("failure log").push(failure.clone());
+        Some(ErrorPlaceholder {
+            title: format!("Slide {} is broken", failure.slide_number),
+            detail: None,
+        })
+    });
+
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let compiler = DefaultSlideCompiler::new();
+    let texts = |slide: &pptx_model::Slide| -> Vec<String> {
+        compiler
+            .compile_opts(slide, 9_144_000, 6_858_000, &options, &tx)
+            .expect("slide compiles")
+            .commands
+            .into_iter()
+            .flat_map(|command| match command {
+                VectorCommand::DrawText { runs, .. } => {
+                    runs.into_iter().map(|run| run.text).collect::<Vec<_>>()
+                }
+                _ => Vec::new(),
+            })
+            .collect()
+    };
+
+    // Healthy slide first: the resolver must not run for it.
+    let healthy = texts(&presentation.slides[0]);
+    assert!(!healthy.iter().any(|text| text.contains("is broken")));
+    assert!(seen.lock().expect("failure log").is_empty());
+
+    let broken = texts(&presentation.slides[1]);
+    assert_eq!(seen.lock().expect("failure log").len(), 1, "one failure record");
+    let failure = seen.lock().expect("failure log")[0].clone();
+    assert_eq!(failure.kind, "slide");
+    assert_eq!((failure.slide_index, failure.slide_number), (1, 2));
+    assert!(
+        failure.message.contains("ppt/slides/slide2.xml"),
+        "part-tagged message: {}",
+        failure.message
+    );
+    assert!(broken.contains(&"Slide 2 is broken".to_string()), "{broken:?}");
+    // `detail: null` paints no detail line at all (ref part-failures.ts:136-138).
+    assert_eq!(broken.len(), 2, "glyph + heading only: {broken:?}");
+
+    // Static text form: `{ title: 'Static' }` keeps the built-in detail.
+    let static_options = CompileOptions::with_placeholder_text("Static", None);
+    let static_texts: Vec<String> = compiler
+        .compile_opts(
+            &presentation.slides[1],
+            9_144_000,
+            6_858_000,
+            &static_options,
+            &tx,
+        )
+        .expect("slide compiles")
+        .commands
+        .into_iter()
+        .flat_map(|command| match command {
+            VectorCommand::DrawText { runs, .. } => {
+                runs.into_iter().map(|run| run.text).collect::<Vec<_>>()
+            }
+            _ => Vec::new(),
+        })
+        .collect();
+    assert!(static_texts.contains(&"Static".to_string()));
 }
 
 // ── document-level resource poison (ref presentation-resource-poison) ──────

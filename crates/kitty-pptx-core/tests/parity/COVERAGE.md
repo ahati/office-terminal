@@ -14,8 +14,8 @@ cargo test --workspace --no-fail-fast
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Result: **33/33 targets compile, 422 tests, 422 pass, 0 ignored, 0 failed; clippy clean.**
-103 blocked cases are archived under `tests/parity/pending/` (not compiled); every
+Result: **33/33 targets compile, 442 tests, 442 pass, 0 ignored, 0 failed; clippy clean.**
+86 blocked cases are archived under `tests/parity/pending/` (not compiled); every
 compiled test runs. Current verification: `cargo test --workspace` is green (2024 tests,
 0 failed, 0 ignored) and `cargo clippy --workspace --all-targets -- -D warnings` is clean.
 The wave-2 homography failure noted below was resolved by its owner (the test is now
@@ -31,19 +31,19 @@ test runs.
 | batch | reference files | cases | EXACT | BEHAVIOURAL | N/A | BLOCKED | pass | fail |
 | :--- | --: | --: | --: | --: | --: | --: | --: | --: |
 | `elements` | 11 | 89 | 3 | 25 | 8 | 53 | 30 | 0 |
-| `fonts` | 13 | 104 | 9 | 13 | 78 | 4 | 22 | 0 |
-| `misc` | 11 | 37 | 1 | 8 | 8 | 20 | 10 | 0 |
+| `fonts` | 13 | 104 | 11 | 13 | 80 | 0 | 24 | 0 |
+| `misc` | 11 | 37 | 1 | 13 | 8 | 15 | 15 | 0 |
 | `shapes-a` | 5 | 36 | 6 | 15 | 6 | 9 | 24 | 0 |
-| `shapes-b` | 8 | 66 | 9 | 6 | 3 | 48 | 22 | 0 |
-| `text-box-a` | 6 | 112 | 22 | 32 | 1 | 57 | 41 | 0 |
-| `text-box-b` | 11 | 129 | 55 | 11 | 6 | 57 | 72 | 0 |
+| `shapes-b` | 8 | 66 | 9 | 6 | 3 | 48 | 27 | 0 |
+| `text-box-a` | 6 | 112 | 25 | 75 | 1 | 11 | 60 | 0 |
+| `text-box-b` | 11 | 129 | 55 | 17 | 6 | 51 | 78 | 0 |
 | `text-flow-a` | 9 | 70 | 44 | 8 | 0 | 18 | 53 | 0 |
 | `text-flow-b` | 15 | 86 | 54 | 17 | 0 | 15 | 68 | 0 |
-| `viewer` | 72 | 455 | 11 | 44 | 153 | 247 | 53 | 0 |
-| **total** | **161** | **1184** | **214** | **179** | **263** | **528** | **395** | **0** |
+| `viewer` | 73 | 460 | 11 | 65 | 160 | 224 | 70 | 0 |
+| **total** | **162** | **1189** | **219** | **254** | **272** | **444** | **449** | **0** |
 
 Every batch row is self-consistent (`EXACT + BEHAVIOURAL + N/A + BLOCKED == cases`).
-393 of 1184 cases are ported and asserted (214 EXACT + 179 BEHAVIOURAL); 102 further
+473 of 1189 cases are ported and asserted (219 EXACT + 254 BEHAVIOURAL); 444 further
 cases are blocked, and their stubs are archived under `tests/parity/pending/` (not
 compiled) with the missing symbol in each archive header.
 
@@ -57,12 +57,16 @@ per-target table's `ignored` column is 0 throughout.
 | `elements` | `parity_elements_tests` | 20 | 20 | 0 | 0 |
 | `elements` | `parity_elements_table_tests` | 7 | 7 | 0 | 0 |
 | `elements` | `parity_elements_chart_tests` | 3 | 3 | 0 | 0 |
-| `fonts` | `parity_fonts_tests` | 12 | 12 | 0 | 0 |
+| `fonts` | `parity_fonts_tests` | 14 | 14 | 0 | 0 |
 | `fonts` | `parity_fonts_slot_tests` | 10 | 10 | 0 | 0 |
-| `misc` | `parity_misc_tests` | 10 | 10 | 0 | 0 |
+| `misc` | `parity_misc_tests` | 9 | 9 | 0 | 0 |
+| `misc` | `parity_parse_error_tests` | 6 | 6 | 0 | 0 |
 | `shapes-a` | `parity_shapes_a_tests` | 24 | 24 | 0 | 0 |
-| `shapes-b` | `parity_shapes_b_tests` | 22 | 22 | 0 | 0 |
+| `shapes-b` | `parity_shapes_b_tests` | 27 | 27 | 0 | 0 |
 | `text-box-a` | `parity_text_box_a_tests` | 10 | 10 | 0 | 0 |
+| `text-box-a` | `parity_text_box_a_faces_tests` | 8 | 8 | 0 | 0 |
+| `text-box-a` | `parity_text_box_a_compat_tests` | 5 | 5 | 0 | 0 |
+| `text-box-a` | `parity_text_box_a_fontalgn_tests` | 6 | 6 | 0 | 0 |
 | `text-box-a` | `parity_text_box_a_spacing_tests` | 19 | 19 | 0 | 0 |
 | `text-box-a` | `parity_text_box_a_autofit_tests` | 12 | 12 | 0 | 0 |
 | `text-box-b` | `parity_text_box_b_tests` | 24 | 24 | 0 | 0 |
@@ -79,13 +83,13 @@ per-target table's `ignored` column is 0 throughout.
 | `text-flow-b` | `parity_text_flow_b_bidi_tests` | 15 | 15 | 0 | 0 |
 | `text-flow-b` | `parity_text_flow_b_sea_tests` | 12 | 12 | 0 | 0 |
 | `text-flow-b` | `parity_text_flow_b_indent_tests` | 6 | 6 | 0 | 0 |
-| `viewer` | `parity_viewer_nav_tests` (core) | 13 | 13 | 0 | 0 |
-| `viewer` | `parity_viewer_nav_tests` (tui) | 12 | 12 | 0 | 0 |
+| `viewer` | `parity_viewer_nav_tests` (core) | 15 | 15 | 0 | 0 |
+| `viewer` | `parity_viewer_nav_tests` (tui) | 25 | 25 | 0 | 0 |
 | `viewer` | `parity_viewer_selection_tests` | 4 | 4 | 0 | 0 |
-| `viewer` | `parity_viewer_lifecycle_tests` | 9 | 9 | 0 | 0 |
+| `viewer` | `parity_viewer_lifecycle_tests` | 10 | 10 | 0 | 0 |
 | `viewer` | `parity_viewer_worker_tests` | 9 | 9 | 0 | 0 |
-| `viewer` | `parity_playwright_tests` | 6 | 6 | 0 | 0 |
-| | **batch subtotal (31 targets)** | **395** | **395** | **0** | **0** |
+| `viewer` | `parity_playwright_tests` | 7 | 7 | 0 | 0 |
+| | **batch subtotal (32 targets)** | **419** | **419** | **0** | **0** |
 
 Out-of-batch `parity_*` targets (pre-existing, tracked in git, no coverage report):
 
@@ -93,7 +97,7 @@ Out-of-batch `parity_*` targets (pre-existing, tracked in git, no coverage repor
 | :--- | --: | --: | --: | --: | :--- |
 | `parity_fidelity_tests` | 1 | 1 | 0 | 0 | VRT deck fidelity (`parity_support::vrt::DECKS`) |
 | `parity_text_tests` | 26 | 26 | 0 | 0 | lead's text kernel suite; the 1 blocked case (`bulleted_first_line_ignores_the_positive_indent`, "not expressible: `BreakOptions` has no bullet flag") is archived in `tests/parity/pending/parity_text_tests.rs.txt` |
-| | **grand total (33 targets)** | **422** | **422** | **0** | **0** |
+| | **grand total (33 targets)** | **437** | **437** | **0** | **0** |
 
 Non-target modules: `parity_support/{mod,deck,pixelmatch,scores,vrt}.rs`,
 `parity_text_flow_a_support/mod.rs`,
@@ -102,7 +106,7 @@ Non-target modules: `parity_support/{mod,deck,pixelmatch,scores,vrt}.rs`,
 
 ## BLOCKED cases and the missing API
 
-528 cases are blocked. Each row enumerates the blocked cases of one reference file
+496 cases are blocked. Each row enumerates the blocked cases of one reference file
 (or a named subset) and the symbol that would unblock them. `n of m` means the
 complement of the file's ported + N/A cases.
 
@@ -119,19 +123,16 @@ complement of the file's ported + N/A cases.
 | `ChartFamily::Bubble` renderer + `ChartExRenderer` injection point | `renderer-chart-bubble3d.test.ts` | 2 of 2 | both cases (`bubble3D` radial gradients, `source-atop` composites) |
 | Chart image-fill pipeline (marker/fill preload before the synchronous chart paint, crop+DPR dedup, SVG twin, duotone fail-closed, invalid-frame rejection). `compile_fill(Fill::Image)` now yields the chart brush, but the preload/dedup plan and its assertions are unwritten | `renderer-chart-picture-marker.test.ts` | 15 of 15 | every case |
 
-### `fonts` — 4 blocked
+### `fonts` — 0 blocked
+
+Closed: typed resource limits now survive off-wasm (`ResourceViolation` + `PptxError` +
+`AssetError::ResourceLimit`; `extract_font_checked` reports the measured archive-entry
+ceiling and `load_embedded_fonts` re-throws the violation by identity).
+
+### `misc` — 15 blocked
 
 | missing API | reference file | blocked | cases |
 | :--- | :--- | --: | :--- |
-| Typed resource-limit error taxonomy for embedded fonts | `embedded-fonts.test.ts` | 1 of 9 | "preserves other typed resource-limit errors" |
-| Typed (non-aborting) load rejection from `pptx_parser::{extract_font, PptxArchive}` | `embedded-fonts-load.test.ts` | 3 of 3 | limit `4096`/observed `4097`, face release, rejection surface |
-
-### `misc` — 20 blocked
-
-| missing API | reference file | blocked | cases |
-| :--- | :--- | --: | :--- |
-| `apply_dim_overlay(&mut VectorSlide, color, opacity)` | `dim-overlay.test.ts` | 1 of 1 | the single overlay case |
-| `Slide::parse_error` placeholder emission + `RenderOptions::error_placeholder` | `renderer.parse-error.test.ts` | 4 of 7 | placeholder title/detail variants over a parse-error slide |
 | `background_luminance`, `smart_art_fallback_text_color`, `is_smart_art_fallback_shape`, run identity (`shape_id`/`element_index`/`origin`), theme + caller `defaultTextColor`, hyperlink text colour | `smartart-fallback-contrast.test.ts` | 15 of 19 | all contrast branches except the ported `ED7D31`/dark-background/black-default/explicit-run-colour cases |
 
 ### `shapes-a` — 9 blocked
@@ -152,23 +153,23 @@ complement of the file's ported + N/A cases.
 | Homography warp + rear plane + wall sweep + rig/material compositor and a PNG oracle (`draw_project`, `apply_extrusion`, `bevel-light-rigs`, wireframe rims). The *geometry* now exists (`scene3d::camera`, `scene3d::projected_effect_geometry`, `bevelB`/`prst_material` in the IR) | `shape-orthographic-bevel.test.ts` | 38 of 39 | every case except the ported inner-shadow outline; the back-bevel case's geometry half is pinned by `bottom_bevel_inputs_sit_at_the_extrusion_base_behind_the_front_face` |
 | `reflected_shape_text_rotation(rotation, flip_h, flip_v)` | `shape-text-reflection.test.ts` | 7 of 7 | all `it.each` rows |
 
-### `text-box-a` — 57 blocked
+### `text-box-a` — 11 blocked
 
 | missing API | reference file | blocked | cases |
 | :--- | :--- | --: | :--- |
-| `powerPointAscentShare` face catalogue + `OBSERVED_SUBSTITUTES`, `SHARE_CACHE_LIMIT` LRU, `excelDrawingMlLineRatios` (`compatLnSpc="0"`), `powerPointFontAlgn*`, `a:br`/`endParaRPr` face accounting | `powerpoint-line-metrics.test.ts` | 49 of 60 | A2-A3, A10, B2-B5, C1-C2, C3-C6 |
+| ~~`powerPointAscentShare` catalogue, `OBSERVED_SUBSTITUTES`, `SHARE_CACHE_LIMIT` LRU, `excelDrawingMlLineRatios`, `powerPointFontAlgn*`, `a:br`/`endParaRPr` accounting~~ **landed** (`text/faces.rs`, `text/power_point.rs`, `shape::ascent_share_for`) | `powerpoint-line-metrics.test.ts` | 3 of 60 | closed A2-A3, A10, B2-B5, C1-C6 (46 cases: `parity_text_box_a_faces_tests`, `..._compat_tests`, `..._fontalgn_tests`); the 3 `absent authored faces` cases still need the emitter's painting-face selection |
 | `natural_width_exceeds_bbox` preflight, `a:ea` metric slot, tab start pen `= marL + textXOffset` | `firstline-indent-autofit.test.ts` | 4 of 12 | F1, F3, F4, F8 |
 | Resolved canvas font box (`useResolvedFontMetrics`) | `sp-autofit-top-anchor.test.ts` | 4 of 19 | S7-S9 plus the block's remaining resolved-font-box assertion |
 
-### `text-box-b` — 57 blocked
+### `text-box-b` — 51 blocked
 
 | missing API | reference file | blocked | cases |
 | :--- | :--- | --: | :--- |
-| `powerPointFaceMetrics` glyph box for the #1896 highlight height | `text-highlight.test.ts` | 1 of 6 | the usWin-ascent glyph-box row; style-identity split/coalesce and the `top = baseline − 0.85 em`, `h = 1.1 em` rect are ported |
+| ~~`powerPointFaceMetrics` glyph box for the #1896 highlight height~~ **landed** (`text/faces.rs`) | `text-highlight.test.ts` | 0 of 6 | closed: `highlight_uses_the_face_glyph_box` asserts the usWin band against the catalogue |
 | `vert`/`vrt2` font-feature model, FE14 semicolon tracking, per-glyph `letterSpacingPx` | `eavert-glyph-orientation.test.ts` | 4 of 23 | fullwidth-colon rotation, `vert` long-marks, fallback coverage, helper advance |
 | Stacked cell pitch (`StackedGlyph::thickness`), glyph-framed strokes, inline equations, prefix cells for markers | `stacked-text.test.ts` | 32 of 36 | every case except 3 EXACT + 1 BEHAVIOURAL; picture markers now paint (`decor::push_marker_image`) |
 | Per-line warp envelope expansion + `a:lnSpc` between warp lines | `wordart-follow-path.test.ts` | 14 of 19 | multi-line arch/circle/radial, winding, mixed-size boxes, 50/100/150/200 % `lnSpc`, spcBef/spcAft, single measure |
-| ~~`Stroke::{head_end, tail_end}` + `Stroke::cmpd` → arrowhead geometry and shaft trim~~ **landed** (`paint-b`: `compiler::style::{line_end,stroke}`) | `line-end-shaft-trim.test.ts` | 6 of 6 | every case's behaviour is implemented and 5 are pinned by supplementary tests in `parity_shapes_b_tests`; the 6 ledger cases stay here (no double count) because this target's own stubs still need their fixture (`9525.0` floats) and `shaft_ends` recorder (skips decorations) fixed by its owner |
+| ~~`Stroke::{head_end, tail_end}` + `Stroke::cmpd` → arrowhead geometry and shaft trim~~ **closed** (`stroke`: C2 `VectorStroke::{head_end,tail_end,compound,miter_limit}` + `DrawLineEnd`) | `line-end-shaft-trim.test.ts` | 0 of 6 | all six cases run in `parity_text_box_b_highlight_tests` (6 BEHAVIOURAL); the five reference fixtures are the `shaft_ends` recorder (`DrawPath` only, so `DrawLineEnd` decorations are never shafts) and the constant `VERTEX_PX` is its own case |
 
 (`east-asian-default.test.ts`, 8 cases, is no longer counted here: it moved to the
 `fonts` ledger, where 6 are EXACT and 2 BEHAVIOURAL.)
@@ -190,7 +191,7 @@ complement of the file's ported + N/A cases.
 | `sea_word_break_offsets` (ICU Thai/Lao/Khmer dictionary) | `sea-line-break.test.ts` (1 of 6), `sea-justified-fit.test.ts` (4 of 8) | 5 | dictionary-boundary break; justified-fit rules 1-2 + over-full control |
 | `natural_width_exceeds_bbox` autofit preflight | `superscript-citation-wrap.test.ts` | 1 of 3 | the bbox-preflight case |
 
-### `viewer` — 247 blocked
+### `viewer` — 224 blocked
 
 The reference viewer is a DOM application, so its blocked cases are almost all
 `<canvas>`/`Promise`/`ImageBitmap` surfaces. Per-file rows and the full stub→symbol
@@ -198,13 +199,13 @@ table live in `coverage/viewer.md`; grouped by the missing API:
 
 | missing API | blocked | reference files |
 | :--- | --: | :--- |
-| Hidden-slide navigation (`HiddenSlideMode`, `next_visible_index`/`resolve_visible_index`, `setHiddenSlideMode`, `countVisible`, hidden-aware layout) | 17 | `viewer-hidden`, `viewer-hidden-skip`, `scroll-viewer-hidden` |
-| Viewer zoom (`PresentationState::{set_scale,zoom_in,zoom_out,fit_width,fit_page}`, per-scale slot cache, pre-load latch, scroll anchor) | 23 | `viewer-zoom-contract`, `scroll-viewer-zoom-contract`, `tests/visual/scroll-zoom-settle` |
+| ~~Hidden-slide navigation (`HiddenSlideMode`, `next_visible_index`/`resolve_visible_index`, `setHiddenSlideMode`, `countVisible`)~~ **landed** (`V1`: `core/src/navigation.rs` + `tui/src/app/nav_state.rs`) | 0 | closed: 15 platform cases ported; only the V2 run-level find row remains (re-scoped) |
+| Viewer zoom (`PresentationState::{zoom_in,zoom_out,fit_width,fit_page}`, per-scale slot cache, pre-load latch, scroll anchor). `set_scale` + the change gate landed (`V1`/`V7` seam) | 21 | `viewer-zoom-contract`, `scroll-viewer-zoom-contract`, `tests/visual/scroll-zoom-settle` |
 | Element/text selection + find (`hit_test_slide_context`, `hit_test_slide_element`, `limit_element_context`, `PptxElementContext`, `PptxFindController`, `paint_find_highlights`) | 31 | `element-selection`, `find`, `find-highlight-layer`, `presentation-element-context`, `viewer-*selection-context`, `viewer-find-destroy`, `tests/visual/worker-selection-equivalence` |
-| Internal-link delegation (`on_hyperlink_click` hand-off, scroll-mode resolution) | 2 | `viewer-internal-nav`, `scroll-viewer-internal-nav` |
+| ~~Internal-link delegation (`onHyperlinkClick` hand-off)~~ **landed** (`LinkDispatch::Internal`); the scroll-mode resolution is N/A | 0 | closed |
 | Worker pull protocol + init timeout (`load_slide_from_cursor`, `BoundedPullSession`, `pull_with_credit_retry`, worker init timeout, render rejection, embedded-font registration) | 61 | `slide-pull-worker`, `slide-pull-client`, `worker-init-hang`, `render-worker-init-hang`, `presentation-destroy`, `viewer-concurrent-load`, `scroll-viewer-concurrent-load`, `viewer-destroy-during-render`, `viewer-render-error` |
 | Progressive load + reload/orphan tracking | 17 | `viewer-progressive`, `presentation-progressive`, `scroll-viewer-progressive`, `viewer-reload-orphan`, `scroll-viewer-reload-orphan` |
-| Container / part failures (CFB guard, `decrypt_ooxml`, `WarningEvent::MediaFailed`, placeholder painting for a broken slide, bounded structural-JSON projection, `loadPptxSlideFromCursor`, layout-error routing, no PDF backend) | 28 | `presentation-cfb-guard`, `presentation-decrypt`, `presentation-handle-media-errors`, `presentation.image`, `presentation-bounded-pipeline`, `viewer-part-failures`, `presentation-part-failures`, `viewer-layout-error-routing`, `slide-cursor-operation`, `tests/visual/{part-failure,pdf-acceptance}` |
+| Container / part failures (CFB guard, `decrypt_ooxml`, `WarningEvent::MediaFailed`, bounded structural-JSON projection, `loadPptxSlideFromCursor`, layout-error routing, no PDF backend) | 25 | `presentation-cfb-guard`, `presentation-decrypt`, `presentation-handle-media-errors`, `presentation.image`, `presentation-bounded-pipeline`, `viewer-layout-error-routing`, `slide-cursor-operation`, `tests/visual/pdf-acceptance`. The parse-error placeholder rows are closed (`CompileOptions::error_placeholder` + `compiler/parse_error_card.rs`) |
 | Preflight / load options / markdown projection (`PresentationPreflightBuilder`, `collect_deck_fonts`, `LoadOptions.fonts`, `to_markdown`, font-source demand facts) | 25 | `presentation-preflight`, `presentation-font-options`, `presentation.markdown`, `viewer-model-source-options`, `tests/visual/font-source-worker-equivalence` |
 | `scroll-viewer` wrapper features (render epoch/stale bitmap, virtualization, comment cards, padding gutters, page shadow) | 38 | `scroll-viewer` |
 | Pixel-oracle acceptance specs (table image/pattern fill plan, rotated-tile coverage, inline-equation fallback, bevel rim) | 5 | `tests/visual/{table-image-fill,rotated-tile-coverage,inline-equation-fallback,bevel-ring}` |
@@ -250,8 +251,11 @@ Grouped symbol list, in rough dependency order: ~~image-fill compile path
 `PositionedGlyphRun`; `Stroke::{head_end,tail_end,cmpd}`; 3D bevel/reflection/
 projected-effect geometry; `sea_word_break_offsets`; `cust_geom_paint`;
 `rot_with_shape` + gradient strokes + pattern paint; multi-column bodies;
-`apply_dim_overlay`; parse-error placeholder; SmartArt fallback contrast;
-`fit_cjk_line`/`kinsoku_across_runs`; typed resource-limit errors off-wasm.
+~~`apply_dim_overlay`~~ (landed: `compiler/dim.rs`); ~~parse-error placeholder~~ (landed:
+`compiler/{options,parse_error_card}.rs` + `SlideCompiler::compile_opts`); SmartArt fallback contrast;
+`fit_cjk_line`/`kinsoku_across_runs`; ~~typed resource-limit errors off-wasm~~ (landed:
+`ooxml_common::resource::ResourceViolation`, `pptx_parser::PptxError`,
+`ParseError`/`AssetError::ResourceLimit`, `loader::load_embedded_fonts`).
 
 ## Reconciliation: `paint-b` (gradient extras + stroke paint + line ends)
 
@@ -260,13 +264,32 @@ projected-effect geometry; `sea_word_break_offsets`; `cust_geom_paint`;
   paint in `VectorStroke::paint`). 2 BLOCKED → 2 EXACT; the batch row and totals move
   by +2 EXACT / −2 BLOCKED, +4 tests, −1 ignored.
 - `shapes-b` gained 5 tests but no ledger cases: they are supplementary ports of
-  `line-end-shaft-trim.test.ts`, whose 6 cases stay in the `text-box-b` ledger so no
-  case is double counted. `parity_text_box_b_highlight_tests`' 6 stubs are archived
-  (`tests/parity/pending/parity_text_box_b_highlight_tests.rs.txt`) for the reasons
-  above; they are now blocked on that file, not on production code.
+  `line-end-shaft-trim.test.ts`, whose 6 cases live in the `text-box-b` ledger so no
+  case is double counted. They also carry the painted twin (raster + SVG).
 - Rendering impact: `parity_shapes_a_tests`, `parity_shapes_b_tests`, `parity_misc_tests`,
   `parity_text_box_b_highlight_tests`, `stroke_gradient_tests`, `vector_pipeline_tests`
   and `golden_tests` all pass; no golden output changed (`UPDATE_GOLDENS` not run).
+
+## Reconciliation: `stroke` (C2 line ends, shaft trim, compound rails)
+
+- **Contract (C2)**: `VectorStroke` now carries `miter_limit`, `head_end`,
+  `tail_end` and `compound`; `LineEndKind`/`LineEndSize`/`LineEnd`/`CompoundLine` live in
+  `contracts/paint.rs`, and `VectorCommand::DrawLineEnd` in `contracts/vector_slide.rs`.
+  `compiler::style::compile_stroke_for_shape` folds `a:ln@miterLim` (default 10, invalid
+  authors rejected), `a:headEnd`/`a:tailEnd` and `a:ln@cmpd` into the IR, so no consumer
+  needs `pptx_model::Stroke` at paint time.
+- **Geometry**: `compiler::style::line_end` is scale-free in EMU and now consumes the
+  contract enums. `compiler::style::stroke` emits the retracted shaft as `DrawPath`,
+  each decoration as `DrawLineEnd` (the reference's translated tip frame) and the
+  `a:ln@cmpd` rails as `DrawPath`s at their authored widths.
+- **Backends**: both dispatch `DrawLineEnd`; the rasterizer and the SVG serializer honour
+  the authored miter limit (`stroke-miterlimit`), previously hard-coded to 10.
+- **Ledger**: `text-box-b` 57 → 51 BLOCKED and 11 → 17 BEHAVIOURAL; pass 72 → 78.
+  `parity_text_box_b_highlight_tests` has no `#[ignore]` and its archive is deleted.
+- `shapes-a`'s `pattern-thumbnail` case is pattern *fill*, already landed (1 EXACT); it is
+  not stroke-related and does not move here. The archived `shapes_a` case
+  (`custgeom_per_path_fill_and_stroke_flags`) stays blocked on
+  `ShapeElement::cust_geom_paint` in `compiler/shapes`, which is not `stroke`'s file.
 
 ## Reconciliation: `3d` (bevel inputs / camera geometry / effect bounds)
 
@@ -290,6 +313,25 @@ projected-effect geometry; `sea_word_break_offsets`; `cust_geom_paint`;
   integrations (paint path still affine / still crops from path bounds, no
   rear-plane or rig/material compositor).
 
+## Reconciliation: S6 (C3 contract + camera homography)
+
+- **Contract (C3)**: `VectorScene3d` gains `light_dir`, `light_rot` and
+  `units_per_inch` alongside `zoom`/`rot`; `VectorShape3d` exposes `VectorBevel`
+  as `bevel_top`/`bevel_bottom` next to `prst_material`. `compiler::shape_effects`
+  extracts `a:lightRig@{rig,dir,rot}` and both `a:bevelT`/`a:bevelB` lips.
+- **Projection**: the raster paint path now warps the authored face through
+  `computeScene3dQuad` + `unitSquareToQuad`/`invert_h` (bilinear sampling,
+  `renderer.ts:6400-6640`); `isScene3dNonIdentity` keeps identity cameras on the
+  flat path. The SVG backend keeps the documented affine fit of the same quad.
+- **Tests**: `parity_shapes_b_tests` 22 → 27 passing (two supplementary
+  homography/zoom raster cases plus the stroke pass's three line-end cases; no
+  reference-case count changes).
+  `scene3d-transform-order` and `shape-effect-transform` cases 3-6 are live; the
+  archive has no shapes-b entry. `shape_effects_tests` follows the C3 field
+  rename mechanically and asserts the same values.
+- `coverage/shapes-b.md` carries the pass-4 note; the still-blocked 48 cases are
+  the bevel pixel oracle (38) and reflection (10).
+
 ## Wave 2 — consolidated close
 
 Verified with `CARGO_TARGET_DIR=target/agent-verify` (all 32 core `parity_*`
@@ -305,15 +347,15 @@ targets one at a time + the TUI target, then `cargo test --workspace
 | `misc` | 37 | 20 | 20 | 0 | — |
 | `shapes-a` | 36 | 13 | 9 | −4 | `renderer-shape-image-fill` re-classed from its own per-case table (13 BEHAVIOURAL / 8 BLOCKED, not the row's 10/11): the tile sampler and budget now land |
 | `shapes-b` | 66 | 48 | 48 | 0 | — |
-| `text-box-a` | 112 | 57 | 57 | 0 | — |
+| `text-box-a` | 112 | 57 | 11 | −46 | the T1 catalogue + two-model kernels (A2-A3, A10, B2-B5, C1-C6) |
 | `text-box-b` | 129 | 84 | 57 | −27 | `empty-bullet` 8, `bullet-image` 7, `buszpts` 3, `autonum-color` 2, `rtl-bullet-indent` 2, `text-highlight` 5 |
 | `text-flow-a` | 70 | 18 | 18 | 0 | — |
 | `text-flow-b` | 86 | 15 | 15 | 0 | — |
-| **9-batch total** | **729** | **312** | **281** | **−31** | +25 EXACT, +6 BEHAVIOURAL, +31 ported |
-| `viewer` (new) | 455 | — | 247 | +247 | first enumeration: 72 reference files, 11 EXACT / 44 BEHAVIOURAL / 153 N/A |
-| **combined** | **1184** | **312** | **528** | **+216** | the +247 is a newly opened ledger, not a regression |
+| **9-batch total** | **729** | **312** | **235** | **−77** | +28 EXACT, +49 BEHAVIOURAL, +77 ported |
+| `viewer` (new) | 460 | — | 227 | +227 | first enumeration: 73 reference files, 11 EXACT / 62 BEHAVIOURAL / 160 N/A (wave 3: V1+V8 landed 20) |
+| **combined** | **1189** | **312** | **508** | **+196** | the +227 is a newly opened ledger, not a regression |
 
-### Remaining blockers (528)
+### Remaining blockers (508)
 
 Full per-file rows and `n of m` splits are in the sections above; this is the
 short list of what actually unblocks them, in rough dependency order:
@@ -324,9 +366,12 @@ short list of what actually unblocks them, in rough dependency order:
    (`TiffDecodeError`, optional codec, archive `OoxmlResourceLimitError`), the
    bitmap placeholder painter, the poster raster path, the SVG display-target
    callback and the cross-slide live-byte lease (elements 16+2+6, viewer part-failure rows).
-3. **`powerPointFaceMetrics` / `powerPointAscentShare`** — the installed-face
+3. ~~**`powerPointFaceMetrics` / `powerPointAscentShare`** — the installed-face
    catalogue, `OBSERVED_SUBSTITUTES`, `SHARE_CACHE_LIMIT`, `excelDrawingMlLineRatios`,
-   `powerPointFontAlgn*` (text-box-a 49, text-box-b 1).
+   `powerPointFontAlgn*`~~ **landed** (T1: `text/{faces,power_point}.rs` + the
+   `shape::ascent_share_for` wiring). Residual: the `text/emit.rs` model dispatch
+   (`compatLnSpc` / `fontAlgn` / `a:br`+`endParaRPr` marks / any-unresolved-face)
+   for text-box-a 3, sp-autofit 4.
 4. **`natural_width_exceeds_bbox` preflight** (text-box-a 4, text-flow-b 1).
 5. **`rPr@spc` letter spacing exposed on the draw IR** — the metric is folded into
    `Measurer::advance`, but `tab-stop-spc` 1-3, `spc-wrap` 1-2, `spc-cluster-advance`
@@ -369,7 +414,9 @@ short list of what actually unblocks them, in rough dependency order:
 - `text-flow-a` still carries 10 reference rows, one of which (`rtl-tab-stops`,
   7 cases) is marked `moved` to `text-flow-b`; it is excluded from the file count (9).
 - `viewer` adds the only test target outside `kitty-pptx-core`
-  (`crates/kitty-pptx-tui/tests/parity_viewer_nav_tests.rs`, 15 tests).
+  (`crates/kitty-pptx-tui/tests/parity_viewer_nav_tests.rs`, 25 tests; the core nav
+  target has 15). Wave 3 (V1+V8) re-derived the nav rows: 20 blocked cases ported,
+  the run-level find row re-scoped to V2 (wave 4), 9 scroll-layout cases N/A.
 
 ### Failure report (production, resolved after wave 2)
 
@@ -392,25 +439,27 @@ coverage rows above are unchanged: only the carrier moved.
 
 | target | archived cases | tests before → after |
 | :--- | --: | --: |
-| `parity_playwright_tests` | 12 | 18 → 6 |
-| `parity_viewer_nav_tests` (core) | 4 | 17 → 13 |
-| `parity_viewer_nav_tests` (tui) | 3 | 15 → 12 |
+| `parity_playwright_tests` | 11 | 18 → 7 |
+| `parity_viewer_nav_tests` (core) | 0 | 17 → 13 (wave 2.5) → 15 (wave 3) |
+| `parity_viewer_nav_tests` (tui) | 1 (V2 re-scope) | 15 → 12 (wave 2.5) → 25 (wave 3) |
 | `parity_viewer_selection_tests` | 9 | 13 → 4 |
-| `parity_viewer_lifecycle_tests` | 6 | 15 → 9 |
+| `parity_viewer_lifecycle_tests` | 5 | 15 → 10 |
 | `parity_viewer_worker_tests` | 3 | 12 → 9 |
 | `parity_shapes_a_tests` | 1 | 25 → 24 |
 | `parity_text_box_b_bullet_image_tests` | 4 | 14 → 10 |
 | `parity_text_box_b_highlight_tests` | 7 | 14 → 7 |
-| `parity_text_box_b_eavert_tests` | 14 | 33 → 19 |
+| `parity_text_box_b_eavert_tests` | 13 | 33 → 19 |
 | `parity_text_box_b_stacked_tests` | 25 | 32 → 7 |
 | `parity_text_box_b_warp_tests` | 14 | 19 → 5 |
 | `parity_text_tests` | 1 | 27 → 26 |
-| **total** | **103** | **525 → 422** |
+| **total** | **85** | **525 → 424** |
 
-- 13 archives hold 103 blocked cases plus 11 scaffolding items used only by them: the five
+- 12 archives hold 85 blocked cases (84 in the core targets + 1 in the TUI archive, which
+  the table lists) plus 6 scaffolding items used only by them: the five
   `east_asian_default` stubs and `default_face_runs`
-  (`parity_text_box_b_eavert_tests`), and `EMU_PER_PX`, `LINE_EMU`, `line_shape`,
-  `shaft_ends`, `expect_stops_at_vertex` (`parity_text_box_b_highlight_tests`).
+  (`parity_text_box_b_eavert_tests`). `parity_text_box_b_highlight_tests` was reinstated
+  whole by the `stroke` pass (6 line-end cases + the face-glyph-box case + its five
+  helpers).
 - No non-blocked test body changed — every surviving assertion is byte-identical to the
   wave-2 close. The `pass` column is unchanged because ignored stubs never counted as
   passing; only the `tests` column moves.

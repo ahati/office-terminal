@@ -52,6 +52,31 @@ pub fn apply_h(h: &Homography, u: f64, v: f64) -> Point {
     ((h[0] * u + h[1] * v + h[2]) / w, (h[3] * u + h[4] * v + h[5]) / w)
 }
 
+/// Invert a 3×3 homography (adjugate / determinant).
+///
+/// The raster warp needs the inverse map to sample the source face for every
+/// destination pixel; `None` when the matrix is singular or non-finite.
+pub fn invert_h(h: &Homography) -> Option<Homography> {
+    let det = h[0] * (h[4] * h[8] - h[5] * h[7])
+        - h[1] * (h[3] * h[8] - h[5] * h[6])
+        + h[2] * (h[3] * h[7] - h[4] * h[6]);
+    if !det.is_finite() || det.abs() < 1e-18 {
+        return None;
+    }
+    let inv = [
+        (h[4] * h[8] - h[5] * h[7]) / det,
+        (h[2] * h[7] - h[1] * h[8]) / det,
+        (h[1] * h[5] - h[2] * h[4]) / det,
+        (h[5] * h[6] - h[3] * h[8]) / det,
+        (h[0] * h[8] - h[2] * h[6]) / det,
+        (h[2] * h[3] - h[0] * h[5]) / det,
+        (h[3] * h[7] - h[4] * h[6]) / det,
+        (h[1] * h[6] - h[0] * h[7]) / det,
+        (h[0] * h[4] - h[1] * h[3]) / det,
+    ];
+    inv.iter().all(|value| value.is_finite()).then_some(inv)
+}
+
 /// Extrapolate a projected quad outward through the same projective map that
 /// produced it: the image of `[-fx, 1+fx] × [-fy, 1+fy]`.
 ///
@@ -137,5 +162,22 @@ mod tests {
         assert!(unit_square_to_quad(collinear).is_none());
         assert!(expand_projected_quad(collinear, 0.1, 0.1).is_none());
         assert!(project_quad_point(collinear, 0.5, 0.5).is_none());
+    }
+
+    #[test]
+    fn the_inverse_maps_projected_points_back_to_the_unit_square() {
+        // The raster warp samples the source through `invert_h`; every
+        // destination corner must recover its unit-square coordinate.
+        let quad = [(10.0, 5.0), (110.0, 0.0), (90.0, 60.0), (0.0, 50.0)];
+        let h = unit_square_to_quad(quad).expect("homography");
+        let inv = invert_h(&h).expect("inverse");
+        for (u, v) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.3, 0.7)] {
+            let (x, y) = apply_h(&h, u, v);
+            let (ru, rv) = apply_h(&inv, x, y);
+            assert!((ru - u).abs() < 1e-9 && (rv - v).abs() < 1e-9, "({u},{v}) -> ({ru},{rv})");
+        }
+        // A singular matrix has no inverse.
+        let singular = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        assert!(invert_h(&singular).is_none());
     }
 }

@@ -34,11 +34,7 @@ pub(crate) fn apply_bevel_shading(
     if band_px <= 0.0 {
         return;
     }
-    let preset = if shape_3d.bevel_top_type.is_empty() {
-        "circle"
-    } else {
-        shape_3d.bevel_top_type.as_str()
-    };
+    let preset = bevel.preset.as_str();
     let profile_height = (bevel.height_px as f32).max(1.0);
     let material = scene3d::Material::from_preset(bevel.material.as_str());
     let light = [bevel.light[0] as f32, bevel.light[1] as f32, bevel.light[2] as f32];

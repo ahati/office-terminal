@@ -8,8 +8,8 @@
 //! compiler emits the resolved geometry and every backend stays identical.
 
 use crate::contracts::{
-    AffineTransform, LineCap, LineJoin, PathSegment, ShapeEffects, VectorCommand, VectorPaint,
-    VectorPath, VectorStroke,
+    AffineTransform, CompoundLine, LineCap, LineJoin, LineEnd, PathSegment, ShapeEffects,
+    VectorCommand, VectorPaint, VectorPath, VectorStroke,
 };
 
 use super::line_end;
@@ -59,28 +59,28 @@ pub fn geometry_decorates_line_ends(geometry: &str) -> bool {
     name == "custgeom" || CONNECTORS.contains(&name.as_str()) || CALLOUTS.contains(&name.as_str())
 }
 
-/// One `DrawPath` command for a stroked subpath, expanded into everything the
-/// reference paints with it:
+/// One `DrawPath`/`DrawLineEnd` set for a stroked subpath, expanded into
+/// everything the reference paints with it:
 ///
 /// 1. the shaft, shortened by the authored ends' retraction
 ///    (`trimGeometryPathEnds`, ref arrow-geometry.ts:326-333) — or, for a
 ///    compound straight line, its parallel rails (ref renderer.ts:4494-4512);
-/// 2. the `a:tailEnd` / `a:headEnd` decorations at the *untrimmed* line ends
-///    (ref renderer.ts:4513-4535).
+/// 2. the `a:tailEnd` / `a:headEnd` decorations at the *untrimmed* line ends,
+///    each its own [`VectorCommand::DrawLineEnd`] because the reference paints
+///    them in a translated tip frame (ref renderer.ts:4513-4535).
 ///
-/// Decorations are emitted as ordinary display-list paths, so the rasterizer and
-/// the SVG serializer paint identical geometry. They carry no effects of their
-/// own: the reference composites them into the same target, while the IR gives
-/// each command its own effect layer.
+/// Decorations are emitted after the shaft, in the reference's tail-then-head
+/// order. They carry no effects of their own: the reference composites them
+/// into the same target, while the IR gives each command its own effect layer.
 pub fn compile_stroked_paths(
     path: &VectorPath,
     fill: Option<VectorPaint>,
-    stroke: Option<(&VectorStroke, &pptx_model::Stroke)>,
+    stroke: Option<&VectorStroke>,
     scope: &StrokeScope,
     transform: AffineTransform,
     effects: ShapeEffects,
 ) -> Vec<VectorCommand> {
-    let Some((vector_stroke, model_stroke)) = stroke else {
+    let Some(vector_stroke) = stroke else {
         // No outline: the fill keeps the shape's effects (PRD 08).
         return vec![VectorCommand::DrawPath {
             path: path.clone(),
@@ -91,65 +91,23 @@ pub fn compile_stroked_paths(
         }];
     };
 
-    let head = scope.decorate.then_some(model_stroke.head_end.as_ref()).flatten();
-    let tail = scope.decorate.then_some(model_stroke.tail_end.as_ref()).flatten();
-    let head_trim = head.map_or(0.0, |end| {
-        line_end::retract(vector_stroke.width_emu, end)
-    });
-    let tail_trim = tail.map_or(0.0, |end| {
-        line_end::retract(vector_stroke.width_emu, end)
-    });
+    let head = scope.decorate.then_some(vector_stroke.head_end).flatten();
+    let tail = scope.decorate.then_some(vector_stroke.tail_end).flatten();
+    let head_trim = head.map_or(0.0, |end| line_end::retract(vector_stroke.width_emu, &end));
+    let tail_trim = tail.map_or(0.0, |end| line_end::retract(vector_stroke.width_emu, &end));
 
     // §20.1.8.42 compound straight line: the centre line is erased and each
     // rail painted at its own offset (ref renderer.ts:4479-4512).
-    if let Some((cmpd, _, _)) = model_stroke
-        .cmpd
-        .as_deref()
-        .filter(|cmpd| *cmpd != "sng")
-        .and_then(|cmpd| line_end::straight_run(path).map(|(a, b)| (cmpd, a, b)))
-    {
-        // Both ends trim the same straight run; when they consume it, no line
-        // remains and the reference paints nothing (ref renderer.ts:4494-4497).
-        let trimmed = line_end::trim_path_ends(path, head_trim, tail_trim);
-        let mut out = Vec::new();
-        if let Some((start, end)) = line_end::straight_run(&trimmed) {
-            for (index, (rail_start, rail_end, width)) in line_end::compound_rails(
-                start,
-                end,
-                vector_stroke.width_emu as f32,
-                cmpd,
-            )
-            .into_iter()
-            .enumerate()
-            {
-                let rail = VectorPath::new(
-                    vec![
-                        PathSegment::MoveTo {
-                            x: rail_start.0,
-                            y: rail_start.1,
-                        },
-                        PathSegment::LineTo {
-                            x: rail_end.0,
-                            y: rail_end.1,
-                        },
-                    ],
-                    path.fill_rule,
-                );
-                let mut rail_stroke = vector_stroke.clone();
-                rail_stroke.width_emu = width.max(1.0) as i64;
-                out.push(VectorCommand::DrawPath {
-                    path: rail,
-                    fill: if index == 0 { fill.clone() } else { None },
-                    stroke: Some(rail_stroke),
-                    transform,
-                    effects: Box::new(if index == 0 {
-                        effects.clone()
-                    } else {
-                        ShapeEffects::default()
-                    }),
-                });
-            }
-        }
+    if vector_stroke.compound.is_compound() && line_end::straight_run(path).is_some() {
+        let mut out = compound_rail_commands(
+            path,
+            fill,
+            vector_stroke,
+            head_trim,
+            tail_trim,
+            transform,
+            effects,
+        );
         out.extend(line_end_decorations(
             path,
             vector_stroke,
@@ -185,13 +143,75 @@ pub fn compile_stroked_paths(
     out
 }
 
+/// The parallel rails of one compound straight run.
+///
+/// Both ends trim the same run; when they consume it no line remains and the
+/// reference paints nothing (ref renderer.ts:4494-4497). The first rail keeps
+/// the shape's fill and effects so a compound outline still carries its shadow.
+fn compound_rail_commands(
+    path: &VectorPath,
+    fill: Option<VectorPaint>,
+    stroke: &VectorStroke,
+    head_trim: f32,
+    tail_trim: f32,
+    transform: AffineTransform,
+    effects: ShapeEffects,
+) -> Vec<VectorCommand> {
+    let trimmed = line_end::trim_path_ends(path, head_trim, tail_trim);
+    let Some((start, end)) = line_end::straight_run(&trimmed) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (index, (rail_start, rail_end, width)) in line_end::compound_rails(
+        start,
+        end,
+        stroke.width_emu as f32,
+        stroke.compound,
+    )
+    .into_iter()
+    .enumerate()
+    {
+        let rail = VectorPath::new(
+            vec![
+                PathSegment::MoveTo {
+                    x: rail_start.0,
+                    y: rail_start.1,
+                },
+                PathSegment::LineTo {
+                    x: rail_end.0,
+                    y: rail_end.1,
+                },
+            ],
+            path.fill_rule,
+        );
+        let mut rail_stroke = stroke.clone();
+        rail_stroke.width_emu = width.max(1.0) as i64;
+        // A rail is a painted line, not a compound line.
+        rail_stroke.compound = CompoundLine::Sng;
+        rail_stroke.head_end = None;
+        rail_stroke.tail_end = None;
+        out.push(VectorCommand::DrawPath {
+            path: rail,
+            fill: if index == 0 { fill.clone() } else { None },
+            stroke: Some(rail_stroke),
+            transform,
+            effects: Box::new(if index == 0 {
+                effects.clone()
+            } else {
+                ShapeEffects::default()
+            }),
+        });
+    }
+    out
+}
+
 /// `a:tailEnd` then `a:headEnd`, each at its authored (untrimmed) line end
 /// (ref renderer.ts:4513-4535).
 fn line_end_decorations(
     path: &VectorPath,
     stroke: &VectorStroke,
-    head: Option<&pptx_model::ArrowEnd>,
-    tail: Option<&pptx_model::ArrowEnd>,
+    head: Option<LineEnd>,
+    tail: Option<LineEnd>,
     transform: AffineTransform,
 ) -> Vec<VectorCommand> {
     if head.is_none() && tail.is_none() {
@@ -202,8 +222,10 @@ fn line_end_decorations(
     };
     let mut out = Vec::new();
     for (end, placement) in [(tail, tail_end), (head, head_end)] {
-        let Some(end) = end else { continue };
-        let Some(geometry) = line_end::arrow_geometry(stroke.width_emu, end) else {
+        let Some(end) = end.filter(|end| !end.is_none()) else {
+            continue;
+        };
+        let Some(geometry) = line_end::arrow_geometry(stroke.width_emu, &end) else {
             continue;
         };
         // An open arrow is two arms stroked at the line width with round caps
@@ -216,13 +238,12 @@ fn line_end_decorations(
                 .as_deref()
                 .cloned()
                 .unwrap_or(VectorPaint::Solid(stroke.color));
-            out.push(VectorCommand::DrawPath {
-                path: placed,
-                fill: Some(paint),
-                stroke: None,
+            out.push(VectorCommand::draw_line_end(
+                placed,
+                Some(paint),
+                None,
                 transform,
-                effects: Box::new(ShapeEffects::default()),
-            });
+            ));
         } else {
             let arm = VectorStroke {
                 color: stroke.color,
@@ -231,14 +252,17 @@ fn line_end_decorations(
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Miter,
                 paint: stroke.paint.clone(),
+                miter_limit: stroke.effective_miter_limit(),
+                head_end: None,
+                tail_end: None,
+                compound: CompoundLine::Sng,
             };
-            out.push(VectorCommand::DrawPath {
-                path: placed,
-                fill: None,
-                stroke: Some(arm),
+            out.push(VectorCommand::draw_line_end(
+                placed,
+                None,
+                Some(arm),
                 transform,
-                effects: Box::new(ShapeEffects::default()),
-            });
+            ));
         }
     }
     out

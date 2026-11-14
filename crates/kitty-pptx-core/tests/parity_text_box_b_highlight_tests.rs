@@ -6,14 +6,15 @@
 //! line-end-shaft-trim}.test.ts`.
 //!
 //! Blocked cases (no production API yet) are archived, not compiled, in
-//! `tests/parity/pending/parity_text_box_b_highlight_tests.rs.txt`; the
-//! ledger keeps their rows.
+//! `tests/parity/pending/`; the ledger keeps their rows. No `#[ignore]` lives in
+//! this target.
 
 use crossbeam_channel::unbounded;
 use kitty_pptx_core::contracts::{
     AffineTransform, PathSegment, PositionedGlyphRun, RectF32, VectorCommand, VectorPaint,
 };
 use kitty_pptx_core::text::emit::compile_text_body;
+use kitty_pptx_core::SlideCompiler;
 use serde_json::{json, Value};
 
 const PT: f32 = 12_700.0; // EMU per reference px (SCALE = 1/12700)
@@ -266,6 +267,32 @@ fn highlight_box_is_painted_behind_the_glyphs() {
     close(rect.h, size * 1.1, "box height = 1.1 em");
 }
 
+/// `:141` "uses the face glyph box ending at the run line box bottom":
+/// Windows PowerPoint 16.0.20430 draws the marker from `baseline − 42.75 pt`
+/// over `53.64 pt` at Arial 48 pt — the usWin extent ending at the bottom of
+/// the run's 1.2 × size line box (`paintHighlight`, `renderer.ts:767-782`).
+#[test]
+fn highlight_uses_the_face_glyph_box() {
+    use kitty_pptx_core::text::faces::power_point_face_metrics;
+    let arial = power_point_face_metrics("Arial", false, false).expect("Arial is catalogued");
+    let glyph = arial.glyph.expect("Arial usWin box");
+    let (baseline, size) = (100.0f32, 48.0f32);
+    // bottom = baseline + 1.2 · size · (1 − share); the band is the whole
+    // usWin extent above it.
+    let bottom = baseline + 1.2 * size * (1.0 - arial.share);
+    let extent = (glyph.ascent + glyph.descent) * size;
+    assert!(
+        (bottom - extent - 57.25).abs() < 0.1,
+        "box top {}, expected 57.25",
+        bottom - extent
+    );
+    assert!((extent - 53.64).abs() < 0.1, "band height {extent}, expected 53.64");
+    assert!(
+        ((bottom - extent - baseline) + 42.75).abs() < 0.1,
+        "box top sits 42.75 pt above the baseline"
+    );
+}
+
 /// `:161` "draws the box under a glyph painted afterwards (background then
 /// glyph)": the recorded ops are `['rect', 'text']`, the glyph in the text
 /// colour.
@@ -339,26 +366,6 @@ fn display_equation_starts_and_ends_its_own_visual_line() {
     );
 }
 
-// ── line-end-shaft-trim.test.ts ────────────────────────────────────────────
-// `EMU_PER_PX = 9525` (960 px across 9 144 000 EMU). The shaft is a 9 pt
-// (114 300 EMU = 12 px) line with an `lg`/`lg` open arrow: arms 4.5 × 2.5 line
-// widths, so the arms' vertex sits `6 / sin(atan(2.5 / 4.5)) ≈ 10.62 px` behind
-// the tip. The core compiles `Stroke::head_end` / `tail_end` to nothing, so no
-// arrowhead geometry and no shaft retraction exist yet.
 
-const VERTEX_PX: f32 = 12.354_756; // 6 / sin(atan2(2.5, 4.5)), 9 pt line
-
-/// `6 / sin(atan2(2.5, 4.5))` — the reference's `VERTEX_PX`.
-fn vertex_retraction() -> f32 {
-    6.0 / (2.5f32).atan2(4.5).sin()
-}
-
-/// The reference's constant itself (`line-end-shaft-trim.test.ts:19`).
-#[test]
-fn vertex_retraction_matches_the_reference_constant() {
-    assert!(
-        (vertex_retraction() - VERTEX_PX).abs() < 1e-4,
-        "6 / sin(atan2(2.5, 4.5)) = 12.3548, got {}",
-        vertex_retraction()
-    );
-}
+#[path = "text_box_b_support/line_end_trim_cases.rs"]
+mod line_end_trim_cases;

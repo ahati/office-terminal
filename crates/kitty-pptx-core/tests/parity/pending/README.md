@@ -20,28 +20,29 @@ per-batch reports in `tests/parity/coverage/*.md` still record every BLOCKED cas
 reference `it()`, and the symbol that would unblock it. The archive header repeats the
 missing API per function, so the ledger row and the code stay in sync.
 
-Counts: 100 blocked cases are archived here (99 in the `core` batch targets, 1 in
-`parity_text_tests`), plus 3 in the TUI archive — 103 in total. Every compiled test in
+Counts: 86 blocked cases are archived here (85 in the `core` batch targets, 1 in
+`parity_text_tests`), plus 1 in the TUI archive — 87 in total. Every compiled test in
 `crates/kitty-pptx-core/tests` runs.
 
 | archive | blocked cases |
 | :--- | --: |
-| `parity_playwright_tests.rs.txt` | 12 |
+| `parity_playwright_tests.rs.txt` | 11 |
 | `parity_shapes_a_tests.rs.txt` | 1 |
 | `parity_text_box_b_bullet_image_tests.rs.txt` | 4 |
-| `parity_text_box_b_eavert_tests.rs.txt` | 14 (+6 scaffolding helpers) |
-| `parity_text_box_b_highlight_tests.rs.txt` | 7 (+5 helpers) |
+| `parity_text_box_b_eavert_tests.rs.txt` | 13 (+6 scaffolding helpers) |
 | `parity_text_box_b_stacked_tests.rs.txt` | 25 |
 | `parity_text_box_b_warp_tests.rs.txt` | 14 |
 | `parity_text_tests.rs.txt` | 1 |
-| `parity_viewer_lifecycle_tests.rs.txt` | 6 |
-| `parity_viewer_nav_tests.rs.txt` | 4 |
+| `parity_viewer_lifecycle_tests.rs.txt` | 5 |
 | `parity_viewer_selection_tests.rs.txt` | 9 |
 | `parity_viewer_worker_tests.rs.txt` | 3 |
-| **total** | **100** |
+| **total** | **86** |
 
 The TUI crate has its own archive at
-`crates/kitty-pptx-tui/tests/parity/pending/parity_viewer_nav_tests.rs.txt` (3 cases).
+`crates/kitty-pptx-tui/tests/parity/pending/parity_viewer_nav_tests.rs.txt` (1 case,
+re-scoped to V2/wave 4). `parity_viewer_nav_tests.rs.txt` was reinstated in wave 3
+(the hidden-slide helpers, zoom clamp/change gate landed; the `fitWidth` DOM-container
+case is N/A for a terminal presenter).
 
 ## Wave 3: reinstating a case
 

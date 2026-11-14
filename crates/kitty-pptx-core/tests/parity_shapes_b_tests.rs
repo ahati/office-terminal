@@ -435,6 +435,7 @@ fn leader(with_stroke: bool) -> VectorSlide {
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
             paint: None,
+            ..VectorStroke::default()
         }),
         transform: AffineTransform::identity(),
         effects: Box::new(effects),
@@ -477,10 +478,11 @@ fn partly_off_viewport_shape_stays_in_the_projection_path() {
     // hangs off the left edge must still be painted through the 3-D camera
     // projection, not flattened back to a billboard rect.
     //
-    // `isometricLeftUp` (lat −35.264°, lon −45°) maps the 100 × 60 local box to
-    // the parallelogram (14.645,−14.9) (85.355,25.92) (14.645,34.08)
-    // (85.355,74.9); rebased on the (−40, 20) shape origin that is
-    // x ∈ [−25.36, 45.36]. The flat rect would cover x ∈ [−40, 60].
+    // `isometricLeftUp` (`scene3d-camera.ts:190-235` PRESETS: lat 325°,
+    // lon 45°) maps the 100 × 60 local box to the parallelogram
+    // (14.645,25.704) (85.355,−14.854) (85.355,34.296) (14.645,74.854);
+    // rebased on the (−40, 20) shape origin that is x ∈ [−25.36, 45.36],
+    // y ∈ [5.15, 94.85]. The flat rect would cover x ∈ [−40, 60].
     let path = VectorPath::new(
         vec![
             PathSegment::MoveTo { x: 0.0, y: 0.0 },
@@ -505,7 +507,10 @@ fn partly_off_viewport_shape_stays_in_the_projection_path() {
                 zoom: 1.0,
                 rot: None,
                 light_rig_type: "threePt".to_string(),
+                light_dir: "t".to_string(),
+                light_rot: None,
                 light_direction_deg: 270.0,
+                units_per_inch: 914_400.0,
             }),
             outer_shadow: Some(VectorOuterShadow {
                 color: [0, 0, 0, 255],
@@ -519,7 +524,7 @@ fn partly_off_viewport_shape_stays_in_the_projection_path() {
     });
     let img = raster(&slide, 200, 100);
 
-    // Inside the projected parallelogram (top edge at y≈37 for x=30).
+    // Inside the projected parallelogram (top edge at y≈13.9 for x=30).
     assert_eq!(at(&img, 30, 60), [0x44, 0x72, 0xC4, 255], "projected face is painted");
     // Inside the flat rect (x < 60) but right of the projected silhouette
     // (x > 45.36), and up-right of the 45° shadow: still background.

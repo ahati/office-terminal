@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use ooxml_common::resource::ResourceViolation;
+
 #[derive(Debug, thiserror::Error)]
 pub enum KittyPptxError {
     #[error("I/O error: {0}")]
@@ -34,8 +36,11 @@ pub enum ParseError {
     ArchiveError(String),
     #[error("Malformed XML part '{part}': {details}")]
     CorruptPart { part: String, details: String },
+    /// A governed resource ceiling crossing, carried typed so a quota is never
+    /// reported as a malformed package (ref `OoxmlResourceLimitError`,
+    /// `core/src/errors/ooxml-error.ts`).
     #[error("Resource limit exceeded: {0}")]
-    ResourceLimitHit(&'static str),
+    ResourceLimit(Box<ResourceViolation>),
     #[error("Unsupported encrypted/password-protected file")]
     PasswordProtected,
 }
@@ -48,6 +53,13 @@ pub enum AssetError {
     UnsupportedFormat(String),
     #[error("Image decoding failed: {0}")]
     DecodeFailed(String),
+    /// A strict decoded-image or archive quota crossing
+    /// (ref `image/pixel-budget.ts` `OoxmlDecodedImageLimitError`,
+    /// `OoxmlResourceLimitError`). Loaders must propagate it by identity
+    /// instead of re-labelling the part as malformed
+    /// (ref `embedded-fonts.test.ts:160-165`).
+    #[error("Resource limit exceeded: {0}")]
+    ResourceLimit(Box<ResourceViolation>),
 }
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]

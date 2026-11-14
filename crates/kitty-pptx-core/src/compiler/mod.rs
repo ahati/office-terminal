@@ -1,22 +1,26 @@
 pub mod background;
 pub mod charts;
+pub mod dim;
 pub mod hyperlinks;
 pub mod math;
+pub mod options;
+pub mod parse_error_card;
 pub mod pattern;
 pub mod placeholders;
 pub mod pictures;
 pub mod shape_effects;
 pub mod shapes;
+pub mod slide_nav;
 pub mod style;
 pub mod tables;
 pub mod text;
 pub mod text_warp;
 pub mod transform;
 
+pub use options::{CompileOptions, ErrorPlaceholder, ErrorPlaceholderFn, PartFailure};
 pub use style::parse_hex_color;
-pub use hyperlinks::{
-    extract_deck_hyperlinks, extract_slide_hyperlinks, resolve_hyperlink, resolve_internal_slide,
-};
+pub use hyperlinks::{extract_deck_hyperlinks, extract_slide_hyperlinks, resolve_hyperlink};
+pub use slide_nav::resolve_internal_slide;
 
 use crossbeam_channel::Sender;
 use crate::contracts::{FidelityClass, ShapeEffects, VectorSlide, WarningEvent};
@@ -30,6 +34,21 @@ pub trait SlideCompiler: Send + Sync {
         slide_height: i64,
         warning_sink: &Sender<WarningEvent>,
     ) -> Result<VectorSlide, RenderError>;
+
+    /// Compile with per-slide [`CompileOptions`]. Defaulted so an existing
+    /// implementation keeps compiling; a compiler that ignores the options is
+    /// simply one whose `compile` is the whole story.
+    fn compile_opts(
+        &self,
+        slide: &pptx_model::Slide,
+        slide_width: i64,
+        slide_height: i64,
+        options: &CompileOptions,
+        warning_sink: &Sender<WarningEvent>,
+    ) -> Result<VectorSlide, RenderError> {
+        let _ = options;
+        self.compile(slide, slide_width, slide_height, warning_sink)
+    }
 
     /// Compile with deck context so internal slide-jump hyperlinks can be
     /// resolved to 0-based presentation indices. Defaults to `compile`.
@@ -69,7 +88,16 @@ impl SlideCompiler for DefaultSlideCompiler {
         slide_height: i64,
         warning_sink: &Sender<WarningEvent>,
     ) -> Result<VectorSlide, RenderError> {
-        let mut vector_slide = self.compile(slide, slide_width, slide_height, warning_sink)?;
+        let mut vector_slide = self.compile_opts(
+            slide,
+            slide_width,
+            slide_height,
+            &CompileOptions::default(),
+            warning_sink,
+        )?;
+        if slide.parse_error.is_some() {
+            return Ok(vector_slide);
+        }
         vector_slide.hyperlinks =
             hyperlinks::extract_slide_hyperlinks(slide, deck, warning_sink);
         Ok(vector_slide)
@@ -82,8 +110,54 @@ impl SlideCompiler for DefaultSlideCompiler {
         slide_height: i64,
         warning_sink: &Sender<WarningEvent>,
     ) -> Result<VectorSlide, RenderError> {
+        self.compile_opts(
+            slide,
+            slide_width,
+            slide_height,
+            &CompileOptions::default(),
+            warning_sink,
+        )
+    }
+
+    fn compile_opts(
+        &self,
+        slide: &pptx_model::Slide,
+        slide_width: i64,
+        slide_height: i64,
+        options: &CompileOptions,
+        warning_sink: &Sender<WarningEvent>,
+    ) -> Result<VectorSlide, RenderError> {
         let width_emu = slide_width;
         let height_emu = slide_height;
+
+        // RB7 partial degradation (ref renderer.ts:8477-8487): a slide whose
+        // part failed to parse carries `parseError` and no elements. Paint the
+        // labelled card and stop — before any element work, hyperlinks or the
+        // background — so navigation geometry is unchanged but the frame is
+        // never blank. Healthy slides never reach this branch, so their
+        // `errorPlaceholder` resolver is never evaluated (ref renderer.ts:8198).
+        if let Some(message) = slide.parse_error.as_deref() {
+            let failure = PartFailure {
+                kind: "slide",
+                slide_index: slide.index,
+                slide_number: slide.slide_number,
+                message: message.to_string(),
+            };
+            let resolved = options.resolve_placeholder(&failure);
+            return Ok(VectorSlide {
+                width_emu,
+                height_emu,
+                background: None,
+                commands: parse_error_card::compile_parse_error_card(
+                    width_emu,
+                    height_emu,
+                    slide.slide_number,
+                    message,
+                    resolved.as_ref(),
+                ),
+                hyperlinks: Vec::new(),
+            });
+        }
 
         let background = background::compile_slide_background(slide.background.as_ref());
         let mut commands = Vec::new();
@@ -164,7 +238,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                             decorate: decorates && Some(index) == last_stroked,
                         };
                         let model_stroke = if subpath.stroke {
-                            stroke.as_ref().zip(shape.stroke.as_ref())
+                            stroke.as_ref()
                         } else {
                             None
                         };

@@ -85,7 +85,7 @@ fn mixed_runs_union_then_rescale_into_the_largest_size() {
     // 40 pt line, 40 + 100 pt mixed line, 40 pt line.
     let sized = Stack::new(vec![
         Para::one(40.0, ARIAL),
-        Para::of(vec![support::Line(vec![(40.0, ARIAL), (100.0, ARIAL)])]),
+        Para::of(vec![support::Line::of(vec![(40.0, ARIAL), (100.0, ARIAL)])]),
         Para::one(40.0, ARIAL),
     ])
     .units();
@@ -97,7 +97,7 @@ struct Line2;
 
 impl Line2 {
     fn two(size: f32, first: FaceMetrics, second: FaceMetrics) -> support::Line {
-        support::Line(vec![(size, first), (size, second)])
+        support::Line::of(vec![(size, first), (size, second)])
     }
 }
 
@@ -193,7 +193,7 @@ fn adjacent_runs_keep_each_latin_slot() {
     // Two ideograph runs drawn in Meiryo with latin slots Calibri / Gabriola.
     let pair = || {
         vec![
-            Para::of(vec![support::Line(vec![
+            Para::of(vec![support::Line::of(vec![
                 (60.0, CALIBRI),
                 (60.0, GABRIOLA),
                 (60.0, MEIRYO),

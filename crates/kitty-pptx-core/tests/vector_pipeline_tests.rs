@@ -41,6 +41,7 @@ fn test_vector_slide_rasterization_and_svg_export() {
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             paint: None,
+            ..VectorStroke::default()
         }),
         transform: AffineTransform::default(),
         effects: Box::default(),

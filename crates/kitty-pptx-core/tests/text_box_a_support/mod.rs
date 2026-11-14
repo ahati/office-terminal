@@ -20,7 +20,7 @@
 use crossbeam_channel::unbounded;
 use kitty_pptx_core::contracts::{AffineTransform, PositionedGlyphRun, VectorCommand};
 use kitty_pptx_core::text::emit::compile_text_body;
-use kitty_pptx_core::text::metrics::{self, FaceMetrics, SpaceLine};
+use kitty_pptx_core::text::metrics::{FaceMetrics, SpaceLine};
 
 /// The reference export's device unit: one 1/100 in at the specs' 1 pt = 1
 /// unit scale (`powerpoint-line-metrics.test.ts:9-16`).
@@ -89,226 +89,16 @@ pub const PALATINO_LINOTYPE: FaceMetrics = win(2150.0, 613.0);
 pub const SYNTHETIC: FaceMetrics = FaceMetrics { ascent_share: 0.8 };
 
 // ── Layout-stack probe ─────────────────────────────────────────────────────
+//
+// The two-model line stack (`Stack`, `Para`, `Line`, `Run`) lives in
+// `stack.rs`: it is shared by the #1610, `compatLnSpc` and `fontAlgn` ports and
+// keeps this file under the 600-line limit.
 
-/// One laid-out line: its metric runs as `(size in pt, face share)`.
-#[derive(Clone, Debug)]
-pub struct Line(pub Vec<(f32, FaceMetrics)>);
+#[path = "stack.rs"]
+mod stack;
 
-pub fn line(size: f32, face: FaceMetrics) -> Line {
-    Line(vec![(size, face)])
-}
-
-/// One paragraph: its lines plus the three `EG_TextSpacing` values.
-#[derive(Clone, Debug)]
-pub struct Para {
-    pub lines: Vec<Line>,
-    pub space_line: SpaceLine,
-    pub before: SpaceLine,
-    pub after: SpaceLine,
-}
-
-impl Para {
-    pub fn of(lines: Vec<Line>) -> Self {
-        Self {
-            lines,
-            space_line: Some((true, 100_000.0)),
-            before: None,
-            after: None,
-        }
-    }
-
-    pub fn one(size: f32, face: FaceMetrics) -> Self {
-        Self::of(vec![line(size, face)])
-    }
-
-    pub fn many(count: usize, size: f32, face: FaceMetrics) -> Vec<Self> {
-        (0..count).map(|_| Self::one(size, face)).collect()
-    }
-
-    pub fn space_line(mut self, space: SpaceLine) -> Self {
-        self.space_line = space;
-        self
-    }
-
-    pub fn before(mut self, space: SpaceLine) -> Self {
-        self.before = space;
-        self
-    }
-
-    pub fn after(mut self, space: SpaceLine) -> Self {
-        self.after = space;
-        self
-    }
-}
-
-/// A text body laid out by the production kernels in the reference's order.
-///
-/// This mirrors `renderer.ts:5351-5575` (`buildLayout` + the anchor block),
-/// which `text/emit.rs:226-296` also mirrors: per line
-/// `natural_line_box` → `spaced_line_box` → `paragraph_spacing` gaps, then the
-/// anchor. It exists because the face *shares* here come from the reference
-/// catalogue, which production resolves from the host instead.
-pub struct Stack {
-    pub paras: Vec<Para>,
-    pub anchor: &'static str,
-    pub box_top: f32,
-    pub box_h: f32,
-    pub t_ins: f32,
-    pub b_ins: f32,
-    pub first_last: bool,
-    pub reduction: f32,
-    pub font_scale: f32,
-}
-
-struct Entry {
-    top_gap: f32,
-    ascent: f32,
-    descent: f32,
-    natural_descent: f32,
-    after_gap: f32,
-}
-
-impl Stack {
-    pub fn new(paras: Vec<Para>) -> Self {
-        Self {
-            paras,
-            anchor: "t",
-            box_top: 0.0,
-            box_h: 0.0,
-            t_ins: 0.0,
-            b_ins: 0.0,
-            first_last: false,
-            reduction: 0.0,
-            font_scale: 1.0,
-        }
-    }
-
-    pub fn in_box(mut self, box_top: f32, box_h: f32, t_ins: f32, b_ins: f32) -> Self {
-        self.box_top = box_top;
-        self.box_h = box_h;
-        self.t_ins = t_ins;
-        self.b_ins = b_ins;
-        self
-    }
-
-    pub fn anchor(mut self, anchor: &'static str) -> Self {
-        self.anchor = anchor;
-        self
-    }
-
-    pub fn first_last(mut self, value: bool) -> Self {
-        self.first_last = value;
-        self
-    }
-
-    pub fn reduction(mut self, value: f32) -> Self {
-        self.reduction = value;
-        self
-    }
-
-    pub fn scale(mut self, value: f32) -> Self {
-        self.font_scale = value;
-        self
-    }
-
-    fn entries(&self) -> Vec<Entry> {
-        let mut out: Vec<Entry> = Vec::new();
-        let last_para = self.paras.len().saturating_sub(1);
-        for (p_index, para) in self.paras.iter().enumerate() {
-            let last_line = para.lines.len().saturating_sub(1);
-            for (l_index, Line(runs)) in para.lines.iter().enumerate() {
-                let sized: Vec<(f32, FaceMetrics)> = runs
-                    .iter()
-                    .map(|(size, face)| (size * self.font_scale, *face))
-                    .collect();
-                let (nat_ascent, nat_descent) = metrics::natural_line_box(&sized);
-                let (ascent, descent) = metrics::spaced_line_box(
-                    nat_ascent,
-                    nat_descent,
-                    para.space_line,
-                    1.0,
-                    self.reduction,
-                );
-                let natural = nat_ascent + nat_descent;
-                let first = l_index == 0;
-                let last = l_index == last_line;
-                // renderer.ts:5462-5476: the first paragraph's spcBef and the
-                // last paragraph's spcAft move no glyph unless
-                // `spcFirstLastPara="1"`.
-                let top_gap = if first && (self.first_last || p_index > 0) {
-                    metrics::paragraph_spacing(para.before, natural, 1.0)
-                } else {
-                    0.0
-                };
-                let after_gap = if last && (self.first_last || p_index < last_para) {
-                    metrics::paragraph_spacing(para.after, natural, 1.0)
-                } else {
-                    0.0
-                };
-                out.push(Entry {
-                    top_gap,
-                    ascent,
-                    descent,
-                    natural_descent: nat_descent,
-                    after_gap,
-                });
-            }
-        }
-        out
-    }
-
-    /// `totalHeight` — the sum of the spaced lines and the applied gaps.
-    pub fn needed_height(&self) -> f32 {
-        self.entries()
-            .iter()
-            .map(|e| e.top_gap + e.ascent + e.descent + e.after_gap)
-            .sum()
-    }
-
-    /// `anchorHeight` (`renderer.ts:5536-5541`): PowerPoint anchors the block by
-    /// the LAST line's natural descent, so a spacing change below the last
-    /// baseline does not move a bottom-anchored block.
-    pub fn anchor_height(&self) -> f32 {
-        let entries = self.entries();
-        let total: f32 = entries
-            .iter()
-            .map(|e| e.top_gap + e.ascent + e.descent + e.after_gap)
-            .sum();
-        match entries.last() {
-            Some(last) => total - last.descent + last.natural_descent,
-            None => total,
-        }
-    }
-
-    /// The cursor the anchor block starts at (`renderer.ts:5546-5564`). Unlike
-    /// `metrics::block_top`, `anchor="b"` is NOT clamped: a block taller than
-    /// the box overflows both edges (`renderer.ts:5559-5560`).
-    pub fn block_y(&self) -> f32 {
-        let height = self.anchor_height();
-        let content = (self.box_h - self.t_ins - self.b_ins).max(0.0);
-        match self.anchor {
-            "ctr" => self.box_top + self.t_ins + (content - height) / 2.0,
-            "b" => self.box_top + self.box_h - self.b_ins - height,
-            _ => self.box_top + self.t_ins,
-        }
-    }
-
-    /// Every glyph baseline, in points from the box top.
-    pub fn baselines(&self) -> Vec<f32> {
-        let mut y = self.block_y();
-        let mut out = Vec::new();
-        for entry in self.entries() {
-            y += entry.top_gap + entry.ascent;
-            out.push(y);
-            y += entry.descent + entry.after_gap;
-        }
-        out
-    }
-
-    pub fn units(&self) -> Vec<i32> {
-        units(&self.baselines())
-    }
-}
+#[allow(unused_imports)] // each target imports the subset it drives
+pub use stack::{line, Line, Para, Run, Stack};
 
 // ── `TextBody` compilation probe ───────────────────────────────────────────
 

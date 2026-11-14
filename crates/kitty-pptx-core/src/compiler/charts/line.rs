@@ -56,6 +56,7 @@ pub fn compile_lines(
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             paint: None,
+            ..VectorStroke::default()
         };
 
         commands.push(VectorCommand::draw_path(
@@ -78,6 +79,7 @@ pub fn compile_lines(
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 paint: None,
+                ..VectorStroke::default()
             };
 
             for &(px, py, _) in &points {
