@@ -38,6 +38,7 @@ pub fn compile_chart_placeholder(chart_elem: &pptx_model::ChartElement) -> Vec<V
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
         paint: None,
+        ..VectorStroke::default()
     };
     commands.push(VectorCommand::DrawPath {
         path: frame_path,
@@ -140,6 +141,7 @@ pub fn compile_media_placeholder(media_elem: &pptx_model::MediaElement) -> Vec<V
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
         paint: None,
+        ..VectorStroke::default()
     };
     commands.push(VectorCommand::DrawPath {
         path: frame_path,

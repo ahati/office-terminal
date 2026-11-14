@@ -20,7 +20,7 @@ mod text;
 
 use std::sync::Arc;
 use crate::contracts::{
-    FillRule, PathSegment, RenderTargetSpec, RgbaSlide, VectorBackground,
+    FillRule, PathSegment, RenderTargetSpec, RgbaSlide, ShapeEffects, VectorBackground,
     VectorCommand, VectorPaint, VectorPath, VectorSlide,
 };
 use crate::error::RenderError;
@@ -276,6 +276,28 @@ fn draw_command(
                 stroke.as_ref(),
                 transform,
                 effects,
+                scale,
+                offset_x,
+                offset_y,
+                slide_width_emu,
+            );
+        }
+        VectorCommand::DrawLineEnd {
+            path,
+            fill,
+            stroke,
+            transform,
+        } => {
+            // A decoration is painted in its own tip frame with no effects of
+            // its own (ref renderer.ts:4513-4535).
+            shape_effect::render_path_with_effects(
+                pixmap,
+                assets,
+                path,
+                fill.as_ref(),
+                stroke.as_ref(),
+                transform,
+                &ShapeEffects::default(),
                 scale,
                 offset_x,
                 offset_y,

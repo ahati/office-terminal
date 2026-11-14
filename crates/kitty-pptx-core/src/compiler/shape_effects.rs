@@ -6,7 +6,7 @@
 
 use crate::compiler::parse_hex_color;
 use crate::contracts::{
-    ShapeEffects, VectorGlow, VectorInnerShadow, VectorOuterShadow, VectorReflection,
+    ShapeEffects, VectorBevel, VectorGlow, VectorInnerShadow, VectorOuterShadow, VectorReflection,
     VectorRot3d, VectorScene3d, VectorShape3d, VectorSoftEdge,
 };
 
@@ -78,10 +78,25 @@ fn reflection(reflection: &ooxml_common::effect::Reflection) -> VectorReflection
 }
 
 fn scene_3d(scene: &pptx_model::Scene3d) -> VectorScene3d {
-    let (light_rig_type, light_direction_deg) = match scene.light_rig.as_ref() {
-        Some(rig) => (rig.rig.clone(), light_direction_deg(&rig.dir)),
-        None => ("threePt".to_string(), light_direction_deg("t")),
-    };
+    let light_dir = scene
+        .light_rig
+        .as_ref()
+        .map(|rig| rig.dir.clone())
+        .unwrap_or_default();
+    let light_rot = scene
+        .light_rig
+        .as_ref()
+        .and_then(|rig| rig.rot.as_ref())
+        .map(|rot| VectorRot3d {
+            lat_deg: rot.lat as f32,
+            lon_deg: rot.lon as f32,
+            rev_deg: rot.rev as f32,
+        });
+    let light_rig_type = scene
+        .light_rig
+        .as_ref()
+        .map(|rig| rig.rig.clone())
+        .unwrap_or_else(|| "threePt".to_string());
     VectorScene3d {
         camera_type: scene.camera.prst.clone(),
         fov_deg: scene.camera.fov.unwrap_or(0.0) as f32,
@@ -92,25 +107,32 @@ fn scene_3d(scene: &pptx_model::Scene3d) -> VectorScene3d {
             rev_deg: rot.rev as f32,
         }),
         light_rig_type,
-        light_direction_deg,
+        light_direction_deg: light_direction_deg(&light_dir),
+        light_dir,
+        light_rot,
+        // The IR geometry is EMU; the reference camera frames a fixed physical
+        // scene in inches (ref `scene3d-camera.ts:24-34`).
+        units_per_inch: 914_400.0,
+    }
+}
+
+fn bevel(bevel: &pptx_model::Bevel3d) -> VectorBevel {
+    VectorBevel {
+        width_emu: bevel.w,
+        height_emu: bevel.h,
+        preset: bevel.prst.clone(),
     }
 }
 
 fn shape_3d(sp3d: &pptx_model::Sp3d) -> VectorShape3d {
-    let bevel = sp3d.bevel_t.as_ref();
-    let bottom = sp3d.bevel_b.as_ref();
     VectorShape3d {
         extrusion_depth_emu: sp3d.extrusion_h,
         extrusion_color: sp3d.extrusion_clr.as_deref().map(|c| color_with_alpha(c, 1.0)),
         contour_width_emu: sp3d.contour_w,
         contour_color: sp3d.contour_clr.as_deref().map(|c| color_with_alpha(c, 1.0)),
-        bevel_top_width_emu: bevel.map(|b| b.w).unwrap_or(0),
-        bevel_top_height_emu: bevel.map(|b| b.h).unwrap_or(0),
-        bevel_top_type: bevel.map(|b| b.prst.clone()).unwrap_or_default(),
-        bevel_bottom_width_emu: bottom.map(|b| b.w).unwrap_or(0),
-        bevel_bottom_height_emu: bottom.map(|b| b.h).unwrap_or(0),
-        bevel_bottom_type: bottom.map(|b| b.prst.clone()).unwrap_or_default(),
         prst_material: sp3d.prst_material.clone(),
+        bevel_top: sp3d.bevel_t.as_ref().map(bevel),
+        bevel_bottom: sp3d.bevel_b.as_ref().map(bevel),
     }
 }
 

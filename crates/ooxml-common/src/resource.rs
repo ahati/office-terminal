@@ -47,6 +47,7 @@ struct GovernorState {
     /// governor (see [`charge_scope_work`]). Nested scopes keep accumulating.
     scope_work: HashMap<HardResourceLimitKind, u64>,
     first_error: Option<String>,
+    first_violation: Option<ResourceViolation>,
 }
 
 struct LogicalOperationState {
@@ -61,7 +62,7 @@ struct LogicalOperationState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ResourceOperation(u64);
 
-#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceUsage {
     pub archive_entry_count: u64,
@@ -191,6 +192,56 @@ impl HardResourceLimitKind {
             Self::DocxComplexFieldDepth => ("parsing", "complex-field", "depth"),
         }
     }
+
+    /// Build the owned typed crossing for this ceiling
+    /// (ref `core/src/errors/ooxml-error.ts` `OoxmlResourceLimitError.details`
+    /// `.violation`). `part` stays unattributed; see [`ResourceViolation`].
+    pub fn violation(
+        self,
+        limit: u64,
+        observed: u64,
+        usage: ResourceUsage,
+    ) -> ResourceViolation {
+        let (stage, resource, metric) = self.wire_fields();
+        ResourceViolation {
+            stage,
+            resource,
+            metric,
+            part: None,
+            limit,
+            observed,
+            configurable: false,
+            usage,
+        }
+    }
+}
+
+/// Typed resource-limit crossing, the non-wasm counterpart of the reference's
+/// `OoxmlResourceLimitError` violation payload. The wire string
+/// (`OOXML_RESOURCE_LIMIT:{json}`) is derived from this value, so native
+/// callers can propagate the same facts without a JS realm.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceViolation {
+    pub stage: &'static str,
+    pub resource: &'static str,
+    pub metric: &'static str,
+    /// Offending OPC part, already sanitised by the governor.
+    pub part: Option<String>,
+    pub limit: u64,
+    pub observed: u64,
+    /// `true` when raising the public option admits the input.
+    pub configurable: bool,
+    pub usage: ResourceUsage,
+}
+
+impl std::fmt::Display for ResourceViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.resource, self.metric)?;
+        if let Some(part) = &self.part {
+            write!(f, " ({part})")?;
+        }
+        write!(f, ": limit {}, observed {}", self.limit, self.observed)
+    }
 }
 
 impl ResourceUsage {
@@ -219,12 +270,12 @@ struct ResourceLimitEnvelope<'a> {
 #[serde(rename_all = "camelCase")]
 struct ResourceLimitDetails<'a> {
     stage: &'static str,
-    violation: ResourceViolation<'a>,
+    violation: WireResourceViolation<'a>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ResourceViolation<'a> {
+struct WireResourceViolation<'a> {
     format: OoxmlFormat,
     operation: &'a str,
     resource: &'static str,
@@ -346,6 +397,7 @@ impl ResourceGovernor {
             retained_instance_bytes: HashMap::new(),
             scope_work: HashMap::new(),
             first_error: None,
+            first_violation: None,
         })))
     }
 
@@ -462,6 +514,13 @@ impl ResourceGovernor {
         self.0.borrow().first_error.clone()
     }
 
+    /// The typed form of [`Self::first_error`]. The reference propagates the
+    /// violation object itself (`OoxmlResourceLimitError`); native callers that
+    /// can carry a value use this instead of re-parsing the wire string.
+    pub fn first_violation(&self) -> Option<ResourceViolation> {
+        self.0.borrow().first_violation.clone()
+    }
+
     pub fn usage(&self) -> ResourceUsage {
         self.0.borrow().usage
     }
@@ -511,22 +570,34 @@ impl GovernorState {
         }
         let part = crossing.part.map(safe_part);
         let operation = self.operation.clone();
+        // Keep every wire number exactly representable in JS and freeze known
+        // crossings at the first byte beyond the cap.
+        let observed = crossing.observed.min(crossing.limit.saturating_add(1));
+        let usage = self.usage.for_wire();
+        let violation = ResourceViolation {
+            stage: crossing.stage,
+            resource: crossing.resource,
+            metric: crossing.metric,
+            part: part.map(str::to_owned),
+            limit: crossing.limit,
+            observed,
+            configurable: crossing.configurable,
+            usage,
+        };
         let envelope = ResourceLimitEnvelope {
             code: "ooxml-resource-limit",
             details: ResourceLimitDetails {
                 stage: crossing.stage,
-                violation: ResourceViolation {
+                violation: WireResourceViolation {
                     format: self.format,
                     operation: &operation,
                     resource: crossing.resource,
                     metric: crossing.metric,
                     part,
                     limit: crossing.limit,
-                    // Keep every wire number exactly representable in JS and
-                    // freeze known crossings at the first byte beyond the cap.
-                    observed: crossing.observed.min(crossing.limit.saturating_add(1)),
+                    observed,
                     configurable: crossing.configurable,
-                    usage: self.usage.for_wire(),
+                    usage,
                 },
             },
         };
@@ -536,6 +607,7 @@ impl GovernorState {
                 .expect("resource-limit details serialize")
         );
         self.first_error = Some(error.clone());
+        self.first_violation = Some(violation);
         error
     }
 

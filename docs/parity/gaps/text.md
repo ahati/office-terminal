@@ -6,11 +6,11 @@ re-verified against code and `#[ignore]` stubs (Wave-2 landed `text/{bullets,par
 `CARGO_TARGET_DIR=/workspace/kitty-pptx/target/agent-<name> cargo test -p kitty-pptx-core --test <target>` and
 `cargo clippy -p kitty-pptx-core --lib -- -D warnings`. Every file < 600 lines, no `unwrap()` in production.
 
-## 0. Snapshot — remaining BLOCKED text cases (160; 141 still open, 19 landed uncommitted)
+## 0. Snapshot — remaining BLOCKED text cases (160; 94 still open, 19 landed uncommitted)
 
 | gap | cases | one-line blocker | prod LOC |
 | :--- | --: | :--- | --: |
-| **T1** face-metrics catalogue + PowerPoint line model | 54 | no `powerPointAscentShare`/`powerPointFaceMetrics`; runtime hhea proxy instead | 460 |
+| **T1** face-metrics catalogue + PowerPoint line model | 54 → **7 open** | catalogue + kernels + ascent-share wiring landed; residual: `text/emit.rs` model dispatch (marks, `compatLnSpc`, `fontAlgn`, any-unresolved-face) | 460 |
 | **T2** script-slot dispatch (`a:ea`/`a:cs`/`a:sym`) + app defaults | 14 → **3 open** | slots + `east_asian_default` landed uncommitted; residual: `vert` feature model, FF1A class | 120 |
 | **T3** `rPr@spc` letter spacing end-to-end | 22 | `letter_spacing_emu` counts code points, not clusters; no run seam; splits drop it | 90 |
 | **T4** bidi order + RTL tab frame | 15 → **7 open** | `text::bidi` + visual-order paint landed uncommitted; residual: RTL tab READING frame (`tab_start_pen`) | 110 |
@@ -26,7 +26,31 @@ bodies 2 → `gaps/structure.md` G5. Delete-not-ignore: §12 (6). Two parallel a
 (`text/{slots,east_asian_default}.rs`, `text/bidi/`, `tests/parity_{fonts_slot,text_flow_b_bidi}_tests.rs`) — run those
 targets before re-dispatching, and update the ledger's stale rows for both.
 
-## T1 — face-metrics catalogue + the PowerPoint line model (54 cases)
+## T1 — face-metrics catalogue + the PowerPoint line model (54 cases → **7 open**)
+
+**Landed (wave 3, `agent-w3-faces`).** `assets/fonts/office-face-metrics.json` (the reference
+JSON verbatim, 1050 profiles) + `text/faces.rs` (`power_point_ascent_share`,
+`power_point_face_metrics`, `FaceMetricsFull{share,glyph,excel,decoration}`, the
+`SHARE_CACHE_LIMIT` LRUs, `OBSERVED_SUBSTITUTES`, `is_east_asian_face`,
+`is_serif_latin_face`) + `text/power_point.rs` (`compat_off_natural_line`,
+`font_algn_reference`, `font_algn_offset`, `FONT_ALGN_UNIT_PT`).
+`text/shape.rs::ascent_share_for` now reads the catalogue first (metric-compatible
+bundled substitutes map back to the authored Office face), so
+`compile_text_body` lays every baseline out with the catalogued split;
+`metrics::FaceMetrics::for_family` is the shared constructor. Ports:
+`parity_text_box_a_faces_tests.rs` (A1, A2, A3, A10, the glyph/Excel/decoration,
+boxes), `parity_text_box_a_compat_tests.rs` (B2-B5) and
+`parity_text_box_a_fontalgn_tests.rs` (C1 ×34, C2-C6) through the two-model
+`text_box_a_support::Stack`; `parity_text_box_b_highlight_tests::highlight_uses_the_face_glyph_box`
+and `parity_text_box_b_eavert_tests::latin_faces_classify_by_panose_serif_style`
+reinstated. Coverage: `tests/parity/COVERAGE.md` text-box-a 11 BLOCKED (was 57).
+
+**Still open (7).** `text/emit.rs` (not owned by this agent) must select the model
+per body: `compatLnSpc="0"` → the Excel box, any `power_point_face_metrics` = `None`
+→ the ordinary model for the whole body, `fontAlgn` → the reference + per-run
+offset, and `a:br` / `endParaRPr` marks into the line's metric runs. That
+unblocks the 3 `absent authored faces` cases + `sp-autofit` S7-S9
+(`useResolvedFontMetrics`).
 
 **Cases.** `powerpoint-line-metrics.test.ts` 49 of 60 (A2/A3/A10, B2–B5, C1 ×34 rows, C2, C3–C6, plus
 `:70 :83 :94 :195 :236-299 :301-467`); `sp-autofit-top-anchor.test.ts` S7–S9 (4: `:134`, `:202`, `:257`);

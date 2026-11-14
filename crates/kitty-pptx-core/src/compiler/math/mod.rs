@@ -259,6 +259,7 @@ pub fn math_path_command(path: &MathPath, transform: &AffineTransform) -> Vector
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 paint: None,
+                ..VectorStroke::default()
             }),
             *transform,
         ),

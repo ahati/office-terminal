@@ -18,9 +18,10 @@
 //! scroll area nor a DOM.
 //!
 //! BLOCKED (no production API, see `tests/parity/coverage/viewer.md`): the
-//! parse-error placeholder, the table-only image-fill plan, PDF export, the
-//! rotated-tile coverage oracle, viewer zoom, the equation-fallback branch, the
-//! bevel compositor, font-source demand facts and the worker selection realm.
+//! table-only image-fill plan, PDF export, the rotated-tile coverage oracle,
+//! viewer zoom, the equation-fallback branch, the bevel compositor,
+//! font-source demand facts and the worker selection realm. The parse-error
+//! placeholder case is enabled: `Slide::parse_error` now paints its card.
 //!
 //! Blocked cases (no production API yet) are archived, not compiled, in
 //! `tests/parity/pending/parity_playwright_tests.rs.txt`; the
@@ -98,6 +99,111 @@ fn non_ooxml_rejection_is_repeatable() {
     let second = load(b"junk".to_vec()).err().map(|error| error.to_string());
     assert_eq!(first, second);
     assert!(first.is_some());
+}
+
+// ── placeholder text and part failures (ref part-failure.spec.ts:8-34) ────
+
+/// Main and worker mode paint the placeholder identically for the built-in text
+/// and for both option forms; the option changes the text, and the failure is
+/// listed and passed to the function on the calling thread.
+///
+/// The reference hashes PNG pixels and records the worker wire: here both
+/// realms rebuild the same model, so the realm-invariant payload is the
+/// compiled display list, which is exactly what each realm hands its backend.
+/// The `partFailures` listing half is covered by `parity_viewer_lifecycle_tests`
+/// (`a_broken_slide_part_keeps_the_other_slides_intact`).
+#[test]
+fn placeholder_text_matches_in_main_and_worker_mode() {
+    use std::sync::Mutex;
+
+    use kitty_pptx_core::compiler::{CompileOptions, ErrorPlaceholder, PartFailure};
+    use kitty_pptx_core::contracts::{VectorCommand, VectorSlide};
+
+    const MESSAGE: &str = "ppt/slides/slide2.xml: unexpected end of stream";
+    let slide: Slide = serde_json::from_value(serde_json::json!({
+        "index": 1,
+        "slideNumber": 2,
+        "partName": "ppt/slides/slide2.xml",
+        "background": null,
+        "elements": [],
+        "elementSources": [],
+        "comments": [],
+        "parseError": MESSAGE,
+    }))
+    .expect("broken slide model");
+
+    let compile = |options: &CompileOptions| -> VectorSlide {
+        let (tx, _rx) = unbounded();
+        DefaultSlideCompiler::new()
+            .compile_opts(&slide, 9_144_000, 6_858_000, options, &tx)
+            .expect("the card compiles")
+    };
+    let texts = |card: &VectorSlide| -> Vec<String> {
+        card.commands
+            .iter()
+            .flat_map(|command| match command {
+                VectorCommand::DrawText { runs, .. } => {
+                    runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>()
+                }
+                _ => Vec::new(),
+            })
+            .collect()
+    };
+
+    let calls: Arc<Mutex<Vec<PartFailure>>> = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&calls);
+    let functional = CompileOptions::with_placeholder_fn(move |failure| {
+        log.lock().expect("failure log").push(failure.clone());
+        Some(ErrorPlaceholder {
+            title: format!("Custom {} title", failure.kind),
+            detail: Some("Custom detail line".to_string()),
+        })
+    });
+
+    // Each variant is rendered twice, once per realm.
+    let main_builtin = compile(&CompileOptions::default());
+    let worker_builtin = compile(&CompileOptions::default());
+    let main_static = compile(&CompileOptions::with_placeholder_text(
+        "Custom placeholder title",
+        None,
+    ));
+    let worker_static = compile(&CompileOptions::with_placeholder_text(
+        "Custom placeholder title",
+        None,
+    ));
+    let main_function = compile(&functional);
+    let worker_function = compile(&functional);
+
+    assert_eq!(main_builtin, worker_builtin, "builtin text is realm-neutral");
+    assert_eq!(main_static, worker_static, "static text is realm-neutral");
+    assert_eq!(
+        main_function, worker_function,
+        "function text is realm-neutral"
+    );
+
+    let payloads = [
+        texts(&main_builtin).join("\n"),
+        texts(&main_static).join("\n"),
+        texts(&main_function).join("\n"),
+    ];
+    let distinct: std::collections::BTreeSet<&String> = payloads.iter().collect();
+    assert_eq!(distinct.len(), 3, "the option changes the painted text");
+    assert!(payloads[0].contains("Slide 2 could not be displayed"));
+    assert!(payloads[1].contains("Custom placeholder title"));
+    assert!(payloads[2].contains("Custom slide title"));
+
+    // Two failed-part renders, two resolver calls, each with the same record.
+    let recorded = calls.lock().expect("failure log").clone();
+    assert_eq!(recorded.len(), 2, "one call per failed-part render");
+    for failure in recorded {
+        assert_eq!(failure.kind, "slide");
+        assert_eq!((failure.slide_index, failure.slide_number), (1, 2));
+        assert!(
+            failure.message.contains("ppt/slides/slide2.xml"),
+            "{}",
+            failure.message
+        );
+    }
 }
 
 // ── main/worker equivalence (ref worker-equivalence.spec.ts:27-134) ────────
@@ -195,7 +301,6 @@ fn worker_part_index_agrees_with_main_mode() {
 }
 
 // ── VRT deck acceptance (ref visual.spec.ts:250-341) ───────────────────────
-
 /// "differences must be empty" for every parity deck: the browser-free
 /// restatement is that a deck renders deterministically, so a reference-PNG
 /// comparison cannot be flaky for our own reasons.

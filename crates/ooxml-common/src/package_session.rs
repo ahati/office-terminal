@@ -928,6 +928,13 @@ impl PackageSessionHandle {
         self.inner.borrow().usage()
     }
 
+    /// The typed form of the latched package-wide violation, for native
+    /// callers that can propagate the value instead of the wire string
+    /// (ref `core/src/errors/ooxml-error.ts` `OoxmlResourceLimitError`).
+    pub fn first_violation(&self) -> Option<resource::ResourceViolation> {
+        self.inner.borrow().governor.first_violation()
+    }
+
     pub fn entry_count(&self) -> usize {
         self.inner.borrow().entry_count()
     }

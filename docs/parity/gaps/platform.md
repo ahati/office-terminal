@@ -32,7 +32,7 @@ test blocks; roughly 150 vitest cases and 12 Playwright blocks are portable.
 | `element-selection.test.ts` | 5 (3) | B | `core/tests/selection_tests.rs` (new) + new `core/src/selection.rs` | reverse paint order returns the last matching element; a point inside the 30°-rotated box but outside the unrotated one hits; `line`/`straightConnector1` use perpendicular distance ≤ tolerance; text is truncated on a grapheme boundary at `max_text_characters` | yes M: new `selection.rs` (~180 lines: inverse frame, flip, line tolerance, bounded text) |
 | `find.test.ts` | 3 (3) | B | `core/tests/find_tests.rs` (new) + `core/src/text/find.rs` | a query spanning two runs of one text body yields one match; the same query across a table-cell boundary yields none; matches carry the absolute slide index and `Slide.hidden` slides are excluded under Skip | yes M: `text/find.rs` (~160) + `tui/src/app/find_state.rs` (~120) |
 | `find-highlight-layer.test.ts` | 7 (0) | N/A | — | — | no; highlight boxes are HTML `<div>`s with CSS `rotate()` — the geometry half is covered by the find highlight rects in the row above |
-| `hyperlink.test.ts` | 5 (5) | B | `core/tests/hyperlink_tests.rs` | no target/action → `None`; `https://` → `ExternalUri`; `ppaction://hlinksldjump` + `../slides/slide3.xml` → `SlideIndex(2)` (part name preferred over verb); bare `ppt/slides/slide2.xml` → `SlideIndex(1)`; `tel:+1…` is external, not dropped | yes S: add `tel` to `sanitize_hyperlink_url` and classify a non-navigable scheme as internal instead of `UnsupportedScheme` (~15) |
+| `hyperlink.test.ts` | 5 (5) | B | `core/tests/hyperlink_tests.rs` | no target/action → `None`; `https://` → `ExternalUri`; `ppaction://hlinksldjump` + `../slides/slide3.xml` → `SlideIndex(2)` (part name preferred over verb); bare `ppt/slides/slide2.xml` → `SlideIndex(1)`; `tel:+1…` is external, not dropped | **landed (V8)**: `tel` allowed in `compiler::hyperlinks::classify_external_target`; a non-navigable scheme is classified internal (no link, no `hyperlink_url_rejected`) |
 | `text-layer.test.ts` | 10 (0) | N/A | — | — | no; percentage-positioned overlay spans and CSS transform composition have no terminal analogue |
 | `text-layer-hyperlink.test.ts` | 3 (2) | EXACT | `display/tests/driver_tests.rs` + `core/tests/hyperlink_tests.rs` | `map_slide_links_to_cells` emits only `ExternalUri` links (an internal `SlideIndex` jump never becomes an OSC-8 cell); a deck with no handler still carries the links in `VectorSlide` but maps none | no |
 
@@ -133,7 +133,7 @@ test blocks; roughly 150 vitest cases and 12 Playwright blocks are portable.
 
 | # | change | size | unblocks |
 |---|---|---|---|
-| 1 | Hidden-slide policy: new `core/src/navigation.rs` (`HiddenSlideMode`, `next_visible`, `resolve_visible`, `count_visible`) wired into `PresentationState::{set_current_slide,next_slide,prev_slide,first_slide,last_slide,jump_to_slide,next_slide_index}`, `SearchState`, sorter and `link_at_cell`; `Slide.hidden` is parsed but currently ignored everywhere except `cli info` | M (~180) | `scroll-viewer-hidden`, `viewer-hidden`, `viewer-hidden-skip`, `viewer-progressive` (dim) |
+| 1 | Hidden-slide policy: new `core/src/navigation.rs` (`HiddenSlideMode`, `next_visible`, `resolve_visible`, `count_visible`) wired into `PresentationState::{set_current_slide,next_slide,prev_slide,first_slide,last_slide,jump_to_slide,next_slide_index}`, initial-slide selection, `SearchState`, sorter and `link_at_cell` | M (~180) | **landed (V1)** |
 | 2 | Find over slide text: `core/src/text/find.rs` collecting `VectorCommand::DrawText` runs into search containers (text body vs. table cell), plus highlight rects in EMU; `tui/src/app/find_state.rs` for next/prev/active | M (~280) | `find`, `viewer-find-destroy`, and a real text search instead of today's title/notes-only fuzzy TOC |
 | 3 | Element selection: `core/src/selection.rs` reverse-order hit test with inverse rotation/flip, line tolerance and bounded text | M (~180) | `element-selection`, `presentation-element-context`, `viewer-selection-context` |
 | 4 | Part-failure tolerance: one malformed `ppt/slides/slideN.xml` must not fail the whole deck — capture per-slide, compile a placeholder, emit `FidelityDegraded{Placeholder}` | M (~150) | `presentation-part-failures`, `viewer-part-failures`, `part-failure.spec.ts` |
@@ -142,7 +142,7 @@ test blocks; roughly 150 vitest cases and 12 Playwright blocks are portable.
 | 7 | Zoom/fit scale on `PresentationState` folded into `RenderTargetSpec` + placement | M (~80) | both zoom contracts |
 | 8 | Byte-budgeted LRU eviction for `PipelineCache` (both tiers) | M (~90) | `slide-repository` eviction cases |
 | 9 | Raw-part cache for `AssetStore::get_raw_bytes` | S (~30) | `presentation.image` |
-| 10 | Hyperlink classification: allow `tel:`; treat a non-navigable scheme as internal instead of dropping | S (~15) | `hyperlink` |
+| 10 | Hyperlink classification: allow `tel:`; treat a non-navigable scheme as internal instead of dropping | S (~15) | **landed (V8)**: `compiler::hyperlinks` + `compiler::slide_nav`; `core/tests/hyperlink_tests.rs` |
 
 ## Genuinely N/A — no Rust test should exist
 

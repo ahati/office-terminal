@@ -9,9 +9,6 @@
 //! BLOCKED cases (no production API yet — see
 //! `tests/parity/coverage/misc.md` for the per-file tally and the missing
 //! symbols):
-//!   * `applyDimOverlay`            → no `apply_dim_overlay` on `VectorSlide`
-//!   * `renderSlide` parse-error placeholder → `DefaultSlideCompiler::compile`
-//!     ignores `pptx_model::Slide::parse_error`; no `error_placeholder` option
 //!   * `backgroundLuminance`        → no `background_luminance(&Fill) -> Option<f32>`
 //!   * `smartArtFallbackTextColor`  → no contrast-aware default in `text::emit`
 //!   * `isSmartArtFallbackShape`    → no fallback-shape predicate in `compiler`
@@ -20,17 +17,23 @@
 //!   * `hlinkClr="tx"`              → text emit never colours hyperlink runs
 //!   * slide-theme / caller `defaultTextColor` fallback → `compile_text_body`
 //!     only takes `default_shape_text_color`
+//!
+//! The parse-error placeholder cases moved to `parity_parse_error_tests` when
+//! `Slide::parse_error` emission landed (ref renderer.ts:8188-8274).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crossbeam_channel::unbounded;
+use kitty_pptx_core::compiler::dim::{apply_dim_overlay, DimOptions};
+use kitty_pptx_core::compiler::style::parse_hex_color;
 use kitty_pptx_core::compiler::text::compile_text_body;
 use kitty_pptx_core::compiler::transform::compute_shape_transform;
 use kitty_pptx_core::compiler::text_warp::build_warp_envelope;
 use kitty_pptx_core::compiler::{DefaultSlideCompiler, SlideCompiler};
 use kitty_pptx_core::contracts::{
-    AffineTransform, PositionedGlyphRun, VectorBackground, VectorCommand, VectorSlide,
+    AffineTransform, FillRule, PathSegment, PositionedGlyphRun, VectorBackground, VectorCommand,
+    VectorPath, VectorPaint, VectorSlide,
 };
 use pptx_model::{
     Bullet, Fill, Paragraph, ShapeElement, Slide, SlideElement, SlideElementOrigin,
@@ -232,10 +235,6 @@ fn runs(slide: &VectorSlide) -> Vec<PositionedGlyphRun> {
         .collect()
 }
 
-fn run_texts(slide: &VectorSlide) -> Vec<String> {
-    runs(slide).into_iter().map(|run| run.text).collect()
-}
-
 fn colour_of(slide: &VectorSlide, needle: &str) -> [u8; 4] {
     runs(slide)
         .into_iter()
@@ -423,50 +422,44 @@ fn wordart_painted_lines_share_the_same_envelope() {
     assert_eq!(texts, vec!["Line1", "Line2", "Line3"]);
 }
 
-// ── parse-error placeholder (RB7, #1974) ───────────────────────────────────
-// ref renderer.parse-error.test.ts: a healthy slide never paints the
-// "Slide N could not be displayed" placeholder. The placeholder itself is
-// BLOCKED (the compiler ignores `parse_error`), but the healthy half of the
-// contract is asserted end-to-end through the compiled display list.
+// ── dim overlay (ref dim-overlay.test.ts:1-40) ────────────────────────────
+// The reference saves, sets `globalAlpha = opacity` and `fillStyle = color`,
+// fills the whole slide and restores (ref renderer.ts:8110-8122), after the
+// complete slide paint (ref renderer.ts:9091). The display-list port folds the
+// alpha product into one trailing full-slide `DrawPath`.
 
 #[test]
-fn healthy_slide_never_paints_the_parse_error_placeholder() {
-    let slide = slide_with(None, vec![fallback_shape("Plain box")]);
-    let texts = run_texts(&compile(&slide));
-    assert_eq!(texts, vec!["Plain box".to_string()]);
-    assert!(
-        !texts.iter().any(|t| t.contains("could not be displayed")),
-        "healthy slide must not paint a placeholder: {texts:?}"
-    );
-    assert!(
-        !texts.iter().any(|t| t.contains("slide1.xml")),
-        "healthy slide must not paint a part-tagged error: {texts:?}"
-    );
-}
+fn dim_overlay_paints_one_full_slide_scrim_last() {
+    let mut slide = compile(&slide_with(None, vec![fallback_shape("Plain box")]));
+    let before = slide.commands.len();
 
-#[test]
-fn healthy_slide_synthesises_no_placeholder_glyphs() {
-    // The reference counts `errorPlaceholder` invocations: exactly 0 for a
-    // healthy slide. With no placeholder plumbing the observable equivalent is
-    // that the display list holds only the authored run, with and without a
-    // slide theme, and that compiling twice is stable.
-    let themed = Slide {
-        theme: Some(SlideTheme {
-            default_text_color: Some("1F3F5F".to_string()),
-            major_font: None,
-            minor_font: None,
-            hlink_color: None,
-        }),
-        ..slide_with(None, vec![fallback_shape("Plain box")])
-    };
-    let plain = slide_with(None, vec![fallback_shape("Plain box")]);
+    apply_dim_overlay(
+        &mut slide,
+        &DimOptions {
+            color: parse_hex_color("#ffffff"),
+            opacity: 0.6,
+        },
+    );
 
-    let first = run_texts(&compile(&plain));
-    assert_eq!(first, vec!["Plain box".to_string()]);
-    assert_eq!(run_texts(&compile(&plain)), first);
-    assert_eq!(run_texts(&compile(&themed)), first);
-    for text in &first {
-        assert!(!text.starts_with("Slide "), "placeholder heading leaked: {text}");
+    assert_eq!(slide.commands.len(), before + 1, "exactly one command appended");
+    match slide.commands.last().expect("scrim command") {
+        VectorCommand::DrawPath { path, fill, .. } => {
+            let (w, h) = (SLIDE_W as f32, SLIDE_H as f32);
+            let full_slide = VectorPath::new(
+                vec![
+                    PathSegment::MoveTo { x: 0.0, y: 0.0 },
+                    PathSegment::LineTo { x: w, y: 0.0 },
+                    PathSegment::LineTo { x: w, y: h },
+                    PathSegment::LineTo { x: 0.0, y: h },
+                    PathSegment::Close,
+                ],
+                FillRule::NonZero,
+            );
+            assert_eq!(path, &full_slide, "scrim covers the whole slide box");
+            // 0.6 × 255 = 153, alpha-composed with the opaque fill.
+            assert_eq!(fill, &Some(VectorPaint::Solid([255, 255, 255, 153])));
+        }
+        other => panic!("last command must be the scrim, got {other:?}"),
     }
 }
 

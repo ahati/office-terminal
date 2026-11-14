@@ -7,9 +7,10 @@
 //! * `:283-333` `cameraDistance` incl. the 2 % view-Z grace gap.
 //!
 //! Values are `f64` so callers can compare projected corners against analytic
-//! pinhole bounds (the reference is JavaScript). This module is *additive*: the
-//! paint path still uses [`crate::scene3d::camera_affine`], the older affine
-//! approximation of the same camera (documented divergence, see
+//! pinhole bounds (the reference is JavaScript). The raster paint path warps
+//! through this quad (`rasterizer::shape_effect::projection`); the SVG backend
+//! and the flat fallback use [`crate::scene3d::camera_affine`], the affine fit
+//! of the same quad (documented SVG degradation, see
 //! `tests/parity/coverage/shapes-b.md`).
 
 use crate::contracts::VectorScene3d;
@@ -65,6 +66,9 @@ impl Default for CameraInput {
 
 impl CameraInput {
     /// Build the camera from the resolution-independent scene contract.
+    ///
+    /// `unitsPerInch` is renderer context, not OOXML: the IR stores EMU
+    /// lengths, so the compiler writes 914 400 (ref `scene3d-camera.ts:24-34`).
     pub fn from_scene(scene: &VectorScene3d) -> Self {
         Self {
             prst: scene.camera_type.clone(),
@@ -76,9 +80,22 @@ impl CameraInput {
                 lon: rot.lon_deg as f64,
                 rev: rot.rev_deg as f64,
             }),
-            units_per_inch: 96.0,
+            units_per_inch: if scene.units_per_inch > 0.0 {
+                scene.units_per_inch as f64
+            } else {
+                96.0
+            },
             scene_depth: 0.0,
         }
+    }
+
+    /// Same camera re-expressed in device pixels: `w`, `h` and `depth` are
+    /// multiplied by the caller's EMU→device scale, so the fixed physical
+    /// framing stays identical while the lens works in device units.
+    pub fn scaled(mut self, scale: f64) -> Self {
+        self.units_per_inch *= scale;
+        self.scene_depth *= scale;
+        self
     }
 
     /// Same camera with the solid's rear extent bound (ref `projectedSurface`).
@@ -338,14 +355,85 @@ pub fn compute_scene3d_quad(
     Scene3dQuad { corners: projected, is_affine, is_identity }
 }
 
+/// Whether the camera `prst` is one of the modelled modern presets (they carry
+/// a physical 6.28-inch scene framing, ref `scene3d-camera.ts:151`).
+fn is_modern_perspective(camera: &CameraInput) -> bool {
+    preset_def(&camera.prst).scene_inches.is_some()
+}
+
+/// True when a scene3d camera visibly changes the shape, i.e. the renderer
+/// should take the projection path (ref `isScene3dNonIdentity`,
+/// `scene3d-camera.ts:472-522`).
+///
+/// `w`/`h` are the leaf face dimensions in the camera's units; `depth` is the
+/// solid's rear extent along object −Z (extrusion height). A face-on camera
+/// whose rear plane contracts inside the front face is an identity for the
+/// planar compositor and keeps the cheaper flat path.
+pub fn is_scene3d_non_identity(
+    camera: &CameraInput,
+    w: Option<f64>,
+    h: Option<f64>,
+    depth: f64,
+) -> bool {
+    if let (Some(w), Some(h)) = (w, h) {
+        if w <= 0.0 || h <= 0.0 {
+            return false;
+        }
+        let camera = camera.clone().with_scene_depth(depth);
+        if !compute_scene3d_quad(&camera, w, h, 0.0).is_identity {
+            return true;
+        }
+        if depth <= 0.0 {
+            return false;
+        }
+        let back = compute_scene3d_quad(&camera, w, h, depth);
+        if !is_modern_perspective(&camera) {
+            return !back.is_identity;
+        }
+        let eps = 1e-3 * w.max(h);
+        return back
+            .corners
+            .iter()
+            .any(|(x, y)| *x < -eps || *y < -eps || *x > w + eps || *y > h + eps);
+    }
+    // Geometry-free callers use a conservative mathematical identity test
+    // instead of borrowing a shape's numerical pixel tolerance.
+    let def = preset_def(&camera.prst);
+    let r = camera_rotation(&camera.prst, camera.rot);
+    let mut terms: Vec<f64> = match def.kind {
+        Kind::Perspective => vec![r[0] - 1.0, r[1], r[3], r[4] - 1.0, r[6], r[7]],
+        Kind::Orthographic => vec![
+            r[0] + def.shear_x * r[6] - 1.0,
+            r[1] + def.shear_x * r[7],
+            r[3] + def.shear_y * r[6],
+            r[4] + def.shear_y * r[7] - 1.0,
+        ],
+    };
+    if depth > 0.0 {
+        if def.kind == Kind::Perspective {
+            return true;
+        }
+        terms.push(r[2] + def.shear_x * r[8]);
+        terms.push(r[5] + def.shear_y * r[8]);
+    }
+    (camera.zoom - 1.0).abs() > 1e-12 || terms.iter().any(|value| value.abs() > 1e-12)
+}
+
+/// Internal surface frame for the bitmap bevel compositor: the object
+/// rotation and whether the camera looks at the back face, including the
+/// parallel oblique shear (ref `scene3dSurfaceFrame`, `scene3d-camera.ts:524-533`).
+pub fn scene3d_surface_frame(camera: &CameraInput) -> (Mat3, bool) {
+    let def = preset_def(&camera.prst);
+    let rotation = camera_rotation(&camera.prst, camera.rot);
+    let facing = rotation[8] - def.shear_x * rotation[2] - def.shear_y * rotation[5];
+    (rotation, facing < 0.0)
+}
+
 /// Whether the camera looks at the object's *back* face (negative projected
 /// winding of the front plane), including the parallel oblique shear
 /// (ref `scene3d-camera.ts:487-491` `scene3dSurfaceFrame`).
 pub fn is_back_facing(camera: &CameraInput) -> bool {
-    let def = preset_def(&camera.prst);
-    let r = camera_rotation(&camera.prst, camera.rot);
-    let facing = r[8] - def.shear_x * r[2] - def.shear_y * r[5];
-    facing < 0.0
+    scene3d_surface_frame(camera).1
 }
 
 /// Screen-space displacement (shape-local px, +X right / +Y down) of pushing a

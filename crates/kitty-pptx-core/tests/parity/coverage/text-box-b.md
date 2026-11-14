@@ -10,8 +10,10 @@ each blocked test is archived, not compiled, under `tests/parity/pending/` with 
 symbol/reason in the archive header).
 Verify: `CARGO_TARGET_DIR=target/agent-text-a cargo test -p kitty-pptx-core
 --test parity_text_box_b_tests` (+ `_bullet_image`, `_highlight`, `_eavert`,
-`_stacked`, `_warp`). 72 compiled test fns, 72 passing, 0 ignored, 0 failing (64 blocked
-cases archived under `tests/parity/pending/`)
+`_stacked`, `_warp`). 78 compiled test fns, 0 ignored; 77 pass and one
+(`display_equation_starts_and_ends_its_own_visual_line`) now fails on the face-metrics
+line-box baseline, owned by the text-faces pass, not by this batch.
+56 blocked cases are archived under `tests/parity/pending/`.
 (verified again at wave-2 close with `CARGO_TARGET_DIR=target/agent-verify`);
 `cargo clippy -p kitty-pptx-core --all-targets -- -D warnings` clean.
 
@@ -27,9 +29,9 @@ cases archived under `tests/parity/pending/`)
 | eavert-glyph-orientation.test.ts | 23 | 14 | 3 | 2 | 4 | parity_text_box_b_eavert_tests | orientation/substitution + `dist` pitch exact; `vert` feature, FE14 semicolon, letter-spacing blocked; reflection N/A. `StyleDef::letter_spacing_emu` now exists (see text-flow-a), so the letter-spacing case can be re-evaluated by its owner. |
 | stacked-text.test.ts | 36 | 3 | 1 | 0 | 32 | parity_text_box_b_stacked_tests | one-grapheme-per-column reduction: no cell pitch, strokes, inline math, prefix cells; picture markers now paint (`decor::push_marker_image`), which the file's owner can assert. |
 | wordart-follow-path.test.ts | 19 | 5 | 0 | 0 | 14 | parity_text_box_b_warp_tests | follow-path span/centre/ink box/clamp exact; multi-line envelope/lnSpc blocked. |
-| line-end-shaft-trim.test.ts | 6 | 0 | 0 | 0 | 6 | parity_text_box_b_highlight_tests | `Stroke::{head,tail}_end`,`cmpd` never compiled. |
+| line-end-shaft-trim.test.ts | 6 | 0 | 6 | 0 | 0 | parity_text_box_b_highlight_tests | `VectorStroke::{head_end,tail_end,compound}` + `DrawLineEnd`: the retracted shaft, the compound rails and the tip-frame decoration, recorded by a `DrawPath`-only `shaft_ends` recorder. The arc case asserts the ellipse membership within the IR's ≤1e-3 px arc→cubic deviation. |
 | display-equation-wrap.test.ts | 1 | 0 | 1 | 0 | 0 | parity_text_box_b_highlight_tests | display equation owns its line (1.2 em pitch). |
-| **total** | **129** | **55** | **11** | **6** | **57** | | 11 counted rows (the moved `east-asian-default` row is excluded); `55 + 11 + 6 + 57 = 129` |
+| **total** | **129** | **55** | **17** | **6** | **51** | | 11 counted rows (the moved `east-asian-default` row is excluded); `55 + 17 + 6 + 51 = 129` |
 
 ## Production APIs added in this pass
 

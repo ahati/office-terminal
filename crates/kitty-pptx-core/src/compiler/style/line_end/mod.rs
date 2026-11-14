@@ -15,7 +15,9 @@ pub mod trim;
 
 pub use self::trim::trim_path_ends;
 
-use crate::contracts::{FillRule, PathSegment, VectorPath};
+use crate::contracts::{
+    CompoundLine, FillRule, LineEnd, LineEndKind, LineEndSize, PathSegment, VectorPath,
+};
 
 /// One point in the path's local space.
 type Point = (f32, f32);
@@ -36,11 +38,11 @@ const LINE_END_MIN_BASE_PT: f32 = 2.0;
 pub const EMU_PER_POINT: f32 = 12_700.0;
 
 /// `sm` / `med` / `lg` index; anything else is `med`.
-fn step(value: &str) -> usize {
-    match value {
-        "sm" => 0,
-        "lg" => 2,
-        _ => 1,
+fn step(size: LineEndSize) -> usize {
+    match size {
+        LineEndSize::Sm => 0,
+        LineEndSize::Lg => 2,
+        LineEndSize::Med => 1,
     }
 }
 
@@ -54,36 +56,36 @@ pub struct LineEndMetrics {
     pub length: f32,
 }
 
-pub fn metrics(width_emu: i64, end: &pptx_model::ArrowEnd) -> LineEndMetrics {
+pub fn metrics(width_emu: i64, end: &LineEnd) -> LineEndMetrics {
     let width = width_emu as f32;
     let lw = width.max(0.5);
     let e = width.max(LINE_END_MIN_BASE_PT * EMU_PER_POINT);
     LineEndMetrics {
         lw,
         e,
-        width: SPAN[step(&end.w)] * e,
-        length: SPAN[step(&end.len)] * e,
+        width: SPAN[step(end.w)] * e,
+        length: SPAN[step(end.len)] * e,
     }
 }
 
 /// Open-arrow arm centreline: vertex x (≤ 0), arm extent `along` behind it and
 /// `across` off axis. ref arrow-geometry.ts:118-123
-fn open_arm(end: &pptx_model::ArrowEnd, m: LineEndMetrics) -> (f32, f32, f32) {
-    let along = OPEN_ARM_ALONG[step(&end.len)] * m.e;
-    let across = OPEN_ARM_ACROSS[step(&end.w)] * m.e;
+fn open_arm(end: &LineEnd, m: LineEndMetrics) -> (f32, f32, f32) {
+    let along = OPEN_ARM_ALONG[step(end.len)] * m.e;
+    let across = OPEN_ARM_ACROSS[step(end.w)] * m.e;
     let sin = across / (along * along + across * across).sqrt();
     (-(m.lw / 2.0) / sin, along, across)
 }
 
 /// How far the line is pulled back from its end so it stops where Office stops
 /// it. Zero for `diamond`, `oval` and `none`. ref arrow-geometry.ts:128-139
-pub fn retract(width_emu: i64, end: &pptx_model::ArrowEnd) -> f32 {
+pub fn retract(width_emu: i64, end: &LineEnd) -> f32 {
     let m = metrics(width_emu, end);
-    match end.kind.as_str() {
-        "triangle" => m.length - m.e / 2.0,
-        "stealth" => STEALTH_NOTCH[step(&end.len)] * m.e,
-        "arrow" => -open_arm(end, m).0,
-        _ => 0.0,
+    match end.kind {
+        LineEndKind::Triangle => m.length - m.e / 2.0,
+        LineEndKind::Stealth => STEALTH_NOTCH[step(end.len)] * m.e,
+        LineEndKind::Arrow => -open_arm(end, m).0,
+        LineEndKind::Diamond | LineEndKind::Oval | LineEndKind::None => 0.0,
     }
 }
 
@@ -103,21 +105,21 @@ pub struct ArrowGeometry {
 
 /// Geometry of one `a:headEnd` / `a:tailEnd`. `None` for `none`/unknown types.
 /// ref arrow-geometry.ts:161-188
-pub fn arrow_geometry(width_emu: i64, end: &pptx_model::ArrowEnd) -> Option<ArrowGeometry> {
+pub fn arrow_geometry(width_emu: i64, end: &LineEnd) -> Option<ArrowGeometry> {
     let m = metrics(width_emu, end);
     let half_w = m.width / 2.0;
     let len = m.length;
     let mut segments = Vec::new();
-    let filled = match end.kind.as_str() {
-        "triangle" => {
+    let filled = match end.kind {
+        LineEndKind::Triangle => {
             segments.push(PathSegment::MoveTo { x: 0.0, y: 0.0 });
             segments.push(PathSegment::LineTo { x: -len, y: -half_w });
             segments.push(PathSegment::LineTo { x: -len, y: half_w });
             segments.push(PathSegment::Close);
             true
         }
-        "stealth" => {
-            let notch = -STEALTH_NOTCH[step(&end.len)] * m.e;
+        LineEndKind::Stealth => {
+            let notch = -STEALTH_NOTCH[step(end.len)] * m.e;
             segments.push(PathSegment::MoveTo { x: 0.0, y: 0.0 });
             segments.push(PathSegment::LineTo { x: -len, y: -half_w });
             segments.push(PathSegment::LineTo { x: notch, y: 0.0 });
@@ -125,7 +127,7 @@ pub fn arrow_geometry(width_emu: i64, end: &pptx_model::ArrowEnd) -> Option<Arro
             segments.push(PathSegment::Close);
             true
         }
-        "arrow" => {
+        LineEndKind::Arrow => {
             let (vertex, along, across) = open_arm(end, m);
             segments.push(PathSegment::MoveTo {
                 x: vertex - along,
@@ -138,7 +140,7 @@ pub fn arrow_geometry(width_emu: i64, end: &pptx_model::ArrowEnd) -> Option<Arro
             });
             false
         }
-        "diamond" => {
+        LineEndKind::Diamond => {
             segments.push(PathSegment::MoveTo { x: len / 2.0, y: 0.0 });
             segments.push(PathSegment::LineTo { x: 0.0, y: -half_w });
             segments.push(PathSegment::LineTo { x: -len / 2.0, y: 0.0 });
@@ -146,7 +148,7 @@ pub fn arrow_geometry(width_emu: i64, end: &pptx_model::ArrowEnd) -> Option<Arro
             segments.push(PathSegment::Close);
             true
         }
-        "oval" => {
+        LineEndKind::Oval => {
             // Canvas `ellipse(cx, cy, rx, ry, …)`; the IR has no arc segment, so
             // the ellipse is flattened with four cubic quarters (the same
             // kappa the reference's canvas backend uses implicitly).
@@ -155,7 +157,7 @@ pub fn arrow_geometry(width_emu: i64, end: &pptx_model::ArrowEnd) -> Option<Arro
             }
             true
         }
-        _ => return None,
+        LineEndKind::None => return None,
     };
     Some(ArrowGeometry {
         path: VectorPath::new(segments, FillRule::NonZero),
@@ -338,7 +340,7 @@ pub fn straight_run(path: &VectorPath) -> Option<((f32, f32), (f32, f32))> {
 /// Offsets (perpendicular, as a fraction of the line width) and widths (as a
 /// fraction of the line width) of one `a:ln@cmpd` style.
 /// ref renderer.ts:7478-7510 (`drawCompoundLine`)
-pub fn compound_subs(cmpd: &str) -> Option<&'static [(f32, f32)]> {
+pub fn compound_subs(cmpd: CompoundLine) -> Option<&'static [(f32, f32)]> {
     const DBL: &[(f32, f32)] = &[(-1.0 / 3.0, 1.0 / 3.0), (1.0 / 3.0, 1.0 / 3.0)];
     const THIN_THICK: &[(f32, f32)] = &[(-3.0 / 8.0, 1.0 / 4.0), (1.0 / 4.0, 1.0 / 2.0)];
     const THICK_THIN: &[(f32, f32)] = &[(-1.0 / 4.0, 1.0 / 2.0), (3.0 / 8.0, 1.0 / 4.0)];
@@ -348,11 +350,11 @@ pub fn compound_subs(cmpd: &str) -> Option<&'static [(f32, f32)]> {
         (2.0 / 5.0, 1.0 / 5.0),
     ];
     match cmpd {
-        "dbl" => Some(DBL),
-        "thinThick" => Some(THIN_THICK),
-        "thickThin" => Some(THICK_THIN),
-        "tri" => Some(TRI),
-        _ => None,
+        CompoundLine::Dbl => Some(DBL),
+        CompoundLine::ThinThick => Some(THIN_THICK),
+        CompoundLine::ThickThin => Some(THICK_THIN),
+        CompoundLine::Tri => Some(TRI),
+        CompoundLine::Sng => None,
     }
 }
 
@@ -363,7 +365,7 @@ pub fn compound_rails(
     start: Point,
     end: Point,
     width_emu: f32,
-    cmpd: &str,
+    cmpd: CompoundLine,
 ) -> Vec<Rail> {
     let Some(subs) = compound_subs(cmpd) else {
         return Vec::new();

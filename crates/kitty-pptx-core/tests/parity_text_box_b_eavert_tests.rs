@@ -306,6 +306,26 @@ fn helper_leaves_the_long_mark_plain_rotated() {
 // Latin faces by PANOSE serif style and resolves the application default East
 // Asian / complex-script faces per character script.
 
+/// `:19` "classifies Latin faces by their installed PANOSE serif style"
+/// (`Perpetua` / `Georgia` / `Garamond` serif; `Corbel` / `Arial` / `Tahoma` /
+/// `Gill Sans MT` / unknown not) plus `isEastAsianFace('Yu Gothic')`.
+///
+/// The classifier lives next to the pinned face catalogue
+/// (`text/faces.rs`, ported by the text-box-a `powerPointFaceMetrics` work);
+/// an unknown face is sans and not East Asian.
+#[test]
+fn latin_faces_classify_by_panose_serif_style() {
+    use kitty_pptx_core::text::faces::{is_east_asian_face, is_serif_latin_face};
+    for face in ["Perpetua", "Georgia", "Garamond"] {
+        assert!(is_serif_latin_face(face), "{face} is serif");
+    }
+    for face in ["Corbel", "Arial", "Tahoma", "Gill Sans MT", "No Such Face"] {
+        assert!(!is_serif_latin_face(face), "{face} is sans");
+    }
+    assert!(is_east_asian_face("Yu Gothic"), "Yu Gothic Far-East code page");
+    assert!(!is_east_asian_face("Tahoma"), "Tahoma is not East Asian");
+}
+
 /// `graphemes` backs the stacked column split shared with the `eaVert` path;
 /// pinned here so the two vertical modes cannot drift.
 #[test]

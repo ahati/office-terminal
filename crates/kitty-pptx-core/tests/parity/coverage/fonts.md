@@ -8,9 +8,9 @@ Rust targets (split to keep both under the 600-line limit):
 - `parity_fonts_slot_tests.rs` — `a:ea`/`a:cs` per-cluster slot dispatch and
   PowerPoint's application-default East Asian / complex-script faces.
 
-Verification: `CARGO_TARGET_DIR=target/agent-text-b cargo test -p kitty-pptx-core
---test parity_fonts_tests --test parity_fonts_slot_tests` → **22 tests, 22
-passing**; `cargo clippy -p kitty-pptx-core --lib --tests -- -D warnings` clean.
+Verification: `CARGO_TARGET_DIR=target/agent-struct-core cargo test -p kitty-pptx-core
+--test parity_fonts_tests --test parity_fonts_slot_tests` → **24 tests, 24
+passing**; `cargo clippy -p kitty-pptx-core --lib -- -D warnings` clean.
 
 ## Why most cases are N/A
 
@@ -43,8 +43,8 @@ OS/2 Far-East code page) absent off-host — see divergence 7.
 | font-requests.test.ts | 11 | 0 | 4 | 7 | 0 | `resolves_theme_paragraph_and_run_faces`, `keeps_slide_local_paragraph_families`, `authored_cs_face_reaches_the_painted_run` | BEHAVIOURAL: theme `+mn-lt` → `Carlito`, `a:defRPr` → paragraph face, run `a:latin` override → `Liberation Sans`; slide-local paragraph face survives. `retains authored CS faces in shape/table preload names` (×2) is now asserted where the name is actually used — the painted `a:cs` family (`Carlito`) on both the shape and the table path (`compile_table_element`); the reference asserts a preload *name set*, a surface the port does not have (R5). N/A R5: accumulator + request-list cases (5), `eq` math-preview cases (2) |
 | font-family-serialization.test.ts | 3 | 3 | 0 | 0 | 0 | `preserves_quotes_in_the_authored_family`, `preserves_a_literal_backslash_in_the_authored_family`, `keeps_replacement_tokens_literal` | Inputs and expected outputs are the spec's own strings (`Face "Quoted"`, `Face \31 "Quoted"`, `Default $&`); the port stores the family verbatim, so equality on `PositionedGlyphRun::font_family` is the same assertion the spec makes after `JSON.parse`. The application-default *tail* (`'Default "One", Two'`, `Default \2`) is R1 |
 | absent-face-routes.test.ts | 10 | 0 | 0 | 10 | 0 | — | N/A R4/R5: `acquireOfficeRoutes`, `FontFace` probing, `officeFaceWeight` (`Calibri Light` → 300), route/presence caches, `__proto__`-named families, application-FontFace shadowing, exact `local()` alias. The measure/paint-single-family half of `uses a non-Calibri exact private alias…` is covered by font-stack's `measurement_paint_and_export_share_one_resolved_family` |
-| embedded-fonts.test.ts | 9 | 0 | 2 | 6 | 1 | `maps_all_four_embedded_font_slots`, `keeps_raw_font_bytes_and_skips_an_unreadable_part` | BEHAVIOURAL: `p:embeddedFontLst` projects all four slots (regular/bold/italic/boldItalic, one family, exact part paths, `application/x-font-ttf`); a ref whose Font part is missing is dropped while its sibling survives and the retained bytes are byte-exact (`extract_font`). N/A R6: fetch-skip, 2-way concurrency, per-presentation alias isolation, substitute ordering, failed-face fallback, tuple registry. BLOCKED (`preserves other typed resource-limit errors`): R9 |
-| embedded-fonts-load.test.ts | 3 | 0 | 0 | 0 | 3 | — | BLOCKED R9: the case needs `PptxPresentation.load` to *reject* with a typed `OoxmlResourceLimitError` (`limit 4096`, `observed 4097`) and to release registered faces. Native `pptx_parser::extract_font` / `PptxArchive::new` report failures as `JsValue::from_str`, which panics with `function not implemented on non-wasm32 targets`, so a rejected load aborts the test process instead of returning `Err` |
+| embedded-fonts.test.ts | 9 | 1 | 2 | 6 | 0 | `maps_all_four_embedded_font_slots`, `keeps_raw_font_bytes_and_skips_an_unreadable_part`, `a_typed_image_limit_is_not_reported_as_a_malformed_font` | BEHAVIOURAL: `p:embeddedFontLst` projects all four slots (regular/bold/italic/boldItalic, one family, exact part paths, `application/x-font-ttf`); a ref whose Font part is missing is dropped while its sibling survives and the retained bytes are byte-exact (`extract_font`). EXACT (`preserves other typed resource-limit errors`): `load_embedded_fonts` re-throws `AssetError::ResourceLimit` by identity, never as a font diagnostic. N/A R6: fetch-skip, 2-way concurrency, per-presentation alias isolation, substitute ordering, failed-face fallback, tuple registry |
+| embedded-fonts-load.test.ts | 3 | 1 | 0 | 2 | 0 | `extract_font_reports_the_measured_archive_entry_limit` | EXACT: `pptx_parser::extract_font_checked(.., Some(4096), None)` returns `PptxError::Resource` with `{resource:"archive-entry", metric:"declared-inflated-bytes", limit:4096, observed:4097, part:"ppt/fonts/font3.fntdata", configurable:true}`. N/A R6/R11: the two `direct WASM`/preflight-delay rows differ only in the worker transport, and face release needs a `FontFace` realm |
 | font-demand-coverage.test.ts | 2 | 0 | 0 | 2 | 0 | — | N/A R5: `collectSlideFontDemand` + `renderSlideWithEmbeddedFonts`; the superset invariant over measured/painted scalars has no port analogue (and `cap="all"`/`cap="small"` are not applied by `text::emit`) |
 | font-preload-demand.test.ts | 10 | 0 | 0 | 10 | 0 | — | N/A R5 (+R2 for the cjk `'all'` declines) |
 | font-source-load.test.ts | 6 | 0 | 0 | 6 | 0 | — | N/A R4/R5/R6: `pptxFontDemand`, `FontSourceSession`, `PptxInstalledFamilies`, 33-family probe cap |
@@ -57,8 +57,8 @@ OS/2 Far-East code page) absent off-host — see divergence 7.
 was enumerated under `text-box-b` and reassigned here, so the table sums to the
 **Totals** line below (96 + 8 = 104). No case is counted in two batches.
 
-**Totals:** 104 cases — EXACT 9, BEHAVIOURAL 13, N/A 78, BLOCKED 4; 24 cases
-ported as 22 passing Rust tests (12 in `parity_fonts_tests.rs`, 10 in
+**Totals:** 104 cases — EXACT 11, BEHAVIOURAL 13, N/A 80, BLOCKED 0; 26 cases
+ported as 24 passing Rust tests (14 in `parity_fonts_tests.rs`, 10 in
 `parity_fonts_slot_tests.rs`).
 
 ## Divergences found while porting (production behaviour, not fixed here)
@@ -93,10 +93,11 @@ ported as 22 passing Rust tests (12 in `parity_fonts_tests.rs`, 10 in
 ~~`TextRunData::font_family_cs`/`font_family_ea` consumed by `text::emit`~~ (landed:
 `text::slots` + `text::east_asian_default`) · `a:sym` symbol-font mapping ·
 marker-face resolution for `bullet_label` ·
-`ChartModel` face plumbing + `fontSubstitutions` · native (`String`-error)
-return from `pptx_parser::{extract_font, PptxArchive}` so rejected loads are
-assertable off-wasm · a demand/preflight collector and a regional CJK fallback
-(`cjkFallback`) if the preload specs are ever in scope.
+`ChartModel` face plumbing + `fontSubstitutions` ·
+~~native typed return from `pptx_parser::{extract_font, PptxArchive}`~~ (landed:
+`PptxError` + `extract_font_checked`, `ResourceViolation` carried by value) ·
+a demand/preflight collector and a regional CJK fallback (`cjkFallback`) if the
+preload specs are ever in scope.
 
 Files created: `crates/kitty-pptx-core/tests/parity_fonts_tests.rs`,
 `crates/kitty-pptx-core/tests/parity_fonts_slot_tests.rs`, `tests/parity/coverage/fonts.md`.

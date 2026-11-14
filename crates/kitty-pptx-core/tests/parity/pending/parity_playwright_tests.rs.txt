@@ -12,7 +12,6 @@
 // into the compiled test file as soon as the named API lands.
 //
 // Missing API per blocked case:
-//   placeholder_text_matches_in_main_and_worker_mode           BLOCKED: no Slide::parse_error placeholder painting (compiler ignores it)
 //   table_image_fill_composites_in_authoring_order             BLOCKED: no table-only image-fill paint plan/order (cells emit VectorPaint::Image, the plan and srcRect cell clip are unwritten)
 //   table_pattern_fill_retains_both_colours                    BLOCKED: no table-only pattern fill plan (same seam as the image fill)
 //   pdf_pages_match_powerpoint                                 BLOCKED: no PDF export backend (CLI exports SVG/PNG only)
@@ -26,11 +25,6 @@
 //   warp_strips_render_without_seams                           N/A (browser canvas): the pipeline rasterizes warped glyphs directly, there is no strip compositor to band
 
 // ============================================================================
-/// ref part-failure.spec.ts:8-34 — placeholder text identical in both modes.
-#[test]
-#[ignore = "BLOCKED: no Slide::parse_error placeholder painting (compiler ignores it)"]
-fn placeholder_text_matches_in_main_and_worker_mode() {}
-
 /// ref table-image-fill.spec.ts:19-40 — a table cell image fill composites with
 /// the two halves in authoring order.
 #[test]

@@ -1,9 +1,10 @@
 use crossbeam_channel::Sender;
 use pptx_model::{Slide, SlideElement, TableElement, TextBody, TextRun, TextRunData};
 
+use super::slide_nav::{looks_like_slide_part, resolve_internal_slide};
 use crate::contracts::{
-    sanitize_hyperlink_url, FidelityClass, HyperlinkTarget, RectF32, SlideAction, SlideLink,
-    WarningEvent,
+    sanitize_hyperlink_url, FidelityClass, HyperlinkTarget, RectF32, SecurityError, SlideAction,
+    SlideLink, WarningEvent,
 };
 
 /// Extract every hyperlink reachable from a slide model into vector IR links.
@@ -235,13 +236,52 @@ pub fn resolve_hyperlink(
         return None;
     }
 
-    match sanitize_hyperlink_url(raw_target) {
-        Ok(url) => Some(HyperlinkTarget::ExternalUri(url)),
+    match classify_external_target(raw_target) {
+        Ok(Some(url)) => Some(HyperlinkTarget::ExternalUri(url)),
+        // A non-navigable scheme (or a schemeless string) is INTERNAL in the
+        // reference classifier; it names no slide part here, so the click is a
+        // no-op rather than a rejected URL. ref hyperlink.ts:75-90
+        Ok(None) => None,
         Err(error) => {
             warn(warning_sink, element_id, "hyperlink_url_rejected");
             let _ = error;
             None
         }
+    }
+}
+
+/// Classify a target that is not a slide part.
+///
+/// `Ok(Some(url))` is an external URI whose scheme is in the navigable
+/// allowlist (`http`, `https`, `mailto`, `tel`); `Ok(None)` is an internal
+/// reference (bare part name or non-navigable scheme), matching
+/// `classifyPptxHyperlink`'s external-vs-internal boundary exactly.
+/// ref packages/pptx/src/hyperlink.ts:60-90
+fn classify_external_target(raw_target: &str) -> Result<Option<String>, SecurityError> {
+    match sanitize_hyperlink_url(raw_target) {
+        Ok(url) => Ok(Some(url)),
+        // `tel:` is navigable in the reference allowlist
+        // (`DEFAULT_ALLOWED_HYPERLINK_SCHEMES`). `sanitize_hyperlink_url` has
+        // already enforced the shared length / control-character / scheme
+        // guards before it reaches this arm.
+        Err(SecurityError::UnsupportedScheme(scheme)) if scheme.eq_ignore_ascii_case("tel") => {
+            let rest = raw_target
+                .split_once(':')
+                .map(|(_, rest)| rest)
+                .unwrap_or("");
+            if rest.trim().is_empty() {
+                return Err(SecurityError::InvalidUri(
+                    "tel URI has no number".to_string(),
+                ));
+            }
+            Ok(Some(raw_target.trim().to_string()))
+        }
+        // Everything else that is not a navigable scheme is internal: the
+        // reference never turns it into an external URL and never rejects it.
+        Err(SecurityError::UnsupportedScheme(_))
+        | Err(SecurityError::ForbiddenScheme(_))
+        | Err(SecurityError::InvalidUri(_)) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
@@ -298,97 +338,6 @@ fn resolve_action(
             warn(warning_sink, element_id, "hyperlink_action_unsupported");
             None
         }
-    }
-}
-
-/// Resolve an internal slide part reference to its 0-based presentation index.
-pub fn resolve_internal_slide(
-    raw_target: &str,
-    source_part: &str,
-    deck: &[Slide],
-) -> Option<usize> {
-    if deck.is_empty() {
-        return None;
-    }
-    let target = raw_target.trim();
-    if target.is_empty() || target.contains("://") || target.starts_with("mailto:") {
-        return None;
-    }
-
-    if let Some(normalized) = normalize_part_name(source_part, target) {
-        if let Some(index) = deck.iter().position(|slide| {
-            slide
-                .part_name
-                .as_deref()
-                .is_some_and(|part| part.trim_start_matches('/').eq_ignore_ascii_case(&normalized))
-        }) {
-            return Some(index);
-        }
-    }
-
-    // Tolerate producers that stamp only the basename ("slide5.xml") or a
-    // path relative to the package root without the "ppt/" prefix.
-    let basename = target
-        .split('#')
-        .next()
-        .unwrap_or(target)
-        .rsplit('/')
-        .next()
-        .unwrap_or("");
-    if basename.is_empty() {
-        return None;
-    }
-    let mut matches = deck.iter().filter(|slide| {
-        slide
-            .part_name
-            .as_deref()
-            .and_then(|part| part.rsplit('/').next())
-            .is_some_and(|name| name.eq_ignore_ascii_case(basename))
-    });
-    let first = matches.next()?;
-    if matches.next().is_some() {
-        return None;
-    }
-    deck.iter().position(|slide| slide.index == first.index)
-}
-
-fn looks_like_slide_part(target: &str) -> bool {
-    let path = target.split('#').next().unwrap_or(target);
-    let lower = path.to_ascii_lowercase();
-    lower.ends_with(".xml")
-        && (lower.contains("slide") || lower.contains("slides/") || lower.contains("/ppt/"))
-}
-
-fn normalize_part_name(source_part: &str, target: &str) -> Option<String> {
-    let target = target.split('#').next().unwrap_or(target);
-    if target.is_empty() {
-        return None;
-    }
-    let source = source_part.trim_start_matches('/');
-    let mut parts: Vec<&str> = if target.starts_with('/') || target.starts_with("ppt/") {
-        Vec::new()
-    } else {
-        source
-            .rsplit_once('/')
-            .map(|(directory, _)| directory)
-            .unwrap_or("")
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .collect()
-    };
-    for segment in target.split('/') {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            other => parts.push(other),
-        }
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("/"))
     }
 }
 
@@ -491,18 +440,15 @@ mod tests {
     }
 
     #[test]
-    fn forbidden_scheme_is_dropped_with_warning() {
+    fn forbidden_scheme_is_classified_internal_and_dropped() {
         let (tx, rx) = unbounded();
         let deck = vec![slide_json(0, "ppt/slides/slide1.xml", Some("javascript:alert(1)"), None)];
         let links = extract_slide_hyperlinks(&deck[0], &deck, &tx);
+        // ref hyperlink.test.ts:46-52: a non-navigable scheme is INTERNAL, not
+        // an external URL and not a rejection; no slide part matches it, so no
+        // link is emitted and nothing is reported.
         assert!(links.is_empty());
-        assert!(matches!(
-            rx.try_recv(),
-            Ok(WarningEvent::FidelityDegraded {
-                feature: "hyperlink_url_rejected",
-                ..
-            })
-        ));
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

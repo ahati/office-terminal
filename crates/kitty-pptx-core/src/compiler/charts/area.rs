@@ -113,6 +113,7 @@ pub fn compile_area(
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             paint: None,
+            ..VectorStroke::default()
         };
 
         commands.push(VectorCommand::draw_path(

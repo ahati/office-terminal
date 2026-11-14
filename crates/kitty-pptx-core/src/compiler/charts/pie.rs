@@ -57,6 +57,7 @@ pub fn compile_pie(
         line_cap: LineCap::Round,
         line_join: LineJoin::Round,
         paint: None,
+        ..VectorStroke::default()
     };
 
     for (idx, val_opt) in first_series.values.iter().enumerate() {

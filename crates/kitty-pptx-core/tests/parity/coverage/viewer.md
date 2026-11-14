@@ -22,17 +22,17 @@ counted once, so this number is a lower bound for `scroll-viewer.test.ts`.
 Verification (`CARGO_TARGET_DIR=target/agent-viewer`):
 
 ```
-cargo test -p kitty-pptx-core --test parity_viewer_nav_tests          # 13 pass  0 ignored
-cargo test -p kitty-pptx-tui  --test parity_viewer_nav_tests          # 12 pass  0 ignored
+cargo test -p kitty-pptx-core --test parity_viewer_nav_tests          # 15 pass  0 ignored
+cargo test -p kitty-pptx-tui  --test parity_viewer_nav_tests          # 25 pass  0 ignored
 cargo test -p kitty-pptx-core --test parity_viewer_selection_tests    #  4 pass  0 ignored
-cargo test -p kitty-pptx-core --test parity_viewer_lifecycle_tests    #  9 pass  0 ignored
+cargo test -p kitty-pptx-core --test parity_viewer_lifecycle_tests    # 10 pass  0 ignored
 cargo test -p kitty-pptx-core --test parity_viewer_worker_tests       #  9 pass  0 ignored
-cargo test -p kitty-pptx-core --test parity_playwright_tests          #  6 pass  0 ignored
+cargo test -p kitty-pptx-core --test parity_playwright_tests          #  7 pass  0 ignored
 cargo test -p kitty-pptx-core --test golden_tests                     #  5 pass
 cargo clippy -p kitty-pptx-core -p kitty-pptx-tui --tests -- -D warnings   # clean
 ```
 
-`53` tests pass; the `37` blocked cases are archived under `tests/parity/pending/`
+`70` tests pass; the `34` blocked cases are archived under `tests/parity/pending/`
 (not compiled) with the missing symbol in each archive header. No production file was
 modified and no golden output changed
 (`UPDATE_GOLDENS` not run — the batch only reads existing APIs).
@@ -41,15 +41,15 @@ modified and no golden output changed
 
 | target | reference specs | cases | EXACT | BEHAVIOURAL | N/A | BLOCKED | tests | pass | ignored |
 | :--- | --: | --: | --: | --: | --: | --: | --: | --: | --: |
-| nav | 8 | 71 | 9 | 16 | 7 | 39 | 25 | 25 | 0 |
+| nav | 9 | 76 | 9 | 34 | 14 | 19 | 40 | 40 | 0 |
 | selection | 10 | 56 | 0 | 5 | 19 | 32 | 4 | 4 | 0 |
-| lifecycle | 32 | 258 | 2 | 17 | 118 | 121 | 9 | 9 | 0 |
+| lifecycle | 32 | 258 | 2 | 19 | 118 | 119 | 10 | 10 | 0 |
 | worker | 8 | 49 | 0 | 1 | 6 | 42 | 9 | 9 | 0 |
-| playwright | 14 | 21 | 0 | 5 | 3 | 13 | 6 | 6 | 0 |
-| **total** | **72** | **455** | **11** | **44** | **153** | **247** | **53** | **53** | **0** |
+| playwright | 14 | 21 | 0 | 6 | 3 | 12 | 7 | 7 | 0 |
+| **total** | **73** | **460** | **11** | **65** | **160** | **224** | **70** | **70** | **0** |
 
 Notes on the groups: `nav` = the 5 nav/zoom viewer specs plus `slide-nav`,
-`viewer-hidden`, `viewer-hidden-skip`, `scroll-viewer-hidden`; `selection` = the
+`hyperlink`, `viewer-hidden`, `viewer-hidden-skip`, `scroll-viewer-hidden`; `selection` = the
 10 selection/find/layer specs; `lifecycle` = the `presentation*` and remaining
 `viewer-*`/`scroll-*` lifecycle specs; `worker` = the 8
 `worker*`/`slide-pull*`/`render-worker*`/`renderer-destroy-*` specs;
@@ -65,12 +65,13 @@ analogue at all (`PipelineCache` is unbounded and keys on slide index).
 | reference file | cases | EXACT | BEHAVIOURAL | N/A | BLOCKED | ported where / missing symbol |
 | :--- | --: | --: | --: | --: | --: | :--- |
 | `slide-nav.test.ts` | 11 | 9 | 2 | 0 | 0 | part index / part target / `hlinksldjump` / M2 resolve in `resolve_internal_slide` + `resolve_hyperlink` (EXACT); the two relative-verb cases split into the action mapping (core target) and the arithmetic (TUI target) |
-| `viewer-internal-nav.test.ts` | 5 | 0 | 4 | 0 | 1 | dispatch branches via `extract_slide_hyperlinks` + `PresentationState::dispatch_link`; the `onHyperlinkClick` delegation case is BLOCKED |
-| `scroll-viewer-internal-nav.test.ts` | 5 | 0 | 4 | 0 | 1 | same dispatch contract in scroll mode; the scroll-specific resolution is BLOCKED |
-| `viewer-hidden.test.ts` | 1 | 0 | 0 | 0 | 1 | BLOCKED: `next_visible_index` / `resolve_visible_index` |
-| `viewer-hidden-skip.test.ts` | 5 | 0 | 1 | 0 | 4 | show/dim `goToSlide` on a hidden slide is addressable (BEHAVIOURAL); skip / find / all-hidden / internal-link cases BLOCKED on `HiddenSlideMode` |
-| `scroll-viewer-hidden.test.ts` | 15 | 0 | 0 | 3 | 12 | BLOCKED: `setHiddenSlideMode`, `countVisible`, hidden-aware layout; 3 canvas-paint cases N/A |
-| `viewer-zoom-contract.test.ts` | 13 | 0 | 3 | 2 | 8 | width-verbatim + fitWidth/fitPage ported (render width, `compute_slide_rect`); `setScale`/steppers/pre-load latch BLOCKED on `PresentationState::set_scale`; 2 DOM cases N/A |
+| `hyperlink.test.ts` | 5 | 0 | 5 | 0 | 0 | `classifyPptxHyperlink`: no link, navigable URL (`tel:` included), part-name-preferred slide jump, bare part name, non-navigable scheme as internal — `compiler::hyperlinks` + `tests/hyperlink_tests.rs` |
+| `viewer-internal-nav.test.ts` | 5 | 0 | 5 | 0 | 0 | dispatch branches via `extract_slide_hyperlinks` + `PresentationState::dispatch_link`, including the caller-owned `onHyperlinkClick` delegation (`LinkDispatch::Internal`) |
+| `scroll-viewer-internal-nav.test.ts` | 5 | 0 | 4 | 1 | 0 | same dispatch contract in scroll mode; the scroll-specific resolution is N/A (one slide per presenter screen) |
+| `viewer-hidden.test.ts` | 1 | 0 | 1 | 0 | 0 | `navigation::{next_visible,resolve_visible,count_visible}` asserted in the core nav target |
+| `viewer-hidden-skip.test.ts` | 5 | 0 | 4 | 0 | 1 | show/dim `goToSlide`, skip `goToSlide`, all-hidden, internal-link cases ported; the run-level `findText` case is re-scoped to V2 (wave 4) |
+| `scroll-viewer-hidden.test.ts` | 15 | 0 | 6 | 9 | 0 | hidden slide exclusion, absolute indices, skip jumps, all-hidden, mode-switch clear, dim/show addressability ported; scroll layout/paint/progressive/anchor cases are N/A (no continuous-scroll layout) |
+| `viewer-zoom-contract.test.ts` | 13 | 0 | 5 | 2 | 6 | width-verbatim, fitWidth/fitPage cell fit, `set_scale` clamp + unchanged-factor gate ported; getScale/render-width pairing, steppers/ladder and the pre-load latch BLOCKED on V7; 2 DOM cases N/A |
 | `scroll-viewer-zoom-contract.test.ts` | 16 | 0 | 2 | 2 | 12 | base-fit cases ported to the cell fit; the per-scale slot/anchor contract BLOCKED on viewer zoom |
 | `element-selection.test.ts` | 5 | 0 | 1 | 0 | 4 | topmost-by-paint-order ported to `SlideLinkIndex::hit_test`; rotation/line tolerance, bounded text, chart context, element-context struct BLOCKED on `hit_test_slide_*` |
 | `find.test.ts` | 3 | 0 | 0 | 0 | 3 | BLOCKED: `PptxFindController` (no run-level find index) |
@@ -82,10 +83,10 @@ analogue at all (`PipelineCache` is unbounded and keys on slide index).
 | `viewer-selection-context.test.ts` | 13 | 0 | 0 | 5 | 8 | BLOCKED: element/text selection context projection; 5 DOM cases N/A |
 | `scroll-viewer-selection-context.test.ts` | 6 | 0 | 0 | 2 | 4 | BLOCKED: same projection in scroll mode |
 | `presentation-element-context.test.ts` | 5 | 0 | 0 | 0 | 5 | BLOCKED: `hit_test_slide_context` + `PptxElementContext` |
-| `presentation-part-failures.test.ts` | 4 | 2 | 1 | 0 | 1 | deck loads with a broken part, part-tagged message, never hidden (EXACT through `DefaultPresentationLoader`); placeholder paint BLOCKED |
+| `presentation-part-failures.test.ts` | 4 | 2 | 2 | 0 | 0 | deck loads with a broken part, part-tagged message, never hidden (EXACT through `DefaultPresentationLoader`); the placeholder resolver runs once for the broken slide only and its title/detail reach the card (BEHAVIOURAL, `broken_slide_paints_the_error_placeholder`) |
 | `presentation-resource-poison.test.ts` | 2 | 0 | 2 | 0 | 0 | the first fatal slide error is replayed on every later read (`WorkerPool::get_failed`) and cleared only explicitly |
 | `presentation-destroy.test.ts` | 15 | 0 | 2 | 6 | 7 | destroy twice + in-flight cancellation ported (`WorkerPool::shutdown` / `invalidate`); worker-request rejection and embedded-font registration BLOCKED; `FontFaceSet` cases N/A |
-| `viewer-part-failures.test.ts` | 1 | 0 | 0 | 0 | 1 | BLOCKED: placeholder painting for a broken slide |
+| `viewer-part-failures.test.ts` | 1 | 0 | 1 | 0 | 0 | the broken slide's frame carries the labelled card instead of its content (`CompileOptions::error_placeholder` sees `PartFailure{slide_index, slide_number}`) |
 | `presentation-cfb-guard.test.ts` | 3 | 0 | 0 | 0 | 3 | BLOCKED: `assert_not_cfb_container` (`ParseError::PasswordProtected` is never produced) |
 | `presentation-decrypt.test.ts` | 4 | 0 | 0 | 0 | 4 | BLOCKED: `decrypt_ooxml` |
 | `presentation-preflight.test.ts` | 20 | 0 | 0 | 3 | 17 | BLOCKED: `PresentationPreflightBuilder` / deck font union / structural projection |
@@ -125,7 +126,7 @@ analogue at all (`PipelineCache` is unbounded and keys on slide index).
 | `tests/visual/non-ooxml-rejection.spec.ts` | 1 | 0 | 1 | 0 | 0 | the loader rejects non-OOXML input with a typed `ParseError` |
 | `tests/visual/worker-equivalence.spec.ts` | 3 | 0 | 3 | 0 | 0 | two realms render identically; part-index map agrees (assertion in the nav target) |
 | `tests/visual/visual.spec.ts` | 1 | 0 | 1 | 0 | 0 | deterministic render per slide (the reference-PNG corpus stays out of this batch) |
-| `tests/visual/part-failure.spec.ts` | 1 | 0 | 0 | 0 | 1 | BLOCKED: placeholder painting |
+| `tests/visual/part-failure.spec.ts` | 1 | 0 | 1 | 0 | 0 | built-in/static/function placeholders are realm-neutral and pairwise distinct; the resolver receives `{kind:'slide', slideIndex:1, slideNumber:2, message}` (`placeholder_text_matches_in_main_and_worker_mode`) |
 | `tests/visual/table-image-fill.spec.ts` | 2 | 0 | 0 | 0 | 2 | BLOCKED: table-only image/pattern fill plan |
 | `tests/visual/pdf-acceptance.spec.ts` | 1 | 0 | 0 | 0 | 1 | BLOCKED: no PDF backend |
 | `tests/visual/responsive-overlay.spec.ts` | 1 | 0 | 0 | 1 | 0 | N/A: DOM overlay vs scroll container |
@@ -166,7 +167,6 @@ JSON weight; `PipelineCache` is unbounded) and `worker-task-scheduler.ts`
 | `slide_cursor_prepares_before_ack_and_publishes_after`, `pull_retries_coded_insufficient_credit_with_the_same_identity`, `a_pull_session_transfers_exactly_one_slide` | `load_slide_from_cursor`, `BoundedPullSession`, `pull_with_credit_retry` |
 | `cfb_containers_are_rejected_with_a_typed_code`, `encrypted_decks_require_the_right_password` | `assert_not_cfb_container`, `decrypt_ooxml` |
 | `preflight_unions_fonts_across_slides` | `PresentationPreflightBuilder` / `collect_deck_fonts` |
-| `broken_slide_paints_the_error_placeholder`, `placeholder_text_matches_in_main_and_worker_mode` | `Slide::parse_error` placeholder emission |
 | `unreadable_media_degrades_with_a_warning` | `WarningEvent::MediaFailed` emission |
 | `a_hanging_worker_init_times_out` | worker init timeout |
 | `table_image_fill_composites_in_authoring_order`, `table_pattern_fill_retains_both_colours` | table-only image/pattern fill plan + `srcRect` cell clip |

@@ -198,9 +198,9 @@ pub fn render_path(
 
         let ts_stroke = tiny_skia::Stroke {
             width: width_px,
-            // ref stroke-geometry.ts:22 — authored or 10; the IR has no
-            // miter-limit field, so the reference default is used.
-            miter_limit: 10.0,
+            // ref stroke-geometry.ts:21 — authored `a:ln@miterLim`, else 10;
+            // an invalid author keeps the default.
+            miter_limit: s.effective_miter_limit(),
             line_cap,
             line_join,
             dash,

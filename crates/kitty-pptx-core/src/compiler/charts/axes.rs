@@ -34,6 +34,7 @@ pub fn compile_axes(
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
         paint: None,
+        ..VectorStroke::default()
     };
 
     let axis_line_color = [160, 160, 160, 255];
@@ -44,6 +45,7 @@ pub fn compile_axes(
         line_cap: LineCap::Square,
         line_join: LineJoin::Miter,
         paint: None,
+        ..VectorStroke::default()
     };
 
     // ref core/src/chart/shared/axis.ts:584 (`axisLabelPx`): the authored

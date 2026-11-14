@@ -36,6 +36,20 @@ pub struct FaceMetrics {
     pub ascent_share: f32,
 }
 
+impl FaceMetrics {
+    /// The split of a run's **drawn** face.
+    ///
+    /// PowerPoint uses the face it actually paints with (the latin slot of the
+    /// script segment, `renderer.ts:1928-1938`), read from the pinned catalogue
+    /// ([`crate::text::faces`]); an uncatalogued face falls back to the
+    /// installed-face probe in [`crate::text::shape::ascent_share_for`].
+    pub fn for_family(family: &str, bold: bool, italic: bool) -> Self {
+        Self {
+            ascent_share: crate::text::shape::ascent_share_for(family, bold, italic),
+        }
+    }
+}
+
 /// A resolved `a:lnSpc` / `a:spcBef` / `a:spcAft` value.
 ///
 /// - `None`: omitted.

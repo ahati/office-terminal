@@ -1,6 +1,7 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
+use ooxml_common::resource::{ResourceUsage, ResourceViolation};
 use crate::error::ParseError;
 use super::asset_store::{AssetStore, DefaultAssetStore};
 
@@ -53,7 +54,16 @@ impl PresentationLoader for DefaultPresentationLoader {
                     }
                     total_read += n;
                     if total_read > hard_limit {
-                        return Err(ParseError::ResourceLimitHit("stdin stream exceeded 256 MB"));
+                        return Err(ParseError::ResourceLimit(Box::new(ResourceViolation {
+                            stage: "container",
+                            resource: "stdin-stream",
+                            metric: "bytes",
+                            part: None,
+                            limit: hard_limit as u64,
+                            observed: total_read as u64,
+                            configurable: false,
+                            usage: ResourceUsage::default(),
+                        })));
                     }
 
                     if spilled_temp.is_none() && total_read <= ram_limit {
@@ -91,9 +101,14 @@ impl PresentationLoader for DefaultPresentationLoader {
             }
         };
 
-        // Parse using vendored native parser
-        let presentation = pptx_parser::parse_pptx_model_native(&bytes[..])
-            .map_err(|e| ParseError::ArchiveError(format!("{:?}", e)))?;
+        // Parse using vendored native parser. A governed ceiling crossing keeps
+        // its typed violation so callers can tell a quota from corruption.
+        let presentation = pptx_parser::parse_pptx_model_native_checked(&bytes).map_err(
+            |error| match error {
+                pptx_parser::PptxError::Resource(violation) => ParseError::ResourceLimit(violation),
+                pptx_parser::PptxError::Format(message) => ParseError::ArchiveError(message),
+            },
+        )?;
 
         let asset_store: Arc<dyn AssetStore> = Arc::new(DefaultAssetStore::new(bytes, temp_file));
 

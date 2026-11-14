@@ -17,12 +17,13 @@ use crate::rasterizer::mask::{alpha_mask, tint_mask};
 use crate::rasterizer::path;
 use crate::scene3d;
 
+mod projection;
 mod reflection;
 
 /// Upper bound on scratch-layer pixels to keep memory pressure predictable.
 /// This is the only blur guard kept: effect reaches are capped by the canvas
 /// diagonal instead of a fixed constant (the reference has no fixed cap either).
-const MAX_LAYER_PIXELS: usize = 16_000_000;
+pub(super) const MAX_LAYER_PIXELS: usize = 16_000_000;
 
 /// Resolve a path's effective transform, applying the 3D scene camera
 /// projection (affine approximation, PRD 08 §3.6.1) when present.
@@ -89,57 +90,96 @@ pub fn render_path_with_effects(
     let canvas_h = pixmap.height() as f32;
     let reach_cap = (canvas_w * canvas_w + canvas_h * canvas_h).sqrt();
 
-    // ref renderer.ts:4385-4400 — effect bounds start from the painted geometry
-    // grown by the stroke half width / contour extent so outlines are never
-    // clipped by the effect crop.
-    let painted_pad = painted_padding(stroke, effects, scale) + 2.0;
-    let shape_box = (min_px.0, min_px.1, max_px.0 - min_px.0, max_px.1 - min_px.1);
-    let padding = effect_padding(effects, scale, shape_box, reach_cap);
-    let x0 = (min_px.0 - padding.0 - painted_pad).floor().max(0.0) as i32;
-    let y0 = (min_px.1 - padding.1 - painted_pad).floor().max(0.0) as i32;
-    let x1 = (max_px.0 + padding.2 + painted_pad).ceil().min(canvas_w) as i32;
-    let y1 = (max_px.1 + padding.3 + painted_pad).ceil().min(canvas_h) as i32;
-    if x1 <= x0 || y1 <= y0 {
-        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
+    // A non-identity scene3d camera warps the authored face through the
+    // reference homography (ref renderer.ts:3944-4050 `projectScene3dPaint`);
+    // the effect passes then read the *projected* silhouette.
+    if let Some(projected) =
+        projection::project_body_layer(pixmap, assets, path, fill, stroke, transform, effects, scale, offset_x, offset_y, reach_cap)
+    {
+        let rotation_deg = transform.ky.atan2(transform.sx).to_degrees();
+        composite_body(
+            pixmap,
+            projected.layer,
+            projected.origin,
+            projected.bbox,
+            effects,
+            scale,
+            reach_cap,
+            rotation_deg,
+        );
         return;
     }
 
-    let layer_w = (x1 - x0) as usize;
-    let layer_h = (y1 - y0) as usize;
-    if layer_w * layer_h > MAX_LAYER_PIXELS {
-        // PRD 08 §7.2: degrade gracefully rather than exhausting memory.
+    let attempted = (|| {
+        let painted_pad = painted_padding(stroke, effects, scale) + 2.0;
+        let shape_box = (min_px.0, min_px.1, max_px.0 - min_px.0, max_px.1 - min_px.1);
+        let padding = effect_padding(effects, scale, shape_box, reach_cap);
+        let x0 = (min_px.0 - padding.0 - painted_pad).floor().max(0.0) as i32;
+        let y0 = (min_px.1 - padding.1 - painted_pad).floor().max(0.0) as i32;
+        let x1 = (max_px.0 + padding.2 + painted_pad).ceil().min(canvas_w) as i32;
+        let y1 = (max_px.1 + padding.3 + painted_pad).ceil().min(canvas_h) as i32;
+        if x1 <= x0 || y1 <= y0 {
+            return None;
+        }
+
+        let layer_w = (x1 - x0) as usize;
+        let layer_h = (y1 - y0) as usize;
+        if layer_w * layer_h > MAX_LAYER_PIXELS {
+            // PRD 08 §7.2: degrade gracefully rather than exhausting memory.
+            return None;
+        }
+        let mut layer = tiny_skia::Pixmap::new(layer_w as u32, layer_h as u32)?;
+
+        draw_shape_layer(
+            &mut layer,
+            assets,
+            path,
+            fill,
+            stroke,
+            &effective,
+            effects,
+            scale,
+            offset_x - x0 as f32,
+            offset_y - y0 as f32,
+        );
+
+        let origin = (x0 as f32, y0 as f32);
+        // The painted body box in layer-local pixels.
+        let bbox = (
+            min_px.0 - origin.0,
+            min_px.1 - origin.1,
+            max_px.0 - min_px.0,
+            max_px.1 - min_px.1,
+        );
+        let rotation_deg = effective.ky.atan2(effective.sx).to_degrees();
+        composite_body(pixmap, layer, origin, bbox, effects, scale, reach_cap, rotation_deg);
+        Some(())
+    })();
+    if attempted.is_none() {
         path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
-        return;
     }
-    let Some(mut layer) = tiny_skia::Pixmap::new(layer_w as u32, layer_h as u32) else {
-        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
-        return;
-    };
+}
 
-    draw_shape_layer(
-        &mut layer,
-        assets,
-        path,
-        fill,
-        stroke,
-        &effective,
-        effects,
-        scale,
-        offset_x - x0 as f32,
-        offset_y - y0 as f32,
-    );
-
+/// Execute the effect pass order on an already-rendered body layer.
+///
+/// The layer is in destination space: `origin` is its device-pixel top-left and
+/// `bbox` the painted body box relative to that origin. The projected path
+/// feeds a warped layer, the flat path the authored face, and both then run the
+/// same reference order (ref renderer.ts:3789-3860).
+#[allow(clippy::too_many_arguments)]
+fn composite_body(
+    pixmap: &mut tiny_skia::Pixmap,
+    mut layer: tiny_skia::Pixmap,
+    origin: (f32, f32),
+    bbox: (f32, f32, f32, f32),
+    effects: &ShapeEffects,
+    scale: f32,
+    reach_cap: f32,
+    rotation_deg: f32,
+) {
+    let layer_w = layer.width() as usize;
+    let layer_h = layer.height() as usize;
     let base_mask = alpha_mask(layer.data());
-    let origin = (x0 as f32, y0 as f32);
-    // The painted body box in layer-local pixels.
-    let bbox = (
-        min_px.0 - origin.0,
-        min_px.1 - origin.1,
-        max_px.0 - min_px.0,
-        max_px.1 - min_px.1,
-    );
-    // ref renderer.ts:3806 — shadow rotations follow the live transform.
-    let rotation_deg = effective.ky.atan2(effective.sx).to_degrees();
 
     // 1. Outer shadow (ref renderer.ts:3794-3810): painted first, bottom-most.
     if let Some(shadow) = effects.outer_shadow.as_ref() {
@@ -170,8 +210,8 @@ pub fn render_path_with_effects(
         apply_soft_edge(&mut layer, &base_mask, layer_w, layer_h, soft, scale, reach_cap, bbox);
     }
     pixmap.draw_pixmap(
-        x0,
-        y0,
+        origin.0 as i32,
+        origin.1 as i32,
         layer.as_ref(),
         &tiny_skia::PixmapPaint::default(),
         tiny_skia::Transform::identity(),
@@ -187,7 +227,11 @@ pub fn render_path_with_effects(
 
 /// Painted extent outside the geometry: stroke half width, contour width
 /// (ref renderer.ts:4361-4389 `paintedPad`). Line-end extents are not in the IR.
-fn painted_padding(stroke: Option<&VectorStroke>, effects: &ShapeEffects, scale: f32) -> f32 {
+pub(super) fn painted_padding(
+    stroke: Option<&VectorStroke>,
+    effects: &ShapeEffects,
+    scale: f32,
+) -> f32 {
     let stroke_half = stroke
         .map(|s| (s.width_emu as f32 * scale).max(0.5) / 2.0)
         .unwrap_or(0.0);
@@ -200,7 +244,7 @@ fn painted_padding(stroke: Option<&VectorStroke>, effects: &ShapeEffects, scale:
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_shape_layer(
+pub(super) fn draw_shape_layer(
     layer: &mut tiny_skia::Pixmap,
     assets: &dyn crate::loader::AssetStore,
     path: &VectorPath,
@@ -300,6 +344,7 @@ fn draw_contour(
         line_cap: LineCap::Round,
         line_join: LineJoin::Round,
         paint: None,
+        ..VectorStroke::default()
     };
     path::render_path(
         layer,
@@ -463,7 +508,7 @@ fn apply_soft_edge(
     filters::feather_alpha_bleed(layer.data_mut(), width, height, base_mask, bbox, radius_px);
 }
 
-fn effect_padding(
+pub(super) fn effect_padding(
     effects: &ShapeEffects,
     scale: f32,
     shape_box: (f32, f32, f32, f32),
@@ -520,10 +565,12 @@ fn effect_padding(
         bottom = bottom.max(b);
     }
     if let Some(shape_3d) = effects.shape_3d.as_ref() {
-        let bevel = (shape_3d.bevel_top_width_emu.max(shape_3d.bevel_top_height_emu) as f32
-            * scale)
-            .clamp(0.0, 48.0)
-            + 2.0;
+        let bevel = shape_3d
+            .bevel_top
+            .as_ref()
+            .map(|bevel| bevel.width_emu.max(bevel.height_emu))
+            .unwrap_or(0);
+        let bevel = (bevel as f32 * scale).clamp(0.0, 48.0) + 2.0;
         let contour = (shape_3d.contour_width_emu as f32 * scale).clamp(0.0, 24.0) + 1.0;
         let pad = bevel.max(contour);
         left = left.max(pad);
