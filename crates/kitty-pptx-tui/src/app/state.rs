@@ -1,7 +1,7 @@
 use kitty_pptx_display::{CellRect, ImageId};
 use pptx_model::{PptxComment, Slide};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use crate::app::link_state::LinkPickerState;
 pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
@@ -387,42 +387,6 @@ impl PresentationState {
     pub fn next_image_id(&self) -> Option<ImageId> {
         self.next_slide_index()
             .map(|idx| ImageId((idx % 8 + 1 + 8) as u32))
-    }
-
-    /// Elapsed time since presentation start.
-    pub fn elapsed(&self) -> Duration {
-        self.start_time.elapsed()
-    }
-
-    /// Formatted presentation elapsed time (`HH:MM:SS`).
-    pub fn elapsed_formatted(&self) -> String {
-        let elapsed_secs = self.elapsed().as_secs();
-        let hours = elapsed_secs / 3600;
-        let mins = (elapsed_secs % 3600) / 60;
-        let secs = elapsed_secs % 60;
-        format!("{:02}:{:02}:{:02}", hours, mins, secs)
-    }
-
-    /// Wall clock time in `HH:MM:SS UTC`.
-    pub fn wall_clock_formatted(&self) -> String {
-        let total_secs = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let secs_in_day = total_secs % 86400;
-        let hours = secs_in_day / 3600;
-        let mins = (secs_in_day % 3600) / 60;
-        let secs = secs_in_day % 60;
-        format!("{:02}:{:02}:{:02} UTC", hours, mins, secs)
-    }
-
-    /// Presentation progress as a fraction between 0.0 and 1.0.
-    pub fn progress_ratio(&self) -> f64 {
-        if self.total_slides == 0 {
-            0.0
-        } else {
-            ((self.current_slide + 1) as f64 / self.total_slides as f64).clamp(0.0, 1.0)
-        }
     }
 
     /// Return the previous app mode before entering overlay or modal.

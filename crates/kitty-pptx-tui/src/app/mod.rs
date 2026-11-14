@@ -9,6 +9,8 @@ pub mod nav_state;
 pub mod search_state;
 pub mod sorter_state;
 pub mod state;
+mod state_timing;
+mod terminal_guard;
 pub mod ui;
 pub mod warnings_state;
 
@@ -33,6 +35,7 @@ pub use ui::render_app;
 pub use warnings_state::{SlideWarning, WarningsState};
 
 use graphics::GraphicsSyncer;
+use terminal_guard::TerminalGuard;
 
 /// Full interactive slide presentation runner.
 pub struct PresentationApp {
@@ -200,14 +203,8 @@ impl PresentationApp {
 
     /// Runs the interactive presentation event loop.
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        crossterm::terminal::enable_raw_mode()?;
-        let mut stdout = std::io::stdout();
-        crossterm::execute!(
-            stdout,
-            crossterm::terminal::EnterAlternateScreen,
-            crossterm::event::EnableMouseCapture,
-            crossterm::cursor::Hide
-        )?;
+        let _guard = TerminalGuard::enter()?;
+        let stdout = std::io::stdout();
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -242,15 +239,9 @@ impl PresentationApp {
             }
         }
 
-        // Cleanup
+        // The guard restores raw mode, mouse capture and the alternate screen
+        // on every exit path (normal return, `?` error, unwind, signal).
         self.driver.release_all().ok();
-        crossterm::terminal::disable_raw_mode()?;
-        crossterm::execute!(
-            terminal.backend_mut(),
-            crossterm::terminal::LeaveAlternateScreen,
-            crossterm::event::DisableMouseCapture,
-            crossterm::cursor::Show
-        )?;
 
         Ok(())
     }

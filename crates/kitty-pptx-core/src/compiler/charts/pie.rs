@@ -6,7 +6,8 @@ use crate::contracts::{
 use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::resolve_slice_color;
 use super::layout::{
-    data_label_position, make_simple_run, series_data_label_font_pt, ChartLayout,
+    data_label_position, make_simple_run, series_data_label_font_pt,
+    series_shows_percent_labels, ChartLayout,
 };
 
 pub fn compile_pie(
@@ -117,8 +118,9 @@ pub fn compile_pie(
             transform,
         ));
 
-        // Slice label (only if slice is large enough)
-        if sweep_deg >= 12.0 {
+        // Slice label (only if the data-label flags enable it and the slice
+        // is large enough).
+        if series_shows_percent_labels(chart, first_series) && sweep_deg >= 12.0 {
             let mid_ang_deg = current_ang_deg + sweep_deg / 2.0;
             let mid_rad = mid_ang_deg.to_radians();
 

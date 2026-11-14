@@ -858,6 +858,7 @@ dependencies = [
  "pptx-model",
  "ratatui",
  "serde_json",
+ "signal-hook",
  "thiserror",
 ]
 

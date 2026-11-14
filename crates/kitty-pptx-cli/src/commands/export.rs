@@ -59,13 +59,14 @@ pub fn run_export(
     rasterizer: &Arc<TinySkiaRasterizer>,
     svg_serializer: &Arc<DefaultSlideSvgSerializer>,
 ) -> ExitCode {
-    run_export_with_width(
+    run_export_with_options(
         file,
         out,
         format,
         dpi,
         None,
         slides,
+        SvgTextMode::VectorGlyphs,
         loader,
         compiler,
         rasterizer,
@@ -85,6 +86,39 @@ pub fn run_export_with_width(
     dpi: u32,
     width: Option<u32>,
     slides: Option<String>,
+    loader: &DefaultPresentationLoader,
+    compiler: &Arc<DefaultSlideCompiler>,
+    rasterizer: &Arc<TinySkiaRasterizer>,
+    svg_serializer: &Arc<DefaultSlideSvgSerializer>,
+) -> ExitCode {
+    run_export_with_options(
+        file,
+        out,
+        format,
+        dpi,
+        width,
+        slides,
+        SvgTextMode::VectorGlyphs,
+        loader,
+        compiler,
+        rasterizer,
+        svg_serializer,
+    )
+}
+
+/// Full export entry point: explicit width, SVG text mode, and a failed-slide
+/// exit status. A slide that cannot compile/render is reported once and the
+/// export continues, but the process exits non-zero (ref
+/// `viewer-render-error.test.ts`: one error line naming the slide).
+#[allow(clippy::too_many_arguments)]
+pub fn run_export_with_options(
+    file: PathBuf,
+    out: PathBuf,
+    format: ExportFormat,
+    dpi: u32,
+    width: Option<u32>,
+    slides: Option<String>,
+    svg_text_mode: SvgTextMode,
     loader: &DefaultPresentationLoader,
     compiler: &Arc<DefaultSlideCompiler>,
     rasterizer: &Arc<TinySkiaRasterizer>,
@@ -111,15 +145,26 @@ pub fn run_export_with_width(
         (0..total).collect()
     };
 
-    std::fs::create_dir_all(&out).ok();
+    if let Err(e) = std::fs::create_dir_all(&out) {
+        eprintln!("Output directory error: {}: {}", out.display(), e);
+        return ExitCode::from(2);
+    }
     let (tx, _rx) = crossbeam_channel::unbounded();
+    let mut failed = false;
 
     for idx in slide_indices {
         let slide = &presentation.slides[idx];
-        let vector_slide = match compiler.compile_in_deck(slide, &presentation.slides, presentation.slide_width, presentation.slide_height, &tx) {
+        let vector_slide = match compiler.compile_in_deck(
+            slide,
+            &presentation.slides,
+            presentation.slide_width,
+            presentation.slide_height,
+            &tx,
+        ) {
             Ok(vs) => vs,
             Err(e) => {
                 eprintln!("Render compilation failed on slide {}: {}", idx + 1, e);
+                failed = true;
                 continue;
             }
         };
@@ -134,33 +179,74 @@ pub fn run_export_with_width(
                 ),
                 None => export_target_size(presentation.slide_width, presentation.slide_height, dpi),
             };
-            let target = RenderTargetSpec { width_px: target_w, height_px: target_h };
+            let target = RenderTargetSpec {
+                width_px: target_w,
+                height_px: target_h,
+            };
 
-            if let Ok(rgba) = rasterizer.rasterize(&vector_slide, &target, asset_store.as_ref()) {
-                let png_path = out.join(format!("slide_{:03}.png", idx + 1));
-                if let Ok(mut file) = std::fs::File::create(&png_path) {
-                    let _ = image::write_buffer_with_format(
-                        &mut file,
-                        &rgba.pixels,
-                        rgba.width,
-                        rgba.height,
-                        image::ColorType::Rgba8,
-                        image::ImageFormat::Png,
-                    );
-                    println!("Exported {}", png_path.display());
+            match rasterizer.rasterize(&vector_slide, &target, asset_store.as_ref()) {
+                Ok(rgba) => {
+                    let png_path = out.join(format!("slide_{:03}.png", idx + 1));
+                    let result = std::fs::File::create(&png_path).and_then(|mut file| {
+                        image::write_buffer_with_format(
+                            &mut file,
+                            &rgba.pixels,
+                            rgba.width,
+                            rgba.height,
+                            image::ColorType::Rgba8,
+                            image::ImageFormat::Png,
+                        )
+                        .map_err(std::io::Error::other)
+                    });
+                    match result {
+                        Ok(()) => println!("Exported {}", png_path.display()),
+                        Err(e) => {
+                            eprintln!(
+                                "Render write failed on slide {}: {}: {}",
+                                idx + 1,
+                                png_path.display(),
+                                e
+                            );
+                            failed = true;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Render failed on slide {}: {}", idx + 1, e);
+                    failed = true;
                 }
             }
         }
 
         // SVG Export
         if format == ExportFormat::Svg || format == ExportFormat::All {
-            if let Ok(svg_content) = svg_serializer.serialize_svg(&vector_slide, asset_store.as_ref(), SvgTextMode::VectorGlyphs) {
-                let svg_path = out.join(format!("slide_{:03}.svg", idx + 1));
-                std::fs::write(&svg_path, svg_content).ok();
-                println!("Exported {}", svg_path.display());
+            match svg_serializer.serialize_svg(&vector_slide, asset_store.as_ref(), svg_text_mode) {
+                Ok(svg_content) => {
+                    let svg_path = out.join(format!("slide_{:03}.svg", idx + 1));
+                    match std::fs::write(&svg_path, svg_content) {
+                        Ok(()) => println!("Exported {}", svg_path.display()),
+                        Err(e) => {
+                            eprintln!(
+                                "Render write failed on slide {}: {}: {}",
+                                idx + 1,
+                                svg_path.display(),
+                                e
+                            );
+                            failed = true;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("SVG serialization failed on slide {}: {}", idx + 1, e);
+                    failed = true;
+                }
             }
         }
     }
 
-    ExitCode::SUCCESS
+    if failed {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    }
 }

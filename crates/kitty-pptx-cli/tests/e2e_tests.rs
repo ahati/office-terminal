@@ -1,8 +1,9 @@
 use kitty_pptx_cli::cli::{ExportFormat, FitMode};
+use kitty_pptx_cli::commands::export::run_export_with_options;
 use kitty_pptx_cli::commands::{run_dump, run_export, run_info, run_view, source_from_path};
 use kitty_pptx_core::{
     DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, PresentationLoader,
-    Source, TinySkiaRasterizer,
+    Source, SvgTextMode, TinySkiaRasterizer,
 };
 use std::io::{Cursor, Write};
 use std::path::PathBuf;
@@ -446,4 +447,35 @@ fn test_stdin_source_loading() {
     // Verify raw bytes retrieval
     let raw = assets.get_raw_bytes("").expect("archive bytes");
     assert!(!raw.is_empty());
+}
+
+#[test]
+fn test_export_selectable_svg_mode() {
+    let pptx_bytes = create_test_pptx();
+    let temp_file = tempfile::NamedTempFile::new().expect("temp file");
+    std::fs::write(temp_file.path(), &pptx_bytes).expect("write bytes");
+    let out_dir = tempfile::tempdir().expect("temp dir");
+
+    let loader = DefaultPresentationLoader;
+    let compiler = Arc::new(DefaultSlideCompiler::new());
+    let rasterizer = Arc::new(TinySkiaRasterizer::new());
+    let svg_serializer = Arc::new(DefaultSlideSvgSerializer::new());
+
+    let code = run_export_with_options(
+        temp_file.path().to_path_buf(),
+        out_dir.path().to_path_buf(),
+        ExportFormat::Svg,
+        96,
+        None,
+        Some("1".to_string()),
+        SvgTextMode::SelectableText,
+        &loader,
+        &compiler,
+        &rasterizer,
+        &svg_serializer,
+    );
+    assert_eq!(code, ExitCode::SUCCESS);
+    let svg = std::fs::read_to_string(out_dir.path().join("slide_001.svg")).expect("svg");
+    assert!(svg.contains("<text"), "selectable mode keeps real text tags");
+    assert!(svg.contains("Slide One Title"), "the title text is selectable");
 }

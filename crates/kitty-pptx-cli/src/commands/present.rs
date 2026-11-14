@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 pub fn run_interactive(
     file_path: Option<PathBuf>,
+    start_slide: Option<usize>,
+    presenter: bool,
     loader: &DefaultPresentationLoader,
     compiler: Arc<DefaultSlideCompiler>,
     rasterizer: Arc<TinySkiaRasterizer>,
@@ -45,7 +47,12 @@ pub fn run_interactive(
     };
 
     let notes: Vec<Option<String>> = pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
-    let mut app = PresentationApp::new(pipeline, driver, pres_arc.slides.len(), notes)
+    let mut app = PresentationApp::new(pipeline, driver, pres_arc.slides.len(), notes);
+    if let Some(slide_1based) = start_slide {
+        app = app.with_start_slide(slide_1based.saturating_sub(1));
+    }
+    let mut app = app
+        .with_presenter_mode(presenter)
         .with_slides(pres_arc.slides.clone())
         .with_slide_dimensions(pres_arc.slide_width, pres_arc.slide_height);
 

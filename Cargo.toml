@@ -35,6 +35,7 @@ kitty-pptx-tui = { path = "crates/kitty-pptx-tui" }
 thiserror = "2"
 crossbeam-channel = "0.5"
 crossterm = "0.28"
+signal-hook = "0.3"
 ratatui = "0.29"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

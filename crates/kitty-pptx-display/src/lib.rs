@@ -1,3 +1,5 @@
+//! Kitty graphics protocol driver and terminal cell mapping.
+#![forbid(unsafe_code)]
 pub mod driver;
 pub mod drivers;
 pub mod geometry;

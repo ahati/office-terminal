@@ -49,21 +49,21 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
         let w = scene.width_emu;
         let h = scene.height_emu;
 
-        writeln!(&mut svg, r#"<?xml version="1.0" encoding="UTF-8"?>"#).unwrap();
+        writeln!(&mut svg, r#"<?xml version="1.0" encoding="UTF-8"?>"#).ok();
         if scene.hyperlinks.is_empty() {
             writeln!(
                 &mut svg,
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}" width="100%" height="100%">"#,
                 w, h
             )
-            .unwrap();
+            .ok();
         } else {
             writeln!(
                 &mut svg,
                 r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 {} {}" width="100%" height="100%">"#,
                 w, h
             )
-            .unwrap();
+            .ok();
         }
 
         // 1. Defs section for gradients and clip paths
@@ -187,9 +187,9 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
         }
 
         if !defs.is_empty() {
-            writeln!(&mut svg, "  <defs>").unwrap();
+            writeln!(&mut svg, "  <defs>").ok();
             svg.push_str(&defs);
-            writeln!(&mut svg, "  </defs>").unwrap();
+            writeln!(&mut svg, "  </defs>").ok();
         }
 
         // 2. Background rect
@@ -202,7 +202,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                         r#"  <rect width="{}" height="{}" fill="rgb({},{},{})" fill-opacity="{:.2}"/>"#,
                         w, h, r, g, b, opacity
                     )
-                    .unwrap();
+                    .ok();
                 }
                 VectorBackground::Gradient(_) => {
                     if let Some(ref id) = bg_grad_id {
@@ -211,7 +211,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                             r#"  <rect width="{}" height="{}" fill="url(#{})"/>"#,
                             w, h, id
                         )
-                        .unwrap();
+                        .ok();
                     }
                 }
                 VectorBackground::Image { .. } => {
@@ -226,7 +226,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                 r##"  <rect width="{}" height="{}" fill="#ffffff"/>"##,
                 w, h
             )
-            .unwrap();
+            .ok();
         }
 
         // 3. Render vector commands. A PushClip opens a `<g clip-path>` group;
@@ -298,7 +298,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                         id_attr,
                         filter_attr
                     )
-                    .unwrap();
+                    .ok();
 
                     if let Some(reflection_use) =
                         effect_ref.and_then(|r| r.reflection_use.as_deref())
@@ -326,7 +326,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                         r#"  <path d="{}" {} {}{}{}/>"#,
                         d, fill_attr, stroke_attr, fill_rule_attr, transform_attr
                     )
-                    .unwrap();
+                    .ok();
                 }
                 VectorCommand::DrawImage {
                     rel_id,
@@ -373,7 +373,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
             let _ = writeln!(&mut svg, "  </g>");
         }
 
-        writeln!(&mut svg, "</svg>").unwrap();
+        writeln!(&mut svg, "</svg>").ok();
         Ok(svg)
     }
 }

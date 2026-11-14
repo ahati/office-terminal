@@ -1,3 +1,5 @@
+//! kitty-pptx core: vector display list, compiler, rasterizer and SVG exporter.
+#![forbid(unsafe_code)]
 pub mod contracts;
 pub mod error;
 pub mod loader;

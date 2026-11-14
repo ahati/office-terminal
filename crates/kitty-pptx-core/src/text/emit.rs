@@ -13,6 +13,7 @@ use crate::text::metrics;
 use crate::text::shape;
 use crate::text::vertical::{self, VertMode};
 
+use super::natural_box;
 use super::paint;
 use super::paragraphs::{self, ParagraphLayout};
 
@@ -251,7 +252,7 @@ pub fn compile_text_body_with_markers(
             let first_line = line_index == 0;
             let is_last = line_index + 1 == line_count;
             let pieces = paragraphs::line_math_pieces(line, para, &mut math_cursor);
-            let (nat_ascent, nat_descent) = paint::natural_box(&measurer, line, para, &pieces);
+            let (nat_ascent, nat_descent) = natural_box::natural_box(&measurer, line, para, &pieces);
             let (ascent, descent) = metrics::spaced_line_box(
                 nat_ascent,
                 nat_descent,
