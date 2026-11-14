@@ -53,11 +53,12 @@ the current tree actually contains.
   ASCII-bracket rotation, character prefixes, picture prefixes and inline
   equation cells. Face-feature coverage is handled for the known `vrt2`/`vert`
   cases (`∥`, JhengHei `ー`).
-- **T9 stacked content** — equation objects paint their math paths, per-glyph
+- **T9 stacked content** — equation objects paint their math paths, complete
+  authored `mathFallbacks` branches replace their run range, per-glyph
   hyperlinks are projected into `VectorSlide.hyperlinks`, the shape
   text-rotation/flip helper is landed, and stacked strikes/underlines plus the
   paragraph-mark strike gate are emitted as vector bars (one underline frame
-  per column).
+  per column). Character and auto-number prefixes occupy cells.
 - **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
   fallback (`scene3d/bevel_profiles.rs`), replacing the four hand-written
   profiles.
@@ -70,8 +71,7 @@ the current tree actually contains.
 ## Still open
 
 T4 (RTL tab frame), T5 (kinsoku across run seams), T7 (glyph decorations),
-T8/T9 residual cases (full face-feature tables, equation fallback branch),
-T10 (warp residuals), the full S7a/S7b multi-light rig/shading and rear-plane
+T8/T9 residual cases (full face-feature tables), T10 (warp residuals), the full S7a/S7b multi-light rig/shading and rear-plane
 bevel compositor, P5 (bubble3D/ChartEx/marker fills), and the
 full L0 corpus/ledger re-derivation. The ledger in `COVERAGE.md` is still the
 wave-3 snapshot; do not treat its BLOCKED counts as current.

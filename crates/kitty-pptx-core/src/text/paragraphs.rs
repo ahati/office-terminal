@@ -6,6 +6,7 @@
 //! tab stops, spacing, alignment, marker), and `emit` owns the line loop.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use crossbeam_channel::Sender;
 
@@ -113,7 +114,69 @@ pub(super) fn build_paragraphs(
             warning_sink,
         );
 
-        for run in &p.runs {
+        // Failed complete MCE alternatives: the authored preview replaces the
+        // whole start..end run range (outermost range wins). In this offline
+        // port the preview is preferred whenever it covers the branch, since
+        // the live math engine cannot signal per-run conversion failure.
+        let mut previews: HashMap<usize, (usize, String)> = HashMap::new();
+        for fallback in &p.math_fallbacks {
+            let (start, end) = (fallback.start, fallback.end);
+            if start >= p.runs.len()
+                || end > p.runs.len()
+                || end <= start
+                || !matches!(p.runs[start], pptx_model::TextRun::Math { .. })
+                || fallback.text.is_empty()
+            {
+                continue;
+            }
+            let replace = previews
+                .get(&start)
+                .is_none_or(|(previous_end, _)| end >= *previous_end);
+            if replace {
+                previews.insert(start, (end, fallback.text.clone()));
+            }
+        }
+        let mut preview_end = 0usize;
+
+        for (run_index, run) in p.runs.iter().enumerate() {
+            if run_index < preview_end {
+                continue;
+            }
+            if let Some((end, text)) = previews.get(&run_index) {
+                preview_end = *end;
+                if let pptx_model::TextRun::Math {
+                    font_size,
+                    color,
+                    ..
+                } = &p.runs[run_index]
+                {
+                    let sz_pt = font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
+                    let id = measurer.push(StyleDef {
+                        family: def_family.clone(),
+                        size_emu: sz_pt * 12700.0,
+                        size_pt: sz_pt,
+                        bold: p.def_bold.or(text_body.default_bold).unwrap_or(false),
+                        italic: p.def_italic.or(text_body.default_italic).unwrap_or(false),
+                        color: color
+                            .as_deref()
+                            .map(parse_hex_color)
+                            .unwrap_or(def_color),
+                        underline: false,
+                        underline_style: None,
+                        underline_color: None,
+                        strikethrough: false,
+                        strike_double: false,
+                        baseline: None,
+                        letter_spacing_emu: 0.0,
+                        highlight: None,
+                    });
+                    items.push(BreakItem::Text {
+                        text: text.clone(),
+                        style: id,
+                    });
+                }
+                continue;
+            }
             match run {
                 pptx_model::TextRun::Text(data) => {
                     let authored = data
