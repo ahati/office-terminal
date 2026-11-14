@@ -72,9 +72,20 @@ fn push_clusters(
         let style = *style;
         let (cell, ascent, descent, size) = cell_metrics(measurer, style);
         let width = measurer.advance(cluster, style).max(1.0);
+        let def = measurer.style(style);
         let (painted, rotation, advance) = if cluster.chars().count() == 1 {
             let ch = cluster.chars().next().unwrap_or(' ');
-            if let Some(form) = vertical::vertical_form(ch) {
+            let family = def.family.to_ascii_lowercase();
+            if ch == '\u{30fc}' && family.contains("jhenghei") && def.bold {
+                // Bold Microsoft JhengHei has no `vert` glyph for the long
+                // mark; the reference rotates the horizontal glyph.
+                (cluster.to_string(), FRAC_PI_2, width)
+            } else if ch == '\u{2225}' && family.contains("yu gothic") {
+                // Yu Gothic's vrt2-only parallel mark stands unturned.
+                (cluster.to_string(), 0.0, size)
+            } else if ch == '\u{2225}' {
+                (cluster.to_string(), FRAC_PI_2, width)
+            } else if let Some(form) = vertical::vertical_form(ch) {
                 (form.to_string(), 0.0, size)
             } else if is_ascii_bracket(ch) {
                 (cluster.to_string(), FRAC_PI_2, width)
@@ -100,6 +111,186 @@ fn push_clusters(
         first = false;
         cursor += cluster.chars().count();
     }
+}
+
+fn rect_path(x: f32, y: f32, w: f32, h: f32) -> crate::contracts::VectorPath {
+    use crate::contracts::{FillRule, PathSegment, VectorPath};
+    VectorPath::new(
+        vec![
+            PathSegment::MoveTo { x, y },
+            PathSegment::LineTo { x: x + w, y },
+            PathSegment::LineTo { x: x + w, y: y + h },
+            PathSegment::LineTo { x, y: y + h },
+            PathSegment::Close,
+        ],
+        FillRule::NonZero,
+    )
+}
+
+fn slot_rotation(slot: &vertical::StackedSlot, base: &AffineTransform) -> AffineTransform {
+    if slot.rotation == 0.0 {
+        return *base;
+    }
+    let cx = slot.x + slot.width * 0.5;
+    let cy = slot.baseline - slot.ascent + slot.advance * 0.5;
+    let rotation = AffineTransform::translate(cx, cy)
+        .post_concat(&AffineTransform::from_rotation(slot.rotation))
+        .post_concat(&AffineTransform::translate(-cx, -cy));
+    base.post_concat(&rotation)
+}
+
+/// Stacked underline is one vertical frame per column, on the column's leading
+/// side at the drawing face's descent. Strikes cross each glyph in its own
+/// frame; the invisible paragraph mark inherits the last run's strike unless an
+/// explicit `endParaRPr` turns it off.
+#[allow(clippy::too_many_arguments)]
+fn push_stacked_decorations(
+    text_body: &pptx_model::TextBody,
+    paragraphs: &[super::paragraphs::ParagraphLayout],
+    slots: &[vertical::StackedSlot],
+    measurer: &Measurer,
+    base_transform: &AffineTransform,
+    commands: &mut Vec<VectorCommand>,
+) {
+    struct UnderlineSpan {
+        column: usize,
+        style: StyleId,
+        size: f32,
+        color: [u8; 4],
+        left: f32,
+        top: f32,
+        bottom: f32,
+        descent: f32,
+    }
+    let mut span: Option<UnderlineSpan> = None;
+    let flush = |span: &mut Option<UnderlineSpan>, commands: &mut Vec<VectorCommand>| {
+        let Some(span) = span.take() else {
+            return;
+        };
+        let weight = (span.size * 0.05).max(12_700.0);
+        let x = span.left + span.descent - 2.5 * 12_700.0 - weight * 0.5;
+        commands.push(VectorCommand::draw_path(
+            rect_path(x, span.top, weight, (span.bottom - span.top).max(1.0)),
+            Some(crate::contracts::VectorPaint::Solid(span.color)),
+            None,
+            *base_transform,
+        ));
+    };
+
+    for slot in slots {
+        if slot.object.is_some() {
+            flush(&mut span, commands);
+            continue;
+        }
+        let def = measurer.style(slot.style);
+        if !def.underline {
+            flush(&mut span, commands);
+            continue;
+        }
+        let left = slot.x - (slot.thickness - slot.width) * 0.5;
+        let top = slot.baseline - slot.ascent;
+        let bottom = top + slot.advance;
+        let color = def.underline_color.unwrap_or(def.color);
+        let same = span.as_ref().is_some_and(|span| {
+            span.column == slot.column
+                && span.color == color
+                && measurer.style(span.style).underline_style == def.underline_style
+        });
+        if same {
+            if let Some(span) = span.as_mut() {
+                span.bottom = span.bottom.max(bottom);
+                span.descent = span.descent.max(slot.descent);
+                span.size = span.size.max(def.size_emu);
+            }
+        } else {
+            flush(&mut span, commands);
+            span = Some(UnderlineSpan {
+                column: slot.column,
+                style: slot.style,
+                size: def.size_emu,
+                color,
+                left,
+                top,
+                bottom,
+                descent: slot.descent,
+            });
+        }
+    }
+    flush(&mut span, commands);
+
+    // Per-glyph strikes.
+    for slot in slots {
+        if slot.object.is_some() {
+            continue;
+        }
+        let def = measurer.style(slot.style);
+        if !def.strikethrough {
+            continue;
+        }
+        let h = (def.size_emu * 0.05).max(12_700.0);
+        let base_y = slot.baseline - def.size_emu * 0.35 - h * 0.5;
+        let transform = slot_rotation(slot, base_transform);
+        commands.push(VectorCommand::draw_path(
+            rect_path(slot.x, base_y, slot.width.max(1.0), h),
+            Some(crate::contracts::VectorPaint::Solid(def.color)),
+            None,
+            transform,
+        ));
+        if def.strike_double {
+            commands.push(VectorCommand::draw_path(
+                rect_path(slot.x, base_y + h * 1.8, slot.width.max(1.0), h),
+                Some(crate::contracts::VectorPaint::Solid(def.color)),
+                None,
+                transform,
+            ));
+        }
+    }
+
+    // Paragraph mark: an invisible cell after the paragraph's last glyph.
+    for (paragraph_index, slots) in slots
+        .iter()
+        .filter(|slot| slot.object.is_none())
+        .fold(Vec::<(usize, Vec<&vertical::StackedSlot>)>::new(), |mut acc, slot| {
+            match acc.last_mut() {
+                Some((index, list)) if *index == slot.paragraph => list.push(slot),
+                _ => acc.push((slot.paragraph, vec![slot])),
+            }
+            acc
+        })
+    {
+        let Some(last) = slots.last() else {
+            continue;
+        };
+        let end_run = text_body
+            .paragraphs
+            .get(paragraph_index)
+            .and_then(|para| para.end_run_properties.as_deref());
+        let mark_style = end_run
+            .and_then(|run| run.font_size)
+            .map(|size| (size as f32 * 12700.0, end_run))
+            .unwrap_or((measurer.style(last.style).size_emu, end_run));
+        let (size, end_run) = mark_style;
+        let struck = end_run
+            .map(|run| run.strikethrough)
+            .unwrap_or_else(|| measurer.style(last.style).strikethrough);
+        if !struck {
+            continue;
+        }
+        let color = end_run
+            .and_then(|run| run.color.as_deref())
+            .map(crate::compiler::style::parse_hex_color)
+            .unwrap_or_else(|| measurer.style(last.style).color);
+        let h = (size * 0.05).max(12_700.0);
+        let x = last.x + last.width.max(1.0);
+        let y = last.baseline - size * 0.35 - h * 0.5;
+        commands.push(VectorCommand::draw_path(
+            rect_path(x, y, 8.0 * 12_700.0, h),
+            Some(crate::contracts::VectorPaint::Solid(color)),
+            None,
+            *base_transform,
+        ));
+    }
+    let _ = paragraphs;
 }
 
 /// `renderStackedTextBody`: upright glyphs flow down a column; overflow wraps
@@ -199,6 +390,14 @@ pub(super) fn compile_stacked(
     );
     let mut runs: Vec<PositionedGlyphRun> = Vec::new();
     let mut commands: Vec<VectorCommand> = Vec::new();
+    push_stacked_decorations(
+        text_body,
+        &paragraphs,
+        &slots,
+        measurer,
+        base_transform,
+        &mut commands,
+    );
     for slot in &slots {
         if let Some(object) = slot.object {
             if let Some(piece) = paragraphs
@@ -222,17 +421,20 @@ pub(super) fn compile_stacked(
         }
         if slot.rotation == 0.0 {
             paint::emit_run(measurer, &slot.text, slot.style, slot.x, slot.baseline, &mut runs);
+            if let Some(run) = runs.last_mut() {
+                run.underline = false;
+                run.strikethrough = false;
+            }
         } else {
             let mut rotated: Vec<PositionedGlyphRun> = Vec::new();
             paint::emit_run(measurer, &slot.text, slot.style, slot.x, slot.baseline, &mut rotated);
-            let cx = slot.x + slot.width * 0.5;
-            let cy = slot.baseline - slot.ascent + slot.advance * 0.5;
-            let rotation = AffineTransform::translate(cx, cy)
-                .post_concat(&AffineTransform::from_rotation(slot.rotation))
-                .post_concat(&AffineTransform::translate(-cx, -cy));
+            for run in &mut rotated {
+                run.underline = false;
+                run.strikethrough = false;
+            }
             commands.push(VectorCommand::DrawText {
                 runs: rotated,
-                transform: base_transform.post_concat(&rotation),
+                transform: slot_rotation(slot, base_transform),
             });
         }
     }

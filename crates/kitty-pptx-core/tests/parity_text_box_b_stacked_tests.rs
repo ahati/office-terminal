@@ -381,3 +381,118 @@ fn stacked_cell_follows_an_exceptional_drawing_face() {
         y1 - y0
     );
 }
+
+fn draw_text_entries(commands: &[VectorCommand]) -> Vec<(String, AffineTransform)> {
+    let mut out = Vec::new();
+    for command in commands {
+        if let VectorCommand::DrawText { runs, transform } = command {
+            for run in runs {
+                out.push((run.text.clone(), *transform));
+            }
+        }
+    }
+    out
+}
+
+fn body_with_family(text: &str, vert: &str, family: &str) -> pptx_model::TextBody {
+    let mut text_body = body(text, vert);
+    if let pptx_model::TextRun::Text(run) = &mut text_body.paragraphs[0].runs[0] {
+        run.font_family = Some(family.to_string());
+    }
+    text_body
+}
+
+#[test]
+fn stacked_parallel_mark_follows_the_face_feature() {
+    let yu = draw_text_entries(&compile(
+        &body_with_family("∥（", "wordArtVert", "Yu Gothic"),
+        60.0,
+        470.0,
+    ));
+    let bar = yu.iter().find(|(text, _)| text == "∥").expect("bar");
+    let form = yu.iter().find(|(text, _)| text == "︵").expect("（ form");
+    assert!(bar.1.kx.abs() < 0.1 && bar.1.ky.abs() < 0.1, "vrt2 marker stays upright");
+    assert!(form.1.kx.abs() < 0.1 && form.1.ky.abs() < 0.1);
+
+    let ms = draw_text_entries(&compile(
+        &body_with_family("∥", "wordArtVert", "MS Gothic"),
+        60.0,
+        470.0,
+    ));
+    let bar = ms.iter().find(|(text, _)| text == "∥").expect("bar");
+    assert!(
+        bar.1.kx.abs() > 0.1 || bar.1.ky.abs() > 0.1,
+        "MS Gothic's vert marker turns"
+    );
+}
+
+#[test]
+fn stacked_bold_specific_vert_coverage() {
+    let regular = draw_text_entries(&compile(
+        &body_with_family("ーA", "wordArtVert", "Microsoft JhengHei"),
+        100.0,
+        470.0,
+    ));
+    let regular_mark = regular.iter().find(|(text, _)| text == "︱").expect("FE31");
+    assert!(regular_mark.1.kx.abs() < 0.1);
+
+    let mut bold_body = body_with_family("ーA", "wordArtVert", "Microsoft JhengHei");
+    if let pptx_model::TextRun::Text(run) = &mut bold_body.paragraphs[0].runs[0] {
+        run.bold = Some(true);
+    }
+    let bold = draw_text_entries(&compile(&bold_body, 100.0, 470.0));
+    let bold_mark = bold.iter().find(|(text, _)| text == "ー").expect("horizontal mark");
+    assert!(
+        bold_mark.1.kx.abs() > 0.1 || bold_mark.1.ky.abs() > 0.1,
+        "bold JhengHei rotates the long mark"
+    );
+}
+
+struct MarkerSizes;
+
+impl kitty_pptx_core::text::bullets::MarkerBitmap for MarkerSizes {
+    fn source_size(&self, _rel_id: &str) -> Option<(u32, u32)> {
+        Some((36, 24))
+    }
+}
+
+fn compile_with_bitmaps(
+    text_body: &pptx_model::TextBody,
+    box_w: f32,
+    box_h: f32,
+) -> Vec<VectorCommand> {
+    let (tx, _rx) = unbounded();
+    kitty_pptx_core::text::emit::compile_text_body_with_markers(
+        text_body,
+        (box_w * PT) as i64,
+        (box_h * PT) as i64,
+        &AffineTransform::identity(),
+        None,
+        Some(&MarkerSizes),
+        &tx,
+    )
+}
+
+#[test]
+fn stacked_picture_markers_keep_their_source_aspect() {
+    let mut text_body = body("A", "wordArtVert");
+    text_body.paragraphs[0].bullet = pptx_model::Bullet::Blip {
+        image_path: "marker.png".to_string(),
+        mime_type: "image/png".to_string(),
+        size_pct: Some(50.0),
+        size_pts: None,
+    };
+    let commands = compile_with_bitmaps(&text_body, 200.0, 200.0);
+    let image = commands.iter().find_map(|command| match command {
+        VectorCommand::DrawImage { dest_rect, rel_id, .. } => {
+            Some((rel_id.clone(), *dest_rect))
+        }
+        _ => None,
+    });
+    let (rel_id, dest) = image.expect("picture marker image");
+    assert_eq!(rel_id, "marker.png");
+    assert!((dest.w / dest.h - 1.5).abs() < 1e-4, "36:24 source aspect");
+}
+
+#[path = "text_box_b_support/stacked_decor_cases.rs"]
+mod stacked_decor_cases;

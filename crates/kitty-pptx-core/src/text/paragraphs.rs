@@ -146,7 +146,13 @@ pub(super) fn build_paragraphs(
                         italic,
                         color,
                         underline: data.underline,
+                        underline_style: data.underline_style.clone(),
+                        underline_color: data
+                            .underline_color
+                            .as_deref()
+                            .map(parse_hex_color),
                         strikethrough: data.strikethrough,
+                        strike_double: data.strike_double,
                         // Run-only: neither `TextBody` nor `Paragraph` carries a
                         // baseline default, and the parser already cascaded
                         // `lstStyle`/master `defRPr@baseline` into the run and
@@ -201,7 +207,10 @@ pub(super) fn build_paragraphs(
                         italic: false,
                         color: default_color,
                         underline: false,
+                        underline_style: None,
+                        underline_color: None,
                         strikethrough: false,
+                        strike_double: false,
                         baseline: None,
                         letter_spacing_emu: 0.0,
                         highlight: None,
@@ -310,7 +319,10 @@ fn resolve_marker(
             italic: false,
             color: label.color,
             underline: false,
+            underline_style: None,
+            underline_color: None,
             strikethrough: false,
+            strike_double: false,
             baseline: None,
             letter_spacing_emu: 0.0,
             highlight: None,

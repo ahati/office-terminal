@@ -35,7 +35,10 @@ pub(super) struct StyleDef {
     pub(super) italic: bool,
     pub(super) color: [u8; 4],
     pub(super) underline: bool,
+    pub(super) underline_style: Option<String>,
+    pub(super) underline_color: Option<[u8; 4]>,
     pub(super) strikethrough: bool,
+    pub(super) strike_double: bool,
     /// `rPr@baseline` in thousandths of a point: positive = superscript
     /// (raised), negative = subscript (lowered). `0`/`None` = on the baseline.
     pub(super) baseline: Option<i32>,
@@ -186,7 +189,10 @@ pub fn compile_text_body_with_markers(
         italic: text_body.default_italic.unwrap_or(false),
         color: default_color,
         underline: false,
+        underline_style: None,
+        underline_color: None,
         strikethrough: false,
+        strike_double: false,
         baseline: None,
         letter_spacing_emu: 0.0,
         highlight: None,
