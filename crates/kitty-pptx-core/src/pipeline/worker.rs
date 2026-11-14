@@ -314,6 +314,38 @@ fn execute_task(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &Atomi
         return;
     }
 
+    // Panic barrier: a compile/rasterize panic must not wedge the slide in
+    // `in_flight` forever (the syncer would treat it as perpetually
+    // `Rendering` and the canvas would stay blank with no diagnostics and no
+    // retry). Record the panic as a render failure and keep the thread alive.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compile_and_rasterize(task, ctx, shutdown);
+    }));
+    if let Err(payload) = outcome {
+        let detail = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown panic".to_string());
+        if !shutdown.load(AtomicOrdering::Acquire) {
+            if let Ok(mut fl) = ctx.failed.lock() {
+                fl.insert(index, RenderError::RasterizationError(detail));
+            }
+        }
+    }
+
+    if let Ok(mut inf) = ctx.in_flight.lock() {
+        inf.remove(&index);
+    }
+}
+
+/// The compile + rasterize half of a task, split out so [`execute_task`] can
+/// guard it with a panic barrier. On completion the entry is in the raster
+/// cache, recorded in `failed`, or dropped (cancellation).
+fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &AtomicBool) {
+    let index = task.slide_index;
+    let target = task.target;
+
     // Step 1: Obtain or compile VectorSlide (Tier 1)
     let vector_slide = match ctx.cache.get_vector(index) {
         Some(v) => v,
@@ -375,9 +407,5 @@ fn execute_task(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &Atomi
                 }
             }
         }
-    }
-
-    if let Ok(mut inf) = ctx.in_flight.lock() {
-        inf.remove(&index);
     }
 }
