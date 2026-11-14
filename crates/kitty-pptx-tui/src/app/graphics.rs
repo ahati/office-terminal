@@ -53,9 +53,11 @@ impl GraphicsSyncer {
     }
 
     /// Synchronizes staged images and placements with the current frame.
+    /// A failed background render is recorded on the state (canvas note +
+    /// warning entry) instead of silently leaving the slide blank.
     pub(crate) fn sync(
         &mut self,
-        state: &PresentationState,
+        state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
@@ -72,7 +74,9 @@ impl GraphicsSyncer {
         match current_rect {
             Some(rect) => {
                 let id = state.current_image_id();
-                if self.ensure_staged(state.current_slide(), id, pipeline, driver, false)? {
+                let slide = state.current_slide();
+                if self.ensure_staged(slide, id, pipeline, driver, false, state)? {
+                    state.clear_render_failure_for(slide);
                     self.place_current(id, rect, driver)?;
                 }
             }
@@ -94,7 +98,7 @@ impl GraphicsSyncer {
 
         match preview {
             Some((slide, id, rect)) => {
-                if self.ensure_staged(slide, id, pipeline, driver, true)? {
+                if self.ensure_staged(slide, id, pipeline, driver, true, state)? {
                     self.place_preview(id, rect, driver)?;
                 }
             }
@@ -106,7 +110,8 @@ impl GraphicsSyncer {
 
     /// Stages `slide` under `id` when the slot does not already hold it.
     ///
-    /// Returns `true` when the bitmap is ready on the terminal.
+    /// Returns `true` when the bitmap is ready on the terminal. A failed
+    /// render is noted on the state instead of blocking forever silently.
     fn ensure_staged(
         &mut self,
         slide: usize,
@@ -114,39 +119,46 @@ impl GraphicsSyncer {
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
         preview: bool,
+        state: &mut PresentationState,
     ) -> Result<bool, DisplayError> {
         let staged = if preview {
             self.preview_staged
         } else {
             self.current_staged
         };
-        let entry = pipeline.entry(slide);
-        let PipelineEntry::Ready { bitmap, .. } = entry else {
-            // Not ready yet: keep presenting an already staged bitmap if we have one.
-            return Ok(staged.is_some_and(|s| s.id == id && s.slide == slide));
-        };
-        if staged.is_some_and(|s| {
-            s.id == id && s.slide == slide && s.width == bitmap.width && s.height == bitmap.height
-        }) {
-            return Ok(true);
-        }
+        match pipeline.entry(slide) {
+            PipelineEntry::Ready { bitmap, .. } => {
+                if staged.is_some_and(|s| {
+                    s.id == id && s.slide == slide && s.width == bitmap.width && s.height == bitmap.height
+                }) {
+                    return Ok(true);
+                }
 
-        driver.stage(&bitmap, id)?;
+                driver.stage(&bitmap, id)?;
 
-        self.epoch = self.epoch.saturating_add(1);
-        let key = StagedImage {
-            id,
-            slide,
-            width: bitmap.width,
-            height: bitmap.height,
-            epoch: self.epoch,
-        };
-        if preview {
-            self.preview_staged = Some(key);
-        } else {
-            self.current_staged = Some(key);
+                self.epoch = self.epoch.saturating_add(1);
+                let key = StagedImage {
+                    id,
+                    slide,
+                    width: bitmap.width,
+                    height: bitmap.height,
+                    epoch: self.epoch,
+                };
+                if preview {
+                    self.preview_staged = Some(key);
+                } else {
+                    self.current_staged = Some(key);
+                }
+                Ok(true)
+            }
+            PipelineEntry::Failed { error } => {
+                state.note_render_failure(slide, error.to_string());
+                // Keep presenting an already staged bitmap if we have one.
+                Ok(staged.is_some_and(|s| s.id == id && s.slide == slide))
+            }
+            // Rendering / NotLoaded: keep presenting an already staged bitmap.
+            _ => Ok(staged.is_some_and(|s| s.id == id && s.slide == slide)),
         }
-        Ok(true)
     }
 
     fn place_current(
