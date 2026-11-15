@@ -172,3 +172,16 @@ fn stacked_rtl_underline_uses_one_frame_per_column() {
     assert!((widths[1] - 32.0 * 0.05).abs() < 0.01);
     assert!(bars.iter().all(|bar| bar.color == [255, 0, 0, 255]));
 }
+
+#[test]
+fn stacked_underline_uses_the_face_descent() {
+    let mut text_body = body_with_family("A", "wordArtVert", "Yu Gothic");
+    if let pptx_model::TextRun::Text(run) = &mut text_body.paragraphs[0].runs[0] {
+        run.underline = true;
+    }
+    let bars = bars(&compile(&text_body, 200.0, 200.0));
+    assert_eq!(bars.len(), 1, "one underline frame: {bars:?}");
+    let weight = (24.0 * 0.05_f32).max(1.0);
+    let expected = 7.2 + (619.0 / 2048.0) * 24.0 - 2.5 - weight * 0.5;
+    close(bars[0].x / PT, expected, "underline left edge from face descent");
+}

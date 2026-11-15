@@ -21,9 +21,6 @@
 //     blocked: no math fallback text emission for a conversion failure.
 //   stacked_equation_rasterization_failure_draws_the_fallback_text
 //     blocked: no math fallback text emission for a rasterization failure.
-//   stacked_underline_uses_the_face_descent
-//     blocked: stacked underline still uses the column descent, not the face's
-//     resolved underline top/thickness from the decoration IR.
 // ============================================================================
 
 /// `:258` "horizontal: the cluster stays in the base segment and font":
@@ -60,11 +57,3 @@ fn stacked_equation_conversion_failure_draws_the_fallback_text() {}
 #[test]
 #[ignore = "blocked: no math fallback text emission for a rasterization failure"]
 fn stacked_equation_rasterization_failure_draws_the_fallback_text() {}
-
-/// `:455` "places underline from the drawing face descent and full cell rather
-/// than a font-specific offset": `7.2 + 619/2048·24 − 2.5`.
-#[test]
-#[ignore = "blocked: stacked underline still uses the column descent"]
-fn stacked_underline_uses_the_face_descent() {
-    close(7.2 + (619.0 / 2048.0) * 24.0 - 2.5, 11.95, "underline origin");
-}
