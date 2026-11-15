@@ -1,5 +1,7 @@
 //! Milestone playback tests for PRD 13: text (M3), EMF+ (M4) and WMF/EMZ (M5).
 
+#![cfg(feature = "metafile")]
+
 mod metafile_support;
 
 use kitty_pptx_core::contracts::{VectorCommand, VectorPaint, VectorSlide, WarningEvent};
@@ -364,8 +366,7 @@ fn emfplus_text_anchor_follows_the_world_transform() {
     let transformed = runs[0].glyphs.first().copied().expect("transformed glyph");
     let authored = runs[1].glyphs.first().copied().expect("authored glyph");
     assert!(
-        (transformed.x - authored.x).abs() < 1.0
-            && (transformed.y - authored.y).abs() < 1.0,
+        (transformed.x - authored.x).abs() < 1.0 && (transformed.y - authored.y).abs() < 1.0,
         "world-transformed anchor {transformed:?} must equal authored anchor {authored:?}"
     );
 }
@@ -484,7 +485,11 @@ fn asymmetric_pen_caps_keep_the_frame_stroke() {
     let framed = scene.commands.iter().any(|command| {
         matches!(
             command,
-            VectorCommand::DrawPath { stroke: Some(_), fill: None, .. }
+            VectorCommand::DrawPath {
+                stroke: Some(_),
+                fill: None,
+                ..
+            }
         )
     });
     assert!(

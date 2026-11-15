@@ -156,10 +156,7 @@ fn surfaces(demand: &DecodeDemand) -> u64 {
 /// Grid actually retained for a bounded display decode
 /// (ref raster-target.ts:50-73, `decodedBitmapRetainedTarget`): a two-axis
 /// request uses the exact axis-wise grid, clamped to avoid upscaling.
-fn retained_target(
-    source: Option<(f32, f32)>,
-    target: (f32, f32),
-) -> Option<(u32, u32)> {
+fn retained_target(source: Option<(f32, f32)>, target: (f32, f32)) -> Option<(u32, u32)> {
     let source = source?;
     let width = source.0.min(target.0.ceil().max(1.0));
     let height = source.1.min(target.1.ceil().max(1.0));
@@ -182,26 +179,27 @@ pub fn plan_decoded_image_targets(
     // surface count (ref adaptive-image-budget.ts:141-163).
     let mut merged: BTreeMap<String, DecodeDemand> = BTreeMap::new();
     for demand in demands {
-        let entry = merged.entry(demand.key.clone()).or_insert_with(|| DecodeDemand {
-            key: demand.key.clone(),
-            target_width_px: 0.0,
-            target_height_px: 0.0,
-            source_width_px: None,
-            source_height_px: None,
-            retained_surfaces: 1,
-        });
-        entry.target_width_px = entry.target_width_px.max(positive_pixel(demand.target_width_px));
+        let entry = merged
+            .entry(demand.key.clone())
+            .or_insert_with(|| DecodeDemand {
+                key: demand.key.clone(),
+                target_width_px: 0.0,
+                target_height_px: 0.0,
+                source_width_px: None,
+                source_height_px: None,
+                retained_surfaces: 1,
+            });
+        entry.target_width_px = entry
+            .target_width_px
+            .max(positive_pixel(demand.target_width_px));
         entry.target_height_px = entry
             .target_height_px
             .max(positive_pixel(demand.target_height_px));
         if let (Some(w), Some(h)) = (demand.source_width_px, demand.source_height_px) {
-            entry.source_width_px = Some(entry.source_width_px.unwrap_or(0.0).max(positive_pixel(w)));
-            entry.source_height_px = Some(
-                entry
-                    .source_height_px
-                    .unwrap_or(0.0)
-                    .max(positive_pixel(h)),
-            );
+            entry.source_width_px =
+                Some(entry.source_width_px.unwrap_or(0.0).max(positive_pixel(w)));
+            entry.source_height_px =
+                Some(entry.source_height_px.unwrap_or(0.0).max(positive_pixel(h)));
         }
         entry.retained_surfaces = entry.retained_surfaces.max(demand.retained_surfaces.max(1));
     }
@@ -224,10 +222,8 @@ pub fn plan_decoded_image_targets(
     let retained_for = |demand: &DecodeDemand, scale: f32| -> (u32, u32) {
         let request = scaled_request(demand, scale);
         match source_of(demand) {
-            Some(source) => retained_target(Some(source), request).unwrap_or((
-                source.0.max(1.0) as u32,
-                source.1.max(1.0) as u32,
-            )),
+            Some(source) => retained_target(Some(source), request)
+                .unwrap_or((source.0.max(1.0) as u32, source.1.max(1.0) as u32)),
             None => (request.0 as u32, request.1 as u32),
         }
     };
@@ -294,9 +290,8 @@ pub fn plan_decoded_image_targets(
         let mut admission = (options.decoded_byte_budget as f64 / ideal_bytes.max(1) as f64).sqrt();
         for demand in merged.values() {
             let (w, h) = retained_for(demand, 1.0);
-            admission = admission.min(
-                (MAX_RASTER_PIXELS as f64 / (f64::from(w) * f64::from(h)).max(1.0)).sqrt(),
-            );
+            admission = admission
+                .min((MAX_RASTER_PIXELS as f64 / (f64::from(w) * f64::from(h)).max(1.0)).sqrt());
         }
         let mut targets = BTreeMap::new();
         let mut remaining = options.decoded_byte_budget / 4;
@@ -304,12 +299,9 @@ pub fn plan_decoded_image_targets(
         for (key, demand) in &merged {
             let (w, h) = retained_for(demand, 1.0);
             let display_pixels = u64::from(w) * u64::from(h);
-            let proportional = display_pixels.max(
-                (display_pixels as f64 * admission * admission).floor() as u64,
-            );
-            let max_retained = proportional
-                .min(remaining / surfaces(demand))
-                .max(1);
+            let proportional =
+                display_pixels.max((display_pixels as f64 * admission * admission).floor() as u64);
+            let max_retained = proportional.min(remaining / surfaces(demand)).max(1);
             let scale = (max_retained as f64 / display_pixels.max(1) as f64)
                 .sqrt()
                 .min(2.0);

@@ -24,6 +24,15 @@ pub struct Cli {
     )]
     pub generate_completions: Option<clap_complete::Shell>,
 
+    #[arg(
+        long = "metafile",
+        value_enum,
+        global = true,
+        value_name = "MODE",
+        help = "Metafile playback override (also KITTY_PPTX_METAFILE): playback|placeholder"
+    )]
+    pub metafile: Option<MetafileModeArg>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -37,7 +46,11 @@ pub enum Commands {
         slide: usize,
         #[arg(short, long)]
         all: bool,
-        #[arg(long, value_enum, help = "Fit mode; defaults to display.fit in config.toml")]
+        #[arg(
+            long,
+            value_enum,
+            help = "Fit mode; defaults to display.fit in config.toml"
+        )]
         fit: Option<FitMode>,
     },
     #[command(about = "Headless batch slide export to PNG or vector SVG")]
@@ -95,6 +108,33 @@ pub enum Commands {
         )]
         shell: clap_complete::Shell,
     },
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum, Debug)]
+pub enum MetafileModeArg {
+    /// Play EMF/WMF/EMF+ through the engine (default).
+    Playback,
+    /// Replace every metafile picture with the diagnostic placeholder.
+    Placeholder,
+}
+
+impl MetafileModeArg {
+    pub fn to_mode(self) -> kitty_pptx_core::metafile::MetafileMode {
+        match self {
+            Self::Playback => kitty_pptx_core::metafile::MetafileMode::Playback,
+            Self::Placeholder => kitty_pptx_core::metafile::MetafileMode::Placeholder,
+        }
+    }
+
+    /// Parse `KITTY_PPTX_METAFILE` case-insensitively; unknown values are
+    /// ignored rather than aborting playback (the flag wins when both are set).
+    pub fn from_env(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "playback" => Some(Self::Playback),
+            "placeholder" => Some(Self::Placeholder),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, ValueEnum, Debug)]

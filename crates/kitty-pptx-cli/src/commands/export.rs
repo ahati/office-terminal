@@ -1,9 +1,9 @@
+use crate::cli::{parse_slide_range, ExportFormat};
+use crate::commands::source_from_path;
+use kitty_pptx_core::*;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use kitty_pptx_core::*;
-use crate::cli::{ExportFormat, parse_slide_range};
-use crate::commands::source_from_path;
 
 /// OOXML slide geometry is expressed in English Metric Units.
 const EMU_PER_INCH: f64 = 914_400.0;
@@ -40,7 +40,9 @@ pub fn export_target_size_for_width(
     // ref renderer.ts:8370: canvasH = Math.round(slideHeight * scale), with
     // scale taken over the caller-requested width.
     let target_h = if width_emu > 0.0 {
-        (height_emu * (target_w as f64 / width_emu)).round().max(1.0) as u32
+        (height_emu * (target_w as f64 / width_emu))
+            .round()
+            .max(1.0) as u32
     } else {
         target_w
     };
@@ -149,7 +151,7 @@ pub fn run_export_with_options(
         eprintln!("Output directory error: {}: {}", out.display(), e);
         return ExitCode::from(2);
     }
-    let (tx, _rx) = crossbeam_channel::unbounded();
+    let (tx, compile_rx) = crossbeam_channel::unbounded();
     let mut failed = false;
 
     for idx in slide_indices {
@@ -168,6 +170,11 @@ pub fn run_export_with_options(
                 continue;
             }
         };
+        // Compile-stage diagnostics (font substitutions, fidelity gaps) were
+        // previously dropped here; drain them like the pipeline does.
+        for warning in compile_rx.try_iter() {
+            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
+        }
         // Expand EMF/WMF markers before either backend runs (PRD 13 §10.1).
         let (warning_tx, warning_rx) = crossbeam_channel::unbounded();
         kitty_pptx_core::metafile::expand_metafiles(
@@ -187,7 +194,9 @@ pub fn run_export_with_options(
                     presentation.slide_height,
                     width_px,
                 ),
-                None => export_target_size(presentation.slide_width, presentation.slide_height, dpi),
+                None => {
+                    export_target_size(presentation.slide_width, presentation.slide_height, dpi)
+                }
             };
             let target = RenderTargetSpec {
                 width_px: target_w,

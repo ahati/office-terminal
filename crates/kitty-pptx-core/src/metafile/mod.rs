@@ -15,12 +15,15 @@
 pub mod cache;
 pub mod classify;
 pub mod diagnostics;
+#[cfg(feature = "metafile")]
 pub mod engine_metafile_rs;
 pub mod expand;
 pub mod limits;
 pub mod mapping;
 pub mod recorder;
 pub mod unpack;
+
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::contracts::{
     AffineTransform, FidelityClass, FillRule, PathSegment, RectF32, VectorPath, WarningEvent,
@@ -32,6 +35,51 @@ pub use diagnostics::MetafileDiagnostic;
 pub use expand::{expand_metafiles, MetafileExpansionSummary};
 pub use limits::MetafileLimits;
 pub use unpack::unpack;
+
+/// Debug override for metafile playback (PRD 13 §10.3/§10.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MetafileMode {
+    /// Play EMF/WMF/EMF+ through the engine (default).
+    #[default]
+    Playback,
+    /// Reproduce the pre-playback behaviour: every marker becomes the §3
+    /// placeholder, with no playback and no diagnostic (debug switch).
+    Placeholder,
+}
+
+static PLAYBACK_MODE: AtomicU8 = AtomicU8::new(0);
+
+/// Sets the process-wide metafile playback mode.
+pub fn set_playback_mode(mode: MetafileMode) {
+    PLAYBACK_MODE.store(
+        match mode {
+            MetafileMode::Playback => 0,
+            MetafileMode::Placeholder => 1,
+        },
+        Ordering::Relaxed,
+    );
+}
+
+/// Current process-wide metafile playback mode.
+pub fn playback_mode() -> MetafileMode {
+    if PLAYBACK_MODE.load(Ordering::Relaxed) == 1 {
+        MetafileMode::Placeholder
+    } else {
+        MetafileMode::Playback
+    }
+}
+
+/// The compiled-in default playback engine, when the `metafile` feature is on.
+pub(crate) fn default_engine() -> Option<Box<dyn MetafileEngine>> {
+    #[cfg(feature = "metafile")]
+    {
+        Some(Box::new(engine_metafile_rs::MetafileRsEngine))
+    }
+    #[cfg(not(feature = "metafile"))]
+    {
+        None
+    }
+}
 
 /// Container format detected for a metafile part.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,8 +317,10 @@ pub trait MetafileEngine: Send + Sync {
 }
 
 /// Sink that discards every primitive; used for the bounds probe.
+#[cfg(feature = "metafile")]
 pub(crate) struct NullMetafileSink;
 
+#[cfg(feature = "metafile")]
 impl MetafileSink for NullMetafileSink {
     fn push_clip(&mut self, _clip: &MetafileClip) -> Result<(), MetafileError> {
         Ok(())

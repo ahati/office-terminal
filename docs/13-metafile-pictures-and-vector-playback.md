@@ -543,13 +543,14 @@ Expansion emits every `FidelityDegraded`/`MediaFailed`/`ResourceLimitHit` warnin
 - `export --format svg` emits inline `<image>` data URIs for EMF bitmaps and native paths/text otherwise.
 - `export --format png` rasterizes the same commands.
 - `dump --json` follows §6.5 (expansion runs before serialization); `info` counts metafile pictures as media (format tallies include `emf`, `wmf`).
-- A new `--metafile=<playback|placeholder>` flag (and `KITTY_PPTX_METAFILE` env) overrides the engine for debugging; `placeholder` reproduces the old behaviour.
+- `--metafile=<playback|placeholder>` (global flag) and `KITTY_PPTX_METAFILE` override the engine for debugging; `placeholder` reproduces the old behaviour without playback and without diagnostics. The flag wins over the environment variable (implemented in M6).
+- The export path drains compile-stage warnings to stderr (font substitutions, fidelity gaps) in addition to expansion warnings.
 
 ### 10.4 Feature flag & rollout
 
-- Cargo feature `metafile` in `kitty-pptx-core`, default **on** after M4.
-- With the feature off, the classifier routes metafiles straight to the placeholder (no engine linked).
-- Rollout order: internal flag → default on in `main` after the corpus gate ([PRD 13a §9](./13a-metafile-fidelity-and-validation.md)).
+- Cargo feature `metafile` in `kitty-pptx-core`, default **on**.
+- With the feature off, the engine module and its `metafile-*` dependencies are not built; every marker becomes the §3 placeholder with no diagnostic (documented degradation).
+- Rollout completed in M6: the engine is default-on, the flag exists for build-size/regression bisection, and `cargo check -p kitty-pptx-core --no-default-features --tests` is clean.
 
 ### 10.5 Warning plumbing prerequisite (M0)
 
@@ -609,7 +610,7 @@ Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`)
 | M3 | ✅ done | `tests/metafile_milestone_tests.rs`: alignment (left/center), `dx` overrides, escapement rotation, decorations, `ETO_OPAQUE` background, size clamping, `FontSubstituted` for substituted faces |
 | M4 | ✅ done with engine limits | dual `GetDC` fallback diagnostic, hatch → preset pattern, texture → average solid (DEGRADED), gradient axis from the brush transform. `metafile-emfplus =1.0.1` rejects path/radial gradients and glyph-index text, so those records degrade to the placeholder/omitted run with the mapped tag instead of the FULL row in PRD 13a §2.2 |
 | M5 | ✅ done | placeable WMF + `META_EXTTEXTOUT`, `.emz`/`.wmz` bounded inflate (bomb degrades to `ResourceLimitHit`), mislabelled containers classified by content |
-| M6 | pending | golden corpus (AST/PNG), perf/fuzz jobs, `--metafile` override, feature flag default-on |
+| M6 | ✅ code complete | default-on `metafile` feature with feature-off placeholder routing, global `--metafile`/`KITTY_PPTX_METAFILE` override, export compile-warning drain, release perf smoke (`tests/metafile_perf_tests.rs`), deterministic robustness smoke + `fuzz/fuzz_targets/fuzz_metafile.rs`, external golden harness expands metafiles. The committed AST/PNG golden corpus (PRD 13a §2.4/§4) remains the tracked ⚠️ follow-up; every matrix row already has a fixture/assertion in `tests/metafile_*.rs`. |
 
 **Playback fixes landed with M3–M5:**
 

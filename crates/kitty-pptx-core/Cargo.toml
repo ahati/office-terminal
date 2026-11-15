@@ -3,6 +3,12 @@ name = "kitty-pptx-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["metafile"]
+# Links the EMF/WMF/EMF+ playback engine. With the feature off, metafile
+# pictures route straight to the §3 placeholder (no engine code is built).
+metafile = ["dep:metafile-core", "dep:metafile-emf", "dep:metafile-wmf"]
+
 [dependencies]
 ooxml-common = { workspace = true }
 pptx-model = { workspace = true }
@@ -22,6 +28,6 @@ image = { workspace = true }
 zip = { workspace = true }
 base64 = { workspace = true }
 flate2 = { workspace = true }
-metafile-core = { workspace = true }
-metafile-emf = { workspace = true }
-metafile-wmf = { workspace = true }
+metafile-core = { workspace = true, optional = true }
+metafile-emf = { workspace = true, optional = true }
+metafile-wmf = { workspace = true, optional = true }

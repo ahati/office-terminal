@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::contracts::{AffineTransform, NormalizedRect, RectF32, VectorCommand};
+use crate::contracts::{NormalizedRect, RectF32, VectorCommand};
 use crate::loader::AssetStore;
 
 use super::diagnostics::dedup;
@@ -64,15 +64,13 @@ impl MetafileResolver {
         // pictures of one part always hit the same compiled commands.
         let bytes = super::unpack::unpack(&raw, rel_id, limits)?;
 
-        let bounds = engine
-            .output_bounds(&bytes, limits)?
-            .filter(|bounds| bounds.w > 0.0 && bounds.h > 0.0)
-            .ok_or_else(|| MetafileError::Invalid("metafile has no drawable bounds".into()))?;
-        let unit_to_emu = source_to_emu(&bounds, src_rect, dest_rect)
-            .ok_or_else(|| MetafileError::Invalid("degenerate crop or destination".into()))?;
-        let emu_per_unit = ((unit_to_emu.sx.abs() + unit_to_emu.sy.abs()) * 0.5).max(1.0e-6);
-
-        let key = (rel_id.to_string(), content_hash(&bytes, &unit_to_emu));
+        // The key is derived only from the inputs (content + crop +
+        // destination), so a repeat picture can be served before the bounds
+        // probe — a cache hit must not replay the metafile (PRD 13 §9.2).
+        let key = (
+            rel_id.to_string(),
+            content_hash(&bytes, src_rect, dest_rect),
+        );
         if let Some(hit) = self
             .entries
             .lock()
@@ -81,6 +79,14 @@ impl MetafileResolver {
         {
             return Ok(hit);
         }
+
+        let bounds = engine
+            .output_bounds(&bytes, limits)?
+            .filter(|bounds| bounds.w > 0.0 && bounds.h > 0.0)
+            .ok_or_else(|| MetafileError::Invalid("metafile has no drawable bounds".into()))?;
+        let unit_to_emu = source_to_emu(&bounds, src_rect, dest_rect)
+            .ok_or_else(|| MetafileError::Invalid("degenerate crop or destination".into()))?;
+        let emu_per_unit = ((unit_to_emu.sx.abs() + unit_to_emu.sy.abs()) * 0.5).max(1.0e-6);
 
         let mut recorder = MetafileRecorder::new(unit_to_emu, emu_per_unit);
         let outcome = engine.play(&bytes, limits, &mut recorder)?;
@@ -102,25 +108,18 @@ impl MetafileResolver {
     }
 }
 
-/// FNV-1a over the part bytes plus the output→EMU mapping.
+/// FNV-1a over the part bytes plus the crop/destination inputs.
 ///
 /// The resolver runs on worker threads and the in-process cache only needs
 /// collision resistance against the deck in hand; `blake3` from PRD 13 §9.1
 /// remains a follow-up when a persisted cache lands.
-fn content_hash(bytes: &[u8], transform: &AffineTransform) -> u64 {
+fn content_hash(bytes: &[u8], src: &NormalizedRect, dest: &RectF32) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in bytes {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    for value in [
-        transform.sx,
-        transform.ky,
-        transform.kx,
-        transform.sy,
-        transform.tx,
-        transform.ty,
-    ] {
+    for value in [src.x, src.y, src.w, src.h, dest.x, dest.y, dest.w, dest.h] {
         for byte in value.to_bits().to_le_bytes() {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
