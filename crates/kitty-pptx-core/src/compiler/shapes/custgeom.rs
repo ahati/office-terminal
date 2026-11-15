@@ -41,8 +41,16 @@ const ARC_EPSILON: f64 = 1e-6;
 /// path (which never sets a fill rule) and the previous behaviour.
 pub fn build_custom_geometry(paths: &[Vec<PathCmd>], w: f32, h: f32) -> VectorPath {
     let mut segments = Vec::new();
+    for path in paths {
+        segments.extend(build_custom_geometry_path(path, w, h).segments);
+    }
+    VectorPath::new(segments, FillRule::NonZero)
+}
 
-    for path_cmds in paths {
+/// Replay one authored `<a:path>` into its own vector path.
+pub fn build_custom_geometry_path(path_cmds: &[PathCmd], w: f32, h: f32) -> VectorPath {
+    let mut segments = Vec::new();
+    {
         // ref `custGeom.ts:106`: the pen starts at the origin of every sub-path
         // (it is only meaningful once a `moveTo` has run, but an arc that comes
         // first must still back-solve from a defined origin).

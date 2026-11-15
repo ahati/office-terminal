@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 966 |
+| `kitty-pptx-core` | 967 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1113** |
+| **total** | **1114** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -78,6 +78,10 @@ the current tree actually contains.
   0.8 baseline fraction. Standalone SVG emits per-glyph warped outlines (both
   vector and selectable modes force outlines for a warped run), and a long
   compound segment stays one run with no wrap fragments. 16 warp tests green.
+- **S1 custGeom paint** — `build_shape_paths_painted` now consumes
+  `ShapeElement::cust_geom_paint`, so a custom geometry path can be filled,
+  left unfilled, or darkened independently and each path is stroked only when
+  authored. Without flags the reference's combined single-path paint is kept.
 - **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
   fallback (`scene3d/bevel_profiles.rs`), and all 15 `ST_PresetMaterialType`
   surface classes in the scalar Blinn-Phong table.

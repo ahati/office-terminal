@@ -202,12 +202,13 @@ impl SlideCompiler for DefaultSlideCompiler {
                         shape.adj5, shape.adj6, shape.adj7, shape.adj8,
                     ];
 
-                    let subpaths = shapes::build_shape_paths(
+                    let subpaths = shapes::build_shape_paths_painted(
                         &shape.geometry,
                         shape.width as f32,
                         shape.height as f32,
                         &adj_slice,
                         shape.cust_geom.as_deref(),
+                        shape.cust_geom_paint.as_deref(),
                         warning_sink,
                     );
 

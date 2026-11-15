@@ -233,10 +233,10 @@ mod support_checks {
         );
     }
 
-    /// Documents the `custgeom-path-paint` BLOCKED symbol: `custGeom` dispatch
-    /// always returns one `norm`-filled, stroked subpath.
+    /// Without `custGeomPaint`, the authored paths keep the reference's
+    /// combined single-subpath paint.
     #[test]
-    fn custgeom_dispatch_ignores_authored_path_paint() {
+    fn custgeom_without_path_flags_merges_the_paths() {
         let paths = vec![vec![pptx_model::PathCmd::MoveTo { x: 0.0, y: 0.0 }]];
         let (tx, _rx) = crossbeam_channel::unbounded();
         let subpaths = build_shape_paths("custGeom", PX as f32, PX as f32, &[], Some(&paths), &tx);
