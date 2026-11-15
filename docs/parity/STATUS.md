@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 962 |
+| `kitty-pptx-core` | 964 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1109** |
+| **total** | **1111** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
