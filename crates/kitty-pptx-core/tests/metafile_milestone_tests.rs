@@ -465,6 +465,70 @@ fn emfplus_split_object_commits_at_the_declared_total() {
 }
 
 #[test]
+fn path_gradient_brush_is_approximated_not_dropped() {
+    // metafile-emfplus has no radial/path-gradient paint; the brush must still
+    // paint (linear approximation) instead of replacing the whole picture with
+    // the placeholder (patch 0007).
+    let records = [
+        support::emf_plus_path_gradient_brush(
+            2,
+            0xffff_0000,
+            &[0xff00_00ff, 0xff00_ff00],
+            None,
+        ),
+        support::emf_plus_fill_rects(2, [10.0, 10.0, 110.0, 90.0]),
+    ];
+    let (scene, summary, warnings) = expand(
+        "ppt/media/image1.emf",
+        EMF,
+        support::emf_plus_only_emf(&records),
+    );
+
+    assert_eq!(summary.expanded, 1, "brush must not abort playback: {warnings:?}");
+    assert_eq!(summary.placeholders, 0);
+    let gradient = scene.commands.iter().find_map(|command| match command {
+        VectorCommand::DrawPath {
+            fill: Some(VectorPaint::LinearGradient(gradient)),
+            ..
+        } => Some(gradient.clone()),
+        _ => None,
+    });
+    let gradient = gradient.expect("path-gradient fill must become a linear gradient");
+    assert_eq!(gradient.stops.len(), 3, "two surrounding colours + centre");
+    assert!(
+        warnings.iter().any(|warning| matches!(
+            warning,
+            WarningEvent::FidelityDegraded {
+                feature: "metafile_gradient",
+                ..
+            }
+        )),
+        "approximation must be reported: {warnings:?}"
+    );
+
+    // Composition proof: the approximated fill must paint, not vanish.
+    let store = support::FixtureStore::new(
+        "ppt/media/image1.emf",
+        support::emf_plus_only_emf(&records),
+    );
+    let target = kitty_pptx_core::contracts::RenderTargetSpec {
+        width_px: 320,
+        height_px: 160,
+    };
+    let bitmap = kitty_pptx_core::TinySkiaRasterizer::new()
+        .rasterize(&scene, &target, &store)
+        .expect("rasterize");
+    let ink = bitmap
+        .pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| **pixel != [255, 255, 255, 255])
+        .count();
+    assert!(ink > 0, "path-gradient approximation must paint pixels");
+}
+
+#[test]
 fn asymmetric_pen_caps_keep_the_frame_stroke() {
     // Office/GDI+ chart frames use round start caps with flat end caps. The
     // renderer-neutral stroke carries one cap; rejecting the pen would drop

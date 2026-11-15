@@ -25,7 +25,7 @@ fixtures live beside this file and are listed in `README.md`.
 | Font selection / substitution | `metafile_milestone_tests::emf_text_plays_with_font_substitution_and_decorations` | `FontSubstituted` | — | — | ⚠️ |
 | Bitmaps | `windows-emf-bitmap.emf` | `DrawBitmap` raster/SVG | — | — | ⚠️ |
 | Clipping (rect/path/region) | `windows-emf-paths.emf` | clip stack balance | — | — | ⚠️ |
-| Clipping combine (OR/XOR/DIFF) | engine diagnostics | `metafile_clip_combine` | — | — | ⚠️ |
+| Clipping combine (OR/XOR/DIFF) | `primitives::tests::combined_clips_mask_pixels_exactly`, `union_and_xor_are_exact_compound_paths`, `rect_difference_is_exact`, `polygon_difference_is_exact` | exact pixels for simple closed operands; curved/Complement fallback | — | — | ⚠️ |
 | ROP2 | engine diagnostics | `metafile_rop` | — | — | ⚠️ |
 | World transform | engine unit tests | adapter rotation | — | — | ⚠️ |
 | Window/viewport mapping | `metafile_milestone_tests::placeable_wmf_plays_with_window_mapping` | bounds mapping | — | — | ⚠️ |
@@ -40,7 +40,7 @@ fixtures live beside this file and are listed in `README.md`.
 | EMF+ Dual (GetDC fallback) | `metafile_milestone_tests::emfplus_dual_getdc_fallback_is_reported` | `metafile_emfplus_fallback` | — | — | ⚠️ |
 | Split objects (`TotalObjectSize`) | `metafile_milestone_tests::emfplus_split_object_commits_at_the_declared_total` | object committed before first draw (patch 0005) | — | — | ⚠️ |
 | Solid / linear gradients | `metafile_milestone_tests::linear_gradient_paint_maps_to_the_display_list` | angle + stops | — | — | ⚠️ |
-| Path / radial gradients | — | engine rejects → §3 placeholder | — | — | ❌ (engine) |
+| Path / radial gradients | `metafile_milestone_tests::path_gradient_brush_is_approximated_not_dropped` | linear approximation + `metafile_gradient` (patch 0007) | — | — | ⚠️ |
 | Texture brushes | engine adapter | average colour + `metafile_pattern_brush` | — | — | ⚠️ |
 | Hatched brushes | `hatch` mapping | preset pattern + `metafile_hatch` | — | — | ⚠️ |
 | Text (DrawString) | `metafile_milestone_tests::emf_text_*` (classic path) | alignment, escapement | — | — | ⚠️ |

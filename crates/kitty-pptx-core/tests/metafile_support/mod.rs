@@ -312,6 +312,56 @@ pub fn emf_plus_draw_string(
     emf_plus_record(0x401c, u16::from(font_id), &data)
 }
 
+/// `EmfPlusSave` (state stack id).
+pub fn emf_plus_save(id: u32) -> Vec<u8> {
+    emf_plus_record(0x4025, 0, &id.to_le_bytes())
+}
+
+/// `EmfPlusRestore` (state stack id).
+pub fn emf_plus_restore(id: u32) -> Vec<u8> {
+    emf_plus_record(0x4026, 0, &id.to_le_bytes())
+}
+
+/// `EmfPlusFillRects` with one rectangle and a brush object id.
+pub fn emf_plus_fill_rects(brush_id: u8, rect: [f32; 4]) -> Vec<u8> {
+    let mut data = u32::from(brush_id).to_le_bytes().to_vec();
+    data.extend_from_slice(&1u32.to_le_bytes());
+    for value in rect {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    emf_plus_record(0x400a, 0, &data)
+}
+
+/// EMF+ path-gradient brush object (type 3), approximated by the adapter.
+pub fn emf_plus_path_gradient_brush(
+    id: u8,
+    center: u32,
+    surrounding: &[u32],
+    matrix: Option<[f32; 6]>,
+) -> Vec<u8> {
+    let mut data = EMF_PLUS_MAGIC.to_le_bytes().to_vec();
+    data.extend_from_slice(&3u32.to_le_bytes()); // BrushTypePathGradient
+    let flags: u32 = if matrix.is_some() { 2 } else { 0 };
+    data.extend_from_slice(&flags.to_le_bytes());
+    data.extend_from_slice(&0u32.to_le_bytes()); // wrap mode
+    if let Some(matrix) = matrix {
+        data.extend_from_slice(&transform(matrix));
+    }
+    data.extend_from_slice(&center.to_le_bytes());
+    data.extend_from_slice(&(surrounding.len() as u32).to_le_bytes());
+    for color in surrounding {
+        data.extend_from_slice(&color.to_le_bytes());
+    }
+    // The engine approximation ignores the boundary path; a minimal closed
+    // path follows the colors so a full parser would still find one.
+    let path = emf_plus_path_data(&[(0, 0), (100, 0), (100, 100), (0, 100)], true);
+    data.extend_from_slice(&path);
+    while !data.len().is_multiple_of(4) {
+        data.push(0);
+    }
+    emf_plus_object(id, 1, &data)
+}
+
 /// `EmfPlusDrawPath` selecting a path and pen object.
 pub fn emf_plus_draw_path(path_id: u8, pen_id: u8) -> Vec<u8> {
     emf_plus_record(0x4015, u16::from(path_id), &u32::from(pen_id).to_le_bytes())

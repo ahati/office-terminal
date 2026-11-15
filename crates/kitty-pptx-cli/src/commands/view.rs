@@ -1,5 +1,6 @@
 use crate::cli::FitMode;
 use crate::commands::source_from_path;
+use kitty_pptx_core::metafile::expand_metafiles;
 use kitty_pptx_core::*;
 use kitty_pptx_display::*;
 use std::io::IsTerminal;
@@ -59,12 +60,12 @@ pub fn run_view(
 
     let target = fit_render_target(presentation.slide_width, presentation.slide_height, fit);
 
-    let (tx, _rx) = crossbeam_channel::unbounded();
+    let (tx, compile_rx) = crossbeam_channel::unbounded();
     for &idx in &slide_indices {
         if all {
             println!("--- Slide {} / {} ---", idx + 1, total);
         }
-        let vector_slide = match compiler.compile_in_deck(
+        let mut vector_slide = match compiler.compile_in_deck(
             &presentation.slides[idx],
             &presentation.slides,
             presentation.slide_width,
@@ -77,6 +78,21 @@ pub fn run_view(
                 return ExitCode::from(2);
             }
         };
+
+        // Compile-stage diagnostics were previously dropped here; drain them
+        // like the render pipeline and export path.
+        for warning in compile_rx.try_iter() {
+            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
+        }
+
+        // The scrollback view must expand metafile markers before rasterizing;
+        // otherwise it shows the defensive placeholder while `export` plays the
+        // same picture (PRD 13 §10.1).
+        let (warning_tx, warning_rx) = crossbeam_channel::unbounded();
+        expand_metafiles(&mut vector_slide, asset_store.as_ref(), &warning_tx);
+        for warning in warning_rx.try_iter() {
+            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
+        }
 
         let rgba = match rasterizer.rasterize(&vector_slide, &target, asset_store.as_ref()) {
             Ok(r) => r,

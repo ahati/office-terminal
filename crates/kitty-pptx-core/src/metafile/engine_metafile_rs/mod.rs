@@ -191,6 +191,7 @@ fn tag_for(code: &str, message: &str) -> &'static str {
         "unsupported_pen_style" | "unsupported_extended_pen_style" => "metafile_pen_style",
         "glyph_index_text" => "metafile_glyph_index_text",
         "pdy_approximate" => "metafile_text_dx",
+        "emfplus_path_gradient_approximate" => "metafile_gradient",
         "emfplus_dual_getdc_fallback" | "emfplus_noncanonical_empty_only_fallback" => {
             "metafile_emfplus_fallback"
         }

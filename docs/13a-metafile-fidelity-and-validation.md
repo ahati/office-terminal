@@ -39,7 +39,7 @@ Three rules govern this document:
 | Bitmaps | `STRETCHDIBITS`, `BITBLT`, `STRETCHBLT`, `SETDIBITSTODEVICE` | **FULL** | DIB decoded by `metafile-dib`; placed via affine |
 | Alpha / mask / pattern blits | `ALPHABLEND`, `MASKBLT`, `PLGBLT` | **DEGRADED** | Nearest-equivalent blend; `metafile_blit` |
 | Clipping: rect, region, path, intersect | `INTERSECTCLIPRECT`, `SELECTCLIPPATH`, `EXTSELECTCLIPRGN` | **FULL** | Nested `PushClip`/`PopClip` |
-| Clipping: union / xor / diff | `EXTSELECTCLIPRGN` combine modes | **DEGRADED** | Conservative bounding-box clip + `metafile_clip_combine` |
+| Clipping: union / xor / diff | `EXTSELECTCLIPRGN` combine modes | **FULL / DEGRADED** | Exact compound paths for simple closed rect/polygon operands (OR/XOR; DIFF via two-clip subtraction). Curved, nested, even-odd or `Complement` operands keep the conservative bounding box + `metafile_clip_combine` |
 | ROP2 | `SETROP2` | **FULL** for `R2_COPYPEN`, **DEGRADED** otherwise | Copy semantics; other modes ignored + `metafile_rop` |
 | World transform | `SETWORLDTRANSFORM`, `MODIFYWORLDTRANSFORM` | **FULL** | Affine applied by the engine; arbitrary rotation/shear preserved |
 | Window/viewport mapping | `SETWINDOW*`, `SETVIEWPORT*`, `SETMAPMODE` | **FULL** | Engine applies the mapping; adapter receives output coordinates |
@@ -57,7 +57,7 @@ Three rules govern this document:
 | :--- | :--- | :--- |
 | Object table (pens, brushes, paths, fonts, images, strings, regions) | **FULL** | Handles resolved by the engine; adapter sees resolved objects |
 | Solid / linear-gradient brushes | **FULL** | `Paint::Solid`/`Paint::LinearGradient` → `VectorPaint::Solid`/`LinearGradient`; the gradient axis is the brush transform's x-axis |
-| Path / radial gradients | **PLACEHOLDER** | `metafile-emfplus 1.0.1` has no path-gradient paint and reports it as an unsupported critical feature → §3 placeholder + `metafile_parse` |
+| Path / radial gradients | **DEGRADED** | `EmfPlusPathGradientBrush` is approximated by a linear gradient (surrounding colours → centre) with `metafile_gradient`; the picture keeps painting instead of degrading to the placeholder (patch `0007`) |
 | Texture brushes | **DEGRADED** | Alpha-weighted average colour of the texture bitmap + `metafile_pattern_brush` (no inline-image paint in the display list) |
 | Hatched brushes | **DEGRADED** | Preset `VectorPattern` + `metafile_hatch` |
 | Lines, polygons, paths, curves, beziers | **FULL** | Path → `VectorPath`; fill modes preserved |
@@ -117,6 +117,7 @@ Every engine diagnostic maps to exactly one tag; tags are deduplicated per `(ele
 | `metafile_text_dx` | `dx` length ≠ character count | DEGRADED | "Character spacing ignored" |
 | `metafile_glyph_index_text` | Glyph-indexed text | DEGRADED | "Glyph text re-shaped" |
 | `metafile_text_size` | Font size clamped | DEGRADED | "Text size clamped" |
+| `metafile_gradient` | EMF+ path/radial gradient approximated by a linear ramp | DEGRADED | "Gradient approximated by a linear ramp" |
 | `metafile_emfplus_fallback` | EMF+ dual/only fallback | DEGRADED | "EMF+ fell back to classic records" |
 | `metafile_opacity` | Picture opacity < 1 | DEGRADED | "Picture transparency ignored for vector content" |
 | `metafile_unexpanded` | Marker reached a backend | PLACEHOLDER | "Metafile expansion did not run" |
