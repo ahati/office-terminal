@@ -210,6 +210,45 @@ pub trait MetafileEngine: Send + Sync {
         limits: &MetafileLimits,
         sink: &mut dyn MetafileSink,
     ) -> Result<PlaybackOutcome, MetafileError>;
+
+    /// Coordinate space the primitives are delivered in.
+    ///
+    /// The engine maps EMF window/viewport transforms before calling the
+    /// renderer, so playback coordinates need not match the header bounds.
+    /// Engines that cannot report it up front fall back to `inspect` bounds.
+    fn output_bounds(
+        &self,
+        bytes: &[u8],
+        limits: &MetafileLimits,
+    ) -> Result<Option<RectF32>, MetafileError> {
+        let _ = limits;
+        Ok(self.inspect(bytes)?.bounds)
+    }
+}
+
+/// Sink that discards every primitive; used for the bounds probe.
+pub(crate) struct NullMetafileSink;
+
+impl MetafileSink for NullMetafileSink {
+    fn push_clip(&mut self, _clip: &MetafileClip) -> Result<(), MetafileError> {
+        Ok(())
+    }
+    fn pop_clip(&mut self) {}
+    fn draw_path(
+        &mut self,
+        _path: &MetafilePath,
+        _fill: Option<&MetafilePaint>,
+        _stroke: Option<&MetafilePen>,
+    ) -> Result<(), MetafileError> {
+        Ok(())
+    }
+    fn draw_text(&mut self, _run: &MetafileTextRun) -> Result<(), MetafileError> {
+        Ok(())
+    }
+    fn draw_bitmap(&mut self, _bitmap: &MetafileBitmap) -> Result<(), MetafileError> {
+        Ok(())
+    }
+    fn diagnostic(&mut self, _diagnostic: MetafileDiagnostic) {}
 }
 
 /// Maps an engine diagnostic class onto the public warning taxonomy.

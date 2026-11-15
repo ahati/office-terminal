@@ -21,3 +21,6 @@ resvg = { workspace = true }
 image = { workspace = true }
 zip = { workspace = true }
 base64 = { workspace = true }
+metafile-core = { workspace = true }
+metafile-emf = { workspace = true }
+metafile-wmf = { workspace = true }

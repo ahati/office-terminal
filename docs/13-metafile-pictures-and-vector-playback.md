@@ -39,21 +39,24 @@ PRD 02d currently classifies EMF/WMF as `PLACEHOLDER` with "PNG fallback used if
 
 | Crate | Version | Role | License |
 | :--- | :--- | :--- | :--- |
-| `metafile-core` | `=1.0.1` | Renderer-neutral primitives: `Renderer`, `Pen`, `Brush`, `Paint`, `Stroke`, `Font`, `TextRun`, `Bitmap`, `BitmapPlacement`, `BitmapSampling`, `ClipRegion`, `Mapping`, `ResourceLimits`, `Diagnostic` | Apache-2.0 |
-| `metafile-emf` | `=1.0.1` | Classic EMF parsing, DC state machine, EMF+ stream arbitration, `playback(bytes, options, &mut dyn Renderer)` | Apache-2.0 |
-| `metafile-emfplus` | `=1.0.1` | EMF+ record playback (Only / Dual) | Apache-2.0 |
-| `metafile-wmf` | `=1.0.1` | WMF (standard + placeable) playback | Apache-2.0 |
-| `metafile-dib` | `=1.0.1` | Bounded DIB/BMP decoding shared by the players | Apache-2.0 |
+| `metafile-core` | `=1.0.1` (crates.io) | Renderer-neutral primitives: `Renderer`, `Pen`, `Brush`, `Paint`, `Stroke`, `Font`, `TextRun`, `Bitmap`, `BitmapPlacement`, `BitmapSampling`, `ClipRegion`, `Mapping`, `ResourceLimits`, `Diagnostic` | Apache-2.0 |
+| `metafile-emf` | `=1.0.1` (crates.io) | Classic EMF parsing, DC state machine, EMF+ stream arbitration, `playback(bytes, options, &mut dyn Renderer)` | Apache-2.0 |
+| `metafile-wmf` | `=1.0.1` (crates.io) | WMF (standard + placeable) playback | Apache-2.0 |
+| `metafile-emfplus` | `=1.0.1` (**local patched**) | EMF+ record playback (Only / Dual) | Apache-2.0 |
+| `metafile-dib` | `=1.0.1` (**local patched**) | Bounded DIB/BMP decoding shared by the players | Apache-2.0 |
 
-**Not used:** `metafile` (high-level convenience wrapper) and `metafile-svg` (its SVG backend). We implement the renderer ourselves to emit `VectorSlide` commands. The SVG backend is kept only as a **test oracle** in the differential suite ([PRD 13a](./13a-metafile-fidelity-and-validation.md) §6).
+**Not used:** `metafile` (high-level convenience wrapper) and `metafile-svg` (its SVG backend). We implement the renderer ourselves to emit `VectorSlide` commands. A differential oracle can add `metafile-svg` as a **dev-dependency** later ([PRD 13a](./13a-metafile-fidelity-and-validation.md) §6); it is never linked into release binaries.
 
-### 2.2 Vendoring & patch policy
+**Consumption model:** unpatched crates come from crates.io pinned with `=`; only the crates carrying local fixes live in-tree and are wired through `[patch.crates-io]`. This keeps the source tree small and the provenance auditable while preserving the crop-clamping fixes.
 
-- The five crates are vendored under `crates/metafile-core/`, `crates/metafile-emf/`, `crates/metafile-emfplus/`, `crates/metafile-wmf/`, `crates/metafile-dib/`, following [AGENTS.md](../AGENTS.md) §E.
-- `crates/VENDORED.md` records upstream repository, pinned revision, license and any local patch.
-- Any behavioural fix is a minimal patch in `crates/patches/` applied by a documented script — never an ad-hoc edit.
-- `Cargo.toml` pins `=1.0.1` in `[workspace.dependencies]`; a version bump requires the full metafile corpus to pass.
-- Apache-2.0 is compatible with this project's MIT license; the NOTICE text is preserved and linked from `crates/VENDORED.md`.
+### 2.2 Patch & dependency policy
+
+- **crates.io crates** (`metafile-core`, `metafile-emf`, `metafile-wmf`) are pinned with `=1.0.1` in `[workspace.dependencies]`; `Cargo.lock` pins the checksums. A version bump requires the metafile corpus to pass.
+- **Patched crates** (`metafile-emfplus`, `metafile-dib`) live under `crates/` and are selected via `[patch.crates-io]`. They are listed in `crates/VENDORED.md` with upstream revision, license and patch references, following [AGENTS.md](../AGENTS.md) §E.
+- Every behavioural change to a patched crate is a minimal diff in `crates/patches/` (currently `0003-metafile-clamp-bitmap-crops.patch`), never an undocumented edit.
+- Once the clamp fixes are released upstream, delete the two local copies, drop the `[patch.crates-io]` entries and consume the new pinned version from crates.io.
+- Both patched crates are excluded from `cargo clippy --workspace`/`cargo test --workspace` so upstream code is not held to first-party lints; `-p kitty-pptx-core` still compiles them as dependencies.
+- Apache-2.0 is compatible with this project's MIT license; each local crate keeps its LICENSE and `crates/VENDORED.md` records the NOTICE.
 - **Supply-chain audit (pinned revision):** no `unsafe` blocks, no `build.rs` scripts, no C bindings; transitive dependencies are `serde`, `thiserror`, `encoding_rs`, `png`, `jpeg-decoder`. The audit result is recorded in `crates/VENDORED.md` and re-run on every version bump.
 
 ### 2.3 Why this engine (alternatives considered)

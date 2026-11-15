@@ -62,7 +62,7 @@ pub fn expand_metafiles(
         match resolver.resolve(
             &rel_id, assets, &engine, &limits, &src_rect, &dest_rect,
         ) {
-            Ok(compiled) => {
+            Ok(compiled) if !compiled.commands.is_empty() => {
                 for command in &compiled.commands {
                     expanded_commands
                         .push(mapping::transform_command(command, &transform));
@@ -82,26 +82,61 @@ pub fn expand_metafiles(
                 }
                 summary.expanded += 1;
             }
-            Err(error) => {
-                expanded_commands.extend(
-                    crate::compiler::placeholders::compile_metafile_placeholder(
-                        dest_rect,
-                        transform,
-                        &error.to_string(),
-                    ),
+            Ok(compiled) => {
+                // Playback succeeded but produced no ink (e.g. an empty
+                // metafile); a placeholder is still required (PRD 13 §7).
+                let element_id = element_id(&rel_id);
+                for diagnostic in dedup(compiled.diagnostics.clone()) {
+                    let _ = warnings.send(warning_for(element_id.clone(), &diagnostic));
+                    summary.warnings += 1;
+                }
+                emit_placeholder(
+                    &mut expanded_commands,
+                    &mut summary,
+                    warnings,
+                    &rel_id,
+                    dest_rect,
+                    transform,
+                    "metafile produced no drawable content",
                 );
-                let _ = warnings.send(WarningEvent::MediaFailed {
-                    rel_id: rel_id.clone(),
-                    reason: error.to_string(),
-                });
-                summary.placeholders += 1;
-                summary.warnings += 1;
+            }
+            Err(error) => {
+                emit_placeholder(
+                    &mut expanded_commands,
+                    &mut summary,
+                    warnings,
+                    &rel_id,
+                    dest_rect,
+                    transform,
+                    &error.to_string(),
+                );
             }
         }
     }
 
     scene.commands = expanded_commands;
     summary
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_placeholder(
+    commands: &mut Vec<VectorCommand>,
+    summary: &mut MetafileExpansionSummary,
+    warnings: &Sender<WarningEvent>,
+    rel_id: &str,
+    dest_rect: crate::contracts::RectF32,
+    transform: crate::contracts::AffineTransform,
+    reason: &str,
+) {
+    commands.extend(crate::compiler::placeholders::compile_metafile_placeholder(
+        dest_rect, transform, reason,
+    ));
+    let _ = warnings.send(WarningEvent::MediaFailed {
+        rel_id: rel_id.to_string(),
+        reason: reason.to_string(),
+    });
+    summary.placeholders += 1;
+    summary.warnings += 1;
 }
 
 /// Stable warning element id for a metafile picture.

@@ -193,17 +193,22 @@ pub fn render_bitmap(
     let Ok(src) = tiny_skia::Pixmap::decode_png(png) else {
         return;
     };
-    let place = tiny_skia::Transform::from_row(
-        placement.sx,
-        placement.ky,
-        placement.kx,
-        placement.sy,
-        placement.tx,
-        placement.ty,
+    // `placement` maps the bitmap's [0, 1] square into element-local EMU, while
+    // `draw_pixmap` transforms source *pixel* coordinates. Fold the inverse
+    // source size into the matrix: pixel → unit → EMU → screen pixels.
+    let src_w = src.width() as f32;
+    let src_h = src.height() as f32;
+    if src_w <= 0.0 || src_h <= 0.0 {
+        return;
+    }
+    let transform = tiny_skia::Transform::from_row(
+        placement.sx * scale / src_w,
+        placement.ky * scale / src_w,
+        placement.kx * scale / src_h,
+        placement.sy * scale / src_h,
+        offset_x + placement.tx * scale,
+        offset_y + placement.ty * scale,
     );
-    let transform = tiny_skia::Transform::from_scale(scale, scale)
-        .post_translate(offset_x, offset_y)
-        .pre_concat(place);
     let paint = tiny_skia::PixmapPaint {
         opacity: opacity.clamp(0.0, 1.0),
         quality: match sampling {

@@ -62,9 +62,8 @@ impl MetafileResolver {
             )));
         }
 
-        let info = engine.inspect(&bytes)?;
-        let bounds = info
-            .bounds
+        let bounds = engine
+            .output_bounds(&bytes, limits)?
             .filter(|bounds| bounds.w > 0.0 && bounds.h > 0.0)
             .ok_or_else(|| MetafileError::Invalid("metafile has no drawable bounds".into()))?;
         let unit_to_emu = source_to_emu(&bounds, src_rect, dest_rect)
