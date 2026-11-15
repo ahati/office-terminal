@@ -1,0 +1,192 @@
+{
+  "commands": [
+    {
+      "fill": {
+        "color": [
+          230,
+          190,
+          30,
+          255
+        ],
+        "type": "solid"
+      },
+      "path": {
+        "fillRule": "nonzero",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 457200.0,
+            "y": 514350.0
+          },
+          {
+            "type": "lineTo",
+            "x": 3962400.0,
+            "y": 514350.0
+          },
+          {
+            "type": "lineTo",
+            "x": 3962400.0,
+            "y": 2914650.0
+          },
+          {
+            "type": "lineTo",
+            "x": 457200.0,
+            "y": 2914650.0
+          },
+          {
+            "type": "close"
+          }
+        ]
+      },
+      "stroke": {
+        "color": [
+          20,
+          70,
+          180,
+          255
+        ],
+        "dashSegments": null,
+        "lineCap": "butt",
+        "lineJoin": "miter",
+        "miterLimit": 10.0,
+        "paint": null,
+        "widthEmu": 16193
+      },
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    },
+    {
+      "fill": {
+        "color": [
+          230,
+          190,
+          30,
+          255
+        ],
+        "type": "solid"
+      },
+      "path": {
+        "fillRule": "nonzero",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 6477000.0,
+            "y": 514350.0
+          },
+          {
+            "type": "cubicTo",
+            "x": 8382000.0,
+            "x1": 7529102.5,
+            "x2": 8382000.0,
+            "y": 1714500.0,
+            "y1": 514350.0,
+            "y2": 1051675.375
+          },
+          {
+            "type": "cubicTo",
+            "x": 6477000.0,
+            "x1": 8382000.0,
+            "x2": 7529102.5,
+            "y": 2914650.0,
+            "y1": 2377324.75,
+            "y2": 2914650.0
+          },
+          {
+            "type": "cubicTo",
+            "x": 4572000.0,
+            "x1": 5424897.5,
+            "x2": 4572000.0,
+            "y": 1714500.0,
+            "y1": 2914650.0,
+            "y2": 2377324.75
+          },
+          {
+            "type": "cubicTo",
+            "x": 6477000.0,
+            "x1": 4572000.0,
+            "x2": 5424897.5,
+            "y": 514350.0,
+            "y1": 1051675.375,
+            "y2": 514350.0
+          },
+          {
+            "type": "close"
+          }
+        ]
+      },
+      "stroke": {
+        "color": [
+          20,
+          70,
+          180,
+          255
+        ],
+        "dashSegments": null,
+        "lineCap": "butt",
+        "lineJoin": "miter",
+        "miterLimit": 10.0,
+        "paint": null,
+        "widthEmu": 16193
+      },
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    },
+    {
+      "fill": null,
+      "path": {
+        "fillRule": "nonzero",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 457200.0,
+            "y": 3771900.0
+          },
+          {
+            "type": "lineTo",
+            "x": 8382000.0,
+            "y": 6000750.0
+          }
+        ]
+      },
+      "stroke": {
+        "color": [
+          20,
+          70,
+          180,
+          255
+        ],
+        "dashSegments": null,
+        "lineCap": "butt",
+        "lineJoin": "miter",
+        "miterLimit": 10.0,
+        "paint": null,
+        "widthEmu": 16193
+      },
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

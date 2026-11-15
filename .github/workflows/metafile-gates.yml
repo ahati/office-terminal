@@ -22,6 +22,7 @@ jobs:
           cargo test -p kitty-pptx-core --test metafile_milestone_tests
           cargo test -p kitty-pptx-core --test metafile_mode_tests
           cargo test -p kitty-pptx-core --test metafile_robustness_tests
+          cargo test -p kitty-pptx-core --test metafile_golden_tests
           cargo test -p kitty-pptx-core --test warning_plumbing_tests
       - name: Metafile budgets (release)
         run: cargo test --release -p kitty-pptx-core --test metafile_perf_tests

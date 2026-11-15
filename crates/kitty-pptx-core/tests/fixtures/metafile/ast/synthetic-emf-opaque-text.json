@@ -1,0 +1,84 @@
+{
+  "commands": [
+    {
+      "runs": [
+        {
+          "bold": false,
+          "color": [
+            0,
+            0,
+            0,
+            255
+          ],
+          "fontFamily": "Liberation Sans",
+          "fontSizePt": 108.0877,
+          "glyphs": [
+            {
+              "advance": 627271.0625,
+              "glyphId": 37,
+              "x": 4571711.5,
+              "y": 5452936.0
+            },
+            {
+              "advance": 560302.625,
+              "glyphId": 68,
+              "x": 5198982.5,
+              "y": 5452936.0
+            },
+            {
+              "advance": 502709.75,
+              "glyphId": 70,
+              "x": 5759285.0,
+              "y": 5452936.0
+            },
+            {
+              "advance": 529497.125,
+              "glyphId": 78,
+              "x": 6261995.0,
+              "y": 5452936.0
+            },
+            {
+              "advance": 580393.125,
+              "glyphId": 71,
+              "x": 6791492.0,
+              "y": 5452936.0
+            },
+            {
+              "advance": 355825.625,
+              "glyphId": 85,
+              "x": 7371885.5,
+              "y": 5452936.0
+            },
+            {
+              "advance": 559409.6875,
+              "glyphId": 82,
+              "x": 7727711.0,
+              "y": 5452936.0
+            },
+            {
+              "advance": 580393.125,
+              "glyphId": 83,
+              "x": 8287121.0,
+              "y": 5452936.0
+            }
+          ],
+          "italic": false,
+          "strike": null,
+          "text": "Backdrop",
+          "underline": null
+        }
+      ],
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawText"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

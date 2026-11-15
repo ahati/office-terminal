@@ -1,0 +1,47 @@
+{
+  "commands": [
+    {
+      "fill": null,
+      "path": {
+        "fillRule": "evenOdd",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 457171.1875,
+            "y": 1372713.5
+          },
+          {
+            "type": "lineTo",
+            "x": 4571711.5,
+            "y": 1372713.5
+          }
+        ]
+      },
+      "stroke": {
+        "color": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "dashSegments": null,
+        "lineCap": "round",
+        "lineJoin": "miter",
+        "miterLimit": 10.0,
+        "paint": null,
+        "widthEmu": 457411
+      },
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

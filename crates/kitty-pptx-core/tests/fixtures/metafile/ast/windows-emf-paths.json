@@ -1,0 +1,107 @@
+{
+  "commands": [
+    {
+      "fill": {
+        "color": [
+          230,
+          180,
+          40,
+          255
+        ],
+        "type": "solid"
+      },
+      "path": {
+        "fillRule": "evenOdd",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 488497.9375,
+            "y": 3575109.0
+          },
+          {
+            "type": "cubicTo",
+            "x": 5007104.0,
+            "x1": 1587618.25,
+            "x2": 4030108.0,
+            "y": 3575109.0,
+            "y1": 275008.375,
+            "y2": 275008.375
+          },
+          {
+            "type": "lineTo",
+            "x": 488497.9375,
+            "y": 3575109.0
+          },
+          {
+            "type": "close"
+          }
+        ]
+      },
+      "stroke": null,
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    },
+    {
+      "fill": null,
+      "path": {
+        "fillRule": "evenOdd",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 488497.9375,
+            "y": 3575109.0
+          },
+          {
+            "type": "cubicTo",
+            "x": 5007104.0,
+            "x1": 1587618.25,
+            "x2": 4030108.0,
+            "y": 3575109.0,
+            "y1": 275008.375,
+            "y2": 275008.375
+          },
+          {
+            "type": "lineTo",
+            "x": 488497.9375,
+            "y": 3575109.0
+          },
+          {
+            "type": "close"
+          }
+        ]
+      },
+      "stroke": {
+        "color": [
+          128,
+          0,
+          128,
+          255
+        ],
+        "dashSegments": null,
+        "lineCap": "butt",
+        "lineJoin": "miter",
+        "miterLimit": 10.0,
+        "paint": null,
+        "widthEmu": 64907
+      },
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

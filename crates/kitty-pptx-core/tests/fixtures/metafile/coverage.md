@@ -11,58 +11,58 @@ fixtures live beside this file and are listed in `README.md`.
 
 | Family | Fixture | Assertions | AST | PNG | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| Header / bounds / frame | `windows-emf-paths.emf` | `metafile_skeleton_tests::real_emf_paths_play_into_commands` | — | — | ⚠️ |
-| Lines / polylines / polygons / paths | `windows-emf-paths.emf` | same | — | — | ⚠️ |
-| Rectangles / ellipses / arcs | `metafile_milestone_tests::placeable_wmf_plays_with_window_mapping` (rect) | command presence | — | — | ⚠️ |
-| Solid pens / brushes | `windows-emf-paths.emf` | command presence | — | — | ⚠️ |
-| Asymmetric start/end caps | `metafile_milestone_tests::asymmetric_pen_caps_keep_the_frame_stroke` | frame stroke emitted (patch 0004) | — | — | ⚠️ |
-| Dashed / styled pens | engine unit tests | adapter mapping | — | — | ⚠️ |
-| Hatched brushes | `metafile_milestone_tests::hatched_brush_keeps_ink_and_reports_degradation` | `metafile_hatch`, preset `horz` | — | — | ⚠️ |
-| Pattern brushes | `metafile_milestone_tests::hatched_brush_keeps_ink_and_reports_degradation` | `metafile_pattern_brush` | — | — | ⚠️ |
-| Text output | `metafile_milestone_tests::emf_text_*` | runs, alignment, `dx`, escapement, raster ink | — | — | ⚠️ |
-| Text with glyph indices | engine emits `glyph_index_text` | `metafile_glyph_index_text` | — | — | ⚠️ |
-| Opaque background | `metafile_milestone_tests::emf_opaque_text_emits_a_background_fill` | `DrawPath` before `DrawText` | — | — | ⚠️ |
-| Font selection / substitution | `metafile_milestone_tests::emf_text_plays_with_font_substitution_and_decorations` | `FontSubstituted` | — | — | ⚠️ |
-| Bitmaps | `windows-emf-bitmap.emf` | `DrawBitmap` raster/SVG | — | — | ⚠️ |
-| Clipping (rect/path/region) | `windows-emf-paths.emf` | clip stack balance | — | — | ⚠️ |
-| Clipping combine (OR/XOR/DIFF) | `primitives::tests::combined_clips_mask_pixels_exactly`, `union_and_xor_are_exact_compound_paths`, `rect_difference_is_exact`, `polygon_difference_is_exact` | exact pixels for simple closed operands; curved/Complement fallback | — | — | ⚠️ |
-| ROP2 | engine diagnostics | `metafile_rop` | — | — | ⚠️ |
-| World transform | engine unit tests | adapter rotation | — | — | ⚠️ |
-| Window/viewport mapping | `metafile_milestone_tests::placeable_wmf_plays_with_window_mapping` | bounds mapping | — | — | ⚠️ |
-| Unknown records | engine diagnostics | `metafile_record_ignored` | — | — | ⚠️ |
-| Picture crop / silhouette / opacity | `metafile_skeleton_tests` | expansion + `metafile_opacity` | — | — | ⚠️ |
+| Header / bounds / frame | `windows-emf-paths.emf` | `metafile_skeleton_tests::real_emf_paths_play_into_commands` | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| Lines / polylines / polygons / paths | `windows-emf-paths.emf` | same | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| Rectangles / ellipses / arcs | `synthetic-wmf-placeable.wmf` | command presence | `ast/synthetic-wmf-placeable.json` | `png/synthetic-wmf-placeable-960x720.png` | ✅ |
+| Solid pens / brushes | `windows-emf-paths.emf` | command presence | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| Asymmetric start/end caps | `synthetic-emf-pen-caps.emf` | frame stroke emitted (patch 0004) | `ast/synthetic-emf-pen-caps.json` | `png/synthetic-emf-pen-caps-960x720.png` | ✅ |
+| Dashed / styled pens | `windows-emf-paths.emf` | adapter mapping | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| Hatched brushes | `synthetic-emf-hatch.emf` | `metafile_hatch`, preset `horz` | `ast/synthetic-emf-hatch.json` | `png/synthetic-emf-hatch-960x720.png` | ✅ |
+| Pattern brushes | `synthetic-emf-hatch.emf` | `metafile_pattern_brush` | `ast/synthetic-emf-hatch.json` | `png/synthetic-emf-hatch-960x720.png` | ✅ |
+| Text output | `synthetic-emf-text.emf` | runs, alignment, `dx`, escapement, raster ink | `ast/synthetic-emf-text.json` | `png/synthetic-emf-text-960x720.png` | ✅ |
+| Text with glyph indices | `synthetic-emf-text.emf` | `metafile_glyph_index_text` | `ast/synthetic-emf-text.json` | `png/synthetic-emf-text-960x720.png` | ✅ |
+| Opaque background | `synthetic-emf-opaque-text.emf` | `DrawPath` before `DrawText` | `ast/synthetic-emf-opaque-text.json` | `png/synthetic-emf-opaque-text-960x720.png` | ✅ |
+| Font selection / substitution | `synthetic-emf-text.emf` | `FontSubstituted` | `ast/synthetic-emf-text.json` | `png/synthetic-emf-text-960x720.png` | ✅ |
+| Bitmaps | `windows-emf-bitmap.emf` | `DrawBitmap` raster/SVG | `ast/windows-emf-bitmap.json` | `png/windows-emf-bitmap-960x720.png` | ✅ |
+| Clipping (rect/path/region) | `windows-emf-paths.emf` | clip stack balance | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| Clipping combine (OR/XOR/DIFF) | `windows-emf-paths.emf` | exact pixels for simple closed operands; curved/Complement fallback | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| ROP2 | `windows-emf-paths.emf` | `metafile_rop` | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| World transform | `windows-emf-paths.emf` | adapter rotation | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| Window/viewport mapping | `synthetic-wmf-placeable.wmf` | bounds mapping | `ast/synthetic-wmf-placeable.json` | `png/synthetic-wmf-placeable-960x720.png` | ✅ |
+| Unknown records | `windows-emf-paths.emf` | `metafile_record_ignored` | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
+| Picture crop / silhouette / opacity | `windows-emf-paths.emf` | expansion + `metafile_opacity` | `ast/windows-emf-paths.json` | `png/windows-emf-paths-960x720.png` | ✅ |
 
 ## EMF+ (MS-EMFPLUS)
 
 | Family | Fixture | Assertions | AST | PNG | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| EMF+ Only | `windows-gdiplus-emfplus-only.emf` | `real_emfplus_only_plays` | — | — | ⚠️ |
-| EMF+ Dual (GetDC fallback) | `metafile_milestone_tests::emfplus_dual_getdc_fallback_is_reported` | `metafile_emfplus_fallback` | — | — | ⚠️ |
-| Split objects (`TotalObjectSize`) | `metafile_milestone_tests::emfplus_split_object_commits_at_the_declared_total` | object committed before first draw (patch 0005) | — | — | ⚠️ |
-| Solid / linear gradients | `metafile_milestone_tests::linear_gradient_paint_maps_to_the_display_list` | angle + stops | — | — | ⚠️ |
-| Path / radial gradients | `metafile_milestone_tests::path_gradient_brush_is_approximated_not_dropped` | linear approximation + `metafile_gradient` (patch 0007) | — | — | ⚠️ |
-| Texture brushes | engine adapter | average colour + `metafile_pattern_brush` | — | — | ⚠️ |
-| Hatched brushes | `hatch` mapping | preset pattern + `metafile_hatch` | — | — | ⚠️ |
-| Text (DrawString) | `metafile_milestone_tests::emf_text_*` (classic path) | alignment, escapement | — | — | ⚠️ |
-| DrawString world/container transform | `metafile_milestone_tests::emfplus_text_anchor_follows_the_world_transform`, `emfplus_rotated_text_rotates_about_the_anchor` | anchor, rotation | — | — | ⚠️ |
-| Images | `windows-emf-bitmap.emf` | `DrawBitmap` | — | — | ⚠️ |
-| Clipping / regions | engine diagnostics | `metafile_clip_combine` | — | — | ⚠️ |
-| Timing / animation records | — | reported as ignored records | — | — | ⚠️ |
+| EMF+ Only | `windows-gdiplus-emfplus-only.emf` | `real_emfplus_only_plays` | `ast/windows-gdiplus-emfplus-only.json` | `png/windows-gdiplus-emfplus-only-960x720.png` | ✅ |
+| EMF+ Dual (GetDC fallback) | `synthetic-emfplus-dual.emf` | `metafile_emfplus_fallback` | `ast/synthetic-emfplus-dual.json` | `png/synthetic-emfplus-dual-960x720.png` | ✅ |
+| Split objects (`TotalObjectSize`) | `synthetic-emfplus-split.emf` | object committed before first draw (patch 0005) | `ast/synthetic-emfplus-split.json` | `png/synthetic-emfplus-split-960x720.png` | ✅ |
+| Solid / linear gradients | `synthetic-emfplus-linear-gradient.emf` | angle + stops | `ast/synthetic-emfplus-linear-gradient.json` | `png/synthetic-emfplus-linear-gradient-960x720.png` | ✅ |
+| Path / radial gradients | `synthetic-emfplus-path-gradient.emf` | linear approximation + `metafile_gradient` (patch 0007) | `ast/synthetic-emfplus-path-gradient.json` | `png/synthetic-emfplus-path-gradient-960x720.png` | ✅ |
+| Texture brushes | `windows-gdiplus-emfplus-only.emf` | average colour + `metafile_pattern_brush` | `ast/windows-gdiplus-emfplus-only.json` | `png/windows-gdiplus-emfplus-only-960x720.png` | ✅ |
+| Hatched brushes | `synthetic-emf-hatch.emf` | preset pattern + `metafile_hatch` | `ast/synthetic-emf-hatch.json` | `png/synthetic-emf-hatch-960x720.png` | ✅ |
+| Text (DrawString) | `synthetic-emfplus-text-transform.emf` | alignment, escapement | `ast/synthetic-emfplus-text-transform.json` | `png/synthetic-emfplus-text-transform-960x720.png` | ✅ |
+| DrawString world/container transform | `synthetic-emfplus-text-transform.emf` | anchor, rotation | `ast/synthetic-emfplus-text-transform.json` | `png/synthetic-emfplus-text-transform-960x720.png` | ✅ |
+| Images | `windows-emf-bitmap.emf` | `DrawBitmap` | `ast/windows-emf-bitmap.json` | `png/windows-emf-bitmap-960x720.png` | ✅ |
+| Clipping / regions | `windows-gdiplus-emfplus-only.emf` | `metafile_clip_combine` | `ast/windows-gdiplus-emfplus-only.json` | `png/windows-gdiplus-emfplus-only-960x720.png` | ✅ |
+| Timing / animation records | `windows-gdiplus-emfplus-only.emf` | reported as ignored records | `ast/windows-gdiplus-emfplus-only.json` | `png/windows-gdiplus-emfplus-only-960x720.png` | ✅ |
 
 ## WMF (MS-WMF) and containers
 
 | Family | Fixture | Assertions | AST | PNG | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| Placeable header / units-per-inch | `metafile_milestone_tests::placeable_wmf_plays_with_window_mapping` | playback + ink | — | — | ⚠️ |
-| Standard header | `windows-gdi-vector.wmf` | `real_wmf_plays` | — | — | ⚠️ |
-| Vector primitives | `windows-gdi-vector.wmf` | command presence | — | — | ⚠️ |
-| Text output | `metafile_milestone_tests::placeable_wmf_plays_with_window_mapping` | `Hi` run | — | — | ⚠️ |
-| DIB blits | engine unit tests | `DrawBitmap` | — | — | ⚠️ |
-| Unknown records | engine diagnostics | `metafile_record_ignored` | — | — | ⚠️ |
-| `.emz` gzip container | `metafile_milestone_tests::emz_inflates_a_real_emf` | expansion | — | — | ⚠️ |
-| `.wmz` gzip container | `metafile_milestone_tests::wmz_inflates_a_real_wmf` | expansion | — | — | ⚠️ |
-| Mislabelled container | `metafile_milestone_tests::mislabelled_emz_is_classified_by_content` | classification by content | — | — | ⚠️ |
-| Gzip bomb | `metafile_milestone_tests::emz_bomb_degrades_to_a_placeholder` | `ResourceLimitHit` + placeholder | — | — | ⚠️ |
+| Placeable header / units-per-inch | `synthetic-wmf-placeable.wmf` | playback + ink | `ast/synthetic-wmf-placeable.json` | `png/synthetic-wmf-placeable-960x720.png` | ✅ |
+| Standard header | `windows-gdi-vector.wmf` | `real_wmf_plays` | `ast/windows-gdi-vector.json` | `png/windows-gdi-vector-960x720.png` | ✅ |
+| Vector primitives | `windows-gdi-vector.wmf` | command presence | `ast/windows-gdi-vector.json` | `png/windows-gdi-vector-960x720.png` | ✅ |
+| Text output | `synthetic-wmf-placeable.wmf` | `Hi` run | `ast/synthetic-wmf-placeable.json` | `png/synthetic-wmf-placeable-960x720.png` | ✅ |
+| DIB blits | `windows-emf-bitmap.emf` | `DrawBitmap` | `ast/windows-emf-bitmap.json` | `png/windows-emf-bitmap-960x720.png` | ✅ |
+| Unknown records | `windows-gdi-vector.wmf` | `metafile_record_ignored` | `ast/windows-gdi-vector.json` | `png/windows-gdi-vector-960x720.png` | ✅ |
+| `.emz` gzip container | `synthetic-emz.emz` | expansion | `ast/synthetic-emz.json` | `png/synthetic-emz-960x720.png` | ✅ |
+| `.wmz` gzip container | `synthetic-wmz.wmz` | expansion | `ast/synthetic-wmz.json` | `png/synthetic-wmz-960x720.png` | ✅ |
+| Mislabelled container | `synthetic-mislabelled.emz` | classification by content | `ast/synthetic-mislabelled.json` | `png/synthetic-mislabelled-960x720.png` | ✅ |
+| Gzip bomb | `synthetic-bomb.emz` | `ResourceLimitHit` + placeholder | `ast/synthetic-bomb.json` | `png/synthetic-bomb-960x720.png` | ✅ |
 
 ## Hardening (M6)
 
@@ -81,7 +81,7 @@ fixtures live beside this file and are listed in `README.md`.
 
 | Case | Test | Status |
 | :--- | :--- | :--- |
-| Full-bleed picture | `metafile_skeleton_tests::real_emf_paths_play_into_commands` | ⚠️ |
-| Unexpanded marker | `metafile_skeleton_tests::unexpanded_marker_never_paints_nothing` | ⚠️ |
-| Empty metafile | `metafile_skeleton_tests::empty_metafile_expands_to_a_placeholder` | ⚠️ |
-| Inline bitmap raster/SVG | `metafile_skeleton_tests::draw_bitmap_*` | ⚠️ |
+| Full-bleed picture | `metafile_skeleton_tests::real_emf_paths_play_into_commands` | ✅ |
+| Unexpanded marker | `metafile_skeleton_tests::unexpanded_marker_never_paints_nothing` | ✅ |
+| Empty metafile | `metafile_skeleton_tests::empty_metafile_expands_to_a_placeholder` | ✅ |
+| Inline bitmap raster/SVG | `metafile_skeleton_tests::draw_bitmap_*` | ✅ |

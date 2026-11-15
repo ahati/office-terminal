@@ -12,6 +12,7 @@ pub mod bevel_inputs;
 pub mod bevel_profiles;
 pub mod camera;
 pub mod homography;
+pub mod lighting;
 pub mod projection;
 
 pub use bevel_inputs::{build_bevel_inputs, BevelInput, PresetMaterial};
