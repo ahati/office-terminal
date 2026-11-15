@@ -7,6 +7,7 @@
 pub mod metrics;
 pub mod render;
 pub mod scores;
+pub mod thumbs;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

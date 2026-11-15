@@ -126,11 +126,14 @@ evict a full corpus. `--force` re-verifies and overwrites the selected entries.
 target/external/
 ├── download/<commit>/*.pptx        # generator's raw download cache
 ├── fixtures/<commit>/*.pptx        # sparse-checkout fetch (419)
-└── goldens/<commit>/
-    ├── stamp.json                  # written only after a full render
-    ├── unrenderable.json           # decks the reference viewer rejected
-    ├── Bar_List/slide_001.png
-    └── ...                         # 418 deck directories, 543 PNGs
+└── goldens/
+    ├── <commit>/
+    │   ├── stamp.json              # written only after a full render
+    │   ├── unrenderable.json       # decks the reference viewer rejected
+    │   ├── Bar_List/slide_001.png
+    │   └── ...                     # 418 deck directories, 543 PNGs
+    └── thumbnails/<commit>/v1-w400/
+        └── <deck>/slide_001.<len>-<mtime>.png   # generated on first compare
 ```
 
 `stamp.json` records the manifest SHA-256, pinned commit, render width,
@@ -139,6 +142,13 @@ per-fixture name/sha256/slide count, renderer script hashes, and pinned
 invalidates the whole reference cache; adding fixtures keeps existing pixels and
 renders only the new decks. Editing a note or threshold does **not** invalidate
 cached pixels.
+
+The comparison metric runs at 400 px, so the first comparison flattens and
+box-downscales each 1600 px reference into `goldens/thumbnails/<commit>/`
+(git-ignored with the rest of `target/`). Later runs decode those thumbnails
+instead of the full-resolution PNGs. The thumbnail name includes the source
+file's length and mtime, so `--force-render` regenerates only the changed
+references; bumping `COMPARE_WIDTH` starts a new `w<width>` directory.
 
 Rendering is resumable at deck granularity: a deck whose `slide_*.png` files all
 exist is skipped, and freshly rendered slides are merged one file at a time so
@@ -150,7 +160,8 @@ deck cannot abort the corpus; failures are recorded in `unrenderable.json` and
 not retried (delete the file or use `--force-render` to retry). It prints the
 measured rate and an extrapolated full-corpus time. At the pinned commit a full
 render measured **~184 decks/min (~2.3 minutes for 419 decks)**; the comparison
-test itself takes about 80 s in a debug build with 16 workers.
+test renders at 400 px and caches the downscaled references, so only the first
+debug run pays the full-resolution decode.
 
 `ExternalCorpus::discover()` reads `fixtures.json` and derives the commit and
 cache paths from it, so adding a manifest entry needs no test edit.
@@ -165,8 +176,9 @@ The comparison is a normal `#[test]` (not `#[ignore]`) that self-skips:
   prints `skipping external corpus comparison: ...` plus the run command and
   returns. `cargo test` passes on a machine that never opted in, in milliseconds.
 - Cached references present: renders every manifest deck that has a complete
-  golden set through the production pipeline (parallel workers), compares each
-  slide against the cached PNG, and prints a summary:
+  golden set through the production pipeline at the 400 px comparison width
+  (parallel workers), compares each slide against a cached reference thumbnail,
+  and prints a summary:
 
 ```text
 external corpus summary: compared=418 slides=543 strict=4 (pass=4 fail=0) \

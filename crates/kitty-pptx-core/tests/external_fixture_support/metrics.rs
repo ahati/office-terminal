@@ -64,16 +64,33 @@ pub struct DiffMetrics {
     pub cells_y: u32,
 }
 
-/// Compare one rendered slide against its cached reference PNG.
-pub fn compare_slide(actual: &RgbaSlide, reference: &Path) -> Result<DiffMetrics, String> {
+/// Compare one rendered slide against a reference thumbnail.
+///
+/// The thumbnail comes from [`super::thumbs::ThumbnailCache`] and is already
+/// flattened over white and downscaled to [`COMPARE_WIDTH`]. The freshly
+/// rendered slide is the only image that still needs normalisation, so the
+/// common path does no 1600 px work here.
+pub fn compare_slide(actual: &RgbaSlide, reference: RgbImage) -> DiffMetrics {
     let actual = RgbImage::from_rgba(actual);
-    let reference = load_reference(reference)?;
-    let height = ((COMPARE_WIDTH as f64 * actual.height as f64 / actual.width as f64).round()
+    let height = scaled_height(COMPARE_WIDTH, actual.width, actual.height);
+    let actual = fit_width(actual, COMPARE_WIDTH, height);
+    let reference = fit_width(reference, COMPARE_WIDTH, height);
+    compare(&actual, &reference, CELL_TOLERANCE)
+}
+
+/// Height that preserves `source_height / source_width` at `width` px.
+pub(crate) fn scaled_height(width: u32, source_width: u32, source_height: u32) -> u32 {
+    ((f64::from(width) * f64::from(source_height) / f64::from(source_width.max(1))).round()
         as u32)
-        .max(1);
-    let actual = resize_box(&actual, COMPARE_WIDTH, height);
-    let reference = resize_box(&reference, COMPARE_WIDTH, height);
-    Ok(compare(&actual, &reference, CELL_TOLERANCE))
+        .max(1)
+}
+
+fn fit_width(image: RgbImage, width: u32, height: u32) -> RgbImage {
+    if image.width == width && image.height == height {
+        image
+    } else {
+        resize_box(&image, width, height)
+    }
 }
 
 pub fn load_reference(path: &Path) -> Result<RgbImage, String> {
@@ -89,7 +106,7 @@ pub fn load_reference(path: &Path) -> Result<RgbImage, String> {
 
 /// Box-average `input` into `width` x `height`, so CowG files and dense
 /// anti-aliasing are averaged rather than point-sampled.
-fn resize_box(input: &RgbImage, width: u32, height: u32) -> RgbImage {
+pub(crate) fn resize_box(input: &RgbImage, width: u32, height: u32) -> RgbImage {
     let mut pixels = vec![0u8; width as usize * height as usize * 3];
     let scale_x = input.width as f64 / width as f64;
     let scale_y = input.height as f64 / height as f64;

@@ -8,6 +8,10 @@
 //! diagnostics, and missing goldens. It is perceptual, not pixel-identical:
 //! another renderer and font stack differ.
 //!
+//! Slides are rendered at the comparison width (400 px) and each 1600 px
+//! reference is flattened/downscaled once into `target/external/thumbnails/`;
+//! later runs decode only those thumbnails.
+//!
 //! The reference viewer is never invoked here; only the cached PNGs are read.
 //! Strict fixtures enforce their thresholds. Diagnostic (`strict: false`)
 //! fixtures print their metrics but never fail: the 419-deck corpus
@@ -23,9 +27,10 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use external_fixture_support::metrics::{compare_slide, DiffMetrics};
+use external_fixture_support::metrics::{compare_slide, DiffMetrics, COMPARE_WIDTH};
 use external_fixture_support::render::render_fixture;
 use external_fixture_support::scores::{self, ExternalScores, SlideScore};
+use external_fixture_support::thumbs::ThumbnailCache;
 use external_fixture_support::{
     load_manifest, Corpus, Fixture, Selection, MANIFEST_RELATIVE, MAX_LISTED, RUN_COMMAND,
 };
@@ -105,8 +110,10 @@ fn run_external_comparison() {
 
 fn compare_corpus(corpus: &Corpus, selection: &Selection) -> Report {
     let workers = worker_count(selection.compare.len());
+    let thumbs = ThumbnailCache::new(&corpus.goldens_dir, &corpus.manifest.commit, COMPARE_WIDTH);
     println!(
-        "comparing {} deck(s) with {workers} worker(s) at {}px",
+        "comparing {} deck(s) with {workers} worker(s) at {COMPARE_WIDTH}px \
+         (references {}px)",
         selection.compare.len(),
         corpus.manifest.render_width
     );
@@ -120,7 +127,7 @@ fn compare_corpus(corpus: &Corpus, selection: &Selection) -> Report {
                     break;
                 };
                 let fixture = &corpus.manifest.files[index];
-                let result = compare_deck(corpus, fixture);
+                let result = compare_deck(corpus, fixture, &thumbs);
                 collected.lock().expect("result mutex poisoned").push((position, result));
             });
         }
@@ -212,15 +219,20 @@ enum DeckResult {
     Error(String),
 }
 
-fn compare_deck(corpus: &Corpus, fixture: &Fixture) -> DeckResult {
+fn compare_deck(corpus: &Corpus, fixture: &Fixture, thumbs: &ThumbnailCache) -> DeckResult {
     let deck = corpus.fixtures_dir.join(format!("{}.pptx", fixture.name));
-    let rendered = match render_fixture(&deck, corpus.manifest.render_width) {
+    // The metric compares at `COMPARE_WIDTH`; rendering larger only produces
+    // pixels that `resize_box` immediately averages away.
+    let rendered = match render_fixture(&deck, COMPARE_WIDTH) {
         Ok(slides) => slides,
         Err(error) => return DeckResult::Error(error),
     };
     let compared = rendered.len().min(fixture.slides);
     let metrics = (1..=compared)
-        .map(|slide| compare_slide(&rendered[slide - 1], &fixture.golden(&corpus.goldens_dir, slide)))
+        .map(|slide| -> Result<DiffMetrics, String> {
+            let reference = thumbs.load(&fixture.golden(&corpus.goldens_dir, slide))?;
+            Ok(compare_slide(&rendered[slide - 1], reference))
+        })
         .collect();
     DeckResult::Rendered {
         rendered_slides: rendered.len(),
