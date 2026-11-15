@@ -159,7 +159,7 @@ impl TerminalGraphicsDriver for KittyDriver {
         DriverCaps {
             alpha: true,
             terminal_side_scaling: true,
-            resident_ids: 8,
+            resident_ids: RESIDENT_IMAGE_IDS,
         }
     }
 
@@ -204,6 +204,6 @@ impl StageSink for KittyDriver {
     }
 
     fn resident_capacity(&self) -> u32 {
-        8
+        RESIDENT_IMAGE_IDS
     }
 }

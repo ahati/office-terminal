@@ -1,9 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use ratatui::backend::TestBackend;
-use ratatui::Terminal;
 use kitty_pptx_tui::app::events::{handle_key_event, AppAction};
 use kitty_pptx_tui::app::state::{AppMode, PresentationState, PresenterMode};
 use kitty_pptx_tui::app::ui::sorter::render_sorter;
+use ratatui::backend::TestBackend;
+use ratatui::style::Color;
+use ratatui::Terminal;
 
 fn make_key(code: KeyCode) -> KeyEvent {
     KeyEvent {
@@ -215,9 +216,11 @@ fn test_sorter_ui_rendering_smoke() {
     state.set_mode(AppMode::Sorter);
     state.set_selected_sorter_index(3);
 
-    terminal.draw(|f| {
-        render_sorter(&state, f, f.area());
-    }).unwrap();
+    terminal
+        .draw(|f| {
+            render_sorter(&state, f, f.area());
+        })
+        .unwrap();
 
     let buffer = terminal.backend().buffer();
     // Check that header text is present in the rendered buffer
@@ -225,7 +228,15 @@ fn test_sorter_ui_rendering_smoke() {
     for y in 0..buffer.area.height {
         let mut line_str = String::new();
         for x in 0..buffer.area.width {
-            line_str.push(buffer.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '));
+            line_str.push(
+                buffer
+                    .cell((x, y))
+                    .unwrap()
+                    .symbol()
+                    .chars()
+                    .next()
+                    .unwrap_or(' '),
+            );
         }
         if line_str.contains("SLIDE SORTER") {
             text_found = true;
@@ -233,4 +244,47 @@ fn test_sorter_ui_rendering_smoke() {
         }
     }
     assert!(text_found, "Buffer should contain 'SLIDE SORTER' header");
+}
+
+/// Regression: cards used to be filled with a solid black block because the
+/// direct-placement path only knew the current/preview image slots. Every card
+/// must now reserve a real graphics canvas at its fitted rect.
+#[test]
+fn test_sorter_cards_reserve_a_thumbnail_canvas() {
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let mut state = PresentationState::new(12, vec![]);
+    state.set_mode(AppMode::Sorter);
+
+    terminal
+        .draw(|f| {
+            render_sorter(&state, f, f.area());
+        })
+        .unwrap();
+
+    let cards = state.thumbnail_placement_rects();
+    assert_eq!(
+        cards.len(),
+        12,
+        "every visible card records a thumbnail rect"
+    );
+
+    let buffer = terminal.backend().buffer();
+    for (slide, rect) in &cards {
+        assert!(
+            rect.cols > 0 && rect.rows > 0,
+            "slide {} has a placeable rect: {rect:?}",
+            slide + 1
+        );
+        let cell = buffer
+            .cell((rect.col, rect.row))
+            .unwrap_or_else(|| panic!("rect for slide {} is outside the buffer", slide + 1));
+        assert_eq!(
+            cell.bg,
+            Color::Reset,
+            "slide {} reserves a transparent graphics canvas instead of a black block",
+            slide + 1
+        );
+    }
 }

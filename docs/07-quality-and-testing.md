@@ -82,5 +82,5 @@ Every numeric NFR target from [PRD 00](./00-system-overview.md) §4 is verified 
 
 | Environment | TUI Presentation | Split Presenter View | Sorter Thumbnails | `view` Scrollback | Resize Scaling |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Kitty-protocol terminal** | Pass | Pass | Blank (direct placement) | Pass | Pass (re-render) |
+| **Kitty-protocol terminal** | Pass | Pass | Pass (direct placement) | Pass | Pass (re-render) |
 | **No Kitty graphics** | Fail with `NoCapableTerminal` | Fail with `NoCapableTerminal` | — | Fail with `NoCapableTerminal` | — |

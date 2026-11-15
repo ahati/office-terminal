@@ -1,7 +1,11 @@
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline};
-use kitty_pptx_display::{CellRect, ImageId, Placement, TerminalGraphicsDriver};
+use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
+use kitty_pptx_display::{
+    CellRect, ImageId, Placement, TerminalGraphicsDriver, MAX_THUMBNAIL_IMAGES,
+    THUMBNAIL_IMAGE_ID_BASE,
+};
 
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
@@ -27,17 +31,37 @@ struct PlacedImage {
     epoch: u64,
 }
 
+/// A slide-sorter card currently staged on the terminal.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct ThumbSlot {
+    id: ImageId,
+    slide: usize,
+    rect: CellRect,
+    /// Pixel target the resident bitmap was rendered for. A card resize that
+    /// changes the target needs a re-transmission, not just a reposition.
+    target: RenderTargetSpec,
+}
+
+/// Upper bound on newly transmitted thumbnails per frame. Every `stage` encodes
+/// and writes a PNG, so filling a large grid in a single frame would stall the
+/// event loop; the remaining cards arrive over the next few frames.
+const MAX_THUMBNAIL_STAGES_PER_FRAME: usize = 4;
+
 /// Keeps terminal graphics in sync with the rects recorded by the last frame.
 ///
-/// The syncer stages the current (and presenter-preview) bitmap on demand and
-/// places/repositions the image only when the slide or its screen rect changed,
-/// so the render loop never spams the terminal with duplicate image commands.
+/// The syncer stages the visible bitmap(s) on demand and places/repositions the
+/// image only when the slide or its screen rect changed, so the render loop
+/// never spams the terminal with duplicate image commands. Exactly one view
+/// owns the screen at a time: the full-screen current slide (optionally with a
+/// presenter preview) or the slide-sorter thumbnail grid.
 #[derive(Default)]
 pub(crate) struct GraphicsSyncer {
     current_staged: Option<StagedImage>,
     preview_staged: Option<StagedImage>,
     current_placed: Option<PlacedImage>,
     preview_placed: Option<PlacedImage>,
+    /// Visible sorter cards, keyed by slide index for stable id reuse.
+    thumbs: BTreeMap<usize, ThumbSlot>,
     suppressed: bool,
     epoch: u64,
 }
@@ -69,6 +93,23 @@ impl GraphicsSyncer {
         }
         self.suppressed = false;
 
+        // Resolve the base view exactly like the renderer does, so an overlay
+        // modal on top of the sorter does not tear the grid images down.
+        if state.base_mode() == AppMode::Sorter {
+            return self.sync_thumbnails(state, pipeline, driver);
+        }
+
+        self.release_thumbnails(driver)?;
+        self.sync_slide(state, pipeline, driver)
+    }
+
+    /// Syncs the full-screen slide and the presenter next-slide preview.
+    fn sync_slide(
+        &mut self,
+        state: &mut PresentationState,
+        pipeline: &dyn RenderPipeline,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
         let (current_rect, preview_rect) = state.placement_rects();
 
         match current_rect {
@@ -108,6 +149,153 @@ impl GraphicsSyncer {
         Ok(())
     }
 
+    /// Syncs the slide-sorter grid: one bitmap per visible card.
+    ///
+    /// Only visible cards are staged; cards that scroll out are released so the
+    /// resident-id pool stays bounded. Thumbnails render from a card-sized
+    /// target instead of the full-canvas raster.
+    fn sync_thumbnails(
+        &mut self,
+        state: &mut PresentationState,
+        pipeline: &dyn RenderPipeline,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
+        // The sorter replaces the full-screen canvas: no slide image may stay
+        // on screen behind the grid.
+        self.release_current(driver)?;
+        self.release_preview(driver)?;
+
+        let mut visible = state.thumbnail_placement_rects();
+        visible.truncate(MAX_THUMBNAIL_IMAGES as usize);
+        let Some((_, first_rect)) = visible.first() else {
+            return self.release_thumbnails(driver);
+        };
+
+        let target = thumbnail_target(state.aspect_ratio(), *first_rect);
+
+        // Queue the visible window before staging: the pipeline renders on its
+        // workers at the card target, so the next frames can stage immediately.
+        let slides: Vec<usize> = visible.iter().map(|(slide, _)| *slide).collect();
+        pipeline.prefetch_thumbnails(&slides, &target);
+
+        // Cards that scrolled out of view free their resident ids.
+        let keep: HashSet<usize> = visible.iter().map(|(slide, _)| *slide).collect();
+        self.release_thumbnails_except(&keep, driver)?;
+
+        let mut stages_left = MAX_THUMBNAIL_STAGES_PER_FRAME;
+        for (slide, rect) in visible {
+            match pipeline.entry_at(slide, &target) {
+                PipelineEntry::Ready { bitmap, .. } => {
+                    state.clear_render_failure_for(slide);
+
+                    let staged = self
+                        .thumbs
+                        .get(&slide)
+                        .map(|slot| (slot.id, slot.rect, slot.target));
+                    match staged {
+                        // Already on screen at the right size and position.
+                        Some((_, prev_rect, prev_target))
+                            if prev_rect == rect && prev_target == target =>
+                        {
+                            continue
+                        }
+                        // Same bitmap, new card geometry: move it, no re-transmit.
+                        Some((id, _, prev_target)) if prev_target == target => {
+                            driver.reposition(id, Placement::Cells(rect))?;
+                            if let Some(slot) = self.thumbs.get_mut(&slide) {
+                                slot.rect = rect;
+                            }
+                            continue;
+                        }
+                        // New card, or the card was resized to a new target.
+                        _ => {}
+                    }
+
+                    if stages_left == 0 {
+                        continue;
+                    }
+                    stages_left -= 1;
+
+                    let id = self.thumbnail_id(slide);
+                    driver.stage(&bitmap, id)?;
+                    driver.present(id, Placement::Cells(rect))?;
+                    self.epoch = self.epoch.saturating_add(1);
+                    self.thumbs.insert(
+                        slide,
+                        ThumbSlot {
+                            id,
+                            slide,
+                            rect,
+                            target,
+                        },
+                    );
+                }
+                // Only the card under the cursor is reported: a broken deck
+                // would otherwise file one drawer entry per visible card.
+                PipelineEntry::Failed { error } if slide == state.selected_sorter_index() => {
+                    state.note_render_failure(slide, error.to_string());
+                }
+                PipelineEntry::Failed { .. } => {}
+                // Rendering / NotLoaded: the card fills in on a later frame.
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Lowest free thumbnail id, stable for as long as the card stays visible.
+    ///
+    /// Re-assigning by grid position instead would re-transmit every card on
+    /// every scroll step.
+    fn thumbnail_id(&self, slide: usize) -> ImageId {
+        if let Some(slot) = self.thumbs.get(&slide) {
+            return slot.id;
+        }
+        let used: HashSet<u32> = self.thumbs.values().map(|slot| slot.id.0).collect();
+        let mut id = THUMBNAIL_IMAGE_ID_BASE;
+        while used.contains(&id) {
+            id += 1;
+        }
+        ImageId(id)
+    }
+
+    /// Releases every thumbnail whose slide is no longer visible.
+    fn release_thumbnails_except(
+        &mut self,
+        keep: &HashSet<usize>,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
+        let stale: Vec<usize> = self
+            .thumbs
+            .keys()
+            .copied()
+            .filter(|slide| !keep.contains(slide))
+            .collect();
+        for slide in stale {
+            if let Some(slot) = self.thumbs.remove(&slide) {
+                driver.release(slot.id)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Releases all staged thumbnails (leaving the sorter).
+    fn release_thumbnails(
+        &mut self,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
+        if self.thumbs.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<ImageId> = self.thumbs.values().map(|slot| slot.id).collect();
+        self.thumbs.clear();
+        for id in ids {
+            driver.release(id)?;
+        }
+        Ok(())
+    }
+
     /// Stages `slide` under `id` when the slot does not already hold it.
     ///
     /// Returns `true` when the bitmap is ready on the terminal. A failed
@@ -129,7 +317,10 @@ impl GraphicsSyncer {
         match pipeline.entry(slide) {
             PipelineEntry::Ready { bitmap, .. } => {
                 if staged.is_some_and(|s| {
-                    s.id == id && s.slide == slide && s.width == bitmap.width && s.height == bitmap.height
+                    s.id == id
+                        && s.slide == slide
+                        && s.width == bitmap.width
+                        && s.height == bitmap.height
                 }) {
                     return Ok(true);
                 }
@@ -261,7 +452,8 @@ impl GraphicsSyncer {
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        if self.current_placed.is_none() && self.preview_placed.is_none() {
+        if self.current_placed.is_none() && self.preview_placed.is_none() && self.thumbs.is_empty()
+        {
             return Ok(());
         }
         driver.release_all()?;
@@ -281,6 +473,25 @@ impl GraphicsSyncer {
     }
 }
 
+/// Pixel target for a sorter card.
+///
+/// Thumbnails must not transmit full-canvas rasters: the card is a few hundred
+/// pixels wide, so the raster is derived from its cell footprint using the same
+/// ~10x20 px-per-cell heuristic as the main canvas target.
+fn thumbnail_target(aspect_ratio: f32, rect: CellRect) -> RenderTargetSpec {
+    let width_px = (u32::from(rect.cols.max(1)) * 10).clamp(160, 640);
+    let aspect = if aspect_ratio.is_finite() && aspect_ratio > 0.0 {
+        aspect_ratio
+    } else {
+        16.0 / 9.0
+    };
+    let height_px = ((f64::from(width_px) / f64::from(aspect)).round() as u32).max(1);
+    RenderTargetSpec {
+        width_px,
+        height_px,
+    }
+}
+
 /// Terminal-graphics placement state accessors.
 impl PresentationState {
     // ─── Terminal graphics placement ───────────────────────────────
@@ -295,6 +506,19 @@ impl PresentationState {
         Arc::clone(&self.preview_placement_rect)
     }
 
+    /// Shared sink where the sorter grid records one rect per visible card.
+    pub fn thumbnail_placement_sink(&self) -> crate::widget::RectListSink {
+        Arc::clone(&self.thumbnail_placement_rects)
+    }
+
+    /// `(slide, rect)` pairs recorded by the last sorter frame.
+    pub fn thumbnail_placement_rects(&self) -> Vec<(usize, CellRect)> {
+        self.thumbnail_placement_rects
+            .lock()
+            .map(|rects| rects.clone())
+            .unwrap_or_default()
+    }
+
     /// Current `(slide, preview)` placement rects recorded by the last frame.
     pub fn placement_rects(&self) -> (Option<CellRect>, Option<CellRect>) {
         (
@@ -307,6 +531,9 @@ impl PresentationState {
     pub fn clear_placement_rects(&self) {
         clear_placement(&self.placement_rect);
         clear_placement(&self.preview_placement_rect);
+        if let Ok(mut rects) = self.thumbnail_placement_rects.lock() {
+            rects.clear();
+        }
     }
 }
 

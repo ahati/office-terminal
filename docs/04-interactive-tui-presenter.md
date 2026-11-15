@@ -36,7 +36,7 @@ The TUI Presenter is a pure *consumer* of the Render Pipeline ([PRD 02a](./02a-c
 | Current State | Trigger Key | Next State | Action / Visual Behavior |
 | :--- | :--- | :--- | :--- |
 | **`SlideView`** | `p` | `PresenterConsole` | Switches to split view with notes and next-slide thumbnail. |
-| **`SlideView`** | `Tab` / `t` | `SlideSorter` | Prefetches thumbnail target (`320×180`) and displays grid. |
+| **`SlideView`** | `Tab` / `s` | `SlideSorter` | Prefetches card-sized thumbnail targets for the visible page and displays the grid. |
 | **`SlideView`** | `b` / `w` | `Blackout` / `Whiteout` | Clears slide cells to solid black/white; resident image retained. |
 | **Any Base** | `?` / `F1` | `HelpModal` | Displays centered modal with all keybindings; Esc dismisses. |
 | **Any Base** | `W` (Shift-W) | `WarningDrawer` | Slides out bottom drawer listing all slide `WarningEvent`s. |
@@ -103,8 +103,10 @@ The split layout reserves $\approx 70\%$ of screen width for the main slide canv
 
 ### 5.1 Slide Sorter Grid
 - Activated via `Tab` or `t`.
-- Dynamically computes thumbnail cell grid based on terminal dimensions (e.g. $4\times 3$ or $5\times 4$).
-- Requests thumbnail-target prefetch (`320×180` spec) for visible slides.
+- Dynamically computes thumbnail cell grid based on terminal dimensions (e.g. $4\times 3$ or $5\times 4$), capped at `MAX_THUMBNAIL_IMAGES` (32) visible cards.
+- Places one directly-positioned image per visible card at a card-sized render target (160–640 px wide, deck aspect preserved) instead of the full-canvas raster.
+- Requests thumbnail-target prefetch for the visible slides; at most 4 cards are transmitted per frame so scrolling never blocks the event loop.
+- Releases cards that scroll out of view and every thumbnail when the sorter closes.
 - Displays slide numbers, titles, and dimmed borders for `hidden` slides.
 - Arrow keys navigate the grid cursor; `Enter` jumps to selected slide; `Esc` cancels.
 

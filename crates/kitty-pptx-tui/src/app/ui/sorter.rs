@@ -5,6 +5,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::state::PresentationState;
+use crate::widget::SlideWidget;
+use kitty_pptx_display::MAX_THUMBNAIL_IMAGES;
 
 /// Render the interactive thumbnail slide sorter grid.
 pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -58,7 +60,10 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
 
     let cols = state.sorter_cols().max(1);
     let card_height = (grid_area.height / 3).clamp(5, 12);
-    let rows_visible = (grid_area.height / card_height).max(1);
+    // Never plan more cards than the image-id pool can keep resident; the
+    // graphics syncer would otherwise leave the overflow blank.
+    let capacity_rows = (MAX_THUMBNAIL_IMAGES as usize / cols).max(1) as u16;
+    let rows_visible = (grid_area.height / card_height).max(1).min(capacity_rows);
     let cursor = state.selected_sorter_index();
     let cursor_row = (cursor / cols) as u16;
 
@@ -149,12 +154,9 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
             f.render_widget(block, card_rect);
 
             if inner.width > 0 && inner.height > 0 {
-                // Direct positioning can only place the current/preview image
-                // reliably; leave sorter thumbnail cells blank.
-                f.render_widget(
-                    Block::default().style(Style::default().bg(Color::Black)),
-                    inner,
-                );
+                let card = SlideWidget::thumbnail(idx, state.thumbnail_placement_sink())
+                    .with_aspect_ratio(state.aspect_ratio());
+                f.render_widget(card, inner);
             }
         }
     }
