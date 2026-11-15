@@ -82,6 +82,8 @@ pub struct PositionedGlyph {
 }
 ```
 
+> **Planned extension ([PRD 13](./13-metafile-pictures-and-vector-playback.md), not yet implemented).** Metafile playback adds two `VectorCommand` variants: `DrawMetafile { rel_id, transform, src_rect, dest_rect, opacity }` — a compiler-emitted marker that `expand_metafiles` replaces with playback output — and `DrawBitmap { png, width, height, placement, opacity, sampling }` for bitmaps embedded inside metafile streams. [PRD 13 §6](./13-metafile-pictures-and-vector-playback.md) carries the normative field list and invariants; this section will be updated by the implementing PR.
+
 ### 2.2 `RgbaSlide` (The Terminal Frame Contract)
 ```rust
 #[derive(Clone)]
