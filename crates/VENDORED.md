@@ -71,6 +71,15 @@ Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pict
      the object never enters the object table and the first record that
      references it (for example `EmfPlusDrawImagePoints`) aborts playback with
      `invalid or empty EMF+ object id`, blanking the whole picture.
+7. `crates/patches/0007-metafile-approximate-path-gradients.patch`:
+   - `metafile-emfplus::parse_brush` handles `EmfPlusPathGradientBrush`
+     (brush type 3) instead of rejecting it as an unsupported brush. The
+     engine's paint vocabulary has no radial/path-gradient shape, so the
+     surrounding colours become stops and the centre colour closes a linear
+     ramp; the picture keeps painting and the adapter emits
+     `metafile_gradient`. Object parsing now threads the diagnostic sink so the
+     approximation is reported per picture instead of only being visible as a
+     whole-picture placeholder.
 
 ## Bundled test/parity assets (not vendored crates)
 

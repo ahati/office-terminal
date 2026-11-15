@@ -272,7 +272,7 @@ Brush patterns and textures reuse `VectorPaint::Image`/`VectorPattern`; no new p
 | `Path { path, fill_mode }` | path + `FillRule` | FULL |
 | `Intersection(Vec<_>)` | one `PushClip` per operand (nested clips intersect) | FULL |
 | `Combine { AND }` | nested `PushClip`s | FULL |
-| `Combine { OR / XOR / DIFF }` | **bounding-box approximation**: union box for OR/XOR, left operand box for DIFF, intersected with the current clip | DEGRADED (`metafile_clip_combine`) |
+| `Combine { OR / XOR / DIFF }` | **exact compound path** for simple closed rect/polygon operands: OR concatenates figures (`NonZero`), XOR uses `EvenOdd`, DIFF intersects the left clip with `left + reversed(right)` (`NonZero`). Curved/nested/`Complement` operands keep the conservative bounding-box approximation | FULL for exact cases; DEGRADED (`metafile_clip_combine`) for the fallback |
 
 The approximation never paints outside a conservative region, so it cannot leak ink outside the picture. Exact region booleans (via `i_overlay`) are a follow-up if the corpus shows visible gaps ([PRD 13a](./13a-metafile-fidelity-and-validation.md) §8).
 
@@ -608,7 +608,7 @@ Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`)
 | M1 | ✅ done (`5a3cd20`) | marker/bitmap contracts, raster + SVG, expansion wired |
 | M2 | ✅ done (`1ff178d`) | `metafile-rs` adapter; real EMF/EMF+/WMF fixtures |
 | M3 | ✅ done | `tests/metafile_milestone_tests.rs`: alignment (left/center), `dx` overrides, escapement rotation, decorations, `ETO_OPAQUE` background, size clamping, `FontSubstituted` for substituted faces |
-| M4 | ✅ done with engine limits | dual `GetDC` fallback diagnostic, hatch → preset pattern, texture → average solid (DEGRADED), gradient axis from the brush transform. `metafile-emfplus =1.0.1` rejects path/radial gradients and glyph-index text, so those records degrade to the placeholder/omitted run with the mapped tag instead of the FULL row in PRD 13a §2.2 |
+| M4 | ✅ done with engine limits | dual `GetDC` fallback diagnostic, hatch → preset pattern, texture → average solid (DEGRADED), gradient axis from the brush transform. `metafile-emfplus =1.0.1` has no radial/path-gradient vocabulary, so patch `0007` approximates those brushes with a linear ramp + `metafile_gradient`; glyph-index text still degrades with the mapped tag instead of the FULL rows in PRD 13a §2.2 |
 | M5 | ✅ done | placeable WMF + `META_EXTTEXTOUT`, `.emz`/`.wmz` bounded inflate (bomb degrades to `ResourceLimitHit`), mislabelled containers classified by content |
 | M6 | ✅ code complete | default-on `metafile` feature with feature-off placeholder routing, global `--metafile`/`KITTY_PPTX_METAFILE` override, export compile-warning drain, release perf smoke (`tests/metafile_perf_tests.rs`), deterministic robustness smoke + `fuzz/fuzz_targets/fuzz_metafile.rs`, external golden harness expands metafiles. The committed AST/PNG golden corpus (PRD 13a §2.4/§4) remains the tracked ⚠️ follow-up; every matrix row already has a fixture/assertion in `tests/metafile_*.rs`. |
 
@@ -629,9 +629,11 @@ Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`)
 
 **Engine-capability deltas (normative until the upstream fix lands):**
 
-- `metafile-core 1.0.1` exposes no radial/path gradient paint; `metafile-emfplus
-  1.0.1` reports those brushes as unsupported critical features, so the picture
-  falls back to the §3 placeholder with a `metafile_parse` warning.
+- `metafile-core 1.0.1` exposes no radial/path-gradient paint. Patch `0007`
+  approximates `EmfPlusPathGradientBrush` with a linear ramp (surrounding
+  colours → centre) and tags it `metafile_gradient`; radial geometry is not
+  reconstructed, but the picture keeps painting instead of falling back to the
+  §3 placeholder.
 - Texture brushes have no inline-image paint in the display list; they are
   approximated by the bitmap's alpha-weighted average colour and tagged
   `metafile_pattern_brush` (DEGRADED).
@@ -656,7 +658,7 @@ Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`)
 
 ## 14. Open Questions
 
-1. **Exact region booleans** (`OR`/`XOR`/`DIFF`): adopt `i_overlay` in M2 or defer until a corpus fixture shows visible error? Current plan: defer, bbox approximation + warning.
+1. **Exact region booleans** (`OR`/`XOR`/`DIFF`): simple closed rect/polygon operands are exact via compound paths and two-clip subtraction (PRD 13 §4.7); curved/nested/`Complement` operands keep the conservative bbox + warning. `i_overlay` remains a candidate if the corpus shows visible gaps for those.
 2. **`DrawBitmap` PNG vs raw RGBA**: PNG chosen for AST/SVG compactness; revisit if raster decode shows up in profiles > 2 ms per picture at 1080p.
 3. **`dx` clustering**: strict 1:1 char/dx mapping is required for override; complex-script clusters fall back to shaped advances. Confirm acceptable against the corpus.
 4. **EMF `TextOut` with glyph indices** (`ETO_GLYPH_INDEX`): re-shape by text (loses exact glyph choice) or drop the run with a warning? Current plan: re-shape + `metafile_glyph_index_text` warning.

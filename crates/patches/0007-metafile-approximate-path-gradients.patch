@@ -1,0 +1,243 @@
+--- a/crates/metafile-emfplus/src/lib.rs
++++ b/crates/metafile-emfplus/src/lib.rs
+@@ -486,7 +486,7 @@ impl Player<'_> {
+     ) -> Result<()> {
+         match record.kind {
+             HEADER | END_OF_FILE | GET_DC => Ok(()),
+-            OBJECT => self.object(record),
++            OBJECT => self.object(record, diagnostics),
+             CLEAR => {
+                 require_len(record, 4)?;
+                 let color = argb(u32_at(record.data, 0)?);
+@@ -558,7 +558,7 @@ impl Player<'_> {
+         }
+     }
+ 
+-    fn object(&mut self, record: Record<'_>) -> Result<()> {
++    fn object(&mut self, record: Record<'_>, diagnostics: &mut Vec<Diagnostic>) -> Result<()> {
+         let id = usize::from(record.flags & 0xff);
+         let kind = ((record.flags >> 8) & 0x7f) as u8;
+         if id >= self.objects.len() {
+@@ -659,6 +659,7 @@ impl Player<'_> {
+                     &pending.data,
+                     self.limits,
+                     record,
++                    diagnostics,
+                 )?);
+             }
+             return Ok(());
+@@ -675,6 +676,7 @@ impl Player<'_> {
+             record.data,
+             self.limits,
+             record,
++            diagnostics,
+         )?);
+         Ok(())
+     }
+@@ -1814,10 +1816,11 @@ fn parse_object(
+     data: &[u8],
+     limits: &ResourceLimits,
+     record: Record<'_>,
++    diagnostics: &mut Vec<Diagnostic>,
+ ) -> Result<Object> {
+     match kind {
+-        1 => parse_brush(data, limits, record).map(Object::Brush),
+-        2 => parse_pen(data, limits, record).map(Object::Pen),
++        1 => parse_brush(data, limits, record, diagnostics).map(Object::Brush),
++        2 => parse_pen(data, limits, record, diagnostics).map(Object::Pen),
+         3 => parse_path(data, limits, record).map(Object::Path),
+         4 => parse_region(data, limits, record).map(Object::Region),
+         5 => parse_image(data, limits, record).map(Object::Image),
+@@ -1835,14 +1838,20 @@ fn parse_object_or_unsupported(
+     data: &[u8],
+     limits: &ResourceLimits,
+     record: Record<'_>,
++    diagnostics: &mut Vec<Diagnostic>,
+ ) -> Result<Object> {
+-    match parse_object(kind, data, limits, record) {
++    match parse_object(kind, data, limits, record, diagnostics) {
+         Err(MetafileError::UnsupportedCriticalFeature(message)) => Ok(Object::Unsupported(message)),
+         result => result,
+     }
+ }
+ 
+-fn parse_brush(data: &[u8], limits: &ResourceLimits, record: Record<'_>) -> Result<Paint> {
++fn parse_brush(
++    data: &[u8],
++    limits: &ResourceLimits,
++    record: Record<'_>,
++    diagnostics: &mut Vec<Diagnostic>,
++) -> Result<Paint> {
+     if data.len() < 8 {
+         return invalid(
+             record.origin,
+@@ -1882,6 +1891,7 @@ fn parse_brush(data: &[u8], limits: &ResourceLimits, record: Record<'_>) -> Resu
+             })
+         }
+         2 => parse_texture_brush(&data[8..], limits, record),
++        3 => parse_path_gradient(&data[8..], limits, record, diagnostics),
+         4 => parse_linear_gradient(&data[8..], limits, record),
+         brush_type => Err(MetafileError::UnsupportedCriticalFeature(format!(
+             "EMF+ brush type {brush_type} is not implemented"
+@@ -1889,6 +1899,123 @@ fn parse_brush(data: &[u8], limits: &ResourceLimits, record: Record<'_>) -> Resu
+     }
+ }
+ 
++/// Approximates `EmfPlusPathGradientBrush` (brush type 3) with a linear
++/// gradient. The engine's paint vocabulary has no radial/path-gradient shape;
++/// rejecting the brush would drop the whole picture, so the surrounding
++/// colours become stops and the centre colour closes the ramp. `metafile`
++/// reports the approximation through `emfplus_path_gradient_approximate`.
++/// [kitty-pptx patch 0007]
++fn parse_path_gradient(
++    data: &[u8],
++    limits: &ResourceLimits,
++    record: Record<'_>,
++    diagnostics: &mut Vec<Diagnostic>,
++) -> Result<Paint> {
++    if data.len() < 12 {
++        return invalid(
++            record.origin,
++            record.index,
++            record.kind,
++            record.offset,
++            "truncated path-gradient brush",
++        );
++    }
++    let flags = u32_at(data, 0)?;
++    let wrap_mode = u32_at(data, 4)?;
++    if wrap_mode > 4 {
++        return invalid(
++            record.origin,
++            record.index,
++            record.kind,
++            record.offset,
++            "invalid path-gradient wrap mode",
++        );
++    }
++    let mut cursor = 8usize;
++    let transform = if flags & 2 != 0 {
++        let end = checked_advance(cursor, 24, data.len(), record, "path-gradient transform")?;
++        let value = read_transform(&data[cursor..end], record)?;
++        cursor = end;
++        value
++    } else {
++        Transform::IDENTITY
++    };
++    let center = argb(u32_at(data, cursor)?);
++    cursor += 4;
++    let count = i32_at(data, cursor)?;
++    cursor += 4;
++    if count < 0 {
++        return invalid(
++            record.origin,
++            record.index,
++            record.kind,
++            record.offset,
++            "negative path-gradient colour count",
++        );
++    }
++    let count = usize::try_from(count).map_err(|_| {
++        malformed(
++            record.origin,
++            record.index,
++            record.kind,
++            record.offset,
++            "path-gradient colour count overflow",
++        )
++    })?;
++    if count > limits.max_gradient_stops {
++        return Err(MetafileError::ResourceLimitExceeded {
++            resource: "EMF+ path-gradient colours",
++            actual: count as u64,
++            limit: limits.max_gradient_stops as u64,
++        });
++    }
++    checked_advance(
++        cursor,
++        count.checked_mul(4).ok_or_else(|| {
++            malformed(
++                record.origin,
++                record.index,
++                record.kind,
++                record.offset,
++                "path-gradient colour bytes overflow",
++            )
++        })?,
++        data.len(),
++        record,
++        "path-gradient surrounding colours",
++    )?;
++    let mut stops = Vec::with_capacity(count + 1);
++    for index in 0..count {
++        let offset = index as f64 / count.max(1) as f64;
++        stops.push(GradientStop {
++            offset,
++            color: argb(u32_at(data, cursor + index * 4)?),
++        });
++    }
++    if stops.is_empty() {
++        stops.push(GradientStop {
++            offset: 0.0,
++            color: center,
++        });
++    }
++    stops.push(GradientStop {
++        offset: 1.0,
++        color: center,
++    });
++    diagnostics.push(Diagnostic::warning(
++        "emfplus_path_gradient_approximate",
++        "EMF+ path gradient is approximated by a linear gradient",
++    ));
++    Ok(Paint::LinearGradient {
++        start: Point::new(0.0, 0.0),
++        end: Point::new(1.0, 0.0),
++        stops,
++        wrap_mode,
++        transform,
++        gamma_corrected: false,
++    })
++}
++
+ fn parse_linear_gradient(
+     data: &[u8],
+     limits: &ResourceLimits,
+@@ -2182,7 +2309,12 @@ fn parse_texture_brush(data: &[u8], limits: &ResourceLimits, record: Record<'_>)
+     })
+ }
+ 
+-fn parse_pen(data: &[u8], limits: &ResourceLimits, record: Record<'_>) -> Result<Stroke> {
++fn parse_pen(
++    data: &[u8],
++    limits: &ResourceLimits,
++    record: Record<'_>,
++    diagnostics: &mut Vec<Diagnostic>,
++) -> Result<Stroke> {
+     if data.len() < 20 {
+         return invalid(
+             record.origin,
+@@ -2333,7 +2465,7 @@ fn parse_pen(data: &[u8], limits: &ResourceLimits, record: Record<'_>) -> Result
+             "advanced EMF+ pen optional data is not implemented".into(),
+         ));
+     }
+-    let paint = parse_brush(&data[cursor..], limits, record)?;
++    let paint = parse_brush(&data[cursor..], limits, record, diagnostics)?;
+     if cap != end_cap {
+         // GDI+ permits distinct start and end caps; the renderer-neutral
+         // `Stroke` carries a single cap. Keeping the start cap preserves the
+@@ -4756,7 +4888,13 @@ mod tests {
+         gradient.extend_from_slice(&floats(&[0.0, 0.0, 100.0, 0.0]));
+         gradient.extend_from_slice(&bytes_u32(&[0xffff_0000, 0xff00_00ff, 0, 0, 3]));
+         gradient.extend_from_slice(&floats(&[0.0, 0.5, 1.0, 0.0, 0.5, 1.0]));
+-        let paint = parse_brush(&gradient, &ResourceLimits::default(), dummy_record()).unwrap();
++        let paint = parse_brush(
++            &gradient,
++            &ResourceLimits::default(),
++            dummy_record(),
++            &mut Vec::new(),
++        )
++        .unwrap();
+         let Paint::LinearGradient { stops, .. } = paint else {
+             panic!("not a gradient")
+         };
