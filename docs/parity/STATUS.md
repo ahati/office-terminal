@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 949 |
+| `kitty-pptx-core` | 950 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1096** |
+| **total** | **1097** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -63,8 +63,9 @@ the current tree actually contains.
   single-edge arch/circle envelopes radially, clockwise presets anchor the
   last line and `textArchDown` anchors the first; warp layout now applies
   `a:lnSpc` (pts and pct), `spcBef`/`spcAft`, mixed-size line boxes and the
-  0.8 baseline fraction. 14 warp tests green; the SVG per-glyph affine and
-  measure-call-count cases remain.
+  0.8 baseline fraction. Standalone SVG emits per-glyph warped outlines (both
+  vector and selectable modes force outlines for a warped run). 15 warp tests
+  green; the measure-call-count case remains.
 - **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
   fallback (`scene3d/bevel_profiles.rs`), replacing the four hand-written
   profiles.

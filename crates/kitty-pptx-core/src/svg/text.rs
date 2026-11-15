@@ -14,7 +14,8 @@ use fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use rustybuzz::ttf_parser::{Face, GlyphId, OutlineBuilder};
 
 use super::path::format_transform_attr;
-use crate::contracts::{AffineTransform, PositionedGlyphRun, SvgTextMode};
+use crate::contracts::{AffineTransform, PositionedGlyphRun, RunWarp, SvgTextMode};
+use crate::compiler::text_warp::{warp_glyph_transform, warp_point};
 
 thread_local! {
     static FONT_DB: RefCell<Database> = RefCell::new({
@@ -72,6 +73,89 @@ impl OutlineBuilder for SvgGlyphBuilder {
     }
 }
 
+/// SVG outline builder for a WordArt-warped glyph.
+///
+/// The path is emitted in shape coordinates; the enclosing `<g transform>` is
+/// the element transform, exactly like the raster warp path. `u_center` is the
+/// glyph's centre fraction along the warp line and `advance` its flat advance.
+struct SvgWarpGlyphBuilder<'a> {
+    d: String,
+    run_warp: &'a RunWarp,
+    u_center: f32,
+    advance: f32,
+    emu_per_unit: f32,
+}
+
+impl SvgWarpGlyphBuilder<'_> {
+    fn point(&self, x: f32, y: f32) -> (f32, f32) {
+        let local_x = x * self.emu_per_unit;
+        let local_y = -y * self.emu_per_unit;
+        let centered_x = local_x - self.advance * 0.5;
+        let line_w = self.run_warp.line_w.max(1.0);
+        let u = (self.u_center + centered_x / line_w).clamp(0.0, 1.0);
+        let Some(warp) = warp_glyph_transform(
+            &self.run_warp.envelope,
+            u,
+            self.run_warp.warp_box_h,
+            self.run_warp.band_frac,
+        ) else {
+            return (0.0, 0.0);
+        };
+        let paired = warp_point(
+            &self.run_warp.envelope,
+            u,
+            self.run_warp.band_frac + local_y / self.run_warp.warp_box_h.max(1.0),
+        );
+        match paired {
+            Some(point) => point,
+            None => {
+                let scaled_x = centered_x * self.run_warp.h_scale;
+                let scaled_y = local_y * warp.scale_y;
+                let sheared_x = scaled_x + warp.shear * scaled_y;
+                let cos = warp.angle.cos();
+                let sin = warp.angle.sin();
+                (
+                    warp.x + sheared_x * cos - scaled_y * sin,
+                    warp.y + sheared_x * sin + scaled_y * cos,
+                )
+            }
+        }
+    }
+}
+
+impl OutlineBuilder for SvgWarpGlyphBuilder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        let _ = write!(&mut self.d, "M {:.1} {:.1} ", x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        let _ = write!(&mut self.d, "L {:.1} {:.1} ", x, y);
+    }
+
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x, y) = self.point(x, y);
+        let _ = write!(&mut self.d, "Q {:.1} {:.1}, {:.1} {:.1} ", x1, y1, x, y);
+    }
+
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x2, y2) = self.point(x2, y2);
+        let (x, y) = self.point(x, y);
+        let _ = write!(
+            &mut self.d,
+            "C {:.1} {:.1}, {:.1} {:.1}, {:.1} {:.1} ",
+            x1, y1, x2, y2, x, y
+        );
+    }
+
+    fn close(&mut self) {
+        self.d.push_str("Z ");
+    }
+}
+
 pub fn serialize_svg_text(
     runs: &[PositionedGlyphRun],
     transform: &AffineTransform,
@@ -79,6 +163,16 @@ pub fn serialize_svg_text(
 ) -> String {
     let mut out = String::new();
     let transform_attr = format_transform_attr(transform);
+
+    // A warped run has no single affine text frame; always use outlines so the
+    // per-glyph envelope survives in standalone SVG.
+    if runs.iter().any(|run| run.warp.is_some()) {
+        let rendered = serialize_vector_glyphs(runs, &transform_attr, &mut out);
+        if !rendered {
+            serialize_selectable_text(runs, &transform_attr, &mut out);
+        }
+        return out;
+    }
 
     match text_mode {
         SvgTextMode::SelectableText | SvgTextMode::TextTags => {
@@ -227,7 +321,12 @@ fn serialize_vector_glyphs(
             }
 
             let query = Query {
-                families: &[Family::Name(&run.font_family), Family::SansSerif],
+                families: &[
+                    Family::Name(&run.font_family),
+                    Family::Name("Carlito"),
+                    Family::Name("Caladea"),
+                    Family::SansSerif,
+                ],
                 weight: if run.bold { Weight::BOLD } else { Weight::NORMAL },
                 stretch: Stretch::Normal,
                 style: if run.italic { Style::Italic } else { Style::Normal },
@@ -274,6 +373,22 @@ fn serialize_vector_glyphs(
                         };
 
                         let glyph_id = face.glyph_index(ch).unwrap_or(GlyphId(0));
+                        if let Some(warp) = run.warp.as_ref() {
+                            if let Some(glyph) = run.glyphs.get(idx) {
+                                if let Some(u_center) = glyph.warp_u {
+                                    let mut warped = SvgWarpGlyphBuilder {
+                                        d: String::new(),
+                                        run_warp: warp,
+                                        u_center,
+                                        advance: glyph.advance.max(0.0),
+                                        emu_per_unit: scale,
+                                    };
+                                    face.outline_glyph(glyph_id, &mut warped);
+                                    builder.d.push_str(&warped.d);
+                                    continue;
+                                }
+                            }
+                        }
                         builder.offset_x = gx;
                         builder.offset_y = gy;
                         face.outline_glyph(glyph_id, &mut builder);
