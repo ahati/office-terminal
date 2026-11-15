@@ -22,6 +22,12 @@ use crate::app::mode::{AppMode, BlankMode};
 use crate::app::state::PresentationState;
 use crate::app::ui::render_app;
 
+/// Target the full-screen canvas renders at; sorter cards reuse these rasters.
+const CANVAS: RenderTargetSpec = RenderTargetSpec {
+    width_px: 640,
+    height_px: 360,
+};
+
 const WIDE: (u16, u16) = (100, 30);
 const SHORT: (u16, u16) = (100, 20);
 
@@ -38,7 +44,7 @@ struct GridPipeline {
     slides: usize,
     ready: bool,
     targets: Mutex<Vec<RenderTargetSpec>>,
-    prefetched: Mutex<Vec<usize>>,
+    prefetched: Mutex<Vec<(usize, RenderTargetSpec)>>,
 }
 
 impl GridPipeline {
@@ -53,11 +59,11 @@ impl GridPipeline {
 }
 
 impl RenderPipeline for GridPipeline {
-    fn prefetch(&self, _plan: &PrefetchPlan, _target: &RenderTargetSpec) {}
-
-    fn prefetch_thumbnails(&self, slides: &[usize], _target: &RenderTargetSpec) {
+    fn prefetch(&self, plan: &PrefetchPlan, target: &RenderTargetSpec) {
         if let Ok(mut seen) = self.prefetched.lock() {
-            seen.extend_from_slice(slides);
+            for offset in 0..=plan.ahead {
+                seen.push((plan.center + offset, *target));
+            }
         }
     }
 
@@ -178,7 +184,7 @@ fn sync_until_settled(
     expected: usize,
 ) {
     for _ in 0..16 {
-        syncer.sync(state, pipeline, driver).unwrap();
+        syncer.sync(state, pipeline, driver, &CANVAS).unwrap();
         if log.lock().unwrap().staged.len() >= expected {
             return;
         }
@@ -253,7 +259,7 @@ fn sorter_does_not_retransmit_an_unchanged_grid() {
     };
 
     for _ in 0..3 {
-        syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+        syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
     }
 
     let after = log.lock().unwrap();
@@ -288,7 +294,7 @@ fn sorter_releases_cards_that_scroll_out_of_view() {
         "scrolling replaced the whole page"
     );
 
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
 
     let log = log.lock().unwrap();
     let released: Vec<u32> = log.released.clone();
@@ -327,7 +333,7 @@ fn leaving_the_sorter_releases_thumbnails_and_restores_the_slide() {
     state.clear_placement_rects();
     let mut terminal = Terminal::new(TestBackend::new(WIDE.0, WIDE.1)).unwrap();
     terminal.draw(|f| render_app(&state, f)).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
 
     let log = log.lock().unwrap();
     for id in &thumb_ids {
@@ -350,37 +356,32 @@ fn leaving_the_sorter_releases_thumbnails_and_restores_the_slide() {
 }
 
 #[test]
-fn sorter_requests_card_sized_render_targets() {
+fn sorter_reuses_the_canvas_raster() {
     let pipeline = GridPipeline::new(6);
     let (mut driver, log) = RecordingDriver::new();
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(6);
 
     let cards = draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
 
+    // Cards are looked up at the canvas target, not at a card-sized target: a
+    // thumbnail is the same bitmap the full-screen view shows, scaled by the
+    // terminal (small targets inflate text past the rasterizer's 6 px floor).
     let targets = pipeline.targets.lock().unwrap().clone();
+    assert!(!targets.is_empty(), "cards resolve an explicit target");
     assert!(
-        !targets.is_empty(),
-        "cards are rendered at an explicit target"
+        targets.iter().all(|target| *target == CANVAS),
+        "every card reuses the canvas raster: {targets:?}"
     );
-    for target in &targets {
-        assert!(
-            (160..=640).contains(&target.width_px),
-            "thumbnail width is card-sized, not canvas-sized: {target:?}"
-        );
-        let aspect = f64::from(target.width_px) / f64::from(target.height_px);
-        assert!(
-            (aspect - 16.0 / 9.0).abs() < 0.02,
-            "thumbnail target preserves the deck aspect: {target:?}"
-        );
-    }
 
+    // The visible page is prefetched at that same target, so the grid warms
+    // exactly the bitmaps the deck itself needs.
     let prefetched = pipeline.prefetched.lock().unwrap().clone();
     for (slide, _) in &cards {
         assert!(
-            prefetched.contains(slide),
-            "visible slide {slide} is queued for a thumbnail render"
+            prefetched.contains(&(*slide, CANVAS)),
+            "visible slide {slide} is prefetched at the canvas target: {prefetched:?}"
         );
     }
     assert!(
@@ -413,7 +414,7 @@ fn sorter_keeps_thumbnails_under_an_overlay_modal() {
     state.enter_overlay(AppMode::HelpModal);
     assert_eq!(state.base_mode(), AppMode::Sorter);
     draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.released.len(), released, "an overlay is not a teardown");
@@ -438,8 +439,8 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
     );
 
     state.toggle_blank(BlankMode::Black);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
     assert_eq!(
         log.lock().unwrap().released_all,
         1,
@@ -448,7 +449,7 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
 
     state.unblank();
     draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
     assert!(
         log.lock().unwrap().staged.len() > cards.len(),
         "cards are re-staged after the blank screen"
@@ -469,7 +470,7 @@ fn resizing_cards_repositions_instead_of_retransmitting() {
     // Taller terminal: same column count and aspect, so the card target (and
     // therefore the bitmap) is unchanged while the rows move.
     draw_sorter(&state, (100, 40));
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
 
     let log = log.lock().unwrap();
     assert!(
@@ -491,7 +492,7 @@ fn empty_deck_places_nothing() {
     let mut state = sorter_state(0);
 
     draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
 
     let log = log.lock().unwrap();
     assert!(log.staged.is_empty());

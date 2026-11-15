@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
+use kitty_pptx_core::{DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::{
     CellRect, ImageId, Placement, TerminalGraphicsDriver, MAX_THUMBNAIL_IMAGES,
     THUMBNAIL_IMAGE_ID_BASE,
@@ -37,9 +37,6 @@ struct ThumbSlot {
     id: ImageId,
     slide: usize,
     rect: CellRect,
-    /// Pixel target the resident bitmap was rendered for. A card resize that
-    /// changes the target needs a re-transmission, not just a reposition.
-    target: RenderTargetSpec,
 }
 
 /// Upper bound on newly transmitted thumbnails per frame. Every `stage` encodes
@@ -79,11 +76,16 @@ impl GraphicsSyncer {
     /// Synchronizes staged images and placements with the current frame.
     /// A failed background render is recorded on the state (canvas note +
     /// warning entry) instead of silently leaving the slide blank.
+    ///
+    /// `canvas_target` is the resolution the full-screen view is rendered at:
+    /// the sorter shares those bitmaps and lets the terminal scale them into
+    /// the cards, so both views show the exact same pixels.
     pub(crate) fn sync(
         &mut self,
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
+        canvas_target: &RenderTargetSpec,
     ) -> Result<(), DisplayError> {
         if state.total_slides() == 0 {
             return self.clear_everything(driver);
@@ -96,7 +98,7 @@ impl GraphicsSyncer {
         // Resolve the base view exactly like the renderer does, so an overlay
         // modal on top of the sorter does not tear the grid images down.
         if state.base_mode() == AppMode::Sorter {
-            return self.sync_thumbnails(state, pipeline, driver);
+            return self.sync_thumbnails(state, pipeline, driver, canvas_target);
         }
 
         self.release_thumbnails(driver)?;
@@ -151,14 +153,20 @@ impl GraphicsSyncer {
 
     /// Syncs the slide-sorter grid: one bitmap per visible card.
     ///
+    /// Cards reuse the canvas raster and let the terminal scale it into the
+    /// card cells, so a thumbnail is pixel-identical to the full-screen slide.
+    /// Rendering cards at their own small target is not an option: the text
+    /// rasterizer floors font size at 6 px, which inflates every run relative
+    /// to the compiled line boxes and makes thumbnails look unwrapped.
+    ///
     /// Only visible cards are staged; cards that scroll out are released so the
-    /// resident-id pool stays bounded. Thumbnails render from a card-sized
-    /// target instead of the full-canvas raster.
+    /// resident-id pool stays bounded.
     fn sync_thumbnails(
         &mut self,
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
+        canvas_target: &RenderTargetSpec,
     ) -> Result<(), DisplayError> {
         // The sorter replaces the full-screen canvas: no slide image may stay
         // on screen behind the grid.
@@ -167,16 +175,20 @@ impl GraphicsSyncer {
 
         let mut visible = state.thumbnail_placement_rects();
         visible.truncate(MAX_THUMBNAIL_IMAGES as usize);
-        let Some((_, first_rect)) = visible.first() else {
+        let Some((first_slide, _)) = visible.first().copied() else {
             return self.release_thumbnails(driver);
         };
 
-        let target = thumbnail_target(state.aspect_ratio(), *first_rect);
-
-        // Queue the visible window before staging: the pipeline renders on its
-        // workers at the card target, so the next frames can stage immediately.
-        let slides: Vec<usize> = visible.iter().map(|(slide, _)| *slide).collect();
-        pipeline.prefetch_thumbnails(&slides, &target);
+        // Queue the visible page at the canvas target before staging. This is
+        // the same render the full-screen view would request, so scrolling the
+        // grid warms exactly the bitmaps the deck needs.
+        let plan = PrefetchPlan {
+            center: first_slide,
+            behind: 0,
+            ahead: visible.len().saturating_sub(1),
+            stage: true,
+        };
+        pipeline.prefetch(&plan, canvas_target);
 
         // Cards that scrolled out of view free their resident ids.
         let keep: HashSet<usize> = visible.iter().map(|(slide, _)| *slide).collect();
@@ -184,31 +196,23 @@ impl GraphicsSyncer {
 
         let mut stages_left = MAX_THUMBNAIL_STAGES_PER_FRAME;
         for (slide, rect) in visible {
-            match pipeline.entry_at(slide, &target) {
+            match pipeline.entry_at(slide, canvas_target) {
                 PipelineEntry::Ready { bitmap, .. } => {
                     state.clear_render_failure_for(slide);
 
-                    let staged = self
-                        .thumbs
-                        .get(&slide)
-                        .map(|slot| (slot.id, slot.rect, slot.target));
+                    let staged = self.thumbs.get(&slide).map(|slot| (slot.id, slot.rect));
                     match staged {
-                        // Already on screen at the right size and position.
-                        Some((_, prev_rect, prev_target))
-                            if prev_rect == rect && prev_target == target =>
-                        {
-                            continue
-                        }
+                        // Already on screen at the right position.
+                        Some((_, prev_rect)) if prev_rect == rect => continue,
                         // Same bitmap, new card geometry: move it, no re-transmit.
-                        Some((id, _, prev_target)) if prev_target == target => {
+                        Some((id, _)) => {
                             driver.reposition(id, Placement::Cells(rect))?;
                             if let Some(slot) = self.thumbs.get_mut(&slide) {
                                 slot.rect = rect;
                             }
                             continue;
                         }
-                        // New card, or the card was resized to a new target.
-                        _ => {}
+                        None => {}
                     }
 
                     if stages_left == 0 {
@@ -226,7 +230,6 @@ impl GraphicsSyncer {
                             id,
                             slide,
                             rect,
-                            target,
                         },
                     );
                 }
@@ -470,25 +473,6 @@ impl GraphicsSyncer {
         self.reset();
         self.suppressed = true;
         Ok(())
-    }
-}
-
-/// Pixel target for a sorter card.
-///
-/// Thumbnails must not transmit full-canvas rasters: the card is a few hundred
-/// pixels wide, so the raster is derived from its cell footprint using the same
-/// ~10x20 px-per-cell heuristic as the main canvas target.
-fn thumbnail_target(aspect_ratio: f32, rect: CellRect) -> RenderTargetSpec {
-    let width_px = (u32::from(rect.cols.max(1)) * 10).clamp(160, 640);
-    let aspect = if aspect_ratio.is_finite() && aspect_ratio > 0.0 {
-        aspect_ratio
-    } else {
-        16.0 / 9.0
-    };
-    let height_px = ((f64::from(width_px) / f64::from(aspect)).round() as u32).max(1);
-    RenderTargetSpec {
-        width_px,
-        height_px,
     }
 }
 

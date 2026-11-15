@@ -102,10 +102,10 @@ The split layout reserves $\approx 70\%$ of screen width for the main slide canv
 ## 5. Visual Slide Sorter & Fuzzy TOC Search
 
 ### 5.1 Slide Sorter Grid
-- Activated via `Tab` or `t`.
-- Dynamically computes thumbnail cell grid based on terminal dimensions (e.g. $4\times 3$ or $5\times 4$), capped at `MAX_THUMBNAIL_IMAGES` (32) visible cards.
-- Places one directly-positioned image per visible card at a card-sized render target (160–640 px wide, deck aspect preserved) instead of the full-canvas raster.
-- Requests thumbnail-target prefetch for the visible slides; at most 4 cards are transmitted per frame so scrolling never blocks the event loop.
+- Activated via `Tab` or `s`.
+- Dynamically computes thumbnail cell grid based on terminal dimensions (e.g. $4\times 3$ or $5\times 4$), capped at `MAX_THUMBNAIL_IMAGES` (16) visible cards.
+- Places one directly-positioned image per visible card, reusing the **canvas raster** and letting the terminal scale it into the card. This keeps a thumbnail pixel-identical to the full-screen slide; rendering at a card-sized target instead inflates text runs past the rasterizer's 6 px font-size floor, which makes thumbnails look unwrapped.
+- Prefetches the visible page at the canvas target, so the grid warms exactly the bitmaps the deck itself needs; at most 4 cards are transmitted per frame so scrolling never blocks the event loop.
 - Releases cards that scroll out of view and every thumbnail when the sorter closes.
 - Displays slide numbers, titles, and dimmed borders for `hidden` slides.
 - Arrow keys navigate the grid cursor; `Enter` jumps to selected slide; `Esc` cancels.

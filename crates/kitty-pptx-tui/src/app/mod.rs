@@ -292,6 +292,7 @@ impl PresentationApp {
             &mut self.state,
             self.pipeline.as_ref(),
             self.driver.as_mut(),
+            &self.current_target,
         )
     }
 

@@ -18,6 +18,14 @@ use crate::app::state::PresentationState;
 use crate::app::ui::render_app;
 use crate::app::PresentationApp;
 
+/// Canvas target the syncer resolves current/preview/sorter rasters against.
+fn canvas() -> RenderTargetSpec {
+    RenderTargetSpec {
+        width_px: 640,
+        height_px: 360,
+    }
+}
+
 fn test_bitmap(width: u32, height: u32) -> RgbaSlide {
     RgbaSlide {
         width,
@@ -125,7 +133,7 @@ fn test_direct_positioning_stages_and_presents_once() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     let expected = state.placement_rects().0.expect("slide rect recorded");
     {
@@ -135,7 +143,7 @@ fn test_direct_positioning_stages_and_presents_once() {
     }
 
     // An unchanged frame must not re-stage or re-place the image.
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged.len(), 1);
@@ -146,7 +154,7 @@ fn test_direct_positioning_stages_and_presents_once() {
     // Slide change: the old id is released and the new one placed.
     state.next_slide();
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged, vec![1, 2]);
@@ -164,14 +172,14 @@ fn test_rect_change_uses_reposition() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     // Simulate a resize: new rect for the same slide/id.
     let backend = TestBackend::new(60, 20);
     let mut terminal = Terminal::new(backend).unwrap();
     state.clear_placement_rects();
     terminal.draw(|f| render_app(&state, f)).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.presented.len(), 1);
@@ -189,7 +197,7 @@ fn test_presenter_mode_places_preview() {
 
     draw_frame(&state);
     let (current, preview) = state.placement_rects();
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.staged, vec![1, 10]);
@@ -207,13 +215,13 @@ fn test_presenter_navigation_keeps_current_image() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     // Slide 1 was the preview (id 10) and becomes the current slide (id 2).
     // Releasing the old preview must not release the new current image.
     state.next_slide();
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     let log = log.lock().unwrap();
     assert!(
@@ -238,11 +246,11 @@ fn test_missing_rect_releases_previous_image() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     // No slide widget drawn this frame (e.g. sorter).
     state.clear_placement_rects();
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.released, vec![1]);
@@ -256,16 +264,16 @@ fn test_blank_screen_suppresses_graphics_once_then_resumes() {
     let mut syncer = GraphicsSyncer::new();
 
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
 
     state.toggle_blank(BlankMode::Black);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
     assert_eq!(log.lock().unwrap().released_all, 1);
 
     state.unblank();
     draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
     let log = log.lock().unwrap();
     assert_eq!(log.staged.len(), 2);
     assert_eq!(log.presented.len(), 2);
@@ -314,7 +322,7 @@ fn a_failed_render_is_surfaced_in_state_and_not_staged() {
     let mut state = PresentationState::new(2, vec![]);
 
     draw_frame(&state);
-    syncer.sync(&mut state, &FailingPipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &FailingPipeline, &mut driver, &canvas()).unwrap();
 
     assert!(
         log.lock().unwrap().staged.is_empty(),
@@ -333,7 +341,7 @@ fn a_failed_render_is_surfaced_in_state_and_not_staged() {
 
     // Idempotent per (slide, message): syncing every frame must not spam.
     for _ in 0..3 {
-        syncer.sync(&mut state, &FailingPipeline, &mut driver).unwrap();
+        syncer.sync(&mut state, &FailingPipeline, &mut driver, &canvas()).unwrap();
     }
     assert_eq!(state.warnings.len(), 1, "no duplicate warning entries");
 }
@@ -347,11 +355,11 @@ fn a_recovered_render_clears_the_failure_record() {
     let mut state = PresentationState::new(2, vec![]);
 
     draw_frame(&state);
-    syncer.sync(&mut state, &FailingPipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &FailingPipeline, &mut driver, &canvas()).unwrap();
     assert!(state.render_failure().is_some());
 
     let pipeline = MockPipeline { slides: 2 };
-    syncer.sync(&mut state, &pipeline, &mut driver).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
     assert!(
         state.render_failure().is_none(),
         "a successful stage clears the failure"
