@@ -3160,86 +3160,82 @@ fn parse_pic_node(
         if let Some(idx) = ph_idx {
             if let Some(t) = lph.by_idx.get(&idx) {
                 let blip_fill = child(node, "blipFill");
-                let blip = blip_fill.and_then(|bf| child(bf, "blip"));
-                let r_id = blip.and_then(|b| attr_r(&b, "embed"));
-                if let Some(rid) = r_id {
-                    if let Some(rel_target) = rels.get(&rid) {
-                        let image_path = resolve_path(slide_part, rel_target);
-                        if let Ok(image_bytes) = read_zip_head(zip, &image_path, 24) {
-                            let mime_type = mime_from_ext(&image_path).to_owned();
-                            let (intrinsic_width_px, intrinsic_height_px) =
-                                match png_size_from_bytes(&image_bytes) {
-                                    Some((w, h)) => (Some(w), Some(h)),
-                                    None => (None, None),
-                                };
-                            // Microsoft 2016 SVG extension on the placeholder
-                            // p:pic's blip — prefer the vector original.
-                            let svg_image_path =
-                                blip.and_then(|b| svg_blip_path(b, slide_part, rels, zip));
-                            let PictureShapeProperties {
-                                stroke,
-                                shadow,
-                                inner_shadow,
-                                glow,
-                                soft_edge,
-                                reflection,
-                                scene3d,
-                                sp3d,
-                            } = resolve_picture_shape_properties(
-                                child(node, "spPr"),
-                                child(node, "style"),
-                                lph.lookup_picture_properties(&ph_type, Some(idx)),
-                                theme_source,
-                            );
-                            out.push(SlideElement::Picture(PictureElement {
-                                id: own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id")),
-                                x: t.x,
-                                y: t.y,
-                                width: t.cx,
-                                height: t.cy,
-                                rotation: t.rot,
-                                flip_h: t.flip_h,
-                                flip_v: t.flip_v,
-                                image_path,
-                                mime_type,
-                                svg_image_path,
-                                intrinsic_width_px,
-                                intrinsic_height_px,
-                                stroke,
-                                fill: child(node, "spPr").and_then(|sp| parse_fill(sp, theme)),
-                                prst_geom: None,
-                                prst_adjust: None,
-                                src_rect: blip_fill.and_then(parse_src_rect),
-                                alpha: None, /* alpha is baked by the ordered blip chain */
-                                duotone: blip_fill.and_then(|bf| {
-                                    parse_blip_duotone(
-                                        bf,
-                                        &PptxSchemeResolver { theme },
-                                        ooxml_common::color::TintMode::PowerPointLinear,
-                                    )
-                                }),
-                                blip_effects: blip_fill
-                                    .map(|bf| {
-                                        parse_picture_blip_effects(
-                                            bf,
-                                            &PptxSchemeResolver { theme },
-                                            ooxml_common::color::TintMode::PowerPointLinear,
-                                            slide_part,
-                                            rels,
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                                cust_geom: None,
-                                shadow,
-                                inner_shadow,
-                                glow,
-                                soft_edge,
-                                reflection,
-                                scene3d,
-                                sp3d,
-                            }));
-                        }
-                    }
+                // Resolve through the shared blip resolver: a placeholder
+                // picture can carry only the Microsoft 2016 `asvg:svgBlip`
+                // extension with no raster `r:embed` (SVG icons and
+                // illustrations inserted as pictures). [kitty-pptx patch 0006]
+                let source =
+                    blip_fill.and_then(|bf| resolve_blip_source(bf, slide_part, rels, zip));
+                if let Some(BlipSource {
+                    image_path,
+                    mime_type,
+                    intrinsic_width_px,
+                    intrinsic_height_px,
+                    svg_image_path,
+                }) = source
+                {
+                    let PictureShapeProperties {
+                        stroke,
+                        shadow,
+                        inner_shadow,
+                        glow,
+                        soft_edge,
+                        reflection,
+                        scene3d,
+                        sp3d,
+                    } = resolve_picture_shape_properties(
+                        child(node, "spPr"),
+                        child(node, "style"),
+                        lph.lookup_picture_properties(&ph_type, Some(idx)),
+                        theme_source,
+                    );
+                    out.push(SlideElement::Picture(PictureElement {
+                        id: own_cnv_pr(node).and_then(|cnv| attr(&cnv, "id")),
+                        x: t.x,
+                        y: t.y,
+                        width: t.cx,
+                        height: t.cy,
+                        rotation: t.rot,
+                        flip_h: t.flip_h,
+                        flip_v: t.flip_v,
+                        image_path,
+                        mime_type,
+                        svg_image_path,
+                        intrinsic_width_px,
+                        intrinsic_height_px,
+                        stroke,
+                        fill: child(node, "spPr").and_then(|sp| parse_fill(sp, theme)),
+                        prst_geom: None,
+                        prst_adjust: None,
+                        src_rect: blip_fill.and_then(parse_src_rect),
+                        alpha: None, /* alpha is baked by the ordered blip chain */
+                        duotone: blip_fill.and_then(|bf| {
+                            parse_blip_duotone(
+                                bf,
+                                &PptxSchemeResolver { theme },
+                                ooxml_common::color::TintMode::PowerPointLinear,
+                            )
+                        }),
+                        blip_effects: blip_fill
+                            .map(|bf| {
+                                parse_picture_blip_effects(
+                                    bf,
+                                    &PptxSchemeResolver { theme },
+                                    ooxml_common::color::TintMode::PowerPointLinear,
+                                    slide_part,
+                                    rels,
+                                )
+                            })
+                            .unwrap_or_default(),
+                        cust_geom: None,
+                        shadow,
+                        inner_shadow,
+                        glow,
+                        soft_edge,
+                        reflection,
+                        scene3d,
+                        sp3d,
+                    }));
                 }
             }
         }
@@ -5042,6 +5038,57 @@ mod picture_property_resolution_tests {
             &mut zip,
         );
         assert_inherited(&placeholder_picture);
+    }
+
+    #[test]
+    fn transformless_svg_only_placeholder_picture_is_parsed() {
+        let doc = roxmltree::Document::parse(
+            r#"<p:pic xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                      xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                      xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main">
+              <p:nvPicPr><p:cNvPr id="4" name="SVG Placeholder"/><p:cNvPicPr/><p:nvPr><p:ph type="pic" idx="9"/></p:nvPr></p:nvPicPr>
+              <p:blipFill><a:blip><a:extLst><a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}"><asvg:svgBlip r:embed="rIdSvg"/></a:ext></a:extLst></a:blip><a:stretch/></p:blipFill>
+              <p:spPr/>
+            </p:pic>"#,
+        )
+        .unwrap();
+        let mut placeholders = LayoutPlaceholders::default();
+        placeholders.by_idx.insert(
+            9,
+            Transform {
+                cx: 1000,
+                cy: 800,
+                ..Default::default()
+            },
+        );
+        let rels = HashMap::from([("rIdSvg".to_owned(), "../media/image2.svg".to_owned())]);
+        let mut zip = svg_only_image_zip();
+        let mut out = Vec::new();
+        parse_sp_tree_node(
+            doc.root_element(),
+            &placeholders,
+            "ppt/slides/slide1.xml",
+            &rels,
+            &HashMap::new(),
+            &mut zip,
+            &PptxTheme::default(),
+            &mut out,
+            false,
+            None,
+            DepthGuard::root(),
+        );
+
+        let SlideElement::Picture(picture) = out.pop().expect("SVG placeholder output") else {
+            panic!("an SVG-only placeholder must still produce a PictureElement")
+        };
+        assert_eq!(picture.image_path, "ppt/media/image2.svg");
+        assert_eq!(picture.mime_type, "image/svg+xml");
+        assert_eq!(
+            picture.svg_image_path.as_deref(),
+            Some("ppt/media/image2.svg")
+        );
+        assert_eq!((picture.width, picture.height), (1000, 800));
     }
 
     #[test]

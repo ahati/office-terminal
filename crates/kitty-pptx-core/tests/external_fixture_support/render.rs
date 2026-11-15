@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use crossbeam_channel::unbounded;
+use kitty_pptx_core::metafile::expand_metafiles;
 use kitty_pptx_core::{
     DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec,
     RgbaSlide, SlideCompiler, SlideRasterizer, Source, TinySkiaRasterizer,
@@ -32,7 +33,7 @@ pub fn render_fixture(path: &Path, width_px: u32) -> Result<Vec<RgbaSlide>, Stri
 
     let mut slides = Vec::with_capacity(presentation.slides.len());
     for (index, slide) in presentation.slides.iter().enumerate() {
-        let vector = compiler
+        let mut vector = compiler
             .compile_in_deck(
                 slide,
                 &presentation.slides,
@@ -41,6 +42,10 @@ pub fn render_fixture(path: &Path, width_px: u32) -> Result<Vec<RgbaSlide>, Stri
                 &tx,
             )
             .map_err(|error| format!("{} slide {}: {error}", path.display(), index + 1))?;
+        // Metafile pictures are compiler markers; expansion needs the asset
+        // store and must run before rasterization (PRD 13 §10.1).
+        let (warning_tx, _warning_rx) = unbounded();
+        expand_metafiles(&mut vector, assets.as_ref(), &warning_tx);
         let rendered = rasterizer
             .rasterize(&vector, &target, assets.as_ref())
             .map_err(|error| format!("{} slide {}: {error}", path.display(), index + 1))?;

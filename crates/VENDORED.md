@@ -20,6 +20,14 @@ The following crates in this directory are vendored from [`yukiyokotani/office-o
    - Fixes `parse_reflection_effect` to use the ECMA-376 default `dir = 5400000`
      (90 degrees); the upstream default of 0 mirrored reflections sideways. The
      defaults unit test is updated to the spec value.
+6. `crates/patches/0006-pptx-parser-svg-only-placeholder-pictures.patch`:
+   - `parse_pic_node`'s inherited-placeholder branch resolves the blip through
+     `resolve_blip_source` instead of reading only `<a:blip r:embed>`. Picture
+     placeholders whose blip carries only the Microsoft 2016 `asvg:svgBlip`
+     extension (an SVG inserted as a picture, with no raster fallback) were
+     dropped from the element list entirely, so the slide rendered without its
+     image. The shared resolver already handles SVG-only blips, intrinsic PNG
+     sizes and the SVG twin.
 
 
 ## Metafile Playback Crates (`metafile-rs`)
@@ -55,6 +63,14 @@ Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pict
      frames, tick marks, axis spines), leaving large holes in otherwise valid
      EMF+ pictures. The single-cap vocabulary cannot distinguish the two ends,
      so keeping the start cap is the closest faithful stroke.
+5. `crates/patches/0005-metafile-commit-continued-objects-at-total-size.patch`:
+   - `metafile-emfplus` commits a split object when its accumulated bytes reach
+     `TotalObjectSize`, not only when the final fragment clears the
+     continuation flag. MS-EMFPLUS 2.3.5.1 makes the total size authoritative,
+     and some producers leave the C bit set on the final fragment; without this
+     the object never enters the object table and the first record that
+     references it (for example `EmfPlusDrawImagePoints`) aborts playback with
+     `invalid or empty EMF+ object id`, blanking the whole picture.
 
 ## Bundled test/parity assets (not vendored crates)
 

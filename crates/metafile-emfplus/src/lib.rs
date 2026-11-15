@@ -628,8 +628,15 @@ impl Player<'_> {
                 );
             }
             pending.data.extend_from_slice(fragment);
-            if !continued {
-                if pending.data.len() != total {
+            // MS-EMFPLUS 2.3.5.1 makes TotalObjectSize authoritative: once
+            // that many bytes have been read, the next record is no longer part
+            // of the object. Some producers leave the C bit set on the final
+            // fragment and rely on the size, so commit on the byte total and
+            // reject only a short fragment that claims to be final.
+            // [kitty-pptx patch 0005]
+            let complete = pending.data.len() == total;
+            if complete || !continued {
+                if !complete {
                     return invalid(
                         record.origin,
                         record.index,

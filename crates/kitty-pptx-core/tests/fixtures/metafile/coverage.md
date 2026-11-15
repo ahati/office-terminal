@@ -38,6 +38,7 @@ fixtures live beside this file and are listed in `README.md`.
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | EMF+ Only | `windows-gdiplus-emfplus-only.emf` | `real_emfplus_only_plays` | — | — | ⚠️ |
 | EMF+ Dual (GetDC fallback) | `metafile_milestone_tests::emfplus_dual_getdc_fallback_is_reported` | `metafile_emfplus_fallback` | — | — | ⚠️ |
+| Split objects (`TotalObjectSize`) | `metafile_milestone_tests::emfplus_split_object_commits_at_the_declared_total` | object committed before first draw (patch 0005) | — | — | ⚠️ |
 | Solid / linear gradients | `metafile_milestone_tests::linear_gradient_paint_maps_to_the_display_list` | angle + stops | — | — | ⚠️ |
 | Path / radial gradients | — | engine rejects → §3 placeholder | — | — | ❌ (engine) |
 | Texture brushes | engine adapter | average colour + `metafile_pattern_brush` | — | — | ⚠️ |
