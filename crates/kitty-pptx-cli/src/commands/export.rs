@@ -169,14 +169,15 @@ pub fn run_export_with_options(
             }
         };
         // Expand EMF/WMF markers before either backend runs (PRD 13 §10.1).
-        // Warnings are still dropped until the M0 plumbing lands; failures
-        // render the visible metafile placeholder.
-        let (warning_tx, _warning_rx) = crossbeam_channel::unbounded();
+        let (warning_tx, warning_rx) = crossbeam_channel::unbounded();
         kitty_pptx_core::metafile::expand_metafiles(
             &mut vector_slide,
             asset_store.as_ref(),
             &warning_tx,
         );
+        for warning in warning_rx.try_iter() {
+            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
+        }
 
         // PNG Export
         if format == ExportFormat::Png || format == ExportFormat::All {

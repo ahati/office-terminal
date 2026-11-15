@@ -566,7 +566,7 @@ Every `WarningEvent` produced by the compiler today (font substitution, unsuppor
 4. The CLI `export` path drains and prints warnings unless `--quiet`; `dump` includes them in its JSON envelope.
 5. A test asserts that a fixture with a substituted font produces exactly one drawer entry through the real pipeline.
 
-This is scheduled as **M0**, before metafile playback lands, because M2–M5 cannot demonstrate their diagnostics without it.
+Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`): the pipeline owns the buffer, flushes it before publishing a cached scene, and `WarningsState` deduplicates entries per `(slide, event)`. The CLI export prints drained warnings to stderr.
 
 ---
 
