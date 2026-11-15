@@ -334,6 +334,31 @@ fn draw_command(
         VectorCommand::DrawText { runs, transform } => {
             text::render_text_runs(pixmap, runs, transform, scale, offset_x, offset_y);
         }
+        VectorCommand::DrawBitmap {
+            png,
+            placement,
+            opacity,
+            sampling,
+            ..
+        } => {
+            image::render_bitmap(
+                pixmap,
+                png,
+                placement,
+                *opacity,
+                *sampling,
+                scale,
+                offset_x,
+                offset_y,
+            );
+        }
+        VectorCommand::DrawMetafile {
+            dest_rect,
+            transform,
+            ..
+        } => {
+            image::render_missing_metafile(pixmap, dest_rect, transform, scale, offset_x, offset_y);
+        }
         VectorCommand::PushClip(_) | VectorCommand::PopClip => {}
     }
 }

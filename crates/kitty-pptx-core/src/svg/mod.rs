@@ -353,6 +353,21 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                 VectorCommand::DrawText { runs, transform } => {
                     element = text::serialize_svg_text(runs, transform, text_mode);
                 }
+                VectorCommand::DrawBitmap {
+                    png,
+                    placement,
+                    opacity,
+                    ..
+                } => {
+                    element = image::serialize_svg_bitmap(png, placement, *opacity);
+                }
+                VectorCommand::DrawMetafile {
+                    dest_rect,
+                    transform,
+                    ..
+                } => {
+                    element = image::serialize_svg_missing_metafile(dest_rect, transform);
+                }
                 VectorCommand::PushClip(_) | VectorCommand::PopClip => {}
             }
 

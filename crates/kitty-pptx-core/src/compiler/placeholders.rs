@@ -178,6 +178,79 @@ pub fn compile_media_placeholder(media_elem: &pptx_model::MediaElement) -> Vec<V
     commands
 }
 
+/// §3 metafile placeholder: dashed frame, `◇ METAFILE` header and a detail
+/// line. Used both by the compiler (unplayable blips) and by
+/// `metafile::expand_metafiles` (engine failure/limits).
+pub fn compile_metafile_placeholder(
+    dest_rect: RectF32,
+    transform: crate::contracts::AffineTransform,
+    detail: &str,
+) -> Vec<VectorCommand> {
+    let w = dest_rect.w.max(1.0);
+    let h = dest_rect.h.max(1.0);
+    let local = crate::contracts::AffineTransform {
+        tx: dest_rect.x,
+        ty: dest_rect.y,
+        ..crate::contracts::AffineTransform::default()
+    };
+    let placed = transform.post_concat(&local);
+
+    let frame_path = VectorPath::new(
+        vec![
+            PathSegment::MoveTo { x: 0.0, y: 0.0 },
+            PathSegment::LineTo { x: w, y: 0.0 },
+            PathSegment::LineTo { x: w, y: h },
+            PathSegment::LineTo { x: 0.0, y: h },
+            PathSegment::Close,
+        ],
+        FillRule::NonZero,
+    );
+    let frame_stroke = VectorStroke {
+        color: [120, 120, 120, 180],
+        width_emu: 19050, // 1.5 pt
+        dash_segments: Some(vec![4.0, 3.0]),
+        line_cap: LineCap::Square,
+        line_join: LineJoin::Miter,
+        ..VectorStroke::default()
+    };
+    let mut commands = vec![VectorCommand::DrawPath {
+        path: frame_path,
+        fill: None,
+        stroke: Some(frame_stroke),
+        transform: placed,
+        effects: Box::default(),
+    }];
+
+    let header_pt = (h * 0.06 / 12700.0).clamp(8.0, 18.0);
+    commands.push(VectorCommand::DrawText {
+        runs: vec![make_simple_run(
+            "◇ METAFILE",
+            header_pt,
+            [90, 90, 90, 255],
+            w * 0.08,
+            0.42 * h,
+        )],
+        transform: placed,
+    });
+
+    let detail: String = detail.chars().take(64).collect();
+    if !detail.is_empty() {
+        let detail_pt = (h * 0.045 / 12700.0).clamp(7.0, 14.0);
+        commands.push(VectorCommand::DrawText {
+            runs: vec![make_simple_run(
+                &detail,
+                detail_pt,
+                [130, 130, 130, 255],
+                w * 0.08,
+                0.62 * h,
+            )],
+            transform: placed,
+        });
+    }
+
+    commands
+}
+
 fn make_simple_run(text: &str, sz_pt: f32, color: [u8; 4], x_start: f32, y: f32) -> PositionedGlyphRun {
     let sz_emu = sz_pt * 12700.0;
     let mut glyphs = Vec::new();

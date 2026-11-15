@@ -4,6 +4,7 @@ pub mod contracts;
 pub mod error;
 pub mod loader;
 pub mod compiler;
+pub mod metafile;
 pub mod rasterizer;
 pub mod svg;
 pub mod navigation;

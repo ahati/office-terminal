@@ -154,7 +154,7 @@ pub fn run_export_with_options(
 
     for idx in slide_indices {
         let slide = &presentation.slides[idx];
-        let vector_slide = match compiler.compile_in_deck(
+        let mut vector_slide = match compiler.compile_in_deck(
             slide,
             &presentation.slides,
             presentation.slide_width,
@@ -168,6 +168,15 @@ pub fn run_export_with_options(
                 continue;
             }
         };
+        // Expand EMF/WMF markers before either backend runs (PRD 13 §10.1).
+        // Warnings are still dropped until the M0 plumbing lands; failures
+        // render the visible metafile placeholder.
+        let (warning_tx, _warning_rx) = crossbeam_channel::unbounded();
+        kitty_pptx_core::metafile::expand_metafiles(
+            &mut vector_slide,
+            asset_store.as_ref(),
+            &warning_tx,
+        );
 
         // PNG Export
         if format == ExportFormat::Png || format == ExportFormat::All {

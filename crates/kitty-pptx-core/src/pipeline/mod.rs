@@ -143,13 +143,17 @@ impl DefaultRenderPipeline {
         } else {
             let (tx, _rx) = crossbeam_channel::unbounded();
             let slide = &self.presentation.slides[index];
-            let v = self.compiler.compile_in_deck(
+            let mut v = self.compiler.compile_in_deck(
                 slide,
                 &self.presentation.slides,
                 self.presentation.slide_width,
                 self.presentation.slide_height,
                 &tx,
             )?;
+            // Metafile markers are expanded where the AssetStore is available
+            // (PRD 13 §10.1). Warnings still use the compile-stage sink; M0
+            // wires it to a pipeline-owned buffer.
+            crate::metafile::expand_metafiles(&mut v, self.asset_store.as_ref(), &tx);
             self.cache.put_vector(index, v.clone());
             v
         };

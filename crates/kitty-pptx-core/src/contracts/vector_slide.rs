@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::geometry::{AffineTransform, NormalizedRect, RectF32, VectorPath};
 use super::paint::{VectorGradient, VectorPaint, VectorStroke};
 use super::text::PositionedGlyphRun;
@@ -104,6 +106,15 @@ impl Default for BackgroundTile {
     }
 }
 
+/// Sampling policy for [`VectorCommand::DrawBitmap`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BitmapSampling {
+    /// Nearest-neighbour sampling (crisp pixels, GDI's 1:1 blit default).
+    Nearest,
+    /// Bilinear filtering (scaled or rotated placements).
+    Linear,
+}
+
 /// Vector display command.
 #[derive(Clone, Debug, PartialEq)]
 pub enum VectorCommand {
@@ -140,6 +151,32 @@ pub enum VectorCommand {
         opacity: f32,
         transform: AffineTransform,
         effects: Vec<BlipEffect>,
+    },
+    /// Metafile picture marker (EMF / WMF / EMF+). The compiler cannot read
+    /// archive bytes, so it emits this marker and `metafile::expand_metafiles`
+    /// replaces it with playback output or the standard metafile placeholder.
+    /// No marker may survive expansion into a backend.
+    DrawMetafile {
+        rel_id: String,
+        /// Picture transform (position, size, rotation, flip).
+        transform: AffineTransform,
+        /// `<a:srcRect>` crop window (full when absent).
+        src_rect: NormalizedRect,
+        /// Visible destination box in picture-local EMU.
+        dest_rect: RectF32,
+        opacity: f32,
+    },
+    /// Bitmap embedded in another container (e.g. an EMF record stream).
+    /// Carried inline as PNG so the display list stays self-contained across
+    /// raster and SVG backends and cache targets.
+    DrawBitmap {
+        png: Arc<[u8]>,
+        width: u32,
+        height: u32,
+        /// Maps the bitmap's `[0, 1]` square into element-local EMU.
+        placement: AffineTransform,
+        opacity: f32,
+        sampling: BitmapSampling,
     },
     PushClip(VectorPath),
     PopClip,
