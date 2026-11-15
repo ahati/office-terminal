@@ -148,7 +148,10 @@ box-downscales each 1600 px reference into `goldens/thumbnails/<commit>/`
 (git-ignored with the rest of `target/`). Later runs decode those thumbnails
 instead of the full-resolution PNGs. The thumbnail name includes the source
 file's length and mtime, so `--force-render` regenerates only the changed
-references; bumping `COMPARE_WIDTH` starts a new `w<width>` directory.
+references; bumping `COMPARE_WIDTH` starts a new `w<width>` directory. The
+diagnostic score baseline records the width it was recorded at, so changing the
+width skips the ratchet until the baseline is regenerated with
+`UPDATE_EXTERNAL_SCORES=1`.
 
 Rendering is resumable at deck granularity: a deck whose `slide_*.png` files all
 exist is skipped, and freshly rendered slides are merged one file at a time so

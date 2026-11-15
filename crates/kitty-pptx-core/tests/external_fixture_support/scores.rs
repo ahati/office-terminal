@@ -3,7 +3,9 @@
 //! Strict decks already enforce their authored thresholds. Diagnostic decks
 //! only ratchet: a run fails when `min_cell_pass_ratio` drops by more than 0.05
 //! or `max_global_mean_abs_diff` rises by more than 2.0 against this file.
-//! Regenerate with `UPDATE_EXTERNAL_SCORES=1`.
+//! The baseline records the comparison width; changing `COMPARE_WIDTH` makes
+//! the old metrics incomparable, so the ratchet is skipped until the file is
+//! regenerated with `UPDATE_EXTERNAL_SCORES=1`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -36,6 +38,9 @@ impl From<&DiffMetrics> for SlideScore {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExternalScores {
     pub commit: String,
+    /// Width the metrics were recorded at; absent in pre-thumbnail baselines.
+    #[serde(default)]
+    pub compare_width: u32,
     pub slides: BTreeMap<String, SlideScore>,
 }
 
