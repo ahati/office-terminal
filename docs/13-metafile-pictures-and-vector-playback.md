@@ -542,9 +542,9 @@ Expansion emits every `FidelityDegraded`/`MediaFailed`/`ResourceLimitHit` warnin
 
 - `export --format svg` emits inline `<image>` data URIs for EMF bitmaps and native paths/text otherwise.
 - `export --format png` rasterizes the same commands.
-- `dump --json` follows §6.5 (expansion runs before serialization); `info` counts metafile pictures as media (format tallies include `emf`, `wmf`).
+- `dump --json` compiles and expands every slide before serialization; the envelope carries `vectorSlides` with no surviving `DrawMetafile`. `DrawBitmap` is projected as `{width, height, pngSha256, placement, opacity, sampling}`; `--embed-bitmaps` adds `pngBase64`. `info` counts metafile pictures as media.
 - `--metafile=<playback|placeholder>` (global flag) and `KITTY_PPTX_METAFILE` override the engine for debugging; `placeholder` reproduces the old behaviour without playback and without diagnostics. The flag wins over the environment variable (implemented in M6).
-- The export path drains compile-stage warnings to stderr (font substitutions, fidelity gaps) in addition to expansion warnings.
+- The export, view and dump paths all drain compile-stage warnings to stderr (font substitutions, fidelity gaps) in addition to expansion warnings.
 
 ### 10.4 Feature flag & rollout
 

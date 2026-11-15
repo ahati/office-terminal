@@ -97,6 +97,11 @@ pub enum Commands {
         markdown: bool,
         #[arg(long)]
         json: bool,
+        #[arg(
+            long,
+            help = "Include base64 PNG payloads for embedded metafile bitmaps in --json output"
+        )]
+        embed_bitmaps: bool,
     },
     #[command(about = "Deck structure and diagnostic summary")]
     Info { file: PathBuf },

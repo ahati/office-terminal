@@ -174,6 +174,12 @@ pub fn rectangle(rect: [i32; 4]) -> Vec<u8> {
     record(43, &i32s(&rect))
 }
 
+/// `EMR_GDICOMMENT` with arbitrary payload (non-EMF+ comments are skipped).
+pub fn emf_comment(payload: &[u8]) -> Vec<u8> {
+    assert!(payload.len().is_multiple_of(4), "comment payload must be 4-byte aligned");
+    record(70, payload)
+}
+
 /// `EMR_POLYLINE` (open, 32-bit points).
 pub fn polyline(points: &[(i32, i32)]) -> Vec<u8> {
     let (mut min_x, mut min_y) = (i32::MAX, i32::MAX);
@@ -320,6 +326,21 @@ pub fn emf_plus_save(id: u32) -> Vec<u8> {
 /// `EmfPlusRestore` (state stack id).
 pub fn emf_plus_restore(id: u32) -> Vec<u8> {
     emf_plus_record(0x4026, 0, &id.to_le_bytes())
+}
+
+/// `EmfPlusBeginContainer` with an identity destination/source mapping.
+pub fn emf_plus_begin_container(id: u32) -> Vec<u8> {
+    let mut data = Vec::new();
+    for value in [0.0f32, 0.0, 100.0, 100.0, 0.0, 0.0, 100.0, 100.0] {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    data.extend_from_slice(&id.to_le_bytes());
+    emf_plus_record(0x4027, 2, &data) // UnitPixel source rect
+}
+
+/// `EmfPlusEndContainer`.
+pub fn emf_plus_end_container(id: u32) -> Vec<u8> {
+    emf_plus_record(0x4029, 0, &id.to_le_bytes())
 }
 
 /// `EmfPlusFillRects` with one rectangle and a brush object id.

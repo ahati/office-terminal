@@ -72,6 +72,9 @@ fixtures live beside this file and are listed in `README.md`.
 | Deterministic robustness | `tests/metafile_robustness_tests.rs` | ⚠️ 200-case smoke |
 | Extended fuzz | `fuzz/fuzz_targets/fuzz_metafile.rs` | ⚠️ cargo-fuzz, nightly |
 | Playback override | `tests/metafile_mode_tests.rs` | ⚠️ |
+| Peak allocation | `tests/metafile_rss_tests.rs` (5.5× input) | ⚠️ |
+| L4 warnings drawer | `overlay_tests::metafile_warnings_render_in_the_drawer` | ⚠️ |
+| L5 CLI E2E | `crates/kitty-pptx-cli/tests/metafile_e2e_tests.rs` | ⚠️ |
 | External golden harness | `tests/external_fixture_tests.rs` (expands metafiles) | ⚠️ diagnostic baseline |
 
 ## Picture-level suite

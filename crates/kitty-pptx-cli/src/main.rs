@@ -71,7 +71,16 @@ fn main() -> ExitCode {
             comments,
             markdown,
             json,
-        }) => run_dump(file, notes, comments, markdown, json, &loader),
+            embed_bitmaps,
+        }) => run_dump(
+            file,
+            notes,
+            comments,
+            markdown,
+            json,
+            embed_bitmaps,
+            &loader,
+        ),
         Some(Commands::View {
             file,
             slide,

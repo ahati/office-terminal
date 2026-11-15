@@ -33,6 +33,7 @@ metafile-wmf = "=1.0.1"
 roxmltree = "0.20"
 quick-xml = "0.41"
 base64 = "0.22"
+sha2 = "0.10"
 console_error_panic_hook = "0.1"
 
 # In-tree crates
