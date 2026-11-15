@@ -57,7 +57,8 @@ pub struct WorkerSharedContext {
     pub cache: PipelineCache,
     pub in_flight: Arc<Mutex<HashSet<usize>>>,
     pub failed: Arc<Mutex<HashMap<usize, RenderError>>>,
-    pub warning_sink: Sender<WarningEvent>,
+    /// Compile/expansion warnings, tagged with the slide index.
+    pub warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
 }
 
 /// Background worker thread pool with priority queue and cooperative cancellation.
@@ -81,13 +82,34 @@ impl WorkerPool {
         rasterizer: Arc<dyn SlideRasterizer>,
         cache: PipelineCache,
     ) -> Self {
+        Self::with_warnings(
+            num_workers,
+            presentation,
+            asset_store,
+            compiler,
+            rasterizer,
+            cache,
+            Arc::new(Mutex::new(Vec::new())),
+        )
+    }
+
+    /// Like [`WorkerPool::new`] but shares a warning buffer with the caller.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_warnings(
+        num_workers: usize,
+        presentation: Arc<pptx_model::Presentation>,
+        asset_store: Arc<dyn AssetStore>,
+        compiler: Arc<dyn SlideCompiler>,
+        rasterizer: Arc<dyn SlideRasterizer>,
+        cache: PipelineCache,
+        warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
+    ) -> Self {
         let queue = Arc::new(Mutex::new(BinaryHeap::new()));
         let (notify_tx, notify_rx) = crossbeam_channel::unbounded();
         let in_flight = Arc::new(Mutex::new(HashSet::new()));
         let failed = Arc::new(Mutex::new(HashMap::new()));
         let active_tokens = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
-        let (warning_sink, _warning_rx) = crossbeam_channel::unbounded();
 
         let ctx = WorkerSharedContext {
             presentation,
@@ -97,7 +119,7 @@ impl WorkerPool {
             cache,
             in_flight: Arc::clone(&in_flight),
             failed: Arc::clone(&failed),
-            warning_sink,
+            warnings: Arc::clone(&warnings),
         };
 
         let mut threads = Vec::with_capacity(num_workers);
@@ -368,12 +390,28 @@ fn execute_task(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &Atomi
     }
 }
 
+/// Moves warnings produced during one task into the shared buffer.
+fn flush_warnings(
+    ctx: &WorkerSharedContext,
+    index: usize,
+    receiver: &Receiver<WarningEvent>,
+) {
+    let events: Vec<WarningEvent> = receiver.try_iter().collect();
+    if events.is_empty() {
+        return;
+    }
+    if let Ok(mut buffer) = ctx.warnings.lock() {
+        buffer.extend(events.into_iter().map(|event| (index, event)));
+    }
+}
+
 /// The compile + rasterize half of a task, split out so [`execute_task`] can
 /// guard it with a panic barrier. On completion the entry is in the raster
 /// cache, recorded in `failed`, or dropped (cancellation).
 fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &AtomicBool) {
     let index = task.slide_index;
     let target = task.target;
+    let (warning_tx, warning_rx) = crossbeam_channel::unbounded::<WarningEvent>();
 
     // Step 1: Obtain or compile VectorSlide (Tier 1)
     let vector_slide = match ctx.cache.get_vector(index) {
@@ -392,7 +430,7 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                 &ctx.presentation.slides,
                 ctx.presentation.slide_width,
                 ctx.presentation.slide_height,
-                &ctx.warning_sink,
+                &warning_tx,
             ) {
                 Ok(mut v) => {
                     // A cancellation that arrived during compilation must not
@@ -409,12 +447,16 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                     crate::metafile::expand_metafiles(
                         &mut v,
                         ctx.asset_store.as_ref(),
-                        &ctx.warning_sink,
+                        &warning_tx,
                     );
+                    // Publish warnings before the cache entry so a consumer
+                    // that observes `Ready` can also drain them.
+                    flush_warnings(ctx, index, &warning_rx);
                     ctx.cache.put_vector(index, v.clone());
                     v
                 }
                 Err(err) => {
+                    flush_warnings(ctx, index, &warning_rx);
                     if let Ok(mut fl) = ctx.failed.lock() {
                         fl.insert(index, err);
                     }

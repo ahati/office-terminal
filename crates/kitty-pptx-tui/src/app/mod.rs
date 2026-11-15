@@ -289,12 +289,18 @@ impl PresentationApp {
     /// Safe to call every frame: the syncer only talks to the driver when the
     /// slide, its rect, or the blank state actually changed.
     pub fn sync_graphics(&mut self) -> Result<(), kitty_pptx_core::DisplayError> {
-        self.graphics.sync(
+        let result = self.graphics.sync(
             &mut self.state,
             self.pipeline.as_ref(),
             self.driver.as_mut(),
             &self.current_target,
-        )
+        );
+        // Compile/expansion diagnostics are buffered by the pipeline (PRD 13
+        // §10.5); surface them in the warnings drawer with their slide.
+        for (slide, event) in self.pipeline.drain_warnings() {
+            self.state.add_slide_warning(slide, event);
+        }
+        result
     }
 
     /// Runs the interactive presentation event loop.

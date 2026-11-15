@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use crate::compiler::SlideCompiler;
 use crate::contracts::{
     InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
-    VectorSlide,
+    VectorSlide, WarningEvent,
 };
 use crate::error::RenderError;
 use crate::loader::AssetStore;
@@ -31,6 +31,8 @@ pub struct DefaultRenderPipeline {
     workers: Arc<WorkerPool>,
     last_target: Mutex<RenderTargetSpec>,
     sync_fallback: AtomicBool,
+    /// Compile/expansion warnings tagged with their slide index.
+    warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
 }
 
 impl DefaultRenderPipeline {
@@ -53,13 +55,15 @@ impl DefaultRenderPipeline {
         worker_threads: usize,
     ) -> Self {
         let cache = PipelineCache::new();
-        let workers = Arc::new(WorkerPool::new(
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let workers = Arc::new(WorkerPool::with_warnings(
             worker_threads,
             Arc::clone(&presentation),
             Arc::clone(&asset_store),
             Arc::clone(&compiler),
             Arc::clone(&rasterizer),
             cache.clone(),
+            Arc::clone(&warnings),
         ));
 
         Self {
@@ -75,6 +79,7 @@ impl DefaultRenderPipeline {
                 height_px: 1080,
             }),
             sync_fallback: AtomicBool::new(false),
+            warnings,
         }
     }
 
@@ -141,19 +146,27 @@ impl DefaultRenderPipeline {
         let vector_slide: VectorSlide = if let Some(v) = self.cache.get_vector(index) {
             v
         } else {
-            let (tx, _rx) = crossbeam_channel::unbounded();
+            let (tx, rx) = crossbeam_channel::unbounded();
             let slide = &self.presentation.slides[index];
-            let mut v = self.compiler.compile_in_deck(
+            let mut v = match self.compiler.compile_in_deck(
                 slide,
                 &self.presentation.slides,
                 self.presentation.slide_width,
                 self.presentation.slide_height,
                 &tx,
-            )?;
+            ) {
+                Ok(scene) => scene,
+                Err(error) => {
+                    self.flush_warnings(index, &rx);
+                    return Err(error);
+                }
+            };
             // Metafile markers are expanded where the AssetStore is available
-            // (PRD 13 §10.1). Warnings still use the compile-stage sink; M0
-            // wires it to a pipeline-owned buffer.
+            // (PRD 13 §10.1).
             crate::metafile::expand_metafiles(&mut v, self.asset_store.as_ref(), &tx);
+            // Publish warnings before the cache entry so a consumer that sees
+            // the cached scene can also drain them.
+            self.flush_warnings(index, &rx);
             self.cache.put_vector(index, v.clone());
             v
         };
@@ -173,6 +186,25 @@ impl DefaultRenderPipeline {
         target: &RenderTargetSpec,
     ) -> Result<RgbaSlide, RenderError> {
         self.render_sync(index, target)
+    }
+
+    /// Drains warnings produced since the last call (slide index + event).
+    pub fn drain_warnings(&self) -> Vec<(usize, WarningEvent)> {
+        self.warnings
+            .lock()
+            .map(|mut buffer| std::mem::take(&mut *buffer))
+            .unwrap_or_default()
+    }
+
+    /// Moves per-task warnings into the shared buffer.
+    fn flush_warnings(&self, index: usize, receiver: &crossbeam_channel::Receiver<WarningEvent>) {
+        let events: Vec<WarningEvent> = receiver.try_iter().collect();
+        if events.is_empty() {
+            return;
+        }
+        if let Ok(mut buffer) = self.warnings.lock() {
+            buffer.extend(events.into_iter().map(|event| (index, event)));
+        }
     }
 
     /// Shared tail of `entry`/`entry_at` once the target raster cache missed.
@@ -296,6 +328,10 @@ impl RenderPipeline for DefaultRenderPipeline {
         }
 
         self.entry_after_cache_miss(index, target)
+    }
+
+    fn drain_warnings(&self) -> Vec<(usize, WarningEvent)> {
+        DefaultRenderPipeline::drain_warnings(self)
     }
 
     fn invalidate(&self, cause: InvalidateCause) {

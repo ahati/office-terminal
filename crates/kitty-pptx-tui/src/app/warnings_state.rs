@@ -22,8 +22,14 @@ impl WarningsState {
     }
 
     /// Record a fidelity warning event, optionally associated with a specific slide.
+    ///
+    /// Idempotent per `(slide, event)`: resizing/zooming recompiles the scene,
+    /// and a warning must not accumulate duplicates in the drawer.
     pub fn add_warning(&mut self, slide_index: Option<usize>, event: WarningEvent) {
-        self.warnings.push(SlideWarning { slide_index, event });
+        let warning = SlideWarning { slide_index, event };
+        if !self.warnings.contains(&warning) {
+            self.warnings.push(warning);
+        }
     }
 
     /// Set warnings directly.
