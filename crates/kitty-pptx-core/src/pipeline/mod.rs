@@ -267,21 +267,14 @@ impl RenderPipeline for DefaultRenderPipeline {
             };
         }
 
-        // Also check whether another resolution is cached for this slide index:
-        // after a resize the previous target may still be the sharpest frame we
-        // have. Picking the largest keeps the canvas sharp instead of leaving a
-        // blank frame while the new target renders.
-        if let Ok(rcache) = self.cache.raw_raster_cache().lock() {
-            if let Some((_, bmp)) = rcache
-                .iter()
-                .filter(|((idx, _), _)| *idx == index)
-                .max_by_key(|((_, spec), _)| spec.width_px)
-            {
-                return PipelineEntry::Ready {
-                    bitmap: bmp.clone(),
-                    staged: false,
-                };
-            }
+        // Fall back to the widest cached raster for this slide (e.g. the frame
+        // from before a resize). O(1) via the cache's per-slide index instead of
+        // scanning every cached raster.
+        if let Some(bitmap) = self.cache.best_raster(index) {
+            return PipelineEntry::Ready {
+                bitmap,
+                staged: false,
+            };
         }
 
         self.entry_after_cache_miss(index, &target)

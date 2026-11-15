@@ -12,6 +12,7 @@ pub mod search_state;
 mod sorter_graphics_tests;
 pub mod sorter_state;
 pub mod state;
+mod state_notices;
 mod state_timing;
 mod terminal_guard;
 pub mod ui;
