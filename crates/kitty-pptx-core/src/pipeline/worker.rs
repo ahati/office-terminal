@@ -394,7 +394,7 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                 ctx.presentation.slide_height,
                 &ctx.warning_sink,
             ) {
-                Ok(v) => {
+                Ok(mut v) => {
                     // A cancellation that arrived during compilation must not
                     // publish a stale scene into the cache (the deck may have
                     // been reloaded while the compiler was running).
@@ -406,6 +406,11 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                         }
                         return;
                     }
+                    crate::metafile::expand_metafiles(
+                        &mut v,
+                        ctx.asset_store.as_ref(),
+                        &ctx.warning_sink,
+                    );
                     ctx.cache.put_vector(index, v.clone());
                     v
                 }
