@@ -611,6 +611,16 @@ Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`)
 | M5 | ✅ done | placeable WMF + `META_EXTTEXTOUT`, `.emz`/`.wmz` bounded inflate (bomb degrades to `ResourceLimitHit`), mislabelled containers classified by content |
 | M6 | pending | golden corpus (AST/PNG), perf/fuzz jobs, `--metafile` override, feature flag default-on |
 
+**Playback fixes landed with M3–M5:**
+
+- EMF+ `DrawString` carries `position` in page coordinates and the
+  world/container affine in `TextRun.transform`; the adapter now applies that
+  affine to the anchor and the glyph axes, so labels inside transformed
+  containers (chart insets, translated callouts) land at their authored spot.
+- EMF+ pens that declare distinct start/end caps no longer become unsupported
+  objects: patch `0004` keeps the start cap, so frames, spines and tick marks
+  that select those pens are stroked instead of being dropped.
+
 **Engine-capability deltas (normative until the upstream fix lands):**
 
 - `metafile-core 1.0.1` exposes no radial/path gradient paint; `metafile-emfplus

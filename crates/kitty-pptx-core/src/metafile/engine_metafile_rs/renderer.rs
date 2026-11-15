@@ -345,7 +345,7 @@ impl mc::Renderer for SinkRenderer<'_> {
                     .as_ref()
                     .and_then(super::primitives::path_bounds)
             }),
-            rotation_deg: text_rotation_deg(run.transform),
+            transform: text_transform(run.transform),
             right_to_left: run.right_to_left,
         };
         let pushed = self.push_clips(run.clip.as_ref());
@@ -390,13 +390,17 @@ fn placement_transform(placement: mc::BitmapPlacement) -> AffineTransform {
     }
 }
 
-/// Clockwise rotation (screen coordinates) of the engine's local text axes.
-fn text_rotation_deg(transform: mc::Transform) -> f32 {
-    if !transform.m11.is_finite() || !transform.m12.is_finite() {
-        return 0.0;
+/// The engine's local-text → output affine, rejecting non-finite matrices.
+fn text_transform(transform: mc::Transform) -> AffineTransform {
+    if !transform.is_finite() {
+        return AffineTransform::identity();
     }
-    if transform.m11.abs() < 1.0e-9 && transform.m12.abs() < 1.0e-9 {
-        return 0.0;
+    AffineTransform {
+        sx: transform.m11 as f32,
+        ky: transform.m12 as f32,
+        kx: transform.m21 as f32,
+        sy: transform.m22 as f32,
+        tx: transform.dx as f32,
+        ty: transform.dy as f32,
     }
-    transform.m12.atan2(transform.m11).to_degrees() as f32
 }

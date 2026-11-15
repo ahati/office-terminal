@@ -46,6 +46,15 @@ Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pict
      `image source rectangle is empty or outside bitmap bounds`.
    - Upstreamed separately; when a release contains the fix, delete the two
      local copies and drop the `[patch.crates-io]` section.
+4. `crates/patches/0004-metafile-tolerate-asymmetric-caps.patch`:
+   - `metafile-emfplus::parse_pen` keeps the start cap when the record declares
+     different start and end caps instead of returning
+     `UnsupportedCriticalFeature`. The renderer-neutral `Stroke` carries one
+     cap, and real Office/GDI+ streams routinely pair round start caps with
+     flat end caps; rejecting the pen drops every path that selects it (chart
+     frames, tick marks, axis spines), leaving large holes in otherwise valid
+     EMF+ pictures. The single-cap vocabulary cannot distinguish the two ends,
+     so keeping the start cap is the closest faithful stroke.
 
 ## Bundled test/parity assets (not vendored crates)
 

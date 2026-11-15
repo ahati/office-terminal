@@ -27,7 +27,7 @@ Three rules govern this document:
 | Rectangles, rounded rects, ellipses | `RECTANGLE`, `ROUNDRECT`, `ELLIPSE` | **FULL** | Rounded-rect radii from `EMR_ROUNDRECT`; ellipse via 4 cubics |
 | Arcs, pies, chords | `ARC`, `PIE`, `CHORD` | **FULL** | `ArcKind` → sectored paths; max $5^\circ$ per segment |
 | Path bracket + fill/stroke | `BEGINPATH`…`ENDPATH`, `FILLPATH`, `STROKEPATH`, `STROKEANDFILLPATH` | **FULL** | Even-odd/nonzero from `SetPolyFillMode` |
-| Solid pens, width, caps, joins | `CREATEPEN`, `EXTCREATEPEN` | **FULL** | Geometric widths scaled (§5.3); cosmetic pens ≥ 1 device px |
+| Solid pens, width, caps, joins | `CREATEPEN`, `EXTCREATEPEN` | **DEGRADED** | Geometric widths scaled (§5.3); cosmetic pens ≥ 1 device px; distinct EMF+ start/end caps collapse to the start cap (patch 0004), since `Stroke` carries one cap |
 | Dashed / styled pens | `EXTCREATEPEN` | **DEGRADED** | Custom dash patterns preserved where representable; hatch pens → solid + `metafile_pen_style` |
 | Solid brushes | `CREATEBRUSHINDIRECT` | **FULL** | — |
 | Hatched brushes | `CREATEBRUSHINDIRECT` (hatch) | **DEGRADED** | `VectorPattern` preset approximation + `metafile_hatch` |

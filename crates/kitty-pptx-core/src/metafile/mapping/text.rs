@@ -29,10 +29,23 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
     if run.text.is_empty() {
         return None;
     }
-    // Text is scaled by the vertical mapping (font size) and the horizontal
-    // mapping (character advances); PRD 13 §5.4 / §5.2.
-    let scale_x = unit_to_emu.sx.abs().max(1.0e-6);
-    let scale_y = unit_to_emu.sy.abs().max(1.0e-6);
+    // EMF+ positions text in page-transformed coordinates and carries the
+    // world/container affine separately, so the complete local→EMU mapping is
+    // `unit_to_emu ∘ run.transform` (PRD 13 §4.5).
+    let local_to_emu = unit_to_emu.post_concat(&run.transform);
+    let scale_x = (local_to_emu.sx * local_to_emu.sx + local_to_emu.ky * local_to_emu.ky)
+        .sqrt()
+        .max(1.0e-6);
+    let scale_y = (local_to_emu.kx * local_to_emu.kx + local_to_emu.sy * local_to_emu.sy)
+        .sqrt()
+        .max(1.0e-6);
+    if !local_to_emu.sx.is_finite()
+        || !local_to_emu.sy.is_finite()
+        || !local_to_emu.ky.is_finite()
+        || !local_to_emu.kx.is_finite()
+    {
+        return None;
+    }
 
     let mut diagnostics = Vec::new();
     let mut text = run.text.clone();
@@ -56,7 +69,11 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
     let line_height = size_emu * 1.2;
     let ascent = crate::text::shape::ascent_share_for(&family, run.bold, run.italic) * line_height;
 
-    let (anchor_x, anchor_y) = unit_to_emu.transform_point(run.x, run.y);
+    let (anchor_x, anchor_y) = local_to_emu.transform_point(run.x, run.y);
+    // Advances run along the transformed x-axis; glyph outlines are sized by
+    // the transformed y-axis, so anisotropic scales are folded into the x
+    // placement instead of the glyph box.
+    let advance_ratio = scale_x / scale_y;
     let chars: Vec<char> = text.chars().collect();
     let dx_override = !run.dx.is_empty() && run.dx.len() == chars.len();
     if !run.dx.is_empty() && !dx_override {
@@ -71,10 +88,13 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
             &chars,
             &run.dx,
             &family,
-            size_emu,
             run,
-            scale_x,
-            (anchor_x, anchor_y),
+            Placement {
+                size_emu,
+                advance_ratio,
+                scale_x,
+                anchor: (anchor_x, anchor_y),
+            },
         )
     } else {
         let shaped = crate::text::shape::shape(&text, &family, size_emu, run.bold, run.italic);
@@ -83,16 +103,16 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
             .iter()
             .map(|(glyph_id, glyph_x, advance)| PositionedGlyph {
                 glyph_id: *glyph_id,
-                x: anchor_x + *glyph_x,
+                x: anchor_x + *glyph_x * advance_ratio,
                 y: anchor_y,
-                advance: *advance,
+                advance: *advance * advance_ratio,
                 warp_u: None,
             })
             .collect::<Vec<_>>();
         let advance = if shaped.width > 0.0 {
-            shaped.width
+            shaped.width * advance_ratio
         } else {
-            size_emu * 0.6 * chars.len() as f32
+            size_emu * 0.6 * chars.len() as f32 * advance_ratio
         };
         (
             vec![run_with_glyphs(&text, &family, size_emu, run, glyphs)],
@@ -131,7 +151,11 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
 
     Some(MappedText {
         runs,
-        transform: rotation_about(anchor_x, anchor_y, run.rotation_deg - run.escapement_deg),
+        transform: rotation_about(
+            anchor_x,
+            anchor_y,
+            local_to_emu.ky.atan2(local_to_emu.sx).to_degrees() - run.escapement_deg,
+        ),
         background: run
             .background
             .zip(run.background_rect)
@@ -175,21 +199,34 @@ fn resolve_family(requested: &str, diagnostics: &mut Vec<MetafileDiagnostic>) ->
     }
 }
 
+/// Shared placement inputs for the per-character `dx` path.
+#[derive(Clone, Copy)]
+struct Placement {
+    size_emu: f32,
+    advance_ratio: f32,
+    scale_x: f32,
+    anchor: (f32, f32),
+}
+
 /// One `PositionedGlyphRun` per character, positioned by the `dx` advances.
 fn shaping_with_dx(
     chars: &[char],
     dx: &[f32],
     family: &str,
-    size_emu: f32,
     source: &MetafileTextRun,
-    scale_x: f32,
-    anchor: (f32, f32),
+    placement: Placement,
 ) -> (Vec<PositionedGlyphRun>, f32) {
     let mut runs = Vec::with_capacity(chars.len());
     let mut cursor = 0.0f32;
     for (ch, advance) in chars.iter().zip(dx.iter()) {
         let text = ch.to_string();
-        let shaped = crate::text::shape::shape(&text, family, size_emu, source.bold, source.italic);
+        let shaped = crate::text::shape::shape(
+            &text,
+            family,
+            placement.size_emu,
+            source.bold,
+            source.italic,
+        );
         // The first glyph sits at the cursor; a combining mark or an
         // unshapeable character still gets a positioned (empty) origin so the
         // character stream stays aligned with the advances.
@@ -198,14 +235,20 @@ fn shaping_with_dx(
             .iter()
             .map(|(glyph_id, glyph_x, glyph_advance)| PositionedGlyph {
                 glyph_id: *glyph_id,
-                x: anchor.0 + cursor + *glyph_x,
-                y: anchor.1,
-                advance: *glyph_advance,
+                x: placement.anchor.0 + cursor + *glyph_x * placement.advance_ratio,
+                y: placement.anchor.1,
+                advance: *glyph_advance * placement.advance_ratio,
                 warp_u: None,
             })
             .collect();
-        runs.push(run_with_glyphs(&text, family, size_emu, source, glyphs));
-        cursor += advance * scale_x;
+        runs.push(run_with_glyphs(
+            &text,
+            family,
+            placement.size_emu,
+            source,
+            glyphs,
+        ));
+        cursor += advance * placement.scale_x;
     }
     (runs, cursor)
 }
