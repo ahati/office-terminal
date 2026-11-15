@@ -1,0 +1,59 @@
+{
+  "commands": [
+    {
+      "runs": [
+        {
+          "bold": true,
+          "color": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "fontFamily": "Liberation Sans",
+          "fontSizePt": 108.0877,
+          "glyphs": [
+            {
+              "advance": 765226.0,
+              "glyphId": 43,
+              "x": 4571711.5,
+              "y": 4118140.25
+            },
+            {
+              "advance": 313412.2813,
+              "glyphId": 76,
+              "x": 5336937.5,
+              "y": 4118140.25
+            }
+          ],
+          "italic": false,
+          "strike": null,
+          "text": "Hi",
+          "underline": {
+            "color": [
+              255,
+              0,
+              0,
+              255
+            ],
+            "gapEmu": 54908.5390625,
+            "style": "solid",
+            "thicknessEmu": 82362.8046875,
+            "topEmu": 164725.609375
+          }
+        }
+      ],
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawText"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

@@ -1,0 +1,78 @@
+{
+  "commands": [
+    {
+      "runs": [
+        {
+          "bold": false,
+          "color": [
+            0,
+            0,
+            0,
+            255
+          ],
+          "fontFamily": "Carlito",
+          "fontSizePt": 86.4701,
+          "glyphs": [
+            {
+              "advance": 423240.5,
+              "glyphId": 3,
+              "x": 4571711.5,
+              "y": 4459671.5
+            }
+          ],
+          "italic": false,
+          "strike": null,
+          "text": "A",
+          "underline": null
+        }
+      ],
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawText"
+    },
+    {
+      "runs": [
+        {
+          "bold": false,
+          "color": [
+            0,
+            0,
+            0,
+            255
+          ],
+          "fontFamily": "Carlito",
+          "fontSizePt": 86.4701,
+          "glyphs": [
+            {
+              "advance": 423240.5,
+              "glyphId": 3,
+              "x": 4571711.5,
+              "y": 4459671.5
+            }
+          ],
+          "italic": false,
+          "strike": null,
+          "text": "A",
+          "underline": null
+        }
+      ],
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawText"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

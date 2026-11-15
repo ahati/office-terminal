@@ -36,12 +36,16 @@ pub(crate) fn apply_bevel_shading(
     }
     let preset = bevel.preset.as_str();
     let profile_height = (bevel.height_px as f32).max(1.0);
-    let material = scene3d::Material::from_preset(bevel.material.as_str());
-    let light = [bevel.light[0] as f32, bevel.light[1] as f32, bevel.light[2] as f32];
+
+    let rig = scene3d::lighting::rig_vector(
+        effects.scene_3d.as_ref().map(|s| s.light_rig_type.as_str()).unwrap_or("threePt"),
+        effects.scene_3d.as_ref().map(|s| s.light_dir.as_str()).unwrap_or("t"),
+        effects.scene_3d.as_ref().and_then(|s| s.light_rot.as_ref()),
+    );
+    let lighting = scene3d::lighting::prepare_lighting(bevel.material.as_str(), &rig);
 
     let inside: Vec<bool> = pixels.chunks_exact(4).map(|c| c[3] > 8).collect();
     let dist = distance_field(&inside, width, height);
-    let flat = scene3d::blinn_phong([0.0, 0.0, 1.0], light, material).max(0.05);
 
     for y in 0..height {
         for x in 0..width {
@@ -54,17 +58,30 @@ pub(crate) fn apply_bevel_shading(
             let gx = (sample(&dist, width, height, x + 1, y) - sample(&dist, width, height, x - 1, y)) * 0.5;
             let gy = (sample(&dist, width, height, x, y + 1) - sample(&dist, width, height, x, y - 1)) * 0.5;
             let normal = scene3d::bevel_normal(slope.min(8.0), (gx, gy));
-            let intensity = scene3d::blinn_phong(normal, light, material);
-            let factor = (intensity / flat).clamp(0.25, 2.0);
 
             let base = idx * 4;
-            let alpha = pixels[base + 3] as f32;
-            for channel in 0..3 {
-                // Keep the premultiplied RGBA invariant: RGB may never exceed
-                // the alpha channel.
-                pixels[base + channel] = (pixels[base + channel] as f32 * factor)
-                    .round()
-                    .clamp(0.0, alpha) as u8;
+            let pa = pixels[base + 3] as f32;
+            if pa <= 0.0 {
+                continue;
+            }
+            let inv_pa = 255.0 / pa;
+            let r = (pixels[base] as f32 * inv_pa).min(255.0);
+            let g = (pixels[base + 1] as f32 * inv_pa).min(255.0);
+            let b = (pixels[base + 2] as f32 * inv_pa).min(255.0);
+
+            let flat_col = scene3d::lighting::shade_surface(r, g, b, pa, 0.0, 0.0, 1.0, &lighting);
+            let bevel_col = scene3d::lighting::shade_surface(r, g, b, pa, normal[0], normal[1], normal[2], &lighting);
+
+            for c in 0..3 {
+                let factor = if flat_col[c] > 1.0 {
+                    (bevel_col[c] / flat_col[c]).clamp(0.1, 8.0)
+                } else if bevel_col[c] > 0.0 {
+                    1.0 + (bevel_col[c] / 255.0)
+                } else {
+                    1.0
+                };
+                let new_ch = (pixels[base + c] as f32 * factor).round().clamp(0.0, pa) as u8;
+                pixels[base + c] = new_ch;
             }
         }
     }

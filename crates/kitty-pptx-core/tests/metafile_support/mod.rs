@@ -7,6 +7,9 @@
 
 #![allow(dead_code)]
 
+pub mod ast;
+pub mod generate;
+
 use crossbeam_channel::Sender;
 use kitty_pptx_core::contracts::{RectF32, VectorCommand, VectorSlide, WarningEvent};
 use kitty_pptx_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};

@@ -1,0 +1,75 @@
+{
+  "commands": [
+    {
+      "fill": {
+        "bg": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "fg": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "preset": "horz",
+        "type": "pattern"
+      },
+      "path": {
+        "fillRule": "evenOdd",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 457171.1875,
+            "y": 686356.75
+          },
+          {
+            "type": "lineTo",
+            "x": 5486054.0,
+            "y": 686356.75
+          },
+          {
+            "type": "lineTo",
+            "x": 5486054.0,
+            "y": 5490854.0
+          },
+          {
+            "type": "lineTo",
+            "x": 457171.1875,
+            "y": 5490854.0
+          },
+          {
+            "type": "close"
+          }
+        ]
+      },
+      "stroke": {
+        "color": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "dashSegments": null,
+        "lineCap": "butt",
+        "lineJoin": "miter",
+        "miterLimit": 10.0,
+        "paint": null,
+        "widthEmu": 57176
+      },
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

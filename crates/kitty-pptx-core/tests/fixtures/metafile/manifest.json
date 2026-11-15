@@ -1,0 +1,311 @@
+{
+  "$schema": "./manifest.schema.json",
+  "fixtures": [
+    {
+      "id": "windows-emf-paths",
+      "path": "windows-emf-paths.emf",
+      "format": "emf",
+      "source": "metafile-rs",
+      "license": "Apache-2.0",
+      "attribution": "Dantusaikamal/metafile-rs",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/windows-emf-paths.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "windows-emf-bitmap",
+      "path": "windows-emf-bitmap.emf",
+      "format": "emf",
+      "source": "metafile-rs",
+      "license": "Apache-2.0",
+      "attribution": "Dantusaikamal/metafile-rs",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/windows-emf-bitmap.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "windows-gdiplus-emfplus-only",
+      "path": "windows-gdiplus-emfplus-only.emf",
+      "format": "emfplus-only",
+      "source": "metafile-rs",
+      "license": "Apache-2.0",
+      "attribution": "Dantusaikamal/metafile-rs",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/windows-gdiplus-emfplus-only.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "windows-gdi-vector",
+      "path": "windows-gdi-vector.wmf",
+      "format": "wmf",
+      "source": "metafile-rs",
+      "license": "Apache-2.0",
+      "attribution": "Dantusaikamal/metafile-rs",
+      "expect": {
+        "class": "full",
+        "diagnostics": [],
+        "ast": "ast/windows-gdi-vector.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-wmf-placeable",
+      "path": "synthetic-wmf-placeable.wmf",
+      "format": "wmf",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/synthetic-wmf-placeable.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emf-text",
+      "path": "synthetic-emf-text.emf",
+      "format": "emf",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["FontSubstituted", "metafile_record_ignored"],
+        "ast": "ast/synthetic-emf-text.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emf-opaque-text",
+      "path": "synthetic-emf-opaque-text.emf",
+      "format": "emf",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["FontSubstituted", "metafile_record_ignored"],
+        "ast": "ast/synthetic-emf-opaque-text.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emf-pen-caps",
+      "path": "synthetic-emf-pen-caps.emf",
+      "format": "emf",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/synthetic-emf-pen-caps.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emf-hatch",
+      "path": "synthetic-emf-hatch.emf",
+      "format": "emf",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_hatch"],
+        "ast": "ast/synthetic-emf-hatch.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emfplus-dual",
+      "path": "synthetic-emfplus-dual.emf",
+      "format": "emfplus-dual",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_emfplus_fallback", "metafile_record_ignored"],
+        "ast": "ast/synthetic-emfplus-dual.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emfplus-split",
+      "path": "synthetic-emfplus-split.emf",
+      "format": "emfplus-only",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/synthetic-emfplus-split.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emfplus-linear-gradient",
+      "path": "synthetic-emfplus-linear-gradient.emf",
+      "format": "emfplus-only",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/synthetic-emfplus-linear-gradient.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emfplus-path-gradient",
+      "path": "synthetic-emfplus-path-gradient.emf",
+      "format": "emfplus-only",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_gradient", "metafile_record_ignored"],
+        "ast": "ast/synthetic-emfplus-path-gradient.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emfplus-text-transform",
+      "path": "synthetic-emfplus-text-transform.emf",
+      "format": "emfplus-only",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/synthetic-emfplus-text-transform.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-emz",
+      "path": "synthetic-emz.emz",
+      "format": "emz",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/synthetic-emz.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-wmz",
+      "path": "synthetic-wmz.wmz",
+      "format": "wmz",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "full",
+        "diagnostics": [],
+        "ast": "ast/synthetic-wmz.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-mislabelled",
+      "path": "synthetic-mislabelled.emz",
+      "format": "emz",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "degraded",
+        "diagnostics": ["metafile_record_ignored"],
+        "ast": "ast/synthetic-mislabelled.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-bomb",
+      "path": "synthetic-bomb.emz",
+      "format": "emz",
+      "source": "synthetic",
+      "license": "MIT",
+      "attribution": "kitty-pptx test corpus",
+      "expect": {
+        "class": "placeholder",
+        "diagnostics": ["metafile_parse"],
+        "ast": "ast/synthetic-bomb.json",
+        "png": [
+          { "target": "960x720", "pixelmatch_max": 0.005 },
+          { "target": "1920x1080", "pixelmatch_max": 0.005 }
+        ]
+      }
+    }
+  ]
+}

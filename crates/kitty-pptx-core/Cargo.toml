@@ -31,3 +31,6 @@ flate2 = { workspace = true }
 metafile-core = { workspace = true, optional = true }
 metafile-emf = { workspace = true, optional = true }
 metafile-wmf = { workspace = true, optional = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }

@@ -1,0 +1,110 @@
+{
+  "commands": [
+    {
+      "fill": {
+        "color": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "type": "solid"
+      },
+      "path": {
+        "fillRule": "nonzero",
+        "segments": [
+          {
+            "type": "moveTo",
+            "x": 914400.0,
+            "y": 685800.0
+          },
+          {
+            "type": "lineTo",
+            "x": 7315200.0,
+            "y": 685800.0
+          },
+          {
+            "type": "lineTo",
+            "x": 7315200.0,
+            "y": 8229600.0
+          },
+          {
+            "type": "lineTo",
+            "x": 914400.0,
+            "y": 8229600.0
+          },
+          {
+            "type": "close"
+          }
+        ]
+      },
+      "stroke": {
+        "color": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "dashSegments": null,
+        "lineCap": "butt",
+        "lineJoin": "miter",
+        "miterLimit": 10.0,
+        "paint": null,
+        "widthEmu": 80010
+      },
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawPath"
+    },
+    {
+      "runs": [
+        {
+          "bold": false,
+          "color": [
+            0,
+            0,
+            0,
+            255
+          ],
+          "fontFamily": "sans-serif",
+          "fontSizePt": 64.8,
+          "glyphs": [
+            {
+              "advance": 825103.1875,
+              "glyphId": 43,
+              "x": 5486400.0,
+              "y": 2161641.75
+            },
+            {
+              "advance": 304859.5625,
+              "glyphId": 76,
+              "x": 6311503.0,
+              "y": 2161641.75
+            }
+          ],
+          "italic": false,
+          "strike": null,
+          "text": "Hi",
+          "underline": null
+        }
+      ],
+      "transform": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "type": "drawText"
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}

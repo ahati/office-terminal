@@ -1,0 +1,38 @@
+{
+  "commands": [
+    {
+      "height": 2,
+      "opacity": 1.0,
+      "placement": [
+        2930987.5,
+        0.0,
+        0.0,
+        2200067.0,
+        488497.9375,
+        550016.75
+      ],
+      "pngSha256": "bd65507a8bf03fafb1fa62175aaf86449d62d9dbd32b6f49d0b6db8cffcd5f25",
+      "sampling": "linear",
+      "type": "drawBitmap",
+      "width": 3
+    },
+    {
+      "height": 2,
+      "opacity": 1.0,
+      "placement": [
+        -2930987.5,
+        0.0,
+        0.0,
+        1787554.5,
+        6594722.0,
+        3162596.25
+      ],
+      "pngSha256": "bd65507a8bf03fafb1fa62175aaf86449d62d9dbd32b6f49d0b6db8cffcd5f25",
+      "sampling": "linear",
+      "type": "drawBitmap",
+      "width": 3
+    }
+  ],
+  "heightEmu": 6858000,
+  "widthEmu": 9144000
+}
