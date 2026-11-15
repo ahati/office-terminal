@@ -19,7 +19,7 @@ use crate::scene3d;
 
 mod extrusion;
 mod projection;
-mod reflection;
+pub(crate) mod reflection;
 
 use extrusion::{draw_contour, draw_extrusion};
 

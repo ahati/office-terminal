@@ -170,6 +170,7 @@ pub(super) fn build_paragraphs(
                         letter_spacing_emu: 0.0,
                         highlight: None,
                         lang: None,
+                        reflection: None,
                     });
                     items.push(BreakItem::Text {
                         text: text.clone(),
@@ -231,6 +232,10 @@ pub(super) fn build_paragraphs(
                         // `rPr/a:highlight` (§21.1.2.3.4), resolved by the parser.
                         highlight: data.highlight.as_deref().map(parse_hex_color),
                         lang: data.lang.clone(),
+                        reflection: data
+                            .reflection
+                            .as_ref()
+                            .map(crate::compiler::shape_effects::reflection),
                     };
                     // Per-cluster `a:latin` / `a:ea` / `a:cs` slot dispatch
                     // (`renderer.ts:1930-1985`): one `BreakItem` per slot seam.
@@ -280,6 +285,7 @@ pub(super) fn build_paragraphs(
                         letter_spacing_emu: 0.0,
                         highlight: None,
                         lang: None,
+                        reflection: None,
                     });
                     let layout = |items: Vec<BreakItem>, math: Vec<MathPiece>, alignment: String| {
                         ParagraphLayout {
@@ -393,6 +399,7 @@ fn resolve_marker(
             letter_spacing_emu: 0.0,
             highlight: None,
             lang: None,
+            reflection: None,
         });
         return Some(MarkerPlan::Label {
             text: label.text,

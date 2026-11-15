@@ -1,3 +1,5 @@
+use super::shape_effects::VectorReflection;
+
 /// A flattened warp boundary polyline in shape-local EMU.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WarpPolyline {
@@ -78,6 +80,8 @@ pub struct PositionedGlyphRun {
     pub decorations: TextDecorations,
     /// Present when this run is mapped by a WordArt envelope.
     pub warp: Option<std::sync::Arc<RunWarp>>,
+    /// Authored run-level reflection effect (`a:rPr/a:effectLst/a:reflection`).
+    pub reflection: Option<VectorReflection>,
 }
 
 /// Per-glyph WordArt warp transform applied around the glyph baseline origin.

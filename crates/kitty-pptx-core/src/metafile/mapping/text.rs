@@ -270,6 +270,7 @@ fn run_with_glyphs(
         glyphs,
         decorations: decorations_for(source, size_emu),
         warp: None,
+        reflection: None,
     }
 }
 

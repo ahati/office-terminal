@@ -50,6 +50,8 @@ pub(super) struct StyleDef {
     pub(super) highlight: Option<[u8; 4]>,
     /// `rPr@lang` / authored East Asian language, used as kinsoku seam evidence.
     pub(super) lang: Option<String>,
+    /// Authored run-level reflection effect (`a:rPr/a:effectLst/a:reflection`).
+    pub(super) reflection: Option<crate::contracts::VectorReflection>,
 }
 
 impl StyleDef {
@@ -199,6 +201,7 @@ pub fn compile_text_body_with_markers(
         letter_spacing_emu: 0.0,
         highlight: None,
         lang: None,
+        reflection: None,
     });
 
     // `a:bodyPr@vert` dispatch (renderer.ts:5021-5035). Stacked WordArt is a

@@ -9,6 +9,7 @@
 
 use std::cell::RefCell;
 use std::fmt::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use rustybuzz::ttf_parser::{Face, GlyphId, OutlineBuilder};
@@ -332,6 +333,65 @@ fn decoration_rects(run: &PositionedGlyphRun, transform_attr: &str, out: &mut St
     }
 }
 
+static TEXT_REFL_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn run_bounds(run: &PositionedGlyphRun) -> (f32, f32, f32, f32) {
+    let (x, baseline_y) = run_origin(run);
+    let (width, _) = run_advances(run);
+    let font_size_emu = (run.font_size_pt * 12700.0).max(1.0);
+    let ascent_emu = font_size_emu * 0.85;
+    let descent_emu = font_size_emu * 0.35;
+    (
+        x,
+        baseline_y - ascent_emu,
+        x + width.max(1.0),
+        baseline_y + descent_emu,
+    )
+}
+
+fn emit_reflected_group(
+    refl: &crate::contracts::VectorReflection,
+    bounds: (f32, f32, f32, f32),
+    transform_attr: &str,
+    inner_svg: &str,
+    out: &mut String,
+) {
+    if refl.start_opacity.clamp(0.0, 1.0) <= 0.0 && refl.end_opacity.clamp(0.0, 1.0) <= 0.0 {
+        return;
+    }
+    let mirror = super::filters::mirror_geometry(refl, bounds);
+    let region = super::filters::reflection_region(refl, bounds, &mirror);
+    let index = TEXT_REFL_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mask_id = format!("refl-text-mask-{index}");
+    let grad_id = format!("refl-text-grad-{index}");
+    let mut defs = String::new();
+    super::filters::emit_reflection_defs(
+        index,
+        &mask_id,
+        &grad_id,
+        refl,
+        &mirror,
+        region,
+        &mut defs,
+    );
+    out.push_str("  <defs>\n");
+    out.push_str(&defs);
+    out.push_str("  </defs>\n");
+
+    let blur_attr = if refl.blur_radius_emu > 0 {
+        format!(r#" filter="url(#refl-blur-{index})""#)
+    } else {
+        String::new()
+    };
+    let mirror_trans = super::filters::mirror_transform_attr(&mirror);
+    let _ = writeln!(
+        out,
+        r#"  <g filter="url(#refl-fx-{index})"><g {mirror_trans} mask="url(#{mask_id})"{blur_attr}{transform_attr}>"#
+    );
+    out.push_str(inner_svg);
+    out.push_str("  </g></g>\n");
+}
+
 fn serialize_selectable_text(
     runs: &[PositionedGlyphRun],
     transform_attr: &str,
@@ -348,14 +408,28 @@ fn serialize_selectable_text(
         // default whitespace collapsing must not touch them.
         attrs.push_str(r#" xml:space="preserve""#);
         attrs.push_str(&format_text_length_attr(run));
-        attrs.push_str(transform_attr);
+
+        if let Some(ref refl) = run.reflection {
+            let inner = format!(
+                r#"    <text x="{:.1}" y="{:.1}"{}>{}</text>
+"#,
+                x,
+                baseline_y,
+                attrs,
+                xml_escape(&run.text)
+            );
+            emit_reflected_group(refl, run_bounds(run), transform_attr, &inner, out);
+        }
+
+        let mut normal_attrs = attrs;
+        normal_attrs.push_str(transform_attr);
 
         let _ = writeln!(
             out,
             r#"  <text x="{:.1}" y="{:.1}"{}>{}</text>"#,
             x,
             baseline_y,
-            attrs,
+            normal_attrs,
             xml_escape(&run.text)
         );
     }
@@ -455,6 +529,16 @@ fn serialize_vector_glyphs(
                 .unwrap_or_default();
 
             if !path_d.is_empty() {
+                if let Some(ref refl) = run.reflection {
+                    let mut inner = format!(
+                        r#"    <path d="{}" fill="rgb({},{},{})" fill-opacity="{:.2}"/>
+"#,
+                        path_d, r, g, b, opacity
+                    );
+                    decoration_rects(run, "", &mut inner);
+                    emit_reflected_group(refl, run_bounds(run), transform_attr, &inner, out);
+                }
+
                 let _ = writeln!(
                     out,
                     r#"  <path d="{}" fill="rgb({},{},{})" fill-opacity="{:.2}"{}/>"#,

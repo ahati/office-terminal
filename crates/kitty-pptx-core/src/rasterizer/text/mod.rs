@@ -8,6 +8,7 @@ use fontdb::{
 };
 mod affine;
 mod decorations;
+mod reflection;
 mod warp;
 
 use std::cell::RefCell;
@@ -39,9 +40,6 @@ pub fn render_text_runs(
         return;
     }
 
-    let pix_w = pixmap.width() as i32;
-    let pix_h = pixmap.height() as i32;
-
     FONT_CONTEXT.with(|ctx| {
         let (ref mut font_system, ref mut swash_cache) = *ctx.borrow_mut();
 
@@ -50,134 +48,177 @@ pub fn render_text_runs(
                 continue;
             }
 
-            if run.warp.is_some()
-                && run.glyphs.iter().any(|glyph| glyph.warp_u.is_some())
-                && run.glyphs.len() <= run.text.chars().count()
-            {
-                warp::render_warped_run(pixmap, run, transform, scale, offset_x, offset_y);
-                continue;
-            }
-
-            // Rotated / mirrored text cannot be painted by an axis-aligned
-            // cosmic-text buffer: transforming only the first glyph's origin
-            // leaves every glyph upright (the old behaviour, most visible on
-            // 270-degree footer spines). Outline the shaped glyphs and map
-            // every point through the element transform instead, matching the
-            // SVG `VectorGlyphs` backend.
-            if affine::needs_affine_text(transform)
-                && affine::render_affine_run(pixmap, run, transform, scale, offset_x, offset_y)
-            {
-                continue;
-            }
-
-            let sz_px = (run.font_size_pt * 12700.0 * scale).max(6.0);
-            let [r, g, b, a] = run.color;
-
-            // Get start offset in shape coordinates from first glyph
-            let (first_gx, first_gy) = run.glyphs.first().map(|g| (g.x, g.y)).unwrap_or((0.0, 0.0));
-
-            let (tx, ty) = transform.transform_point(first_gx, first_gy);
-            let origin_x = offset_x + tx * scale;
-            let origin_y = offset_y + ty * scale;
-
-            let line_h = sz_px * 1.25;
-            let mut buffer = Buffer::new(font_system, Metrics::new(sz_px, line_h));
-
-            let family = Family::Name(&run.font_family);
-            let mut attrs = Attrs::new().family(family);
-            if run.bold {
-                attrs = attrs.weight(Weight::BOLD);
-            }
-            if run.italic {
-                attrs = attrs.style(Style::Italic);
-            }
-            buffer.set_text(font_system, &run.text, attrs, Shaping::Advanced);
-            buffer.shape_until_scroll(font_system, false);
-
-            // `glyph.y` is the compiled baseline in EMU (reference
-            // `renderer.ts:5783`: baseline = cursorY + metric ascent). Place the
-            // buffer so that its own baseline lands on that point instead of
-            // guessing an ascent fraction (the old `0.85 * size`).
-            let line_y = buffer
-                .layout_runs()
-                .next()
-                .map(|layout| layout.line_y)
-                .unwrap_or(sz_px * 0.8);
-            let draw_x = origin_x.round() as i32;
-            let draw_y = (origin_y - line_y).round() as i32;
-
-            let text_color = Color::rgba(r, g, b, a);
-            let pix_data = pixmap.data_mut();
-
-            buffer.draw(font_system, swash_cache, text_color, |x, y, w, h, col| {
-                let (cr, cg, cb, ca) = (
-                    col.r() as u32,
-                    col.g() as u32,
-                    col.b() as u32,
-                    col.a() as u32,
-                );
-                if ca == 0 {
-                    return;
-                }
-
-                for dy in 0..h as i32 {
-                    let target_y = draw_y + y + dy;
-                    if target_y < 0 || target_y >= pix_h {
-                        continue;
-                    }
-
-                    for dx in 0..w as i32 {
-                        let target_x = draw_x + x + dx;
-                        if target_x < 0 || target_x >= pix_w {
-                            continue;
-                        }
-
-                        let idx = ((target_y * pix_w + target_x) * 4) as usize;
-                        if idx + 3 >= pix_data.len() {
-                            continue;
-                        }
-
-                        // Premultiply source
-                        let src_a = (ca * a as u32) / 255;
-                        let src_r = (cr * src_a) / 255;
-                        let src_g = (cg * src_a) / 255;
-                        let src_b = (cb * src_a) / 255;
-
-                        let dst_r = pix_data[idx] as u32;
-                        let dst_g = pix_data[idx + 1] as u32;
-                        let dst_b = pix_data[idx + 2] as u32;
-                        let dst_a = pix_data[idx + 3] as u32;
-
-                        // Porter-Duff Over: out = src + dst * (1 - src_a)
-                        let inv_a = 255 - src_a;
-                        let out_r = (src_r + (dst_r * inv_a + 127) / 255).min(255);
-                        let out_g = (src_g + (dst_g * inv_a + 127) / 255).min(255);
-                        let out_b = (src_b + (dst_b * inv_a + 127) / 255).min(255);
-                        let out_a = (src_a + (dst_a * inv_a + 127) / 255).min(255);
-
-                        pix_data[idx] = out_r as u8;
-                        pix_data[idx + 1] = out_g as u8;
-                        pix_data[idx + 2] = out_b as u8;
-                        pix_data[idx + 3] = out_a as u8;
-                    }
-                }
-            });
-
-            // Face-derived underline / strike bands from the vector IR (T7).
-            if !run.decorations.is_empty() {
-                decorations::paint_upright(
-                    pix_data,
-                    pix_w,
-                    pix_h,
+            if let Some(ref reflection) = run.reflection {
+                reflection::render_reflected_run(
+                    pixmap,
                     run,
-                    draw_x,
-                    origin_y,
-                    estimate_run_px_width(run, scale),
+                    reflection,
+                    transform,
                     scale,
+                    offset_x,
+                    offset_y,
+                    font_system,
+                    swash_cache,
                 );
+            }
+
+            render_single_run(
+                pixmap,
+                run,
+                transform,
+                scale,
+                offset_x,
+                offset_y,
+                font_system,
+                swash_cache,
+            );
+        }
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_single_run(
+    pixmap: &mut tiny_skia::Pixmap,
+    run: &PositionedGlyphRun,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+) {
+    if run.text.is_empty() {
+        return;
+    }
+
+    if run.warp.is_some()
+        && run.glyphs.iter().any(|glyph| glyph.warp_u.is_some())
+        && run.glyphs.len() <= run.text.chars().count()
+    {
+        warp::render_warped_run(pixmap, run, transform, scale, offset_x, offset_y);
+        return;
+    }
+
+    // Rotated / mirrored text cannot be painted by an axis-aligned
+    // cosmic-text buffer: transforming only the first glyph's origin
+    // leaves every glyph upright (the old behaviour, most visible on
+    // 270-degree footer spines). Outline the shaped glyphs and map
+    // every point through the element transform instead, matching the
+    // SVG `VectorGlyphs` backend.
+    if affine::needs_affine_text(transform)
+        && affine::render_affine_run(pixmap, run, transform, scale, offset_x, offset_y)
+    {
+        return;
+    }
+
+    let pix_w = pixmap.width() as i32;
+    let pix_h = pixmap.height() as i32;
+    let sz_px = (run.font_size_pt * 12700.0 * scale).max(6.0);
+    let [r, g, b, a] = run.color;
+
+    // Get start offset in shape coordinates from first glyph
+    let (first_gx, first_gy) = run.glyphs.first().map(|g| (g.x, g.y)).unwrap_or((0.0, 0.0));
+
+    let (tx, ty) = transform.transform_point(first_gx, first_gy);
+    let origin_x = offset_x + tx * scale;
+    let origin_y = offset_y + ty * scale;
+
+    let line_h = sz_px * 1.25;
+    let mut buffer = Buffer::new(font_system, Metrics::new(sz_px, line_h));
+
+    let family = Family::Name(&run.font_family);
+    let mut attrs = Attrs::new().family(family);
+    if run.bold {
+        attrs = attrs.weight(Weight::BOLD);
+    }
+    if run.italic {
+        attrs = attrs.style(Style::Italic);
+    }
+    buffer.set_text(font_system, &run.text, attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(font_system, false);
+
+    // `glyph.y` is the compiled baseline in EMU (reference
+    // `renderer.ts:5783`: baseline = cursorY + metric ascent). Place the
+    // buffer so that its own baseline lands on that point instead of
+    // guessing an ascent fraction (the old `0.85 * size`).
+    let line_y = buffer
+        .layout_runs()
+        .next()
+        .map(|layout| layout.line_y)
+        .unwrap_or(sz_px * 0.8);
+    let draw_x = origin_x.round() as i32;
+    let draw_y = (origin_y - line_y).round() as i32;
+
+    let text_color = Color::rgba(r, g, b, a);
+    let pix_data = pixmap.data_mut();
+
+    buffer.draw(font_system, swash_cache, text_color, |x, y, w, h, col| {
+        let (cr, cg, cb, ca) = (
+            col.r() as u32,
+            col.g() as u32,
+            col.b() as u32,
+            col.a() as u32,
+        );
+        if ca == 0 {
+            return;
+        }
+
+        for dy in 0..h as i32 {
+            let target_y = draw_y + y + dy;
+            if target_y < 0 || target_y >= pix_h {
+                continue;
+            }
+
+            for dx in 0..w as i32 {
+                let target_x = draw_x + x + dx;
+                if target_x < 0 || target_x >= pix_w {
+                    continue;
+                }
+
+                let idx = ((target_y * pix_w + target_x) * 4) as usize;
+                if idx + 3 >= pix_data.len() {
+                    continue;
+                }
+
+                // Premultiply source
+                let src_a = (ca * a as u32) / 255;
+                let src_r = (cr * src_a) / 255;
+                let src_g = (cg * src_a) / 255;
+                let src_b = (cb * src_a) / 255;
+
+                let dst_r = pix_data[idx] as u32;
+                let dst_g = pix_data[idx + 1] as u32;
+                let dst_b = pix_data[idx + 2] as u32;
+                let dst_a = pix_data[idx + 3] as u32;
+
+                // Porter-Duff Over: out = src + dst * (1 - src_a)
+                let inv_a = 255 - src_a;
+                let out_r = (src_r + (dst_r * inv_a + 127) / 255).min(255);
+                let out_g = (src_g + (dst_g * inv_a + 127) / 255).min(255);
+                let out_b = (src_b + (dst_b * inv_a + 127) / 255).min(255);
+                let out_a = (src_a + (dst_a * inv_a + 127) / 255).min(255);
+
+                pix_data[idx] = out_r as u8;
+                pix_data[idx + 1] = out_g as u8;
+                pix_data[idx + 2] = out_b as u8;
+                pix_data[idx + 3] = out_a as u8;
             }
         }
     });
+
+    // Face-derived underline / strike bands from the vector IR (T7).
+    if !run.decorations.is_empty() {
+        decorations::paint_upright(
+            pix_data,
+            pix_w,
+            pix_h,
+            run,
+            draw_x,
+            origin_y,
+            estimate_run_px_width(run, scale),
+            scale,
+        );
+    }
 }
 
 fn query_face(db: &Database, run: &PositionedGlyphRun) -> Option<fontdb::ID> {
@@ -325,6 +366,7 @@ mod tests {
             glyphs,
             decorations: Default::default(),
             warp: None,
+            reflection: None,
         }
     }
 
