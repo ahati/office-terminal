@@ -85,12 +85,13 @@ The driver partitions the terminal's image namespace into disjoint ranges so tha
 | :--- | :--- | :--- | :--- |
 | `1..=8` (`CURRENT_IMAGE_ID_BASE`) | Full-screen current slide | 8 | Rotates with `slide_index % 8`. |
 | `9..=16` (`PREVIEW_IMAGE_ID_BASE`) | Presenter next-slide preview | 8 | Separate range so releasing a preview cannot delete the incoming slide. |
-| `17..=48` (`THUMBNAIL_IMAGE_ID_BASE`) | Slide-sorter thumbnail cards | 32 (`MAX_THUMBNAIL_IMAGES`) | Allocated from a free-list, stable while a card stays visible. |
+| `17..=32` (`THUMBNAIL_IMAGE_ID_BASE`) | Slide-sorter thumbnail cards | 16 (`MAX_THUMBNAIL_IMAGES`) | Allocated from a free-list, stable while a card stays visible. |
 
 - **Idempotent Replacement**: Staging a new frame with an existing active `id` atomically overwrites the slot in terminal memory without screen flicker.
-- **Resident capacity**: `DriverCaps::resident_ids` and `StageSink::resident_capacity()` report `RESIDENT_IMAGE_IDS` (48), covering all three ranges.
-- **Memory bound**: thumbnails are rendered at a card-sized target (160–640 px wide), so a decoded card is $\le 0.9\text{ MB}$ and a full 32-card grid stays under $\approx 7\text{ MB}$.
-- **Sorter lifecycle**: only visible cards are staged (at most 4 new transmissions per frame, to keep the event loop responsive); cards that scroll out of view are released immediately, and leaving the sorter releases every thumbnail.
+- **Resident capacity**: `DriverCaps::resident_ids` and `StageSink::resident_capacity()` report `RESIDENT_IMAGE_IDS` (32), covering all three ranges.
+- **Sorter reuses the canvas raster**: a card stages the same bitmap the full-screen view renders and lets the terminal scale it into the card cells. There is no second thumbnail render path: rendering cards at their own small target inflates every text run past the text rasterizer's 6 px font-size floor (`rasterizer/text/mod.rs`), so glyphs overflow the compiled line boxes and the slide looks unwrapped.
+- **Memory bound**: a resident card therefore costs one canvas frame — roughly $1.4\text{ MB}$ at an $800\times450$ canvas and $\approx 8\text{ MB}$ at 1080p. The 16-slot cap keeps a full grid inside the documented terminal-memory budget.
+- **Sorter lifecycle**: only visible cards are staged (at most 4 new transmissions per frame, to keep the event loop responsive); the visible page is prefetched at the canvas target, cards that scroll out of view are released immediately, and leaving the sorter releases every thumbnail.
 
 ### 5.2 Driver Operations
 
