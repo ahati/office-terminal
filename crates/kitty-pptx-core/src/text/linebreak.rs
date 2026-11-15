@@ -403,7 +403,9 @@ pub fn break_paragraph(items: &[BreakItem], o: &BreakOptions<'_>) -> Vec<BrokenL
                 // seam keeps its greedy break (C08, break.ts:467-489).
                 if split < end && east_asian {
                     let (prev, next) = (&atoms[split - 1], &atoms[split]);
-                    if (is_cjk_atom(prev) || is_cjk_atom(next)) && prev.run == next.run {
+                    let seam_evidence = prev.run == next.run
+                        || o.measurer.kinsoku_across_runs(prev.style, next.style);
+                    if (is_cjk_atom(prev) || is_cjk_atom(next)) && seam_evidence {
                         let (code_start, code_split) = (char_offsets[start], char_offsets[split]);
                         if code_split - code_start > 1 && code_split < chars.len() {
                             let adjusted =

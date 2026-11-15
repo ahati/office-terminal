@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 950 |
+| `kitty-pptx-core` | 956 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1097** |
+| **total** | **1103** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -59,13 +59,18 @@ the current tree actually contains.
   text-rotation/flip helper is landed, and stacked strikes/underlines plus the
   paragraph-mark strike gate are emitted as vector bars (one underline frame
   per column). Character and auto-number prefixes occupy cells.
+- **T4 RTL tabs** — LTR/RTL multi-cell tab lines are verified end-to-end
+  (mirrored stops, reversed visual order, start-tab gap, first-line indent).
+- **T5 kinsoku seams** — `TextMeasure::kinsoku_across_runs` carries host evidence;
+  the real measurer enables retraction when both runs are East Asian by
+  `rPr@lang` or face, while the default stays C08-safe.
 - **T10 warp residuals** — `warp_envelope_for_line` expands
   single-edge arch/circle envelopes radially, clockwise presets anchor the
   last line and `textArchDown` anchors the first; warp layout now applies
   `a:lnSpc` (pts and pct), `spcBef`/`spcAft`, mixed-size line boxes and the
   0.8 baseline fraction. Standalone SVG emits per-glyph warped outlines (both
-  vector and selectable modes force outlines for a warped run). 15 warp tests
-  green; the measure-call-count case remains.
+  vector and selectable modes force outlines for a warped run), and a long
+  compound segment stays one run with no wrap fragments. 16 warp tests green.
 - **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
   fallback (`scene3d/bevel_profiles.rs`), replacing the four hand-written
   profiles.
@@ -77,8 +82,10 @@ the current tree actually contains.
 
 ## Still open
 
-T4 (RTL tab frame), T5 (kinsoku across run seams), T7 (glyph decorations),
-T8/T9 residual cases (full face-feature tables), T10 residual SVG/measurement
-cases, the full S7a/S7b multi-light rig/shading and rear-plane bevel compositor, P5 (bubble3D/ChartEx/marker fills), and the
-full L0 corpus/ledger re-derivation. The ledger in `COVERAGE.md` is still the
+T7 residual general `Decoration` IR (stacked glyph decorations are landed),
+T8/T9 residual cases (full face-feature tables), the full S7a/S7b multi-light
+rig/shading and rear-plane bevel compositor, P5 (bubble3D/ChartEx/marker
+fills), and the full L0 corpus/ledger re-derivation. The external corpus cannot
+be fetched in this environment (no network; `target/external` is empty), so the
+419-deck comparison remains unverified. The ledger in `COVERAGE.md` is still the
 wave-3 snapshot; do not treat its BLOCKED counts as current.

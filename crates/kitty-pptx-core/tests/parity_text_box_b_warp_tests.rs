@@ -535,3 +535,18 @@ fn warped_svg_uses_per_glyph_outlines() {
         );
     }
 }
+
+#[test]
+fn warp_does_not_create_wrap_only_fragments() {
+    let compound = (0..100).map(|_| "word").collect::<Vec<_>>().join("-");
+    let body = warp_body(
+        "textArchUp",
+        vec![text_run(&compound, 40.0)],
+        json!(null),
+        None,
+        None,
+    );
+    let runs = warp_runs(&body);
+    assert_eq!(runs.len(), 1, "one authored segment, no wrap fragments");
+    assert_eq!(runs[0].text, compound);
+}
