@@ -127,3 +127,48 @@ fn stacked_strikes_follow_the_glyph_frame() {
     assert!(rotated.count() >= 1, "the ASCII bracket strike turns with its frame");
 }
 
+
+#[test]
+fn stacked_rtl_paints_glyph_sized_strikes() {
+    let mut text_body = body("AB", "wordArtVertRtl");
+    if let pptx_model::TextRun::Text(run) = &mut text_body.paragraphs[0].runs[0] {
+        run.strikethrough = true;
+    }
+    let bars = bars(&compile(&text_body, 200.0, 200.0));
+    assert_eq!(bars.len(), 3, "two glyphs + the paragraph mark: {bars:?}");
+    assert!(bars.iter().all(|bar| bar.color == [0, 0, 0, 255]));
+}
+
+#[test]
+fn stacked_rtl_underline_uses_one_frame_per_column() {
+    let mut text_body = body("A", "wordArtVertRtl");
+    let first = match text_body.paragraphs[0].runs[0].clone() {
+        pptx_model::TextRun::Text(run) => run,
+        _ => unreachable!(),
+    };
+    if let pptx_model::TextRun::Text(run) = &mut text_body.paragraphs[0].runs[0] {
+        run.underline = true;
+        run.underline_color = Some("FF0000".to_string());
+    }
+    let mut small = first.clone();
+    small.text = "CD".to_string();
+    small.font_size = Some(18.0);
+    small.underline = true;
+    small.underline_color = Some("FF0000".to_string());
+    let mut large = first;
+    large.text = "B".to_string();
+    large.font_size = Some(32.0);
+    large.underline = true;
+    large.underline_color = Some("FF0000".to_string());
+    text_body.paragraphs[0]
+        .runs
+        .extend([pptx_model::TextRun::Text(large), pptx_model::TextRun::Text(small)]);
+
+    let bars = bars(&compile(&text_body, 200.0, 110.0));
+    assert_eq!(bars.len(), 2, "one underline frame per column: {bars:?}");
+    let mut widths: Vec<f32> = bars.iter().map(|bar| bar.w / PT).collect();
+    widths.sort_by(f32::total_cmp);
+    assert!((widths[0] - 1.0).abs() < 0.01);
+    assert!((widths[1] - 32.0 * 0.05).abs() < 0.01);
+    assert!(bars.iter().all(|bar| bar.color == [255, 0, 0, 255]));
+}
