@@ -82,6 +82,7 @@ fn command_json(command: &VectorCommand, embed_bitmaps: bool) -> Value {
             src_rect,
             dest_rect,
             opacity,
+            effects,
         } => json!({
             "type": "drawMetafile",
             "relId": rel_id,
@@ -89,6 +90,7 @@ fn command_json(command: &VectorCommand, embed_bitmaps: bool) -> Value {
             "srcRect": [src_rect.x, src_rect.y, src_rect.w, src_rect.h],
             "destRect": rect_json(dest_rect),
             "opacity": opacity,
+            "effects": serde_json::to_value(effects).unwrap_or(Value::Null),
         }),
         VectorCommand::DrawBitmap {
             png,

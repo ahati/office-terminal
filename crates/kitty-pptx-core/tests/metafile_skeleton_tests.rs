@@ -369,6 +369,7 @@ fn unexpanded_marker_never_paints_nothing() {
             h: 80.0,
         },
         opacity: 1.0,
+        effects: Vec::new(),
     });
     assert!(foreground_pixels(&scene) > 0);
 }

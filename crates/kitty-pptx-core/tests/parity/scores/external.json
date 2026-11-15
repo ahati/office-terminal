@@ -1677,10 +1677,10 @@
       "ink_fraction_delta": 0.000075
     },
     "tdf113163/slide-1": {
-      "cell_pass_ratio": 0.0,
-      "global_mean_abs_diff": 255.0,
-      "worst_cell_diff": 255.0,
-      "ink_fraction_delta": 1.0
+      "cell_pass_ratio": 1.0,
+      "global_mean_abs_diff": 0.0,
+      "worst_cell_diff": 0.0,
+      "ink_fraction_delta": 0.0
     },
     "tdf113198/slide-1": {
       "cell_pass_ratio": 1.0,

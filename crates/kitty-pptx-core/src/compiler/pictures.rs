@@ -136,6 +136,7 @@ pub fn compile_picture_element(
             src_rect,
             dest_rect,
             opacity,
+            effects,
         });
 
         if had_crop && clip_path.is_some() {

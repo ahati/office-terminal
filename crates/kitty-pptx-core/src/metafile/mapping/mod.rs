@@ -162,12 +162,14 @@ pub fn transform_command(command: &VectorCommand, outer: &AffineTransform) -> Ve
             src_rect,
             dest_rect,
             opacity,
+            effects,
         } => VectorCommand::DrawMetafile {
             rel_id: rel_id.clone(),
             transform: compose(outer, transform),
             src_rect: *src_rect,
             dest_rect: *dest_rect,
             opacity: *opacity,
+            effects: effects.clone(),
         },
         VectorCommand::DrawBitmap {
             png,

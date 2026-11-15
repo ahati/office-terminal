@@ -89,6 +89,80 @@ pub fn apply_alpha_mod(pixels: &mut [u8], alpha_factor: f64) {
     }
 }
 
+/// Apply color change in-place to straight RGBA8 pixels.
+/// Matches pixels whose RGB (and optionally alpha) matches `from`, and maps them to `to` and `to_alpha`.
+#[allow(clippy::chunks_exact_to_as_chunks)]
+pub fn apply_color_change(
+    pixels: &mut [u8],
+    from: &str,
+    from_alpha: f64,
+    to: &str,
+    to_alpha: f64,
+    use_alpha: bool,
+) {
+    let [f_r, f_g, f_b, _] = parse_hex_color(from);
+    let [t_r, t_g, t_b, _] = parse_hex_color(to);
+    let target_alpha = if to_alpha > 1.0 {
+        to_alpha / 100000.0
+    } else {
+        to_alpha
+    };
+
+    for chunk in pixels.chunks_exact_mut(4) {
+        let r = chunk[0];
+        let g = chunk[1];
+        let b = chunk[2];
+        let a = chunk[3];
+
+        let matches_rgb = r == f_r && g == f_g && b == f_b;
+        let matches_alpha = if use_alpha {
+            let a_norm = a as f64 / 255.0;
+            (a_norm - from_alpha).abs() < 0.02
+        } else {
+            true
+        };
+
+        if matches_rgb && matches_alpha {
+            chunk[0] = t_r;
+            chunk[1] = t_g;
+            chunk[2] = t_b;
+            if use_alpha {
+                chunk[3] = (target_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+            } else {
+                let existing_norm = a as f64 / 255.0;
+                chunk[3] = (existing_norm * target_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+            }
+        }
+    }
+}
+
+/// Replace RGB of non-transparent pixels with `color`, keeping alpha intact.
+#[allow(clippy::chunks_exact_to_as_chunks)]
+pub fn apply_color_replace(pixels: &mut [u8], color: &str) {
+    let [t_r, t_g, t_b, _] = parse_hex_color(color);
+    for chunk in pixels.chunks_exact_mut(4) {
+        if chunk[3] > 0 {
+            chunk[0] = t_r;
+            chunk[1] = t_g;
+            chunk[2] = t_b;
+        }
+    }
+}
+
+/// Replace alpha of pixels with `alpha_val` (0.0..=1.0).
+#[allow(clippy::chunks_exact_to_as_chunks)]
+pub fn apply_alpha_repl(pixels: &mut [u8], alpha_val: f64) {
+    let factor = if alpha_val > 1.0 {
+        (alpha_val / 100000.0).clamp(0.0, 1.0)
+    } else {
+        alpha_val.clamp(0.0, 1.0)
+    };
+    let a = (factor * 255.0).round().clamp(0.0, 255.0) as u8;
+    for chunk in pixels.chunks_exact_mut(4) {
+        chunk[3] = a;
+    }
+}
+
 /// Apply a sequence of DrawingML BlipEffect transformations to straight RGBA8 pixels in order.
 pub fn apply_blip_effects(pixels: &mut [u8], effects: &[BlipEffect]) {
     for effect in effects {
@@ -98,6 +172,18 @@ pub fn apply_blip_effects(pixels: &mut [u8], effects: &[BlipEffect]) {
             }
             BlipEffect::BiLevel { thresh } => {
                 apply_bilevel(pixels, *thresh);
+            }
+            BlipEffect::ColorChange {
+                from,
+                from_alpha,
+                to,
+                to_alpha,
+                use_alpha,
+            } => {
+                apply_color_change(pixels, from, *from_alpha, to, *to_alpha, *use_alpha);
+            }
+            BlipEffect::ColorReplace { color } => {
+                apply_color_replace(pixels, color);
             }
             BlipEffect::Duotone { clr1, clr2 } => {
                 apply_duotone(pixels, clr1, clr2);
@@ -111,6 +197,9 @@ pub fn apply_blip_effects(pixels: &mut [u8], effects: &[BlipEffect]) {
                         apply_alpha_mod(pixels, *amt);
                     }
                 }
+            }
+            BlipEffect::AlphaRepl { alpha } => {
+                apply_alpha_repl(pixels, *alpha);
             }
             _ => {
                 // Other blip effects are omitted or non-visual diagnostics
