@@ -106,10 +106,7 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
             let card_rect = col_rects[c];
             let is_cursor = idx == state.selected_sorter_index();
             let is_active = idx == state.current_slide();
-            let has_media = state
-                .slides()
-                .get(idx)
-                .is_some_and(crate::app::media::has_slide_media);
+            let has_media = state.slide_has_media(idx);
 
             let media_tag = if has_media { " [M]" } else { "" };
             let (border_type, border_style, title_text) = if is_cursor && is_active {
