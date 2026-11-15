@@ -4,7 +4,7 @@ use kitty_pptx_display::{
 };
 use pptx_model::{PptxComment, Slide};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::app::find_state::FindState;
 use crate::app::link_state::LinkPickerState;
@@ -13,7 +13,7 @@ use crate::app::nav_state::NavState;
 use crate::app::search_state::SearchState;
 use crate::app::sorter_state::SorterState;
 use crate::app::warnings_state::WarningsState;
-use kitty_pptx_core::{FidelityClass, HiddenSlideMode, SlideLink, WarningEvent};
+use kitty_pptx_core::{HiddenSlideMode, SlideLink};
 
 /// Presentation navigation and UI state machine.
 pub struct PresentationState {
@@ -43,6 +43,9 @@ pub struct PresentationState {
 
     // Slide models & media
     pub(crate) slides: Vec<Slide>,
+    /// Per-slide "has external media" flags, computed once per deck so the
+    /// sorter does not rescan element trees on every frame.
+    pub(crate) slide_media_flags: Vec<bool>,
     pub(crate) slide_links: Vec<Vec<SlideLink>>,
     pub(crate) slide_width_emu: i64,
     pub(crate) slide_height_emu: i64,
@@ -88,6 +91,7 @@ impl PresentationState {
             find: FindState::new(),
             comments_scroll: 0,
             slides: Vec::new(),
+            slide_media_flags: Vec::new(),
             slide_links: Vec::new(),
             slide_width_emu: 12_192_000,
             slide_height_emu: 6_858_000,
@@ -445,6 +449,10 @@ impl PresentationState {
             slides.iter().map(|slide| slide.hidden).collect(),
             self.total_slides,
         );
+        self.slide_media_flags = slides
+            .iter()
+            .map(crate::app::media::has_slide_media)
+            .collect();
         self.slide_links = kitty_pptx_core::extract_deck_hyperlinks(&slides);
         self.slides = slides;
         // Initial-slide selection: in `skip` mode a hidden opening slide lands
@@ -477,6 +485,14 @@ impl PresentationState {
         self.sync_find_index();
     }
 
+    /// Whether the slide at `index` carries external media.
+    ///
+    /// Precomputed in [`PresentationState::set_slides`] so per-frame views (the
+    /// sorter grid) never walk element trees.
+    pub fn slide_has_media(&self, index: usize) -> bool {
+        self.slide_media_flags.get(index).copied().unwrap_or(false)
+    }
+
     /// Set the physical slide dimensions used for mouse hit-testing.
     pub fn set_slide_dimensions(&mut self, width_emu: i64, height_emu: i64) {
         if width_emu > 0 && height_emu > 0 {
@@ -507,69 +523,6 @@ impl PresentationState {
     }
 
     pub fn current_slide_has_media(&self) -> bool {
-        self.current_slide_model()
-            .is_some_and(crate::app::media::has_slide_media)
-    }
-
-    pub fn set_toast(&mut self, msg: impl Into<String>) {
-        self.toast_message = Some(msg.into());
-        self.toast_time = Some(Instant::now());
-    }
-
-    pub fn toast(&self) -> Option<&str> {
-        if let Some(time) = self.toast_time {
-            if time.elapsed() < Duration::from_secs(5) {
-                return self.toast_message.as_deref();
-            }
-        }
-        None
-    }
-
-    pub fn clear_toast(&mut self) {
-        self.toast_message = None;
-        self.toast_time = None;
-    }
-
-    /// Records a failed background render for `slide` and files one
-    /// placeholder-class warning so the drawer explains the blank canvas.
-    /// Idempotent per (slide, message) pair — the syncer calls this every
-    /// frame while the failure stands.
-    pub fn note_render_failure(&mut self, slide: usize, message: String) {
-        let first_for_slide = !matches!(
-            self.render_failure.as_ref(),
-            Some((failed_slide, _)) if *failed_slide == slide
-        );
-        if self.render_failure.as_ref() == Some(&(slide, message.clone())) {
-            return;
-        }
-        self.render_failure = Some((slide, message));
-        if first_for_slide {
-            self.warnings.add_warning(
-                Some(slide),
-                WarningEvent::FidelityDegraded {
-                    element_id: format!("slide/{}", slide + 1),
-                    feature: "render",
-                    class: FidelityClass::Placeholder,
-                },
-            );
-        }
-    }
-
-    /// Clears the failure record once `slide` renders successfully again.
-    pub fn clear_render_failure_for(&mut self, slide: usize) {
-        if self
-            .render_failure
-            .as_ref()
-            .is_some_and(|(failed_slide, _)| *failed_slide == slide)
-        {
-            self.render_failure = None;
-        }
-    }
-
-    /// The failed slide and message, if a background render failed.
-    pub fn render_failure(&self) -> Option<(usize, &str)> {
-        self.render_failure
-            .as_ref()
-            .map(|(slide, message)| (*slide, message.as_str()))
+        self.slide_has_media(self.current_slide)
     }
 }

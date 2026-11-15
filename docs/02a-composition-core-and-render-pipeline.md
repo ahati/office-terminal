@@ -89,7 +89,7 @@ Separating compilation from rasterization provides a major performance and memor
 ```
 
 1. **Zero Re-Shaping on Scale Change**: When the TUI needs both a 1080p slide and a 320×180 thumbnail, HarfBuzz text shaping (`rustybuzz`), preset shape decomposition, and table layout occur **only once**. Rasterizing the thumbnail simply replays `VectorSlide` at thumbnail scale ($< 0.8\text{ ms}$).
-2. **Byte-Bounded Cache Budget**: Default budget is 64 MB (`[presenter] cache_mb`). 5 frames at 1080p take $\approx 41.5\text{ MB}$; higher DPI targets scale the retention window automatically.
+2. **Byte-Bounded Cache Budget**: `PipelineCache` retains Tier 2 rasters under a 64 MB byte budget (`with_budget_bytes`), evicting oldest-first. A per-slide "widest cached raster" index makes the resize fallback $O(1)$ instead of scanning every cached frame.
 
 ---
 

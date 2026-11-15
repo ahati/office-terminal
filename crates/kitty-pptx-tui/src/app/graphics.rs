@@ -59,6 +59,9 @@ pub(crate) struct GraphicsSyncer {
     preview_placed: Option<PlacedImage>,
     /// Visible sorter cards, keyed by slide index for stable id reuse.
     thumbs: BTreeMap<usize, ThumbSlot>,
+    /// Visible page + target the last sorter prefetch was issued for. An
+    /// unchanged grid must not re-queue (and re-cancel) work every frame.
+    thumb_prefetch: Option<(usize, usize, RenderTargetSpec)>,
     suppressed: bool,
     epoch: u64,
 }
@@ -181,14 +184,20 @@ impl GraphicsSyncer {
 
         // Queue the visible page at the canvas target before staging. This is
         // the same render the full-screen view would request, so scrolling the
-        // grid warms exactly the bitmaps the deck needs.
-        let plan = PrefetchPlan {
-            center: first_slide,
-            behind: 0,
-            ahead: visible.len().saturating_sub(1),
-            stage: true,
-        };
-        pipeline.prefetch(&plan, canvas_target);
+        // grid warms exactly the bitmaps the deck needs. Skip the call while the
+        // page and target are unchanged: `prefetch` walks and rebuilds the
+        // worker queue on every invocation.
+        let prefetch_key = (first_slide, visible.len(), *canvas_target);
+        if self.thumb_prefetch != Some(prefetch_key) {
+            let plan = PrefetchPlan {
+                center: first_slide,
+                behind: 0,
+                ahead: visible.len().saturating_sub(1),
+                stage: true,
+            };
+            pipeline.prefetch(&plan, canvas_target);
+            self.thumb_prefetch = Some(prefetch_key);
+        }
 
         // Cards that scrolled out of view free their resident ids.
         let keep: HashSet<usize> = visible.iter().map(|(slide, _)| *slide).collect();
@@ -288,6 +297,7 @@ impl GraphicsSyncer {
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
+        self.thumb_prefetch = None;
         if self.thumbs.is_empty() {
             return Ok(());
         }
