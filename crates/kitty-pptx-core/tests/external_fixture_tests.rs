@@ -9,8 +9,9 @@
 //! another renderer and font stack differ.
 //!
 //! Slides are rendered at the comparison width (400 px) and each 1600 px
-//! reference is flattened/downscaled once into `target/external/thumbnails/`;
-//! later runs decode only those thumbnails.
+//! reference is flattened/downscaled once into
+//! `target/external/goldens/thumbnails/`; later runs decode only those
+//! thumbnails.
 //!
 //! The reference viewer is never invoked here; only the cached PNGs are read.
 //! Strict fixtures enforce their thresholds. Diagnostic (`strict: false`)
@@ -148,6 +149,7 @@ fn compare_corpus(corpus: &Corpus, selection: &Selection) -> Report {
 fn record_scores(corpus: &Corpus, report: &mut Report) {
     let current = ExternalScores {
         commit: corpus.manifest.commit.clone(),
+        compare_width: COMPARE_WIDTH,
         slides: report.scores.clone(),
     };
     if std::env::var_os("UPDATE_EXTERNAL_SCORES").is_some() {
@@ -170,6 +172,14 @@ fn record_scores(corpus: &Corpus, report: &mut Report) {
         println!(
             "external score baseline is for {} (current {}); not ratcheting",
             baseline.commit, current.commit
+        );
+        return;
+    }
+    if baseline.compare_width != current.compare_width {
+        println!(
+            "external score baseline was recorded at {}px (current {COMPARE_WIDTH}px); \
+             not ratcheting; rerun with UPDATE_EXTERNAL_SCORES=1",
+            baseline.compare_width
         );
         return;
     }
