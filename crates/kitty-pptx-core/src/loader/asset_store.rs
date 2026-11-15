@@ -127,7 +127,7 @@ impl AssetStore for DefaultAssetStore {
 
         // Try decoding as SVG if name ends with .svg or starts with SVG header
         let decoded = if rel_id.ends_with(".svg") || data.starts_with(b"<?xml") || data.starts_with(b"<svg") {
-            decode_svg(&data)?
+            decode_svg(&data, &hint)?
         } else {
             decode_raster(&data, &hint)?
         };
@@ -207,16 +207,47 @@ fn decode_raster(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetErro
     })
 }
 
-fn decode_svg(data: &[u8]) -> Result<DecodedImage, AssetError> {
+/// Per-side ceiling for an SVG rasterization; the pixel budget below is the
+/// real bound, the side cap only guards against a degenerate 1×N request.
+const SVG_MAX_SIDE: u32 = 8192;
+/// Aggregate pixel ceiling for one SVG surface (32 MP / 128 MiB RGBA).
+const SVG_MAX_PIXELS: u64 = 1 << 25;
+
+fn decode_svg(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetError> {
     let opt = resvg::usvg::Options::default();
     let tree = resvg::usvg::Tree::from_data(data, &opt)
         .map_err(|e| AssetError::DecodeFailed(format!("SVG parse error: {}", e)))?;
 
-    let size = tree.size().to_int_size();
-    let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height())
+    let size = tree.size();
+    // SVG has no fixed pixel grid: honour the caller's device-pixel hint so a
+    // vector picture is rasterized at display resolution instead of its
+    // viewBox size (typically 96-256 px) and then upscaled.
+    let (mut width, mut height) = match hint {
+        SizeHint::AtMost { width, height } => (
+            (*width).clamp(1, SVG_MAX_SIDE),
+            (*height).clamp(1, SVG_MAX_SIDE),
+        ),
+        SizeHint::Native => {
+            let intrinsic = size.to_int_size();
+            (intrinsic.width().max(1), intrinsic.height().max(1))
+        }
+    };
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels > SVG_MAX_PIXELS {
+        let scale = (SVG_MAX_PIXELS as f64 / pixels as f64).sqrt();
+        width = ((f64::from(width) * scale).floor() as u32).max(1);
+        height = ((f64::from(height) * scale).floor() as u32).max(1);
+    }
+    let mut pixmap = tiny_skia::Pixmap::new(width, height)
         .ok_or_else(|| AssetError::DecodeFailed("Failed to allocate SVG pixmap".to_string()))?;
 
-    resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    let scale_x = width as f32 / size.width().max(1.0e-6);
+    let scale_y = height as f32 / size.height().max(1.0e-6);
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale_x, scale_y),
+        &mut pixmap.as_mut(),
+    );
 
     // tiny-skia stores premultiplied RGBA8; convert to straight RGBA8
     let mut pixels = pixmap.take();
@@ -234,8 +265,36 @@ fn decode_svg(data: &[u8]) -> Result<DecodedImage, AssetError> {
     }
 
     Ok(DecodedImage {
-        width: size.width(),
-        height: size.height(),
+        width,
+        height,
         pixels: Arc::from(pixels.into_boxed_slice()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 128"><rect width="256" height="128" fill="#123456"/></svg>"##;
+
+    #[test]
+    fn svg_decodes_at_its_viewbox_by_default() {
+        let decoded = decode_svg(SVG, &SizeHint::Native).expect("decode");
+        assert_eq!((decoded.width, decoded.height), (256, 128));
+    }
+
+    #[test]
+    fn svg_honours_the_device_pixel_hint() {
+        let decoded = decode_svg(SVG, &SizeHint::AtMost { width: 1024, height: 512 }).expect("decode");
+        assert_eq!((decoded.width, decoded.height), (1024, 512));
+        assert_eq!(decoded.pixels.len(), 1024 * 512 * 4);
+    }
+
+    #[test]
+    fn svg_hint_is_capped_by_the_pixel_budget() {
+        let decoded = decode_svg(SVG, &SizeHint::AtMost { width: 16384, height: 16384 }).expect("decode");
+        assert!(decoded.width <= SVG_MAX_SIDE);
+        assert!(decoded.height <= SVG_MAX_SIDE);
+        assert!(u64::from(decoded.width) * u64::from(decoded.height) <= SVG_MAX_PIXELS);
+    }
 }

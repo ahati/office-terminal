@@ -620,6 +620,11 @@ Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`)
 - EMF+ pens that declare distinct start/end caps no longer become unsupported
   objects: patch `0004` keeps the start cap, so frames, spines and tick marks
   that select those pens are stroked instead of being dropped.
+- Split EMF+ objects commit when their accumulated bytes reach
+  `TotalObjectSize` (patch `0005`), not only when the final fragment clears the
+  continuation bit. MS-EMFPLUS 2.3.5.1 makes the total authoritative; producers
+  that leave C set on the last fragment otherwise leave the object slot empty,
+  so the first `EmfPlusDrawImage`/`DrawImagePoints` aborts the whole picture.
 
 **Engine-capability deltas (normative until the upstream fix lands):**
 

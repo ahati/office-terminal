@@ -238,8 +238,8 @@ pub fn emf_plus_pen(
     emf_plus_object(id, 2, &data)
 }
 
-/// EMF+ path object (type 3) from compressed points.
-pub fn emf_plus_path(id: u8, points: &[(i16, i16)], closed: bool) -> Vec<u8> {
+/// EMF+ path object data (type 3) from compressed points.
+pub fn emf_plus_path_data(points: &[(i16, i16)], closed: bool) -> Vec<u8> {
     let mut data = EMF_PLUS_MAGIC.to_le_bytes().to_vec();
     data.extend_from_slice(&(points.len() as u32).to_le_bytes());
     data.extend_from_slice(&0x4000u32.to_le_bytes()); // compressed points
@@ -252,7 +252,33 @@ pub fn emf_plus_path(id: u8, points: &[(i16, i16)], closed: bool) -> Vec<u8> {
     while !data.len().is_multiple_of(4) {
         data.push(0);
     }
-    emf_plus_object(id, 3, &data)
+    data
+}
+
+/// EMF+ path object (type 3) from compressed points.
+pub fn emf_plus_path(id: u8, points: &[(i16, i16)], closed: bool) -> Vec<u8> {
+    emf_plus_object(id, 3, &emf_plus_path_data(points, closed))
+}
+
+/// One fragment of a split EMF+ object. `fragment` must keep the record
+/// 4-byte aligned; `total` is the declared `TotalObjectSize`.
+pub fn emf_plus_split_object(
+    id: u8,
+    kind: u8,
+    total: usize,
+    fragment: &[u8],
+    continued: bool,
+) -> Vec<u8> {
+    let mut data = (total as u32).to_le_bytes().to_vec();
+    data.extend_from_slice(fragment);
+    assert!(
+        data.len().is_multiple_of(4),
+        "split-object fragments must stay 4-byte aligned"
+    );
+    let flags = u16::from(id)
+        | (u16::from(kind) << 8)
+        | if continued { 0x8000 } else { 0 };
+    emf_plus_record(0x4008, flags, &data)
 }
 
 /// `EmfPlusDrawString`; `format_id == u32::MAX` selects left/top defaults.

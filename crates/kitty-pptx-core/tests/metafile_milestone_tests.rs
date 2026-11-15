@@ -427,6 +427,43 @@ fn emfplus_rotated_text_rotates_about_the_anchor() {
 }
 
 #[test]
+fn emfplus_split_object_commits_at_the_declared_total() {
+    // MS-EMFPLUS makes TotalObjectSize authoritative, but some producers keep
+    // the continuation bit set on the final fragment. The object must enter the
+    // table as soon as the declared bytes are read, or the next draw record
+    // sees an empty object slot.
+    let path = support::emf_plus_path_data(&[(10, 10), (110, 10), (110, 90), (10, 90)], true);
+    let total = path.len();
+    let split = 16;
+    assert!(path.len() > split && split.is_multiple_of(4));
+    let records = [
+        support::emf_plus_pen(3, 0xff26_2626, 1.0, 0, 0),
+        support::emf_plus_split_object(4, 3, total, &path[..split], true),
+        support::emf_plus_split_object(4, 3, total, &path[split..], true),
+        support::emf_plus_draw_path(4, 3),
+    ];
+    let (scene, summary, warnings) = expand(
+        "ppt/media/image1.emf",
+        EMF,
+        support::emf_plus_only_emf(&records),
+    );
+
+    assert_eq!(summary.expanded, 1, "split object must play: {warnings:?}");
+    assert_eq!(summary.placeholders, 0);
+    let stroked = scene.commands.iter().any(|command| {
+        matches!(
+            command,
+            VectorCommand::DrawPath {
+                stroke: Some(_),
+                fill: None,
+                ..
+            }
+        )
+    });
+    assert!(stroked, "draw record after the split object must stroke");
+}
+
+#[test]
 fn asymmetric_pen_caps_keep_the_frame_stroke() {
     // Office/GDI+ chart frames use round start caps with flat end caps. The
     // renderer-neutral stroke carries one cap; rejecting the pen would drop

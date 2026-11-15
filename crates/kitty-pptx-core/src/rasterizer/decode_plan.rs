@@ -123,12 +123,16 @@ pub struct DecodePlan {
 }
 
 impl DecodePlan {
-    /// Decode hint for one blip. A surface the plan leaves at source size keeps
-    /// [`SizeHint::Native`], because the plan's grid is never larger than the
-    /// source and the store cannot upscale.
+    /// Decode hint for one blip.
+    ///
+    /// Raster surfaces the plan leaves at source size keep [`SizeHint::Native`]
+    /// (the store cannot upscale them). SVG has no fixed grid, so it always
+    /// takes the planned device-pixel target — including the supersampled
+    /// target branch 2 allocates for uninspected sources.
     pub fn size_hint(&self, rel_id: &str) -> SizeHint {
+        let is_svg = rel_id.to_ascii_lowercase().ends_with(".svg");
         match self.targets.get(rel_id) {
-            Some(target) if self.degraded => SizeHint::AtMost {
+            Some(target) if self.degraded || is_svg => SizeHint::AtMost {
                 width: target.width,
                 height: target.height,
             },
@@ -496,4 +500,58 @@ pub fn scene_decode_plan(
         &scene_decode_demands(scene, target),
         &ImageResourceOptions::default(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan_with_target(rel_id: &str, width: u32, height: u32, degraded: bool) -> DecodePlan {
+        let mut targets = BTreeMap::new();
+        targets.insert(
+            rel_id.to_string(),
+            PlannedTarget {
+                width,
+                height,
+                retained_width: width,
+                retained_height: height,
+                retained_pixels: u64::from(width) * u64::from(height),
+                max_retained_pixels: u64::from(width) * u64::from(height),
+            },
+        );
+        DecodePlan {
+            targets,
+            ideal_bytes: 0,
+            planned_bytes: 0,
+            quality_scale: 1.0,
+            degraded,
+        }
+    }
+
+    #[test]
+    fn svg_uses_the_planned_grid_even_without_budget_degradation() {
+        let plan = plan_with_target("ppt/media/image1.svg", 1024, 512, false);
+        assert_eq!(
+            plan.size_hint("ppt/media/image1.svg"),
+            SizeHint::AtMost {
+                width: 1024,
+                height: 512
+            }
+        );
+    }
+
+    #[test]
+    fn raster_surfaces_keep_native_unless_degraded() {
+        let plan = plan_with_target("ppt/media/image1.png", 1024, 512, false);
+        assert_eq!(plan.size_hint("ppt/media/image1.png"), SizeHint::Native);
+
+        let degraded = plan_with_target("ppt/media/image1.png", 512, 256, true);
+        assert_eq!(
+            degraded.size_hint("ppt/media/image1.png"),
+            SizeHint::AtMost {
+                width: 512,
+                height: 256
+            }
+        );
+    }
 }
