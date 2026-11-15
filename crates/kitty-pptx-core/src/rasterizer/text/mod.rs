@@ -7,6 +7,7 @@ use fontdb::{
     Weight as DbWeight,
 };
 mod affine;
+mod decorations;
 mod warp;
 
 use std::cell::RefCell;
@@ -162,43 +163,17 @@ pub fn render_text_runs(
                 }
             });
 
-            // Underline
-            if run.underline {
-                let u_thickness = (sz_px * 0.06).max(1.0).round() as i32;
-                let u_y = origin_y.round() as i32 + 2;
-                let run_w = estimate_run_px_width(run, scale);
-                draw_rect_fill(
+            // Face-derived underline / strike bands from the vector IR (T7).
+            if !run.decorations.is_empty() {
+                decorations::paint_upright(
                     pix_data,
                     pix_w,
                     pix_h,
+                    run,
                     draw_x,
-                    u_y,
-                    run_w,
-                    u_thickness,
-                    r,
-                    g,
-                    b,
-                    a,
-                );
-            }
-
-            // Strikethrough
-            if run.strikethrough {
-                let s_thickness = (sz_px * 0.05).max(1.0).round() as i32;
-                let s_y = (origin_y - sz_px * 0.35).round() as i32;
-                let run_w = estimate_run_px_width(run, scale);
-                draw_rect_fill(
-                    pix_data,
-                    pix_w,
-                    pix_h,
-                    draw_x,
-                    s_y,
-                    run_w,
-                    s_thickness,
-                    r,
-                    g,
-                    b,
-                    a,
+                    origin_y,
+                    estimate_run_px_width(run, scale),
+                    scale,
                 );
             }
         }
@@ -348,8 +323,7 @@ mod tests {
             bold: false,
             italic: false,
             glyphs,
-            underline: false,
-            strikethrough: false,
+            decorations: Default::default(),
             warp: None,
         }
     }

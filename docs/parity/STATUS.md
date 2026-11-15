@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 957 |
+| `kitty-pptx-core` | 962 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1104** |
+| **total** | **1109** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -59,6 +59,11 @@ the current tree actually contains.
   text-rotation/flip helper is landed, and stacked strikes/underlines plus the
   paragraph-mark strike gate are emitted as vector bars (one underline frame
   per column). Character and auto-number prefixes occupy cells.
+- **T7 decoration IR** — `PositionedGlyphRun.decorations` now carries resolved
+  underline/strike bands (`DecorationLine`: colour, face-derived top/thickness,
+  double-rule gap, `ST_TextUnderlineType` pattern). The rasterizer and both SVG
+  modes consume the same geometry; vector-glyph SVG emits the bands as rects,
+  selectable SVG keeps CSS decoration with the authored colour/style.
 - **T4 RTL tabs** — LTR/RTL multi-cell tab lines are verified end-to-end
   (mirrored stops, reversed visual order, start-tab gap, first-line indent).
 - **T5 kinsoku seams** — `TextMeasure::kinsoku_across_runs` carries host evidence;
@@ -82,7 +87,6 @@ the current tree actually contains.
 
 ## Still open
 
-T7 residual general `Decoration` IR (stacked glyph decorations are landed),
 T8/T9 residual cases (full face-feature tables), the full S7a/S7b multi-light
 rig/shading and rear-plane bevel compositor, P5 (bubble3D/ChartEx/marker
 fills), and the full L0 corpus/ledger re-derivation. The external corpus cannot

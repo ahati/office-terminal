@@ -398,6 +398,7 @@ fn baseline_body(text: &str, size_pt: f32, baseline: Option<i32>) -> pptx_model:
                     "text": "{text}",
                     "bold": false, "italic": false,
                     "underline": true, "strikethrough": true,
+                    "underlineColor": "FF0000",
                     "strikeDouble": false,
                     "hyperlinkUsesTextFill": false,
                     "fieldType": null,
@@ -450,7 +451,10 @@ fn positive_baseline_superscripts_at_65_percent() {
     assert_eq!(sup.font_family, plain.font_family);
     assert_eq!((sup.bold, sup.italic), (plain.bold, plain.italic));
     assert_eq!(sup.color, plain.color);
-    assert!(sup.underline && sup.strikethrough, "decorations kept");
+    assert!(
+        sup.decorations.underline.is_some() && sup.decorations.strike.is_some(),
+        "decorations kept"
+    );
 
     // The glyph advance is the 13 pt advance, not the authored 20 pt one.
     let thirteen_commands = compile(&baseline_body("x", 13.0, None), 4_000_000, 1_000_000);
@@ -536,5 +540,36 @@ fn baseline_run_keeps_the_authored_line_box() {
         "a 13 pt run must sit on a shorter line box: {} vs {}",
         glyph_y(plain),
         glyph_y(thirteen)
+    );
+}
+
+#[test]
+fn decorations_carry_face_geometry_and_the_drawing_size() {
+    let plain_commands = compile(&baseline_body("x", POINTS, None), 4_000_000, 1_000_000);
+    let plain = only_run(&plain_commands);
+    let underline = plain.decorations.underline.expect("underline");
+    let strike = plain.decorations.strike.expect("strike");
+    assert_eq!(underline.color, [255, 0, 0, 255], "uFill colour");
+    assert!(underline.thickness_emu > 0.0);
+    assert!(underline.top_emu > 0.0, "underline sits below the baseline");
+    assert!(strike.thickness_emu > 0.0);
+    assert!(strike.top_emu < 0.0, "strike sits above the baseline");
+
+    let sup_commands = compile(
+        &baseline_body("x", POINTS, Some(30_000)),
+        4_000_000,
+        1_000_000,
+    );
+    let sup = only_run(&sup_commands);
+    let sup_underline = sup.decorations.underline.expect("superscript underline");
+    close(
+        sup_underline.thickness_emu / underline.thickness_emu,
+        0.65,
+        "decorations use the 65 % draw size",
+    );
+    close(
+        sup_underline.top_emu / underline.top_emu,
+        0.65,
+        "decoration offset uses the draw size",
     );
 }

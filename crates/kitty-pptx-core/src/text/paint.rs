@@ -522,8 +522,7 @@ fn emit_run_at(
         bold: def.bold,
         italic: def.italic,
         glyphs,
-        underline: def.underline,
-        strikethrough: def.strikethrough,
+        decorations: super::run_decorations::resolve(def),
         warp: None,
     });
 }

@@ -565,8 +565,7 @@ pub fn make_simple_run(
         bold: false,
         italic: false,
         glyphs,
-        underline: false,
-        strikethrough: false,
+        decorations: Default::default(),
         warp: None,
     }
 }

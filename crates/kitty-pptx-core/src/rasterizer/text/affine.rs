@@ -87,29 +87,22 @@ pub(super) fn render_affine_run(
                 any = true;
             }
 
-            if run.underline {
-                any |= paint_affine_bar(
-                    pixmap,
-                    run,
-                    transform,
-                    scale,
-                    offset_x,
-                    offset_y,
-                    (run.font_size_pt * 12700.0 * 0.06).max(1.0 / scale.max(1.0e-6)),
-                    2.0 / scale.max(1.0e-6),
-                );
-            }
-            if run.strikethrough {
-                any |= paint_affine_bar(
-                    pixmap,
-                    run,
-                    transform,
-                    scale,
-                    offset_x,
-                    offset_y,
-                    (run.font_size_pt * 12700.0 * 0.05).max(1.0 / scale.max(1.0e-6)),
-                    -(run.font_size_pt * 12700.0 * 0.35),
-                );
+            for line in [run.decorations.underline, run.decorations.strike]
+                .into_iter()
+                .flatten()
+            {
+                for offset in super::decorations::band_offsets(&line).into_iter().flatten() {
+                    any |= paint_affine_bar(
+                        pixmap,
+                        run,
+                        transform,
+                        scale,
+                        offset_x,
+                        offset_y,
+                        &line,
+                        offset,
+                    );
+                }
             }
             any
         });
@@ -125,16 +118,17 @@ fn paint_affine_bar(
     scale: f32,
     offset_x: f32,
     offset_y: f32,
-    thickness: f32,
-    baseline_offset: f32,
+    line: &crate::contracts::DecorationLine,
+    band_offset: f32,
 ) -> bool {
     let (Some(first), Some(last)) = (run.glyphs.first(), run.glyphs.last()) else {
         return false;
     };
     let left = first.x;
     let right = (last.x + last.advance).max(left + 1.0);
-    let top = first.y + baseline_offset - thickness * 0.5;
-    let bottom = top + thickness.max(1.0);
+    let thickness = line.thickness_emu.max(1.0 / scale.max(1.0e-6));
+    let top = first.y + line.top_emu + band_offset;
+    let bottom = top + thickness;
     let mut builder = tiny_skia::PathBuilder::new();
     let corners = [(left, top), (right, top), (right, bottom), (left, bottom)];
     for (index, (x, y)) in corners.iter().enumerate() {
@@ -151,7 +145,7 @@ fn paint_affine_bar(
     let Some(path) = builder.finish() else {
         return false;
     };
-    let [red, green, blue, alpha] = run.color;
+    let [red, green, blue, alpha] = line.color;
     let mut paint = tiny_skia::Paint::default();
     paint.set_color_rgba8(red, green, blue, alpha);
     paint.anti_alias = true;

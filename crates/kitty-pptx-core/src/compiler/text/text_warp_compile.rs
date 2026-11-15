@@ -206,8 +206,7 @@ pub(super) fn compile_text_body_warped(
                 bold: false,
                 italic: false,
                 glyphs,
-                underline: false,
-                strikethrough: false,
+                decorations: Default::default(),
                 warp: None,
             });
             cur_line_w += shaped.width;
@@ -258,14 +257,24 @@ pub(super) fn compile_text_body_warped(
 
                     current_line_runs.push(PositionedGlyphRun {
                         text: data.text.clone(),
-                        font_family,
+                        font_family: font_family.clone(),
                         font_size_pt: sz_pt,
                         color,
                         bold,
                         italic,
                         glyphs,
-                        underline: data.underline,
-                        strikethrough: data.strikethrough,
+                        decorations: crate::text::run_decorations::resolve_raw(
+                            &font_family,
+                            bold,
+                            italic,
+                            sz_emu,
+                            color,
+                            data.underline,
+                            data.underline_style.as_deref(),
+                            data.underline_color.as_deref().map(parse_hex_color),
+                            data.strikethrough,
+                            data.strike_double,
+                        ),
                         warp: None,
                     });
                     cur_line_w += shaped.width;

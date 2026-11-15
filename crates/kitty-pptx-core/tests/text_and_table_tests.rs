@@ -98,7 +98,7 @@ fn test_text_layout_and_font_substitution() {
             // Aptos substituted with Carlito; every text line keeps the style.
             let text_runs = &runs[1..];
             assert!(text_runs.iter().all(|r| r.font_family == "Carlito"));
-            assert!(text_runs.iter().all(|r| r.underline));
+            assert!(text_runs.iter().all(|r| r.decorations.underline.is_some()));
             let joined: String = text_runs.iter().map(|r| r.text.as_str()).collect();
             assert_eq!(joined.replace(' ', ""), "HelloAntigravity");
             // More than one baseline: the paragraph really wrapped.

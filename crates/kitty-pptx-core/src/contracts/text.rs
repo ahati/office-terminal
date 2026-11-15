@@ -23,6 +23,48 @@ pub struct RunWarp {
     pub line_w: f32,
 }
 
+/// DrawingML underline pattern (`ST_TextUnderlineType`, ECMA-376 §20.1.10.82).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DecorationStyle {
+    #[default]
+    Solid,
+    Dotted,
+    Dash,
+    DashLong,
+    DotDash,
+    DotDotDash,
+    Wavy,
+}
+
+/// One horizontal decoration rule: underline or strike.
+///
+/// Geometry is resolved by the compiler from the face's OpenType/OS/2 table
+/// (or the reference's library fallback) and stored in EMU relative to the
+/// run baseline. `gap_emu` is the centre-to-centre distance of a double rule;
+/// zero means one rule.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DecorationLine {
+    pub color: [u8; 4],
+    /// Top edge offset in slide EMU (y-down; positive = below the baseline).
+    pub top_emu: f32,
+    pub thickness_emu: f32,
+    pub gap_emu: f32,
+    pub style: DecorationStyle,
+}
+
+/// Run-level underline and strike geometry.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct TextDecorations {
+    pub underline: Option<DecorationLine>,
+    pub strike: Option<DecorationLine>,
+}
+
+impl TextDecorations {
+    pub fn is_empty(&self) -> bool {
+        self.underline.is_none() && self.strike.is_none()
+    }
+}
+
 /// Positioned text run containing shaped glyphs and run styling.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PositionedGlyphRun {
@@ -33,8 +75,7 @@ pub struct PositionedGlyphRun {
     pub bold: bool,
     pub italic: bool,
     pub glyphs: Vec<PositionedGlyph>,
-    pub underline: bool,
-    pub strikethrough: bool,
+    pub decorations: TextDecorations,
     /// Present when this run is mapped by a WordArt envelope.
     pub warp: Option<std::sync::Arc<RunWarp>>,
 }

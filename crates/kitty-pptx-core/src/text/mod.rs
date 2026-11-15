@@ -19,6 +19,7 @@ pub mod linebreak;
 pub mod justify;
 pub mod measure;
 pub mod power_point;
+pub(crate) mod run_decorations;
 pub mod shape;
 pub mod metrics;
 mod natural_box;

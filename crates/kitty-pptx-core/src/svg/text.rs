@@ -14,7 +14,9 @@ use fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use rustybuzz::ttf_parser::{Face, GlyphId, OutlineBuilder};
 
 use super::path::format_transform_attr;
-use crate::contracts::{AffineTransform, PositionedGlyphRun, RunWarp, SvgTextMode};
+use crate::contracts::{
+    AffineTransform, DecorationLine, DecorationStyle, PositionedGlyphRun, RunWarp, SvgTextMode,
+};
 use crate::compiler::text_warp::{warp_glyph_transform, warp_point};
 
 thread_local! {
@@ -264,16 +266,70 @@ fn format_run_attrs(run: &PositionedGlyphRun) -> String {
         attrs.push_str(r#" font-style="italic""#);
     }
     let mut decor = Vec::new();
-    if run.underline {
+    let mut underline_color = None;
+    if let Some(line) = run.decorations.underline {
         decor.push("underline");
+        if line.color != run.color {
+            let [r, g, b, _] = line.color;
+            underline_color = Some(format!("rgb({r},{g},{b})"));
+        }
+        if let Some(style) = decoration_style(line) {
+            let _ = write!(&mut attrs, r#" text-decoration-style="{}""#, style);
+        }
     }
-    if run.strikethrough {
+    if run.decorations.strike.is_some() {
         decor.push("line-through");
     }
     if !decor.is_empty() {
         let _ = write!(&mut attrs, r#" text-decoration="{}""#, decor.join(" "));
+        if let Some(color) = underline_color {
+            let _ = write!(&mut attrs, r#" text-decoration-color="{}""#, color);
+        }
     }
     attrs
+}
+
+/// CSS `text-decoration-style` value for the underline pattern.
+fn decoration_style(line: DecorationLine) -> Option<&'static str> {
+    if line.gap_emu > 0.0 && line.style == DecorationStyle::Solid {
+        return Some("double");
+    }
+    match line.style {
+        DecorationStyle::Dotted => Some("dotted"),
+        DecorationStyle::Dash | DecorationStyle::DashLong => Some("dashed"),
+        DecorationStyle::Wavy => Some("wavy"),
+        _ => None,
+    }
+}
+
+/// Vector-glyph mode cannot rely on CSS decoration: emit the same geometry the
+/// rasterizer paints.
+fn decoration_rects(run: &PositionedGlyphRun, transform_attr: &str, out: &mut String) {
+    let (x, baseline_y) = run_origin(run);
+    let (width, _) = run_advances(run);
+    if width <= 0.0 {
+        return;
+    }
+    for line in [run.decorations.underline, run.decorations.strike]
+        .into_iter()
+        .flatten()
+    {
+        let [r, g, b, a] = line.color;
+        let opacity = a as f32 / 255.0;
+        let offsets: [Option<f32>; 2] = if line.gap_emu > 0.0 {
+            [Some(-line.gap_emu * 0.5), Some(line.gap_emu * 0.5)]
+        } else {
+            [Some(0.0), None]
+        };
+        for offset in offsets.into_iter().flatten() {
+            let y = baseline_y + line.top_emu + offset;
+            let _ = writeln!(
+                out,
+                r#"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="rgb({},{},{})" fill-opacity="{:.2}"{}/>"#,
+                x, y, width, line.thickness_emu, r, g, b, opacity, transform_attr
+            );
+        }
+    }
 }
 
 fn serialize_selectable_text(
@@ -404,6 +460,7 @@ fn serialize_vector_glyphs(
                     r#"  <path d="{}" fill="rgb({},{},{})" fill-opacity="{:.2}"{}/>"#,
                     path_d, r, g, b, opacity, transform_attr
                 );
+                decoration_rects(run, transform_attr, out);
                 any_rendered = true;
             }
         }
