@@ -40,7 +40,7 @@ use crate::contracts::{
     FidelityClass, FillRule, PathSegment, VectorPaint, VectorPath, WarningEvent,
 };
 
-pub use self::custgeom::build_custom_geometry;
+pub use self::custgeom::{build_custom_geometry, build_custom_geometry_path};
 pub use self::preset_exec::{build_preset, PathFill, PresetSubpath};
 
 /// Multi-path dispatch used by the element compilers.
@@ -64,13 +64,42 @@ pub fn build_shape_paths(
     cust_geom: Option<&[Vec<pptx_model::PathCmd>]>,
     warning_sink: &Sender<WarningEvent>,
 ) -> Vec<PresetSubpath> {
+    build_shape_paths_painted(geometry, w, h, adj, cust_geom, None, warning_sink)
+}
+
+/// [`build_shape_paths`] with the authored per-path paint flags
+/// (`custGeomPaint`, ECMA-376 §20.1.9.15).
+#[allow(clippy::too_many_arguments)]
+pub fn build_shape_paths_painted(
+    geometry: &str,
+    w: f32,
+    h: f32,
+    adj: &[Option<f64>],
+    cust_geom: Option<&[Vec<pptx_model::PathCmd>]>,
+    cust_geom_paint: Option<&[pptx_model::PathPaint]>,
+    warning_sink: &Sender<WarningEvent>,
+) -> Vec<PresetSubpath> {
     if geometry == "custGeom" {
         if let Some(paths) = cust_geom {
-            return vec![PresetSubpath {
-                path: build_custom_geometry(paths, w, h),
-                fill: PathFill::Norm,
-                stroke: true,
-            }];
+            if cust_geom_paint.is_none() {
+                return vec![PresetSubpath {
+                    path: build_custom_geometry(paths, w, h),
+                    fill: PathFill::Norm,
+                    stroke: true,
+                }];
+            }
+            return paths
+                .iter()
+                .enumerate()
+                .map(|(index, path)| {
+                    let paint = cust_geom_paint.and_then(|paints| paints.get(index));
+                    PresetSubpath {
+                        path: build_custom_geometry_path(path, w, h),
+                        fill: PathFill::from_mode(paint.and_then(|p| p.fill.as_deref())),
+                        stroke: paint.is_none_or(|p| p.stroke),
+                    }
+                })
+                .collect();
         }
     }
 

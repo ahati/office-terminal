@@ -1,50 +1,29 @@
-// ARCHIVE — NOT COMPILED.  Blocked cases removed from
+// ARCHIVE — NOT COMPILED. Residual blocked cases removed from
 // crates/kitty-pptx-core/tests/parity_text_box_b_eavert_tests.rs
 //
-// Rule: a test that is included must run, so no #[ignore] is left in the
-// compiled test tree. Every case below is blocked on a production API that
-// does not exist yet, so its source lives here instead of in the target.
-// The coverage ledger (tests/parity/COVERAGE.md plus the per-batch files in
-// tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
-// recorded there.
-//
-// Wave 3 reinstates each function below (with its doc comment and attributes)
-// into the compiled test file as soon as the named API lands.
+// Wave 4 reinstated the fullwidth-colon Tr fallback, and the East Asian /
+// complex-script default-face cases now live in `parity_fonts_slot_tests`
+// (`coverage/fonts.md`). Only the `vert` font-feature and per-cell spacing
+// probes below still need a production API.
 //
 // Missing API per blocked case:
-//   colon_is_not_reflected                                     N/A: no per-glyph scale-y / reflection in the eaVert model; only the rotation class exists
-//   helper_uses_the_vert_feature_for_long_marks_only           blocked: no "vert " font-feature model in ea_vert_pieces (capability is glyph presence, not the feature)
-//   helper_keeps_uncovered_glyphs_on_the_plain_fallback        blocked: no "vert " font-feature model; ea_vert_pieces cannot distinguish feature coverage from glyph presence
-//   helper_installs_no_fallback_matrix                         N/A: no canvas transform stack / fallback mirror or shear in the Rust eaVert path
-//   helper_advances_by_measure_plus_spacing                    blocked: per-glyph letter spacing (letterSpacingPx) is not modelled; only justification gaps move a cell
-//   east_asian_default_face_covers_the_whole_text              blocked: no east_asian_default module (east_asian_default_faces tier table)
-//   east_asian_latin_face_keeps_its_own_stack                  blocked: no east_asian_default module (east_asian_default_faces stack)
-//   complex_script_default_face_follows_the_script             blocked: no east_asian_default module (complex_script_default_face)
-//   empty_east_asian_slot_uses_the_application_default         blocked: TextRunData::font_family_ea is not consumed by text::emit (no script-driven face slots)
-//   resolved_east_asian_face_is_kept_and_complex_scripts_split blocked: TextRunData::font_family_ea / font_family_cs are not consumed by text::emit
-//   east_asian_face_claims_symbols_and_curly_quotes            blocked: TextRunData::font_family_ea / lang are not consumed by text::emit
-//   east_asian_slot_symbol_stack_resolves_per_cluster          blocked: TextRunData::font_family_ea is not consumed by text::emit
-
+//   helper_uses_the_vert_feature_for_long_marks_only
+//     blocked: no "vert " font-feature model in ea_vert_pieces; capability is
+//     glyph presence, not the feature.
+//   helper_keeps_uncovered_glyphs_on_the_plain_fallback
+//     blocked: no "vert " font-feature model; ea_vert_pieces cannot distinguish
+//     feature coverage from glyph presence.
+//   helper_advances_by_measure_plus_spacing
+//     blocked: per-glyph letter spacing is not applied to the eaVert cell pitch
+//     (only justification gaps move a cell).
 // ============================================================================
-/// `:230` "does NOT reflect the vo=Tr colon `：`" — N/A: the reference's
-/// `scale(1, -1)` reflection has no counterpart here (nothing in
-/// `EaVertPiece`/`EaVertFrame` carries a scale, and the colon still rotates).
-#[test]
-#[ignore = "N/A: no per-glyph scale-y / reflection in the eaVert model; only the rotation class exists"]
-fn colon_is_not_reflected() {
-    assert_eq!(pieces("：", all_forms), [("：".to_string(), false)]);
-}
 
 /// `:288` "uses vert only for long marks and keeps other glyphs on manual
 /// paths" — the painted sequence
 /// `['ー','〜','～','︑','︒','：','；','﹁','﹂','“','”','A']` with the `vert`
 /// font FEATURE on only the first three.
-///
-/// Blocked: this renderer has no `vert` font-feature switch — `ea_vert_pieces`
-/// gates substitution on glyph availability, not on a face feature, so the
-/// feature column and the first-three-only rule are unrepresentable.
 #[test]
-#[ignore = "blocked: no \"vert\" font-feature model in ea_vert_pieces (capability is glyph presence, not the feature)"]
+#[ignore = "blocked: no \"vert\" font-feature model in ea_vert_pieces"]
 fn helper_uses_the_vert_feature_for_long_marks_only() {
     let painted: Vec<String> = pieces("ー〜～、。：；「」“”A", all_forms)
         .into_iter()
@@ -59,205 +38,16 @@ fn helper_uses_the_vert_feature_for_long_marks_only() {
 /// `:317` "keeps a glyph without vert coverage on the plain geometric
 /// fallback".
 #[test]
-#[ignore = "blocked: no \"vert\" font-feature model; ea_vert_pieces cannot distinguish feature coverage from glyph presence"]
+#[ignore = "blocked: no \"vert\" font-feature model"]
 fn helper_keeps_uncovered_glyphs_on_the_plain_fallback() {
-    // Reference: `drawEaVertRunWithCapability(..., (cp) => cp === 0x30fc)`
-    // paints `['ー', '〜']` with features `['"vert" 1', 'normal']`.
     assert_eq!(pieces("ー〜", |ch| ch == 'ー'), [("ー".to_string(), false)]);
 }
-
-/// `:336` "does not install a fallback mirror or shear matrix" — N/A: there is
-/// no canvas transform stack here; `ea_vert_pieces` emits no transform at all.
-#[test]
-#[ignore = "N/A: no canvas transform stack / fallback mirror or shear in the Rust eaVert path"]
-fn helper_installs_no_fallback_matrix() {}
 
 /// `:341` "advances each cell by measure + letterSpacingPx (the justification
 /// pitch)": 国国 steps by `FONT_PX` and by `FONT_PX + 8` with an 8 px pitch.
 #[test]
-#[ignore = "blocked: per-glyph letter spacing (letterSpacingPx) is not modelled; only justification gaps move a cell"]
+#[ignore = "blocked: per-glyph letter spacing is not applied to the eaVert pitch"]
 fn helper_advances_by_measure_plus_spacing() {
     let plain = upright_column("国国", "l", 200.0, 400.0);
     assert!((column_pitch(&plain) - 20.0 * PT).abs() < 1.0, "one em step");
-}
-
-/// `:29` "uses the first tier face that covers the whole East Asian text"
-/// (`日本語かな` → `MS Mincho`, `简体中文` → `PMingLiU`, `한국어` → `Batang`,
-/// `Corbel` + `日本語かな` → `MS Gothic`, …).
-#[test]
-#[ignore = "blocked: no east_asian_default module (east_asian_default_faces tier table)"]
-fn east_asian_default_face_covers_the_whole_text() {
-    let cases = [
-        ("Perpetua", "日本語かな", "MS Mincho"),
-        ("Perpetua", "繁體中文", "MS Mincho"),
-        ("Perpetua", "简体中文", "PMingLiU"),
-        ("Perpetua", "한국어", "Batang"),
-        ("Corbel", "日本語かな", "MS Gothic"),
-        ("Corbel", "简体中文", "Microsoft JhengHei"),
-        ("Corbel", "한국어", "Malgun Gothic"),
-        ("No Such Face", "日本語かな", "MS Gothic"),
-    ];
-    for (latin, text, expected) in cases {
-        assert_eq!(ea_default_first(latin, text), Some(expected));
-    }
-}
-
-/// `:41` "draws East Asian text in a Latin face that is itself East Asian":
-/// `Yu Gothic` → `['Yu Gothic', 'Microsoft JhengHei', 'Malgun Gothic']`,
-/// `SimSun` + `한국어` → `['SimSun', 'PMingLiU', 'Batang']`.
-#[test]
-#[ignore = "blocked: no east_asian_default module (east_asian_default_faces stack)"]
-fn east_asian_latin_face_keeps_its_own_stack() {
-    assert_eq!(
-        ea_default_stack("Yu Gothic", "日本語かな"),
-        Some(vec!["Yu Gothic", "Microsoft JhengHei", "Malgun Gothic"])
-    );
-    assert_eq!(
-        ea_default_stack("SimSun", "한국어"),
-        Some(vec!["SimSun", "PMingLiU", "Batang"])
-    );
-}
-
-/// `:48` "picks the complex-script default per character script" (`ע`/`ع` →
-/// `Arial`, `ภ` → `Angsana New`, `ह` → `Mangal`, `த` → `Latha`).
-#[test]
-#[ignore = "blocked: no east_asian_default module (complex_script_default_face)"]
-fn complex_script_default_face_follows_the_script() {
-    assert_eq!(complex_script_face('ע'), Some("Arial"));
-    assert_eq!(complex_script_face('ع'), Some("Arial"));
-    assert_eq!(complex_script_face('ภ'), Some("Angsana New"));
-    assert_eq!(complex_script_face('ह'), Some("Mangal"));
-    assert_eq!(complex_script_face('த'), Some("Latha"));
-}
-
-/// `:80` "draws an empty East Asian slot in the application default, not the
-/// Latin face": `Hxg 日本語` splits into a Corbel run and an
-/// `MS Gothic, Microsoft JhengHei, Malgun Gothic` run.
-#[test]
-#[ignore = "blocked: TextRunData::font_family_ea is not consumed by text::emit (no script-driven face slots)"]
-fn empty_east_asian_slot_uses_the_application_default() {
-    let runs = default_face_runs("Hxg 日本語", None);
-    assert!(runs[0].font_family.contains("Corbel"));
-    assert!(runs[1].font_family.contains("MS Gothic"));
-}
-
-/// `:88` "keeps a resolved East Asian face and splits complex scripts by
-/// script default": `Yu Mincho` for 日本, `Arial` for עב, `Angsana New` for ไท.
-#[test]
-#[ignore = "blocked: TextRunData::font_family_ea / font_family_cs are not consumed by text::emit"]
-fn resolved_east_asian_face_is_kept_and_complex_scripts_split() {
-    let runs = default_face_runs("日本 עב ไท", Some("Yu Mincho"));
-    assert!(runs.iter().any(|run| run.text.contains("日本")
-        && run.font_family.contains("Yu Mincho")));
-    assert!(runs
-        .iter()
-        .any(|run| run.text.contains("עב") && run.font_family.contains("Arial")));
-    assert!(runs
-        .iter()
-        .any(|run| run.text.contains("ไท") && run.font_family.contains("Angsana New")));
-}
-
-/// `:97` "draws symbols and CJK-language curly quotes in a resolved East Asian
-/// face (#1653)": `Yu Gothic` takes `§ ¨ ° ± ´ × ÷ ⁇ ① ⓿ ■ ◯ ★ ☀ ✓ ➔ ︵` under
-/// `en-US`, keeps `× ÷` Latin under `ar-SA`/`he-IL`/`hi-IN`/`th-TH` but takes
-/// `§`, and only a Japanese/Chinese slot claims `“`/`„`.
-#[test]
-#[ignore = "blocked: TextRunData::font_family_ea / lang are not consumed by text::emit"]
-fn east_asian_face_claims_symbols_and_curly_quotes() {
-    let runs = default_face_runs("A§", Some("Yu Gothic"));
-    assert!(runs
-        .iter()
-        .any(|run| run.text.contains('§') && run.font_family.contains("Yu Gothic")));
-}
-
-/// `:120` "resolves an East Asian-slot symbol stack from its own cluster
-/// (#1653)": `°م` as one run chooses the same face as `°` + `م` as two runs.
-#[test]
-#[ignore = "blocked: TextRunData::font_family_ea is not consumed by text::emit"]
-fn east_asian_slot_symbol_stack_resolves_per_cluster() {
-    let joined = default_face_runs("°م", Some("Sakkal Majalla"));
-    assert!(!joined.is_empty());
-}
-
-// ============================================================================
-// Scaffolding for the east-asian-default cases above: stubs returning None until the
-// reference's PANOSE / tier table is ported.
-
-/// Stub for the missing `east_asian_default` module: returns `None` until the
-/// reference's PANOSE / tier table is ported (`east_asian_default::*`).
-fn serif_latin_face(_face: &str) -> Option<bool> {
-    None
-}
-
-fn east_asian_face(_face: &str) -> Option<bool> {
-    None
-}
-
-fn ea_default_first(latin: &str, text: &str) -> Option<&'static str> {
-    let _ = (latin, text);
-    None
-}
-
-fn ea_default_stack(latin: &str, text: &str) -> Option<Vec<&'static str>> {
-    let _ = (latin, text);
-    None
-}
-
-fn complex_script_face(ch: char) -> Option<&'static str> {
-    let _ = ch;
-    None
-}
-
-// ============================================================================
-// The east-asian-default probe fixture used by the blocked segment cases above.
-
-/// The reference probes (`layoutParagraph(measuringContext(), ...)`) collect
-/// `[segment.text, segment.font]`; here the same probe reads the emitted runs.
-fn default_face_runs(text: &str, ea_face: Option<&str>) -> Vec<PositionedGlyphRun> {
-    let value = json!({
-        "verticalAnchor": "t",
-        "paragraphs": [{
-            "alignment": "l",
-            "marL": 0, "marR": 0, "indent": 0,
-            "spaceBefore": null, "spaceAfter": null, "spaceLine": null,
-            "lvl": 0,
-            "bullet": { "type": "none" },
-            "defFontSize": null, "defColor": null, "defBold": null, "defItalic": null,
-            "defFontFamily": null,
-            "tabStops": [], "defTabSz": null, "rtl": false, "eaLnBrk": true,
-            "runs": [{
-                "type": "text", "text": text,
-                "bold": null, "italic": null, "underline": false,
-                "strikethrough": false, "strikeDouble": false,
-                "hyperlinkUsesTextFill": false, "fieldType": null,
-                "fontSize": FONT_PX, "color": "000000", "fontFamily": "Corbel",
-                "fontFamilyEa": ea_face,
-            }],
-        }],
-        "defaultFontSize": FONT_PX,
-        "defaultBold": null, "defaultItalic": null,
-        "lIns": 0, "rIns": 0, "tIns": 0, "bIns": 0,
-        "wrap": "square",
-        "vert": "horz",
-        "autoFit": "none",
-        "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false,
-    });
-    let text_body: pptx_model::TextBody = serde_json::from_value(value).expect("body fixture");
-    let (tx, _rx) = unbounded();
-    let commands = compile_text_body(
-        &text_body,
-        2000 * PT as i64,
-        400 * PT as i64,
-        &AffineTransform::identity(),
-        None,
-        &tx,
-    );
-    commands
-        .iter()
-        .filter_map(|command| match command {
-            VectorCommand::DrawText { runs, .. } => Some(runs.iter().cloned()),
-            _ => None,
-        })
-        .flatten()
-        .collect()
 }

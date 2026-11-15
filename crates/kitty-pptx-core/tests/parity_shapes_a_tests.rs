@@ -116,7 +116,6 @@ fn preset_path_flags_shade_and_stroke_per_path() {
     assert_eq!(commands.len(), 4, "one DrawPath per authored <a:path>");
     let fills = shapes_a_support::shape_fills(&commands);
     let strokes = shapes_a_support::shape_strokes(&commands);
-
     assert_eq!(fills[0], Some(VectorPaint::Solid([0x33, 0x66, 0x99, 255])));
     assert_eq!(fills[1], Some(VectorPaint::Solid([31, 61, 92, 255])));
     assert_eq!(fills[2], None, "fill=none path is stroke-only");
@@ -258,3 +257,29 @@ fn pattern_cells_use_the_shared_point_grid() {
     assert!(svg.contains(r#"width="1587.5" height="1587.5""#), "1/8 pt pixel");
     assert!(svg.contains("fill=\"url(#pattfill_1)\""), "the brush is referenced");
 }
+
+/// Case 2 — "honours unfilled, unstroked and shaded paths individually".
+///
+/// With `custGeomPaint`, each authored `<a:path>` keeps its own fill mode and
+/// stroke flag: path 1 paints the base fill, path 2 only its stroke, path 3 the
+/// darkened fill and its stroke.
+#[test]
+fn custgeom_per_path_fill_and_stroke_flags() {
+    let mut element = shape("custGeom");
+    element["custGeom"] = json!([square(), square(), square()]);
+    element["custGeomPaint"] = json!([
+        {"fill": null, "stroke": false},
+        {"fill": "none", "stroke": true},
+        {"fill": "darken", "stroke": true},
+    ]);
+    let commands = compile_elements(vec![element]);
+
+    let fills = shapes_a_support::shape_fills(&commands);
+    let strokes = shapes_a_support::shape_strokes(&commands);
+    assert_eq!(strokes.iter().filter(|s| s.is_some()).count(), 2);
+    // Path 3's darkening overlay is folded into one tinted paint, so the IR has
+    // two fills where the reference records base-fill + overlay.
+    assert_eq!(fills.iter().filter(|f| f.is_some()).count(), 2);
+    assert_eq!(fills[2], Some(VectorPaint::Solid([31, 61, 92, 255])));
+}
+
