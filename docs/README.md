@@ -23,6 +23,9 @@ Welcome to the design documentation and Product Requirements Documents (PRDs) fo
 10. **[09-omml-equation-typesetting.md](./09-omml-equation-typesetting.md)** — Live OMML Equation Typesetting Engine (ECMA-376 §22.1 `<m:oMath>`, TeX Appendix G box-and-glue layout, OpenType MATH table metrics, STIX Two Math fallback, dual-backend vector/raster execution).
 11. **[10-interactive-hyperlinks-and-terminal-seam.md](./10-interactive-hyperlinks-and-terminal-seam.md)** — Interactive Hyperlinks & Terminal Interactivity Seam (Ratatui TUI Link Picker modal ('o') with non-blocking browser dispatch, mouse hit-testing, and clickable native vector SVG exports).
 12. **[11-extended-and-tier3-shape-presets.md](./11-extended-and-tier3-shape-presets.md)** — Extended & Tier 3 Shape Presets (systematic expansion across 180+ ECMA-376 DrawingML presets, parametric multi-corner rectangles, callouts with target pointers, extended curved/bent/notched arrows, brackets/braces, seals/stars 4..32, action buttons with vector glyph icons, and modular compiler submodules under 600 lines).
+13. **[12-render-parity-with-reference.md](./12-render-parity-with-reference.md)** — Render parity analysis against the reference browser renderer (measured baselines, drift sources, ported test strategy).
+14. **[13-metafile-pictures-and-vector-playback.md](./13-metafile-pictures-and-vector-playback.md)** — Metafile Pictures: EMF / WMF / EMF+ vector playback through the vendored `metafile-rs` engine, `DrawBitmap` display-list extension, coordinate mapping, diagnostics and rollout milestones.
+15. **[13a-metafile-fidelity-and-validation.md](./13a-metafile-fidelity-and-validation.md)** — Metafile fidelity matrix, diagnostics taxonomy, golden corpus specification, differential oracle strategy and NFR budgets.
 
 ---
 
@@ -74,6 +77,7 @@ A two-stage pipeline: **DrawingML $\to$ Resolution-Independent Vector Display Li
 | Vector Export | Native SVG XML serializer | Clean, resolution-independent SVG output directly from `VectorSlide` |
 | Vector Media | `resvg` | SVG rasterization directly to pixel buffers |
 | Raster Media | `image` crate | Pure-Rust decoding for PNG, JPEG, WebP, GIF, BMP, TIFF |
+| Metafile playback | vendored `metafile-rs` (Apache-2.0) | EMF / EMF+ / WMF vector playback compiled into `VectorSlide`; no platform GDI or external converter |
 | Terminal UI | `ratatui` + `crossterm` | Flexible widget tree, custom placeholder graphics widgets |
 | CLI Parser | `clap` | Subcommand derivation, flag validation, range parsing |
 | Concurrency | Worker pool + Priority Prefetch Queue | Multithreaded rendering off UI thread; instant $O(1)$ flips |

@@ -38,7 +38,7 @@ A PowerPoint renderer that silently omits unsupported features produces deceptiv
 | Image Crop (`srcRect`) | **FULL** | Sub-rectangle normalized mapping math (§4.1). |
 | Alpha Transparency | **FULL** | 8-bit straight alpha preserved to the seam. |
 | Vector SVG | **FULL** | Bundled PNG fallback relationship preferred; otherwise rasterized via `resvg`. |
-| EMF / WMF Metafiles | **PLACEHOLDER** | PNG fallback used if present; else metafile placeholder (§3) + warning. |
+| EMF / WMF Metafiles | **FULL / DEGRADED** | Vector playback per [PRD 13](./13-metafile-pictures-and-vector-playback.md); approximations are itemized in [PRD 13a §2](./13a-metafile-fidelity-and-validation.md). Falls back to the §3 metafile placeholder + warning when playback fails, limits are hit, or a raster/SVG fallback is absent. |
 | Blip Effect: `alphaModFix` | **DEGRADED** | Modulates alpha by constant factor $A \cdot (\text{amt} / 100,000)$. |
 | Blip Effect: `grayscl` | **DEGRADED** | BT.709 luma transform: $Y = 0.2126 R + 0.7152 G + 0.0722 B$. |
 | Blip Effect: `biLevel` | **DEGRADED** | Thresholding: if $Y > 0.5$, white; else black. |
