@@ -422,15 +422,13 @@ pub(super) fn compile_stacked(
         if slot.rotation == 0.0 {
             paint::emit_run(measurer, &slot.text, slot.style, slot.x, slot.baseline, &mut runs);
             if let Some(run) = runs.last_mut() {
-                run.underline = false;
-                run.strikethrough = false;
+                run.decorations = Default::default();
             }
         } else {
             let mut rotated: Vec<PositionedGlyphRun> = Vec::new();
             paint::emit_run(measurer, &slot.text, slot.style, slot.x, slot.baseline, &mut rotated);
             for run in &mut rotated {
-                run.underline = false;
-                run.strikethrough = false;
+                run.decorations = Default::default();
             }
             commands.push(VectorCommand::DrawText {
                 runs: rotated,

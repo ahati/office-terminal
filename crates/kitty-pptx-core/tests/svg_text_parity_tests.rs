@@ -148,8 +148,7 @@ fn run(text: &str, x: f32, baseline_y: f32, advance: f32) -> PositionedGlyphRun 
         bold: false,
         italic: false,
         glyphs,
-        underline: false,
-        strikethrough: false,
+        decorations: Default::default(),
         warp: None,
     }
 }
@@ -333,8 +332,17 @@ fn justified_run_pins_its_advance_with_text_length() {
 #[test]
 fn decoration_fills_and_face_are_kept() {
     let mut r = run("Underlined", 300_000.0, 900_000.0, 120_000.0);
-    r.underline = true;
-    r.strikethrough = true;
+    let line = kitty_pptx_core::contracts::DecorationLine {
+        color: [10, 20, 30, 128],
+        top_emu: -152_400.0,
+        thickness_emu: 12_700.0,
+        gap_emu: 0.0,
+        style: kitty_pptx_core::contracts::DecorationStyle::Solid,
+    };
+    r.decorations = kitty_pptx_core::contracts::TextDecorations {
+        underline: Some(line),
+        strike: Some(line),
+    };
     r.color = [10, 20, 30, 128];
     r.bold = true;
     r.italic = true;
@@ -418,3 +426,36 @@ fn outline_mode_keeps_the_run_origin_and_baseline() {
     }
 }
 
+
+#[test]
+fn vector_glyphs_paint_the_same_decoration_bands() {
+    let mut r = run("Decorated", 300_000.0, 900_000.0, 120_000.0);
+    let underline = kitty_pptx_core::contracts::DecorationLine {
+        color: [255, 0, 0, 255],
+        top_emu: 76_200.0,
+        thickness_emu: 25_400.0,
+        gap_emu: 0.0,
+        style: kitty_pptx_core::contracts::DecorationStyle::Solid,
+    };
+    let strike = kitty_pptx_core::contracts::DecorationLine {
+        color: [0, 0, 0, 255],
+        top_emu: -76_200.0,
+        thickness_emu: 25_400.0,
+        gap_emu: 25_400.0,
+        style: kitty_pptx_core::contracts::DecorationStyle::Solid,
+    };
+    r.decorations = kitty_pptx_core::contracts::TextDecorations {
+        underline: Some(underline),
+        strike: Some(strike),
+    };
+
+    let svg = svg_for(&slide_with(vec![r]), SvgTextMode::VectorGlyphs);
+    assert!(svg.contains("<path "), "glyph outlines render");
+    assert_eq!(
+        svg.matches("<rect x=").count(),
+        3,
+        "underline + double strike"
+    );
+    assert!(svg.contains(r#"fill="rgb(255,0,0)""#), "underline colour");
+    assert!(!svg.contains("text-decoration"), "no CSS decoration in outline mode");
+}

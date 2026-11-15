@@ -85,8 +85,16 @@ fn test_svg_export_modes_and_image_embedding() {
                         warp_u: None,
                     },
                 ],
-                underline: true,
-                strikethrough: false,
+                decorations: kitty_pptx_core::contracts::TextDecorations {
+                    underline: Some(kitty_pptx_core::contracts::DecorationLine {
+                        color: [10, 20, 30, 255],
+                        top_emu: -152_400.0,
+                        thickness_emu: 12_700.0,
+                        gap_emu: 0.0,
+                        style: kitty_pptx_core::contracts::DecorationStyle::Solid,
+                    }),
+                    strike: None,
+                },
                 warp: None,
             },
         ],
