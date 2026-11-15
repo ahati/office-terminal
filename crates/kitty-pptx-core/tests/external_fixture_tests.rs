@@ -25,6 +25,7 @@ use std::sync::Mutex;
 
 use external_fixture_support::metrics::{compare_slide, DiffMetrics};
 use external_fixture_support::render::render_fixture;
+use external_fixture_support::scores::{self, ExternalScores, SlideScore};
 use external_fixture_support::{
     load_manifest, Corpus, Fixture, Selection, MANIFEST_RELATIVE, MAX_LISTED, RUN_COMMAND,
 };
@@ -39,6 +40,7 @@ struct Report {
     diagnostic_errors: usize,
     errors: Vec<String>,
     failures: Vec<String>,
+    scores: std::collections::BTreeMap<String, SlideScore>,
 }
 
 impl Report {
@@ -131,7 +133,67 @@ fn compare_corpus(corpus: &Corpus, selection: &Selection) -> Report {
         let fixture = &corpus.manifest.files[selection.compare[position]];
         fold_deck(fixture, outcome, &mut report);
     }
+    record_scores(corpus, &mut report);
     report
+}
+
+/// Write or ratchet the diagnostic baseline (`tests/parity/scores/external.json`).
+fn record_scores(corpus: &Corpus, report: &mut Report) {
+    let current = ExternalScores {
+        commit: corpus.manifest.commit.clone(),
+        slides: report.scores.clone(),
+    };
+    if std::env::var_os("UPDATE_EXTERNAL_SCORES").is_some() {
+        if let Err(error) = scores::write(&current) {
+            report.failures.push(format!("external score write failed: {error}"));
+        } else {
+            println!("recorded {} external slide score(s)", current.slides.len());
+        }
+        return;
+    }
+    let baseline = match scores::load() {
+        Ok(Some(baseline)) => baseline,
+        Ok(None) => return,
+        Err(error) => {
+            report.failures.push(error);
+            return;
+        }
+    };
+    if baseline.commit != current.commit {
+        println!(
+            "external score baseline is for {} (current {}); not ratcheting",
+            baseline.commit, current.commit
+        );
+        return;
+    }
+    let strict: std::collections::BTreeSet<&str> = corpus
+        .manifest
+        .files
+        .iter()
+        .filter(|fixture| fixture.strict)
+        .map(|fixture| fixture.name.as_str())
+        .collect();
+    for (key, now) in &current.slides {
+        let deck = key.split_once('/').map_or(key.as_str(), |(deck, _)| deck);
+        if strict.contains(deck) {
+            continue;
+        }
+        let Some(before) = baseline.slides.get(key) else {
+            continue;
+        };
+        if now.cell_pass_ratio < before.cell_pass_ratio - 0.05 {
+            report.failures.push(format!(
+                "diagnostic {key}: cell pass {:.3} -> {:.3} (ratchet -0.05)",
+                before.cell_pass_ratio, now.cell_pass_ratio
+            ));
+        }
+        if now.global_mean_abs_diff > before.global_mean_abs_diff + 2.0 {
+            report.failures.push(format!(
+                "diagnostic {key}: global diff {:.2} -> {:.2} (ratchet +2.0)",
+                before.global_mean_abs_diff, now.global_mean_abs_diff
+            ));
+        }
+    }
 }
 
 fn worker_count(decks: usize) -> usize {
@@ -179,6 +241,14 @@ fn fold_deck(fixture: &Fixture, outcome: DeckResult, report: &mut Report) {
     };
     report.decks += 1;
     report.slides += rendered_slides;
+    for (index, metrics) in metrics.iter().enumerate() {
+        if let Ok(metrics) = metrics {
+            report.scores.insert(
+                scores::key(&fixture.name, index + 1),
+                SlideScore::from(metrics),
+            );
+        }
+    }
     if fixture.strict {
         if compare_strict(fixture, rendered_slides, metrics, report) {
             report.strict_pass += 1;
