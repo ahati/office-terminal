@@ -37,25 +37,36 @@ pub fn compile_text_body(
 }
 
 pub fn resolve_font_family(name: &str, warning_sink: &Sender<WarningEvent>) -> String {
-    let lower = name.to_lowercase();
-    if lower.contains("calibri") {
-        "Carlito".to_string()
-    } else if lower.contains("cambria") {
-        "Caladea".to_string()
-    } else if lower.contains("aptos") {
+    let resolved = family_substitute(name).unwrap_or(name).to_string();
+    if name.to_lowercase().contains("aptos") {
         let _ = warning_sink.send(WarningEvent::FontSubstituted {
             requested: name.to_string(),
-            substitute: "Carlito".to_string(),
+            substitute: resolved.clone(),
         });
-        "Carlito".to_string()
+    }
+    resolved
+}
+
+/// The bundled/system face a requested family is mapped to, if any.
+///
+/// Shared by the PPTX text compiler and metafile playback so both resolve
+/// faces through the same substitution matrix (PRD 13 §4.5).
+pub fn family_substitute(name: &str) -> Option<&'static str> {
+    let lower = name.to_lowercase();
+    if lower.contains("calibri") {
+        Some("Carlito")
+    } else if lower.contains("cambria") {
+        Some("Caladea")
+    } else if lower.contains("aptos") {
+        Some("Carlito")
     } else if lower.contains("arial") {
-        "Liberation Sans".to_string()
+        Some("Liberation Sans")
     } else if lower.contains("times") {
-        "Liberation Serif".to_string()
+        Some("Liberation Serif")
     } else if lower.contains("consolas") || lower.contains("courier") {
-        "Liberation Mono".to_string()
+        Some("Liberation Mono")
     } else {
-        name.to_string()
+        None
     }
 }
 

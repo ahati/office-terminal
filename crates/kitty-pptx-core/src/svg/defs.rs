@@ -178,6 +178,20 @@ pub(super) fn command_bounds(command: &VectorCommand) -> Option<crate::contracts
             }
             bounds
         }
+        VectorCommand::DrawBitmap { placement, .. } => Some(transform_rect(
+            &crate::contracts::RectF32 {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0,
+            },
+            placement,
+        )),
+        VectorCommand::DrawMetafile {
+            dest_rect,
+            transform,
+            ..
+        } => Some(transform_rect(dest_rect, transform)),
         VectorCommand::PushClip(_) | VectorCommand::PopClip => None,
     }
 }

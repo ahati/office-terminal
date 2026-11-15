@@ -113,7 +113,35 @@ pub fn compile_picture_element(
         .unwrap_or(&pic.image_path)
         .clone();
 
-    if let Some(crop) = crop {
+    if crate::metafile::is_metafile_path(&rel_id) {
+        // The compiler never reads archive bytes; the marker is expanded by
+        // `metafile::expand_metafiles` where the AssetStore is available.
+        // The clip was only pushed when a crop existed, so only then pop it.
+        let had_crop = crop.is_some();
+        let (src_rect, dest_rect) = match crop {
+            Some(crop) => (crop.src, crop.dest),
+            None => (
+                NormalizedRect::default(),
+                RectF32 {
+                    x: 0.0,
+                    y: 0.0,
+                    w: pic.width as f32,
+                    h: pic.height as f32,
+                },
+            ),
+        };
+        commands.push(VectorCommand::DrawMetafile {
+            rel_id,
+            transform,
+            src_rect,
+            dest_rect,
+            opacity,
+        });
+
+        if had_crop && clip_path.is_some() {
+            commands.push(VectorCommand::PopClip);
+        }
+    } else if let Some(crop) = crop {
         commands.push(VectorCommand::DrawImage {
             rel_id,
             src_rect: crop.src,

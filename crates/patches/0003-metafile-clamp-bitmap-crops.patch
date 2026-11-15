@@ -1,0 +1,61 @@
+--- a/crates/metafile-dib/src/lib.rs
++++ b/crates/metafile-dib/src/lib.rs
+@@ -223,10 +223,16 @@
+         let end = origin
+             .checked_add(extent)
+             .ok_or_else(|| bad("source crop overflow"))?;
+-        let start = origin.min(end);
+-        let finish = origin.max(end);
+-        if start < 0 || i64::from(finish) > i64::from(maximum) {
+-            return Err(bad("source crop lies outside bitmap"));
++        let raw_start = origin.min(end);
++        let raw_finish = origin.max(end);
++        // GDI clamps a source rectangle to the bitmap instead of rejecting it;
++        // Office-authored metafiles routinely overhang by a fraction of a
++        // pixel. [kitty-pptx patch 0003]
++        let max_i32 = i32::try_from(maximum).unwrap_or(i32::MAX);
++        let start = raw_start.clamp(0, max_i32);
++        let finish = raw_finish.clamp(0, max_i32);
++        if start >= finish {
++            return Err(bad("source crop has a zero extent after clamping"));
+         }
+         Ok((
+             u32::try_from(start).map_err(|_| bad("source crop overflow"))?,
+--- a/crates/metafile-emfplus/src/lib.rs
++++ b/crates/metafile-emfplus/src/lib.rs
+@@ -3327,23 +3327,23 @@
+ }
+ 
+ fn crop_bitmap(bitmap: &Bitmap, source: Rect, record: Record<'_>) -> Result<Bitmap> {
+-    let left = source.left as i64;
+-    let top = source.top as i64;
+-    let right = source.right as i64;
+-    let bottom = source.bottom as i64;
+-    if left < 0
+-        || top < 0
+-        || right <= left
+-        || bottom <= top
+-        || right > i64::from(bitmap.width)
+-        || bottom > i64::from(bitmap.height)
+-    {
++    // GDI+ clamps a source rectangle to the image instead of rejecting it;
++    // Office-authored EMF+ streams routinely overhang by a fraction of a
++    // pixel. Clamp before validating so a legitimate image still renders.
++    // [kitty-pptx patch 0003]
++    let max_x = i64::from(bitmap.width);
++    let max_y = i64::from(bitmap.height);
++    let left = (source.left as i64).clamp(0, max_x);
++    let top = (source.top as i64).clamp(0, max_y);
++    let right = (source.right as i64).clamp(0, max_x);
++    let bottom = (source.bottom as i64).clamp(0, max_y);
++    if right <= left || bottom <= top {
+         return invalid(
+             record.origin,
+             record.index,
+             record.kind,
+             record.offset,
+-            "image source rectangle is empty or outside bitmap bounds",
++            "image source rectangle is empty after clamping",
+         );
+     }
+     let width = u32::try_from(right - left).map_err(|_| {

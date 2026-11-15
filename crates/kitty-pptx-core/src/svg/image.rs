@@ -349,3 +349,40 @@ fn tile_anchor(algn: &str, box_w: f32, box_h: f32, tile_w: f32, tile_h: f32) -> 
     };
     (ax, ay)
 }
+
+/// Serializes an inline bitmap (`VectorCommand::DrawBitmap`) as a data URI.
+pub fn serialize_svg_bitmap(
+    png: &[u8],
+    placement: &AffineTransform,
+    opacity: f32,
+) -> String {
+    let b64 = BASE64_STANDARD.encode(png);
+    let transform_attr = format_transform_attr(placement);
+    let opacity_attr = if (opacity - 1.0).abs() > 1e-3 {
+        format!(r#" opacity="{:.2}""#, opacity)
+    } else {
+        String::new()
+    };
+    format!(
+        r#"  <image x="0" y="0" width="1" height="1" preserveAspectRatio="none" href="data:image/png;base64,{b64}"{transform_attr}{opacity_attr}/>"#
+    )
+}
+
+/// Defensive fallback for an unexpanded `DrawMetafile` marker.
+pub fn serialize_svg_missing_metafile(
+    dest_rect: &RectF32,
+    transform: &AffineTransform,
+) -> String {
+    let local = AffineTransform {
+        tx: dest_rect.x,
+        ty: dest_rect.y,
+        ..AffineTransform::default()
+    };
+    let placed = transform.post_concat(&local);
+    let transform_attr = format_transform_attr(&placed);
+    format!(
+        r##"  <rect x="0" y="0" width="{:.1}" height="{:.1}" fill="#f2f2f2" fill-opacity="0.6" stroke="#969696" stroke-width="1.5" stroke-dasharray="4 3"{transform_attr}/>"##,
+        dest_rect.w.max(1.0),
+        dest_rect.h.max(1.0)
+    )
+}
