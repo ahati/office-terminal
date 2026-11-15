@@ -64,6 +64,16 @@ fixtures live beside this file and are listed in `README.md`.
 | Mislabelled container | `metafile_milestone_tests::mislabelled_emz_is_classified_by_content` | classification by content | — | — | ⚠️ |
 | Gzip bomb | `metafile_milestone_tests::emz_bomb_degrades_to_a_placeholder` | `ResourceLimitHit` + placeholder | — | — | ⚠️ |
 
+## Hardening (M6)
+
+| Gate | Test | Status |
+| :--- | :--- | :--- |
+| Perf: cold playback + cache hit | `tests/metafile_perf_tests.rs` (release) | ⚠️ budget smoke only |
+| Deterministic robustness | `tests/metafile_robustness_tests.rs` | ⚠️ 200-case smoke |
+| Extended fuzz | `fuzz/fuzz_targets/fuzz_metafile.rs` | ⚠️ cargo-fuzz, nightly |
+| Playback override | `tests/metafile_mode_tests.rs` | ⚠️ |
+| External golden harness | `tests/external_fixture_tests.rs` (expands metafiles) | ⚠️ diagnostic baseline |
+
 ## Picture-level suite
 
 | Case | Test | Status |

@@ -16,6 +16,7 @@ members = [
 exclude = [
     "crates/metafile-dib",
     "crates/metafile-emfplus",
+    "fuzz",
 ]
 default-members = ["crates/kitty-pptx-cli"]
 

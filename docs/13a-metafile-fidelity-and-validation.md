@@ -297,13 +297,19 @@ Budgets are enforced by `tests/metafile_perf_tests.rs` in release mode; regressi
 | Job | Scope | Required |
 | :--- | :--- | :--- |
 | `cargo clippy --workspace --all-targets -- -D warnings` | whole workspace | ✅ |
+| `cargo check -p kitty-pptx-core --no-default-features --tests` | feature-off build | ✅ |
 | `cargo test -p kitty-pptx-core --test warning_plumbing_tests` | M0 warning path | ✅ |
-| `cargo test -p kitty-pptx-core --test metafile_unit_tests` | L1 | ✅ |
-| `cargo test -p kitty-pptx-core --test metafile_golden_tests` | L2a + L2b | ✅ |
-| `cargo test -p kitty-pptx-core --test metafile_oracle_tests --features metafile-oracle` | differential | ✅ from M3 |
-| `cargo test -p kitty-pptx-cli --test metafile_e2e_tests` | L5 | ✅ |
-| `cargo fuzz run fuzz_metafile -- -runs=2000` | robustness smoke | ✅ |
-| `cargo test --release -p kitty-pptx-core --test metafile_perf_tests` | NFR | ✅ on perf runner |
+| `cargo test -p kitty-pptx-core --lib metafile` | L1 mappers/limits/diagnostics/cache + unit tests | ✅ |
+| `cargo test -p kitty-pptx-core --test metafile_skeleton_tests` | compiler/expansion seam | ✅ |
+| `cargo test -p kitty-pptx-core --test metafile_milestone_tests` | M3–M5 fixtures | ✅ |
+| `cargo test -p kitty-pptx-core --test metafile_mode_tests` | `--metafile` override | ✅ |
+| `cargo test -p kitty-pptx-core --test metafile_robustness_tests` | panic/clip-balance smoke | ✅ |
+| `cargo test -p kitty-pptx-core --test external_fixture_tests external_libreoffice_renderer_comparison` | golden harness (expanded metafiles) | ✅ |
+| `cargo test --release -p kitty-pptx-core --test metafile_perf_tests` | NFR budgets | ✅ |
+| `cargo +nightly fuzz run fuzz_metafile -- -runs=2000` | extended robustness | nightly |
+| `cargo test -p kitty-pptx-core --test metafile_golden_tests` | L2a + L2b AST/PNG corpus | ⚠️ follow-up (§2.4) |
+| `cargo test -p kitty-pptx-core --test metafile_oracle_tests --features metafile-oracle` | `metafile-svg` differential | ⚠️ follow-up |
+| `cargo test -p kitty-pptx-cli --test metafile_e2e_tests` | L5 CLI E2E | ⚠️ follow-up |
 
 ### 9.2 Golden update workflow
 

@@ -3,6 +3,8 @@
 //! Covers the compiler→expansion seam and the vendored `metafile-rs` engine
 //! (EMF, EMF+ Only, WMF) using small upstream fixtures.
 
+#![cfg(feature = "metafile")]
+
 use std::sync::Arc;
 
 use kitty_pptx_core::contracts::{
@@ -10,11 +12,11 @@ use kitty_pptx_core::contracts::{
 };
 use kitty_pptx_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use kitty_pptx_core::metafile::{self, mapping};
+use kitty_pptx_core::AssetError;
 use kitty_pptx_core::{
     DefaultSlideCompiler, DefaultSlideSvgSerializer, SlideCompiler, SlideRasterizer,
     SlideSvgSerializer, SvgTextMode, TinySkiaRasterizer,
 };
-use kitty_pptx_core::AssetError;
 
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/metafile");
 
@@ -210,7 +212,10 @@ fn expansion_keeps_non_metafile_commands() {
 
     metafile::expand_metafiles(&mut scene, &store, &tx);
 
-    assert!(scene.commands.len() > before, "placeholder must emit commands");
+    assert!(
+        scene.commands.len() > before,
+        "placeholder must emit commands"
+    );
 }
 
 #[test]
@@ -235,10 +240,7 @@ fn source_to_emu_maps_bounds_into_the_destination() {
 #[test]
 fn real_emf_paths_play_into_commands() {
     metafile::clear_global_cache();
-    let store = FixtureStore::new(
-        "ppt/media/image1.emf",
-        fixture("windows-emf-paths.emf"),
-    );
+    let store = FixtureStore::new("ppt/media/image1.emf", fixture("windows-emf-paths.emf"));
     let mut scene = compile_slide(&picture_slide("ppt/media/image1.emf", "image/x-emf"));
     let (tx, _rx) = crossbeam_channel::unbounded::<WarningEvent>();
 
@@ -254,10 +256,7 @@ fn real_emf_paths_play_into_commands() {
 #[test]
 fn real_emf_bitmap_uses_draw_bitmap() {
     metafile::clear_global_cache();
-    let store = FixtureStore::new(
-        "ppt/media/image1.emf",
-        fixture("windows-emf-bitmap.emf"),
-    );
+    let store = FixtureStore::new("ppt/media/image1.emf", fixture("windows-emf-bitmap.emf"));
     let mut scene = compile_slide(&picture_slide("ppt/media/image1.emf", "image/x-emf"));
     let (tx, _rx) = crossbeam_channel::unbounded::<WarningEvent>();
 

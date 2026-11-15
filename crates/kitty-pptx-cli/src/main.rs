@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 use clap::Parser;
-use kitty_pptx_cli::cli::{Cli, Commands};
-use kitty_pptx_cli::commands::*;
+use kitty_pptx_cli::cli::{Cli, Commands, MetafileModeArg};
 use kitty_pptx_cli::commands::export::run_export_with_options;
+use kitty_pptx_cli::commands::*;
 use kitty_pptx_cli::config::Config;
 use kitty_pptx_core::{
     DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, TinySkiaRasterizer,
@@ -16,6 +16,16 @@ fn main() -> ExitCode {
     if let Some(shell) = args.generate_completions {
         return run_completions(shell);
     }
+
+    let metafile_mode = args
+        .metafile
+        .or_else(|| {
+            std::env::var("KITTY_PPTX_METAFILE")
+                .ok()
+                .and_then(|value| MetafileModeArg::from_env(&value))
+        })
+        .unwrap_or(MetafileModeArg::Playback);
+    kitty_pptx_core::metafile::set_playback_mode(metafile_mode.to_mode());
 
     let config = Config::load();
 

@@ -1,7 +1,7 @@
+use crate::error::AssetError;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
-use crate::error::AssetError;
 
 /// Decoder target for one blip: the native grid, or a bounded grid the store
 /// resizes down to (ref core/src/image/raster-target.ts:50-73).
@@ -77,8 +77,8 @@ impl DefaultAssetStore {
 
     fn read_zip_entry(&self, rel_id: &str) -> Result<Vec<u8>, AssetError> {
         let cursor = Cursor::new(&self.archive_bytes[..]);
-        let mut zip = zip::ZipArchive::new(cursor)
-            .map_err(|e| AssetError::DecodeFailed(e.to_string()))?;
+        let mut zip =
+            zip::ZipArchive::new(cursor).map_err(|e| AssetError::DecodeFailed(e.to_string()))?;
 
         // Normalize paths: strip leading slashes or resolve common prefixes
         let clean_path = rel_id.trim_start_matches('/');
@@ -108,13 +108,21 @@ impl AssetStore for DefaultAssetStore {
     fn get(&self, rel_id: &str, hint: SizeHint) -> Result<DecodedImage, AssetError> {
         let cache_key = match hint {
             SizeHint::Native => format!("native:{}", rel_id),
-            SizeHint::AtMost { width, height } => format!("at_most_{}x{}:{}", width, height, rel_id),
+            SizeHint::AtMost { width, height } => {
+                format!("at_most_{}x{}:{}", width, height, rel_id)
+            }
         };
 
         // Check cache
         {
-            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let mut clock = self.access_clock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self
+                .cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut clock = self
+                .access_clock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             *clock += 1;
             if let Some(entry) = cache.get_mut(&cache_key) {
                 entry.access_counter = *clock;
@@ -126,7 +134,10 @@ impl AssetStore for DefaultAssetStore {
         let data = self.read_zip_entry(rel_id)?;
 
         // Try decoding as SVG if name ends with .svg or starts with SVG header
-        let decoded = if rel_id.ends_with(".svg") || data.starts_with(b"<?xml") || data.starts_with(b"<svg") {
+        let decoded = if rel_id.ends_with(".svg")
+            || data.starts_with(b"<?xml")
+            || data.starts_with(b"<svg")
+        {
             decode_svg(&data, &hint)?
         } else {
             decode_raster(&data, &hint)?
@@ -134,8 +145,14 @@ impl AssetStore for DefaultAssetStore {
 
         // Insert into LRU cache
         {
-            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let mut clock = self.access_clock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self
+                .cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut clock = self
+                .access_clock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             *clock += 1;
 
             // Evict if cache exceeds max_cache_bytes
@@ -175,7 +192,10 @@ impl AssetStore for DefaultAssetStore {
     }
 
     fn stats(&self) -> AssetStoreStats {
-        let cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let cached_entries = cache.len();
         let cached_bytes = cache.values().map(|e| e.image.pixels.len()).sum();
         AssetStoreStats {
@@ -186,8 +206,7 @@ impl AssetStore for DefaultAssetStore {
 }
 
 fn decode_raster(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetError> {
-    let img = image::load_from_memory(data)
-        .map_err(|e| AssetError::DecodeFailed(e.to_string()))?;
+    let img = image::load_from_memory(data).map_err(|e| AssetError::DecodeFailed(e.to_string()))?;
 
     let (orig_w, orig_h) = (img.width(), img.height());
     let resized = match hint {
@@ -285,14 +304,28 @@ mod tests {
 
     #[test]
     fn svg_honours_the_device_pixel_hint() {
-        let decoded = decode_svg(SVG, &SizeHint::AtMost { width: 1024, height: 512 }).expect("decode");
+        let decoded = decode_svg(
+            SVG,
+            &SizeHint::AtMost {
+                width: 1024,
+                height: 512,
+            },
+        )
+        .expect("decode");
         assert_eq!((decoded.width, decoded.height), (1024, 512));
         assert_eq!(decoded.pixels.len(), 1024 * 512 * 4);
     }
 
     #[test]
     fn svg_hint_is_capped_by_the_pixel_budget() {
-        let decoded = decode_svg(SVG, &SizeHint::AtMost { width: 16384, height: 16384 }).expect("decode");
+        let decoded = decode_svg(
+            SVG,
+            &SizeHint::AtMost {
+                width: 16384,
+                height: 16384,
+            },
+        )
+        .expect("decode");
         assert!(decoded.width <= SVG_MAX_SIDE);
         assert!(decoded.height <= SVG_MAX_SIDE);
         assert!(u64::from(decoded.width) * u64::from(decoded.height) <= SVG_MAX_PIXELS);

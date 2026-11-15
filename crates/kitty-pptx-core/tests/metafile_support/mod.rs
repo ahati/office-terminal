@@ -174,17 +174,31 @@ pub fn rectangle(rect: [i32; 4]) -> Vec<u8> {
     record(43, &i32s(&rect))
 }
 
+/// `EMR_POLYLINE` (open, 32-bit points).
+pub fn polyline(points: &[(i32, i32)]) -> Vec<u8> {
+    let (mut min_x, mut min_y) = (i32::MAX, i32::MAX);
+    let (mut max_x, mut max_y) = (i32::MIN, i32::MIN);
+    for (x, y) in points {
+        min_x = min_x.min(*x);
+        min_y = min_y.min(*y);
+        max_x = max_x.max(*x);
+        max_y = max_y.max(*y);
+    }
+    let mut payload = i32s(&[min_x, min_y, max_x, max_y]);
+    payload.extend_from_slice(&(points.len() as u32).to_le_bytes());
+    for (x, y) in points {
+        payload.extend_from_slice(&i32s(&[*x, *y]));
+    }
+    record(4, &payload)
+}
+
 // ── EMF+ records ───────────────────────────────────────────────────────────
 
 const EMF_PLUS_MAGIC: u32 = 0xdbc0_1002;
 
 /// `EmfPlusObject` with an object id and type.
 pub fn emf_plus_object(id: u8, kind: u8, data: &[u8]) -> Vec<u8> {
-    emf_plus_record(
-        0x4008,
-        u16::from(id) | (u16::from(kind) << 8),
-        data,
-    )
+    emf_plus_record(0x4008, u16::from(id) | (u16::from(kind) << 8), data)
 }
 
 /// EMF+ font object (type 6).
@@ -215,13 +229,7 @@ pub fn emf_plus_solid_brush(id: u8, color: u32) -> Vec<u8> {
 }
 
 /// EMF+ pen object (type 2) with explicit start/end caps.
-pub fn emf_plus_pen(
-    id: u8,
-    color: u32,
-    width: f32,
-    start_cap: u32,
-    end_cap: u32,
-) -> Vec<u8> {
+pub fn emf_plus_pen(id: u8, color: u32, width: f32, start_cap: u32, end_cap: u32) -> Vec<u8> {
     let mut data = EMF_PLUS_MAGIC.to_le_bytes().to_vec();
     data.extend_from_slice(&0u32.to_le_bytes());
     let flags: u32 = if start_cap == end_cap { 0 } else { 0x6 };
@@ -275,9 +283,7 @@ pub fn emf_plus_split_object(
         data.len().is_multiple_of(4),
         "split-object fragments must stay 4-byte aligned"
     );
-    let flags = u16::from(id)
-        | (u16::from(kind) << 8)
-        | if continued { 0x8000 } else { 0 };
+    let flags = u16::from(id) | (u16::from(kind) << 8) | if continued { 0x8000 } else { 0 };
     emf_plus_record(0x4008, flags, &data)
 }
 
@@ -308,11 +314,7 @@ pub fn emf_plus_draw_string(
 
 /// `EmfPlusDrawPath` selecting a path and pen object.
 pub fn emf_plus_draw_path(path_id: u8, pen_id: u8) -> Vec<u8> {
-    emf_plus_record(
-        0x4015,
-        u16::from(path_id),
-        &u32::from(pen_id).to_le_bytes(),
-    )
+    emf_plus_record(0x4015, u16::from(path_id), &u32::from(pen_id).to_le_bytes())
 }
 
 /// `EmfPlusSetWorldTransform` (m11, m12, m21, m22, dx, dy).

@@ -7,10 +7,10 @@ use crate::loader::AssetStore;
 
 use super::cache::global_resolver;
 use super::diagnostics::dedup;
-use super::engine_metafile_rs::MetafileRsEngine;
 use super::limits::MetafileLimits;
 use super::mapping;
 use super::warning_for;
+use super::{default_engine, playback_mode, MetafileMode};
 
 /// Counts produced by one slide expansion.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,7 +39,8 @@ pub fn expand_metafiles(
         // Fast path: the overwhelming majority of slides carry no metafiles.
         return summary;
     }
-    let engine = MetafileRsEngine;
+    let engine = default_engine();
+    let force_placeholder = playback_mode() == MetafileMode::Placeholder;
     let limits = MetafileLimits::default();
     let resolver = global_resolver();
     let mut expanded_commands = Vec::with_capacity(scene.commands.len());
@@ -59,7 +60,22 @@ pub fn expand_metafiles(
             }
         };
 
-        match resolver.resolve(&rel_id, assets, &engine, &limits, &src_rect, &dest_rect) {
+        let Some(engine) = engine.as_deref().filter(|_| !force_placeholder) else {
+            // Engine disabled at compile time, or the debug switch forced the
+            // pre-playback behaviour: placeholder without a diagnostic.
+            emit_placeholder(
+                &mut expanded_commands,
+                &mut summary,
+                warnings,
+                dest_rect,
+                transform,
+                "metafile playback disabled",
+                None,
+            );
+            continue;
+        };
+
+        match resolver.resolve(&rel_id, assets, engine, &limits, &src_rect, &dest_rect) {
             Ok(compiled) if !compiled.commands.is_empty() => {
                 for command in &compiled.commands {
                     expanded_commands.push(mapping::transform_command(command, &transform));
@@ -94,10 +110,10 @@ pub fn expand_metafiles(
                     dest_rect,
                     transform,
                     "metafile produced no drawable content",
-                    WarningEvent::MediaFailed {
+                    Some(WarningEvent::MediaFailed {
                         rel_id: rel_id.clone(),
                         reason: "metafile produced no drawable content".into(),
-                    },
+                    }),
                 );
             }
             Err(error) => {
@@ -110,7 +126,7 @@ pub fn expand_metafiles(
                     dest_rect,
                     transform,
                     &reason,
-                    event,
+                    Some(event),
                 );
             }
         }
@@ -128,14 +144,16 @@ fn emit_placeholder(
     dest_rect: crate::contracts::RectF32,
     transform: crate::contracts::AffineTransform,
     reason: &str,
-    event: WarningEvent,
+    event: Option<WarningEvent>,
 ) {
     commands.extend(crate::compiler::placeholders::compile_metafile_placeholder(
         dest_rect, transform, reason,
     ));
-    let _ = warnings.send(event);
+    if let Some(event) = event {
+        let _ = warnings.send(event);
+        summary.warnings += 1;
+    }
     summary.placeholders += 1;
-    summary.warnings += 1;
 }
 
 /// Maps a playback failure onto the same warning taxonomy as engine
