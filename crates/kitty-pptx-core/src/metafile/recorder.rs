@@ -67,18 +67,25 @@ impl MetafileSink for MetafileRecorder {
     }
 
     fn draw_text(&mut self, run: &MetafileTextRun) -> Result<(), MetafileError> {
-        match mapping::text::shape_text_run(run, &self.unit_to_emu, self.emu_per_unit) {
-            Some(shaped) => {
-                self.commands.push(VectorCommand::DrawText {
-                    runs: vec![shaped],
-                    transform: AffineTransform::identity(),
-                });
-            }
-            None => self.diagnostics.push(MetafileDiagnostic::degraded(
-                "metafile_text",
-                "empty text run skipped",
-            )),
+        let Some(mapped) = mapping::text::map_text_run(run, &self.unit_to_emu) else {
+            return Ok(());
+        };
+        if let Some((path, color)) = mapped.background {
+            self.commands.push(VectorCommand::DrawPath {
+                path,
+                fill: Some(crate::contracts::VectorPaint::Solid(color)),
+                stroke: None,
+                transform: AffineTransform::identity(),
+                effects: Box::new(ShapeEffects::default()),
+            });
         }
+        if !mapped.runs.is_empty() {
+            self.commands.push(VectorCommand::DrawText {
+                runs: mapped.runs,
+                transform: mapped.transform,
+            });
+        }
+        self.diagnostics.extend(mapped.diagnostics);
         Ok(())
     }
 

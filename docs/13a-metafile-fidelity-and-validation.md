@@ -30,8 +30,8 @@ Three rules govern this document:
 | Solid pens, width, caps, joins | `CREATEPEN`, `EXTCREATEPEN` | **FULL** | Geometric widths scaled (§5.3); cosmetic pens ≥ 1 device px |
 | Dashed / styled pens | `EXTCREATEPEN` | **DEGRADED** | Custom dash patterns preserved where representable; hatch pens → solid + `metafile_pen_style` |
 | Solid brushes | `CREATEBRUSHINDIRECT` | **FULL** | — |
-| Hatched brushes | `CREATEBRUSHINDIRECT` (hatch) | **DEGRADED** | `VectorPattern` approximation + `metafile_hatch` |
-| Pattern brushes / DIB pattern brush | `CREATEDIBPATTERNBRUSHPT`, `CREATEPATTERNBRUSH` | **DEGRADED** | Texture fill mapped to `VectorPaint::Image`; `metafile_pattern_brush` |
+| Hatched brushes | `CREATEBRUSHINDIRECT` (hatch) | **DEGRADED** | `VectorPattern` preset approximation + `metafile_hatch` |
+| Pattern brushes / DIB pattern brush | `CREATEDIBPATTERNBRUSHPT`, `CREATEPATTERNBRUSH` | **DEGRADED** | Solid/tone approximation with `metafile_pattern_brush` |
 | Palettes | `CREATE PALETTE`, `SETPALETTEENTRIES` | **FULL** | Indexed DIBs resolved to RGBA |
 | Text output | `EXTTEXTOUTA/W`, `TEXTOUT` | **FULL** | Re-shaped through PRD 02c; alignment, escapement, `dx`, opaque background |
 | Text with glyph indices | `ETO_GLYPH_INDEX` | **DEGRADED** | Re-shaped by text content + `metafile_glyph_index_text` |
@@ -56,12 +56,14 @@ Three rules govern this document:
 | Feature family | Class | Notes / diagnostic |
 | :--- | :--- | :--- |
 | Object table (pens, brushes, paths, fonts, images, strings, regions) | **FULL** | Handles resolved by the engine; adapter sees resolved objects |
-| Solid / gradient brushes | **FULL** | Linear + path gradients → `VectorPaint::LinearGradient`/`RadialGradient` (`VectorGradient` frames) |
-| Texture brushes | **DEGRADED** | `VectorPaint::Image` with the engine's transform; `metafile_texture_transform` when outside the representable frame |
-| Hatched brushes | **DEGRADED** | Pattern approximation + `metafile_hatch` |
+| Solid / linear-gradient brushes | **FULL** | `Paint::Solid`/`Paint::LinearGradient` → `VectorPaint::Solid`/`LinearGradient`; the gradient axis is the brush transform's x-axis |
+| Path / radial gradients | **PLACEHOLDER** | `metafile-emfplus 1.0.1` has no path-gradient paint and reports it as an unsupported critical feature → §3 placeholder + `metafile_parse` |
+| Texture brushes | **DEGRADED** | Alpha-weighted average colour of the texture bitmap + `metafile_pattern_brush` (no inline-image paint in the display list) |
+| Hatched brushes | **DEGRADED** | Preset `VectorPattern` + `metafile_hatch` |
 | Lines, polygons, paths, curves, beziers | **FULL** | Path → `VectorPath`; fill modes preserved |
 | Rectangles, ellipses, arcs, pies, closed curves | **FULL** | Path construction per §4.3 of PRD 13 |
 | Text (DrawString) | **FULL** | Alignment, escapement, `dx`, decorations; re-shaped via PRD 02c |
+| Text with glyph indices | **DEGRADED** | `metafile-emfplus` cannot decode index text without the source glyph map → record skipped + `metafile_glyph_index_text` |
 | Images (DrawImage, DrawImagePoints) | **FULL** | `DrawBitmap` with affine placement (rotation/shear preserved) |
 | Clipping (SetClipRect, SetClipPath, SetClipRegion, ResetClip) | **FULL** | Nested clips; combine modes as §2.1 |
 | World transform / page transform | **FULL** | Affine composition |

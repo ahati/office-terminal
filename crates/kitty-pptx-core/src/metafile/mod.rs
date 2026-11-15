@@ -2,7 +2,7 @@
 //!
 //! Design: [PRD 13](../../../docs/13-metafile-pictures-and-vector-playback.md).
 //! This module owns the renderer-neutral seam between the display list and a
-//! playback engine. The engine itself (currently a stub) lives in
+//! playback engine. The engine itself (the `metafile-rs` backend) lives in
 //! [`engine_metafile_rs`] and is the only place that may name engine types.
 //!
 //! Flow:
@@ -20,9 +20,10 @@ pub mod expand;
 pub mod limits;
 pub mod mapping;
 pub mod recorder;
+pub mod unpack;
 
 use crate::contracts::{
-    AffineTransform, FillRule, FidelityClass, PathSegment, RectF32, VectorPath, WarningEvent,
+    AffineTransform, FidelityClass, FillRule, PathSegment, RectF32, VectorPath, WarningEvent,
 };
 
 pub use cache::{clear_global_cache, global_resolver, CompiledMetafile, MetafileResolver};
@@ -30,6 +31,7 @@ pub use classify::{classify_bytes, classify_path, is_metafile_path};
 pub use diagnostics::MetafileDiagnostic;
 pub use expand::{expand_metafiles, MetafileExpansionSummary};
 pub use limits::MetafileLimits;
+pub use unpack::unpack;
 
 /// Container format detected for a metafile part.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +64,7 @@ pub struct PlaybackOutcome {
 /// Errors surfaced by the metafile engine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MetafileError {
-    /// No playback engine is linked (skeleton state before the engine lands).
+    /// No playback engine is linked (a build without the metafile backend).
     Unavailable,
     /// The container is malformed or truncated.
     Invalid(String),
@@ -127,6 +129,12 @@ pub enum MetafilePaint {
         to: (f32, f32),
         stops: Vec<(f32, [u8; 4])>,
     },
+    /// GDI hatch brush approximated by a DrawingML preset pattern.
+    Pattern {
+        preset: &'static str,
+        fg: [u8; 4],
+        bg: [u8; 4],
+    },
 }
 
 /// A path resolved by the engine, in output coordinates.
@@ -145,6 +153,25 @@ impl MetafilePath {
     }
 }
 
+/// Horizontal anchor of an engine text run (GDI text alignment).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextAlignH {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// Vertical anchor of an engine text run (GDI text alignment).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextAlignV {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+    Baseline,
+}
+
 /// A text run resolved by the engine, in output coordinates.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetafileTextRun {
@@ -157,13 +184,25 @@ pub struct MetafileTextRun {
     pub italic: bool,
     pub underline: bool,
     pub strike_out: bool,
-    /// Baseline origin in output coordinates.
+    /// Anchor in output coordinates (the `horizontal_align`/`vertical_align`
+    /// corner, centre or baseline of the run).
     pub x: f32,
     pub y: f32,
-    /// GDI escapement in degrees (0 = horizontal).
+    /// GDI escapement in degrees (0 = horizontal, positive = counter-clockwise).
     pub escapement_deg: f32,
     /// Optional per-character advances in output units.
     pub dx: Vec<f32>,
+    pub horizontal_align: TextAlignH,
+    pub vertical_align: TextAlignV,
+    /// `ETO_OPAQUE`/`background_opaque` fill painted under the run.
+    pub background: Option<[u8; 4]>,
+    /// Opaque background rectangle in output coordinates.
+    pub background_rect: Option<RectF32>,
+    /// Rotation of the engine's local text coordinate system, clockwise in
+    /// screen coordinates (EMF+ `SetTransform` / page transform).
+    pub rotation_deg: f32,
+    /// `ETO_RTLREADING` / EMF+ string-format direction flag.
+    pub right_to_left: bool,
 }
 
 /// A bitmap decoded by the engine, in output coordinates.
@@ -252,10 +291,13 @@ impl MetafileSink for NullMetafileSink {
 }
 
 /// Maps an engine diagnostic class onto the public warning taxonomy.
-pub(crate) fn warning_for(
-    element_id: String,
-    diagnostic: &MetafileDiagnostic,
-) -> WarningEvent {
+pub(crate) fn warning_for(element_id: String, diagnostic: &MetafileDiagnostic) -> WarningEvent {
+    if let Some((requested, substitute)) = &diagnostic.font_substitution {
+        return WarningEvent::FontSubstituted {
+            requested: requested.clone(),
+            substitute: substitute.clone(),
+        };
+    }
     match diagnostic.class {
         FidelityClass::Placeholder | FidelityClass::Omitted => WarningEvent::MediaFailed {
             rel_id: element_id,

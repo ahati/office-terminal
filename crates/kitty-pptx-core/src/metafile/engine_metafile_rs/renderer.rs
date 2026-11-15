@@ -4,14 +4,14 @@ use metafile_core as mc;
 
 use crate::contracts::{AffineTransform, BitmapSampling, FillRule, RectF32, VectorPath};
 
-use super::mapping::{map_brush, map_pen, map_paint, map_stroke};
+use super::mapping::{map_brush, map_paint, map_pen, map_stroke};
 use super::primitives::{
     arc_path, closed_polygon, ellipse_path, engine_path, map_clip, open_path, rounded_rect,
 };
 use super::{fill_rule, from_engine_rect, rgba, to_engine_error};
 use crate::metafile::{
     MetafileBitmap, MetafileClip, MetafileDiagnostic, MetafileError, MetafilePath, MetafileSink,
-    MetafileTextRun,
+    MetafileTextRun, TextAlignH, TextAlignV,
 };
 
 pub(super) struct SinkRenderer<'a> {
@@ -41,11 +41,7 @@ impl SinkRenderer<'_> {
         }
         let mut pushed = 0;
         for path in paths {
-            if self
-                .sink
-                .push_clip(&MetafileClip { path })
-                .is_err()
-            {
+            if self.sink.push_clip(&MetafileClip { path }).is_err() {
                 break;
             }
             pushed += 1;
@@ -146,12 +142,7 @@ impl mc::Renderer for SinkRenderer<'_> {
         clip: Option<&mc::ClipRegion>,
     ) -> mc::Result<()> {
         self.run_clipped(clip, |this| {
-            this.draw_pen_path(
-                open_path(&[from, to]),
-                Some(pen),
-                None,
-                FillRule::NonZero,
-            )
+            this.draw_pen_path(open_path(&[from, to]), Some(pen), None, FillRule::NonZero)
         })
     }
 
@@ -337,6 +328,25 @@ impl mc::Renderer for SinkRenderer<'_> {
             y: run.position.y as f32,
             escapement_deg: f32::from(run.font.escapement_tenths) / 10.0,
             dx: run.dx.iter().map(|value| *value as f32).collect(),
+            horizontal_align: match run.horizontal_align {
+                mc::HorizontalTextAlignment::Left => TextAlignH::Left,
+                mc::HorizontalTextAlignment::Center => TextAlignH::Center,
+                mc::HorizontalTextAlignment::Right => TextAlignH::Right,
+            },
+            vertical_align: match run.vertical_align {
+                mc::VerticalTextAlignment::Top => TextAlignV::Top,
+                mc::VerticalTextAlignment::Center => TextAlignV::Center,
+                mc::VerticalTextAlignment::Bottom => TextAlignV::Bottom,
+                mc::VerticalTextAlignment::Baseline => TextAlignV::Baseline,
+            },
+            background: run.background.map(rgba),
+            background_rect: run.background_rect.map(from_engine_rect).or_else(|| {
+                run.background_path
+                    .as_ref()
+                    .and_then(super::primitives::path_bounds)
+            }),
+            rotation_deg: text_rotation_deg(run.transform),
+            right_to_left: run.right_to_left,
         };
         let pushed = self.push_clips(run.clip.as_ref());
         let result = self.sink.draw_text(&mapped).map_err(to_engine_error);
@@ -380,3 +390,13 @@ fn placement_transform(placement: mc::BitmapPlacement) -> AffineTransform {
     }
 }
 
+/// Clockwise rotation (screen coordinates) of the engine's local text axes.
+fn text_rotation_deg(transform: mc::Transform) -> f32 {
+    if !transform.m11.is_finite() || !transform.m12.is_finite() {
+        return 0.0;
+    }
+    if transform.m11.abs() < 1.0e-9 && transform.m12.abs() < 1.0e-9 {
+        return 0.0;
+    }
+    transform.m12.atan2(transform.m11).to_degrees() as f32
+}

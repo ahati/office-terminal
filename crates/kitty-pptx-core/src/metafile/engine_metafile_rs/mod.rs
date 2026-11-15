@@ -1,4 +1,5 @@
-//! `metafile-rs` playback backend (vendored under `crates/metafile-*`).
+//! `metafile-rs` playback backend (`metafile-emf`/`-wmf` from crates.io, the
+//! `-emfplus`/`-dib` fixes from `crates/`; PRD 13 §2.1).
 //!
 //! This is the only file that names the engine crates: a
 //! [`metafile_core::Renderer`] implementation forwards every primitive to our
@@ -9,8 +10,8 @@ use metafile_core as mc;
 use crate::contracts::{FillRule, RectF32};
 
 use super::{
-    MetafileDiagnostic, MetafileEngine, MetafileError, MetafileFormat, MetafileInfo, MetafileLimits,
-    MetafileSink, PlaybackOutcome,
+    MetafileDiagnostic, MetafileEngine, MetafileError, MetafileFormat, MetafileInfo,
+    MetafileLimits, MetafileSink, PlaybackOutcome,
 };
 
 mod mapping;
@@ -58,7 +59,8 @@ impl MetafileEngine for MetafileRsEngine {
         let mut renderer = SinkRenderer::new(sink, bounds.map(to_engine_rect));
 
         if is_emf(bytes) {
-            let result = metafile_emf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
+            let result =
+                metafile_emf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
             Ok(PlaybackOutcome {
                 info: MetafileInfo {
                     format: MetafileFormat::Emf,
@@ -74,7 +76,8 @@ impl MetafileEngine for MetafileRsEngine {
                 diagnostics: result.diagnostics.into_iter().map(map_diagnostic).collect(),
             })
         } else if is_wmf(bytes) {
-            let result = metafile_wmf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
+            let result =
+                metafile_wmf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
             Ok(PlaybackOutcome {
                 info: MetafileInfo {
                     format: MetafileFormat::Wmf,
@@ -152,11 +155,15 @@ fn to_engine_limits(limits: &MetafileLimits) -> mc::ResourceLimits {
 }
 
 fn map_error(error: mc::MetafileError) -> MetafileError {
-    let text = error.to_string();
-    if text.to_ascii_lowercase().contains("resource limit") {
-        MetafileError::Limit(text)
-    } else {
-        MetafileError::Invalid(text)
+    match &error {
+        mc::MetafileError::ResourceLimitExceeded { .. } => MetafileError::Limit(error.to_string()),
+        mc::MetafileError::UnsupportedCriticalFeature(_)
+        | mc::MetafileError::UnsupportedFormat
+        | mc::MetafileError::UnsupportedBitmap { .. } => {
+            MetafileError::Unsupported(error.to_string())
+        }
+        mc::MetafileError::FormatMismatch { .. } => MetafileError::Unsupported(error.to_string()),
+        _ => MetafileError::Invalid(error.to_string()),
     }
 }
 
@@ -172,33 +179,42 @@ fn map_diagnostic(diagnostic: mc::Diagnostic) -> MetafileDiagnostic {
     )
 }
 
+/// Maps an engine diagnostic code onto the §3.3 tag taxonomy.
+///
+/// Tags are deduplicated per element by the resolver, so one approximation of
+/// a kind is reported once per picture.
 fn tag_for(code: &str, message: &str) -> &'static str {
-    let haystack = format!("{code} {message}").to_ascii_lowercase();
-    if haystack.contains("rop") {
-        "metafile_rop"
-    } else if haystack.contains("combine")
-        || (haystack.contains("clip")
-            && (haystack.contains("union")
-                || haystack.contains("xor")
-                || haystack.contains("exclude")
-                || haystack.contains("complement")))
-    {
-        "metafile_clip_combine"
-    } else if haystack.contains("hatch") {
-        "metafile_hatch"
-    } else if haystack.contains("pattern") {
-        "metafile_pattern_brush"
-    } else if haystack.contains("texture") {
-        "metafile_texture_transform"
-    } else if haystack.contains("bitmap") || haystack.contains("dib") {
-        "metafile_bitmap"
-    } else if haystack.contains("emf+") || haystack.contains("emfplus") || haystack.contains("dual")
-    {
-        "metafile_emfplus_fallback"
-    } else if haystack.contains("font") {
-        "metafile_font"
-    } else {
-        "metafile_record_ignored"
+    match code {
+        "resource_limit" => "metafile_limit",
+        "unsupported_rop2" | "unsupported_bitmap_rop" | "bitmap_rop" => "metafile_rop",
+        "unsupported_clip_combine_mode" | "unsupported_exclude_clip" => "metafile_clip_combine",
+        "unsupported_pen_style" | "unsupported_extended_pen_style" => "metafile_pen_style",
+        "glyph_index_text" => "metafile_glyph_index_text",
+        "pdy_approximate" => "metafile_text_dx",
+        "emfplus_dual_getdc_fallback" | "emfplus_noncanonical_empty_only_fallback" => {
+            "metafile_emfplus_fallback"
+        }
+        "unsupported_bitmap"
+        | "unsupported_bitmap_record"
+        | "unsupported_dib"
+        | "unsupported_dib_color_usage"
+        | "unsupported_stretch_mode"
+        | "emfplus_image_attributes_sampling" => "metafile_bitmap_sampling",
+        "emfplus_fractional_image_crop_approximate" => "metafile_bitmap_sampling",
+        _ => {
+            let haystack = format!("{code} {message}").to_ascii_lowercase();
+            if haystack.contains("hatch") {
+                "metafile_hatch"
+            } else if haystack.contains("texture") || haystack.contains("pattern") {
+                "metafile_pattern_brush"
+            } else if haystack.contains("blit") || haystack.contains("mask") {
+                "metafile_blit"
+            } else if haystack.contains("font") || haystack.contains("face") {
+                "metafile_font_substituted"
+            } else {
+                "metafile_record_ignored"
+            }
+        }
     }
 }
 
@@ -233,4 +249,3 @@ pub(super) fn fill_rule(mode: u16) -> FillRule {
         FillRule::EvenOdd
     }
 }
-

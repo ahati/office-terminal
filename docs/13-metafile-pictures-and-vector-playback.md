@@ -599,6 +599,29 @@ Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`)
 | **M5 — WMF & EMZ/WMZ** | Placeable headers, window mapping, bounded gzip | WMF fixtures pass; bomb test degrades |
 | **M6 — Default-on hardening** | Warnings drawer, perf budgets, fuzz corpus, docs | PRD 13a §10 checklist complete; feature default on |
 
+### 12.1 Milestone status
+
+| Milestone | Status | Evidence / notes |
+| :--- | :--- | :--- |
+| M0 | ✅ done (`124a1e4`) | `tests/warning_plumbing_tests.rs` |
+| M1 | ✅ done (`5a3cd20`) | marker/bitmap contracts, raster + SVG, expansion wired |
+| M2 | ✅ done (`1ff178d`) | `metafile-rs` adapter; real EMF/EMF+/WMF fixtures |
+| M3 | ✅ done | `tests/metafile_milestone_tests.rs`: alignment (left/center), `dx` overrides, escapement rotation, decorations, `ETO_OPAQUE` background, size clamping, `FontSubstituted` for substituted faces |
+| M4 | ✅ done with engine limits | dual `GetDC` fallback diagnostic, hatch → preset pattern, texture → average solid (DEGRADED), gradient axis from the brush transform. `metafile-emfplus =1.0.1` rejects path/radial gradients and glyph-index text, so those records degrade to the placeholder/omitted run with the mapped tag instead of the FULL row in PRD 13a §2.2 |
+| M5 | ✅ done | placeable WMF + `META_EXTTEXTOUT`, `.emz`/`.wmz` bounded inflate (bomb degrades to `ResourceLimitHit`), mislabelled containers classified by content |
+| M6 | pending | golden corpus (AST/PNG), perf/fuzz jobs, `--metafile` override, feature flag default-on |
+
+**Engine-capability deltas (normative until the upstream fix lands):**
+
+- `metafile-core 1.0.1` exposes no radial/path gradient paint; `metafile-emfplus
+  1.0.1` reports those brushes as unsupported critical features, so the picture
+  falls back to the §3 placeholder with a `metafile_parse` warning.
+- Texture brushes have no inline-image paint in the display list; they are
+  approximated by the bitmap's alpha-weighted average colour and tagged
+  `metafile_pattern_brush` (DEGRADED).
+- `ETO_GLYPH_INDEX` text cannot be decoded by the engine (no source glyph map);
+  the record is skipped and tagged `metafile_glyph_index_text`.
+
 ---
 
 ## 13. Risks & Mitigations
