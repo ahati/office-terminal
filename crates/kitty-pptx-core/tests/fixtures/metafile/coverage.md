@@ -15,6 +15,7 @@ fixtures live beside this file and are listed in `README.md`.
 | Lines / polylines / polygons / paths | `windows-emf-paths.emf` | same | — | — | ⚠️ |
 | Rectangles / ellipses / arcs | `metafile_milestone_tests::placeable_wmf_plays_with_window_mapping` (rect) | command presence | — | — | ⚠️ |
 | Solid pens / brushes | `windows-emf-paths.emf` | command presence | — | — | ⚠️ |
+| Asymmetric start/end caps | `metafile_milestone_tests::asymmetric_pen_caps_keep_the_frame_stroke` | frame stroke emitted (patch 0004) | — | — | ⚠️ |
 | Dashed / styled pens | engine unit tests | adapter mapping | — | — | ⚠️ |
 | Hatched brushes | `metafile_milestone_tests::hatched_brush_keeps_ink_and_reports_degradation` | `metafile_hatch`, preset `horz` | — | — | ⚠️ |
 | Pattern brushes | `metafile_milestone_tests::hatched_brush_keeps_ink_and_reports_degradation` | `metafile_pattern_brush` | — | — | ⚠️ |
@@ -42,6 +43,7 @@ fixtures live beside this file and are listed in `README.md`.
 | Texture brushes | engine adapter | average colour + `metafile_pattern_brush` | — | — | ⚠️ |
 | Hatched brushes | `hatch` mapping | preset pattern + `metafile_hatch` | — | — | ⚠️ |
 | Text (DrawString) | `metafile_milestone_tests::emf_text_*` (classic path) | alignment, escapement | — | — | ⚠️ |
+| DrawString world/container transform | `metafile_milestone_tests::emfplus_text_anchor_follows_the_world_transform`, `emfplus_rotated_text_rotates_about_the_anchor` | anchor, rotation | — | — | ⚠️ |
 | Images | `windows-emf-bitmap.emf` | `DrawBitmap` | — | — | ⚠️ |
 | Clipping / regions | engine diagnostics | `metafile_clip_combine` | — | — | ⚠️ |
 | Timing / animation records | — | reported as ignored records | — | — | ⚠️ |

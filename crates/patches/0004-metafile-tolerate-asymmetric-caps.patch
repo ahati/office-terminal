@@ -1,0 +1,17 @@
+--- a/crates/metafile-emfplus/src/lib.rs
++++ b/crates/metafile-emfplus/src/lib.rs
+@@ -2328,10 +2328,10 @@ fn parse_pen(data: &[u8], limits: &ResourceLimits, record: Record<'_>) -> Result
+     }
+     let paint = parse_brush(&data[cursor..], limits, record)?;
+     if cap != end_cap {
+-        return Err(MetafileError::UnsupportedCriticalFeature(
+-            "different EMF+ start/end caps are not representable by the current stroke vocabulary"
+-                .into(),
+-        ));
++        // GDI+ permits distinct start and end caps; the renderer-neutral
++        // `Stroke` carries a single cap. Keeping the start cap preserves the
++        // pen (and every path that selects it) instead of degrading the whole
++        // stroke to an unsupported object. [kitty-pptx patch 0004]
+     }
+     Ok(Stroke {
+         paint,

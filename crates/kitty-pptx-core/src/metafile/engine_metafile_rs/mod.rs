@@ -209,8 +209,6 @@ fn tag_for(code: &str, message: &str) -> &'static str {
                 "metafile_pattern_brush"
             } else if haystack.contains("blit") || haystack.contains("mask") {
                 "metafile_blit"
-            } else if haystack.contains("font") || haystack.contains("face") {
-                "metafile_font_substituted"
             } else {
                 "metafile_record_ignored"
             }

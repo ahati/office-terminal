@@ -174,6 +174,131 @@ pub fn rectangle(rect: [i32; 4]) -> Vec<u8> {
     record(43, &i32s(&rect))
 }
 
+// ── EMF+ records ───────────────────────────────────────────────────────────
+
+const EMF_PLUS_MAGIC: u32 = 0xdbc0_1002;
+
+/// `EmfPlusObject` with an object id and type.
+pub fn emf_plus_object(id: u8, kind: u8, data: &[u8]) -> Vec<u8> {
+    emf_plus_record(
+        0x4008,
+        u16::from(id) | (u16::from(kind) << 8),
+        data,
+    )
+}
+
+/// EMF+ font object (type 6).
+pub fn emf_plus_font(id: u8, size: f32, unit: u32, style: u32, family: &str) -> Vec<u8> {
+    let mut data = Vec::new();
+    data.extend_from_slice(&EMF_PLUS_MAGIC.to_le_bytes());
+    data.extend_from_slice(&size.to_le_bytes());
+    data.extend_from_slice(&unit.to_le_bytes());
+    data.extend_from_slice(&style.to_le_bytes());
+    data.extend_from_slice(&0u32.to_le_bytes());
+    let units: Vec<u16> = family.encode_utf16().collect();
+    data.extend_from_slice(&(units.len() as u32).to_le_bytes());
+    for unit in units {
+        data.extend_from_slice(&unit.to_le_bytes());
+    }
+    while !data.len().is_multiple_of(4) {
+        data.push(0);
+    }
+    emf_plus_object(id, 6, &data)
+}
+
+/// EMF+ solid brush object (type 1).
+pub fn emf_plus_solid_brush(id: u8, color: u32) -> Vec<u8> {
+    let mut data = EMF_PLUS_MAGIC.to_le_bytes().to_vec();
+    data.extend_from_slice(&0u32.to_le_bytes());
+    data.extend_from_slice(&color.to_le_bytes());
+    emf_plus_object(id, 1, &data)
+}
+
+/// EMF+ pen object (type 2) with explicit start/end caps.
+pub fn emf_plus_pen(
+    id: u8,
+    color: u32,
+    width: f32,
+    start_cap: u32,
+    end_cap: u32,
+) -> Vec<u8> {
+    let mut data = EMF_PLUS_MAGIC.to_le_bytes().to_vec();
+    data.extend_from_slice(&0u32.to_le_bytes());
+    let flags: u32 = if start_cap == end_cap { 0 } else { 0x6 };
+    data.extend_from_slice(&flags.to_le_bytes());
+    data.extend_from_slice(&2u32.to_le_bytes()); // UnitPixel
+    data.extend_from_slice(&width.to_le_bytes());
+    if flags != 0 {
+        data.extend_from_slice(&start_cap.to_le_bytes());
+        data.extend_from_slice(&end_cap.to_le_bytes());
+    }
+    data.extend_from_slice(&EMF_PLUS_MAGIC.to_le_bytes());
+    data.extend_from_slice(&0u32.to_le_bytes());
+    data.extend_from_slice(&color.to_le_bytes());
+    emf_plus_object(id, 2, &data)
+}
+
+/// EMF+ path object (type 3) from compressed points.
+pub fn emf_plus_path(id: u8, points: &[(i16, i16)], closed: bool) -> Vec<u8> {
+    let mut data = EMF_PLUS_MAGIC.to_le_bytes().to_vec();
+    data.extend_from_slice(&(points.len() as u32).to_le_bytes());
+    data.extend_from_slice(&0x4000u32.to_le_bytes()); // compressed points
+    for (x, y) in points {
+        data.extend_from_slice(&x.to_le_bytes());
+        data.extend_from_slice(&y.to_le_bytes());
+    }
+    data.push(if closed { 0x80 } else { 0 });
+    data.resize(data.len() + points.len().saturating_sub(1), 1);
+    while !data.len().is_multiple_of(4) {
+        data.push(0);
+    }
+    emf_plus_object(id, 3, &data)
+}
+
+/// `EmfPlusDrawString`; `format_id == u32::MAX` selects left/top defaults.
+pub fn emf_plus_draw_string(
+    font_id: u8,
+    brush_id: u8,
+    format_id: u32,
+    text: &str,
+    rect: [f32; 4],
+) -> Vec<u8> {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let mut data = Vec::new();
+    data.extend_from_slice(&u32::from(brush_id).to_le_bytes());
+    data.extend_from_slice(&format_id.to_le_bytes());
+    data.extend_from_slice(&(units.len() as u32).to_le_bytes());
+    for value in rect {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    for unit in units {
+        data.extend_from_slice(&unit.to_le_bytes());
+    }
+    while !data.len().is_multiple_of(4) {
+        data.push(0);
+    }
+    emf_plus_record(0x401c, u16::from(font_id), &data)
+}
+
+/// `EmfPlusDrawPath` selecting a path and pen object.
+pub fn emf_plus_draw_path(path_id: u8, pen_id: u8) -> Vec<u8> {
+    emf_plus_record(
+        0x4015,
+        u16::from(path_id),
+        &u32::from(pen_id).to_le_bytes(),
+    )
+}
+
+/// `EmfPlusSetWorldTransform` (m11, m12, m21, m22, dx, dy).
+pub fn emf_plus_world_transform(matrix: [f32; 6]) -> Vec<u8> {
+    emf_plus_record(0x402a, 0, &transform(matrix))
+}
+
+/// An EMF+ Only container around `records` inside a classic EMF wrapper.
+pub fn emf_plus_only_emf(records: &[Vec<u8>]) -> Vec<u8> {
+    emf(&[emf_plus_comment(false, records)])
+}
+
 // ── WMF ────────────────────────────────────────────────────────────────────
 
 const PLACEABLE_MAGIC: u32 = 0x9AC6_CDD7;

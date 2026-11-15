@@ -198,9 +198,12 @@ pub struct MetafileTextRun {
     pub background: Option<[u8; 4]>,
     /// Opaque background rectangle in output coordinates.
     pub background_rect: Option<RectF32>,
-    /// Rotation of the engine's local text coordinate system, clockwise in
-    /// screen coordinates (EMF+ `SetTransform` / page transform).
-    pub rotation_deg: f32,
+    /// Maps the run's local text coordinates into output coordinates.
+    ///
+    /// EMF+ `SetWorldTransform` / container transforms are expressed here:
+    /// `x`/`y` are page-transformed anchors, so the adapter must apply this
+    /// affine to the anchor and the glyph axes (PRD 13 §4.5).
+    pub transform: AffineTransform,
     /// `ETO_RTLREADING` / EMF+ string-format direction flag.
     pub right_to_left: bool,
 }
