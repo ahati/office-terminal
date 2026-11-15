@@ -1,8 +1,9 @@
-//! Target-aware pipeline entry tests for slide-sorter thumbnails.
+//! Target-aware pipeline entry tests.
 //!
-//! The sorter asks for card-sized rasters while the canvas keeps its own
-//! full-resolution target, so `entry_at`/`prefetch_thumbnails` must not leak
-//! one class of raster into the other.
+//! The sorter grid reuses the canvas raster (`entry_at(slide, canvas_target)`)
+//! and lets the terminal scale it into the card cells, so explicit-target
+//! lookups must be exact while `entry()` may fall back to another cached
+//! resolution (e.g. right after a resize) instead of leaving the canvas blank.
 
 use std::sync::Arc;
 use std::thread;
@@ -70,11 +71,19 @@ fn pipeline() -> DefaultRenderPipeline {
     )
 }
 
-const CARD: RenderTargetSpec = RenderTargetSpec {
+/// A small raster (as an export or a legacy card target would produce).
+const SMALL: RenderTargetSpec = RenderTargetSpec {
     width_px: 320,
     height_px: 180,
 };
 
+/// A mid-size raster, e.g. the canvas before a zoom-in.
+const MID: RenderTargetSpec = RenderTargetSpec {
+    width_px: 960,
+    height_px: 540,
+};
+
+/// The canvas target the sorter shares its bitmaps with.
 const CANVAS: RenderTargetSpec = RenderTargetSpec {
     width_px: 1920,
     height_px: 1080,
@@ -94,51 +103,56 @@ fn focus_on(slide: usize) -> PrefetchPlan {
 fn entry_at_renders_and_caches_the_requested_target() {
     let pipeline = pipeline();
 
-    match pipeline.entry_at(0, &CARD) {
+    match pipeline.entry_at(0, &CANVAS) {
         PipelineEntry::NotLoaded | PipelineEntry::Rendering => {}
         _ => panic!("nothing is cached for slide 0 yet"),
     }
 
-    let bitmap = pipeline.render_sync(0, &CARD).expect("card render");
-    assert_eq!((bitmap.width, bitmap.height), (320, 180));
+    let bitmap = pipeline.render_sync(0, &CANVAS).expect("canvas render");
+    assert_eq!((bitmap.width, bitmap.height), (1920, 1080));
 
-    match pipeline.entry_at(0, &CARD) {
+    match pipeline.entry_at(0, &CANVAS) {
         PipelineEntry::Ready { bitmap, .. } => {
-            assert_eq!((bitmap.width, bitmap.height), (320, 180));
+            assert_eq!((bitmap.width, bitmap.height), (1920, 1080));
         }
-        _ => panic!("entry_at must serve the card raster it just cached"),
+        _ => panic!("entry_at must serve the raster it just cached"),
     }
 }
 
 #[test]
-fn entry_at_never_falls_back_to_another_target() {
+fn entry_at_is_exact_target_only() {
     let pipeline = pipeline();
     pipeline.render_sync(0, &CANVAS).expect("canvas render");
 
-    // The canvas raster is cached, but a card must be rendered at its own size
-    // instead of silently shipping an 8 MB bitmap for a 320 px card.
-    match pipeline.entry_at(0, &CARD) {
+    // A sorter card asks for the canvas target; a mismatch must not silently
+    // hand back a differently-sized bitmap, because the terminal would scale
+    // it into the card as if it were the canvas frame.
+    match pipeline.entry_at(0, &SMALL) {
         PipelineEntry::NotLoaded | PipelineEntry::Rendering => {}
         other => panic!(
-            "entry_at must not reuse the canvas raster, got {}",
+            "entry_at must not reuse another target, got {}",
             entry_kind(&other)
         ),
     }
 }
 
 #[test]
-fn entry_ignores_card_sized_rasters() {
+fn entry_falls_back_to_the_largest_cached_resolution() {
     let pipeline = pipeline();
-    pipeline.render_sync(0, &CARD).expect("card render");
-    // Move the pipeline's main target to the canvas without rendering slide 0.
+    pipeline.render_sync(0, &SMALL).expect("small render");
+    pipeline.render_sync(0, &MID).expect("mid render");
+    // Move the canvas target without rendering slide 0 at it.
     pipeline.prefetch(&focus_on(1), &CANVAS);
 
     match pipeline.entry(0) {
-        PipelineEntry::NotLoaded | PipelineEntry::Rendering => {}
-        other => panic!(
-            "a card-sized raster must not be upscaled onto the canvas, got {}",
-            entry_kind(&other)
-        ),
+        PipelineEntry::Ready { bitmap, .. } => {
+            assert_eq!(
+                (bitmap.width, bitmap.height),
+                (960, 540),
+                "the sharpest cached raster backs the canvas, not an arbitrary one"
+            );
+        }
+        other => panic!("expected a fallback raster, got {}", entry_kind(&other)),
     }
 }
 
@@ -147,11 +161,7 @@ fn entry_still_accepts_a_larger_cached_raster() {
     let pipeline = pipeline();
     pipeline.render_sync(0, &CANVAS).expect("canvas render");
     // Zoom out: the canvas is now requested at half the cached resolution.
-    let half = RenderTargetSpec {
-        width_px: 960,
-        height_px: 540,
-    };
-    pipeline.prefetch(&focus_on(1), &half);
+    pipeline.prefetch(&focus_on(1), &MID);
 
     match pipeline.entry(0) {
         PipelineEntry::Ready { bitmap, .. } => {
@@ -166,25 +176,35 @@ fn entry_still_accepts_a_larger_cached_raster() {
 }
 
 #[test]
-fn prefetch_thumbnails_renders_at_the_card_target() {
+fn prefetch_warms_the_canvas_target_for_the_sorter() {
     let pipeline = pipeline();
-    pipeline.prefetch_thumbnails(&[0, 1], &CARD);
+    // The sorter prefetches its visible page at the canvas target.
+    pipeline.prefetch(
+        &PrefetchPlan {
+            center: 0,
+            behind: 0,
+            ahead: 2,
+            stage: false,
+        },
+        &CANVAS,
+    );
 
     let mut ready = false;
     for _ in 0..100 {
-        if matches!(pipeline.entry_at(0, &CARD), PipelineEntry::Ready { .. })
-            && matches!(pipeline.entry_at(1, &CARD), PipelineEntry::Ready { .. })
+        if matches!(pipeline.entry_at(0, &CANVAS), PipelineEntry::Ready { .. })
+            && matches!(pipeline.entry_at(1, &CANVAS), PipelineEntry::Ready { .. })
+            && matches!(pipeline.entry_at(2, &CANVAS), PipelineEntry::Ready { .. })
         {
             ready = true;
             break;
         }
         thread::sleep(Duration::from_millis(20));
     }
-    assert!(ready, "thumbnails become ready from the worker pool");
-    assert!(pipeline.cache().contains_raster(0, &CARD));
+    assert!(ready, "the visible page renders on the workers");
+    assert!(pipeline.cache().contains_raster(0, &CANVAS));
     assert!(
-        !pipeline.cache().contains_raster(0, &CANVAS),
-        "thumbnail prefetch must not render the canvas target"
+        !pipeline.cache().contains_raster(0, &SMALL),
+        "the sorter does not render a second, card-sized raster"
     );
 }
 

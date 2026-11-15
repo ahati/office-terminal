@@ -267,15 +267,14 @@ impl RenderPipeline for DefaultRenderPipeline {
             };
         }
 
-        // Also check whether a *larger* raster is cached for this slide index:
+        // Also check whether another resolution is cached for this slide index:
         // after a resize the previous target may still be the sharpest frame we
-        // have. Rasters below half the requested width are ignored so a
-        // card-sized sorter thumbnail is never upscaled onto the full canvas.
+        // have. Picking the largest keeps the canvas sharp instead of leaving a
+        // blank frame while the new target renders.
         if let Ok(rcache) = self.cache.raw_raster_cache().lock() {
-            let min_width = target.width_px / 2;
             if let Some((_, bmp)) = rcache
                 .iter()
-                .filter(|((idx, spec), _)| *idx == index && spec.width_px >= min_width)
+                .filter(|((idx, _), _)| *idx == index)
                 .max_by_key(|((_, spec), _)| spec.width_px)
             {
                 return PipelineEntry::Ready {
@@ -289,8 +288,9 @@ impl RenderPipeline for DefaultRenderPipeline {
     }
 
     fn entry_at(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
-        // Exact target only: falling back to another resolution would transmit
-        // a full-canvas bitmap for a card a few hundred pixels wide.
+        // Exact target only: the caller (the sorter grid) stages this bitmap as
+        // the canvas raster and lets the terminal scale it, so another
+        // resolution would silently change what the card shows.
         if let Some(bmp) = self.cache.get_raster(index, target) {
             return PipelineEntry::Ready {
                 bitmap: bmp,
@@ -299,30 +299,6 @@ impl RenderPipeline for DefaultRenderPipeline {
         }
 
         self.entry_after_cache_miss(index, target)
-    }
-
-    fn prefetch_thumbnails(&self, slides: &[usize], target: &RenderTargetSpec) {
-        if self.presentation.slides.is_empty() {
-            return;
-        }
-
-        // Deliberately does not touch `last_target` nor cancel the main-target
-        // window: a grid is opportunistic work next to the presented slide.
-        let mut prio = 9_000u32;
-        for &index in slides {
-            if index >= self.presentation.slides.len() {
-                continue;
-            }
-            if self.cache.contains_raster(index, target) {
-                continue;
-            }
-            // A latched failure would otherwise be re-queued every frame.
-            if self.workers.get_failed(index).is_some() || self.workers.is_in_flight(index) {
-                continue;
-            }
-            self.workers.schedule(index, prio, *target);
-            prio = prio.saturating_sub(10);
-        }
     }
 
     fn invalidate(&self, cause: InvalidateCause) {
