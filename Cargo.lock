@@ -846,6 +846,7 @@ dependencies = [
  "base64",
  "cosmic-text",
  "crossbeam-channel",
+ "flate2",
  "fontdb 0.16.2",
  "image",
  "metafile-core",

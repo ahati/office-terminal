@@ -291,8 +291,11 @@ pub(super) fn map_clip(region: &mc::ClipRegion) -> (Vec<VectorPath>, Option<&'st
             left,
             right,
         } => {
+            // Conservative bounds only: `Exclude`/`Complement` can never
+            // paint outside the left operand, and `Union`/`Xor` are bounded by
+            // the union (PRD 13 §4.7).
             let bounds = match operation {
-                mc::ClipOperation::Exclude => region_bounds(left),
+                mc::ClipOperation::Exclude | mc::ClipOperation::Complement => region_bounds(left),
                 _ => union_bounds(region_bounds(left), region_bounds(right)),
             };
             let paths = bounds
@@ -324,7 +327,7 @@ pub(super) fn region_bounds(region: &mc::ClipRegion) -> Option<RectF32> {
             left,
             right,
         } => match operation {
-            mc::ClipOperation::Exclude => region_bounds(left),
+            mc::ClipOperation::Exclude | mc::ClipOperation::Complement => region_bounds(left),
             _ => union_bounds(region_bounds(left), region_bounds(right)),
         },
     }

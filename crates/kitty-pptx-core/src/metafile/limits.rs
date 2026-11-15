@@ -3,7 +3,8 @@
 /// Bounds applied before any record is replayed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MetafileLimits {
-    /// Maximum compressed part size accepted for playback (32 MiB).
+    /// Maximum part size accepted for playback (32 MiB), applied to both the
+    /// compressed container and the inflated `.emz`/`.wmz` payload.
     pub max_input_bytes: usize,
     /// Maximum number of records replayed.
     pub max_records: usize,

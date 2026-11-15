@@ -9,9 +9,7 @@ use crate::loader::AssetStore;
 use super::diagnostics::dedup;
 use super::mapping::source_to_emu;
 use super::recorder::MetafileRecorder;
-use super::{
-    MetafileDiagnostic, MetafileEngine, MetafileError, MetafileInfo, MetafileLimits,
-};
+use super::{MetafileDiagnostic, MetafileEngine, MetafileError, MetafileInfo, MetafileLimits};
 
 /// One metafile's playback output, ready to be composed into a picture.
 #[derive(Clone, Debug, PartialEq)]
@@ -51,16 +49,20 @@ impl MetafileResolver {
         src_rect: &NormalizedRect,
         dest_rect: &RectF32,
     ) -> Result<Arc<CompiledMetafile>, MetafileError> {
-        let bytes = assets
+        let raw = assets
             .get_raw_bytes(rel_id)
             .map_err(|error| MetafileError::Asset(format!("{error:?}")))?;
-        if bytes.len() > limits.max_input_bytes {
+        if raw.len() > limits.max_input_bytes {
             return Err(MetafileError::Limit(format!(
                 "{} bytes exceeds {}",
-                bytes.len(),
+                raw.len(),
                 limits.max_input_bytes
             )));
         }
+        // `.emz`/`.wmz` are inflated with a hard output cap before playback
+        // (PRD 13 §8.2). The cache key uses the inflated bytes, so repeated
+        // pictures of one part always hit the same compiled commands.
+        let bytes = super::unpack::unpack(&raw, rel_id, limits)?;
 
         let bounds = engine
             .output_bounds(&bytes, limits)?
@@ -68,8 +70,7 @@ impl MetafileResolver {
             .ok_or_else(|| MetafileError::Invalid("metafile has no drawable bounds".into()))?;
         let unit_to_emu = source_to_emu(&bounds, src_rect, dest_rect)
             .ok_or_else(|| MetafileError::Invalid("degenerate crop or destination".into()))?;
-        let emu_per_unit =
-            ((unit_to_emu.sx.abs() + unit_to_emu.sy.abs()) * 0.5).max(1.0e-6);
+        let emu_per_unit = ((unit_to_emu.sx.abs() + unit_to_emu.sy.abs()) * 0.5).max(1.0e-6);
 
         let key = (rel_id.to_string(), content_hash(&bytes, &unit_to_emu));
         if let Some(hit) = self
@@ -103,8 +104,9 @@ impl MetafileResolver {
 
 /// FNV-1a over the part bytes plus the output→EMU mapping.
 ///
-/// M2 replaces this with `blake3` (PRD 13 §9.1); a 64-bit hash is enough for
-/// the in-process skeleton cache.
+/// The resolver runs on worker threads and the in-process cache only needs
+/// collision resistance against the deck in hand; `blake3` from PRD 13 §9.1
+/// remains a follow-up when a persisted cache lands.
 fn content_hash(bytes: &[u8], transform: &AffineTransform) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in bytes {
