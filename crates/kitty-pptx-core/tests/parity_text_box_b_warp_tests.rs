@@ -482,3 +482,56 @@ fn warp_accumulates_mixed_size_line_boxes() {
         (lines[2] - lines[1]) / PT
     );
 }
+
+struct NoAssets;
+
+impl kitty_pptx_core::AssetStore for NoAssets {
+    fn get(
+        &self,
+        rel_id: &str,
+        _hint: kitty_pptx_core::SizeHint,
+    ) -> Result<kitty_pptx_core::DecodedImage, kitty_pptx_core::AssetError> {
+        Err(kitty_pptx_core::AssetError::NotFound(rel_id.to_string()))
+    }
+
+    fn stats(&self) -> kitty_pptx_core::AssetStoreStats {
+        kitty_pptx_core::AssetStoreStats::default()
+    }
+}
+
+#[test]
+fn warped_svg_uses_per_glyph_outlines() {
+    use kitty_pptx_core::contracts::{SvgTextMode, VectorSlide};
+    use kitty_pptx_core::svg::SlideSvgSerializer;
+
+    let body = warp_body(
+        "textArchUp",
+        vec![text_run("Arch Up", 40.0)],
+        json!(null),
+        None,
+        None,
+    );
+    let (tx, _rx) = unbounded();
+    let commands = compile_text_body(
+        &body,
+        (620.0 * PT) as i64,
+        (150.0 * PT) as i64,
+        &AffineTransform::identity(),
+        None,
+        &tx,
+    );
+    let mut slide = VectorSlide::new((620.0 * PT) as i64, (150.0 * PT) as i64);
+    slide.commands = commands;
+    let serializer = kitty_pptx_core::DefaultSlideSvgSerializer::new();
+
+    for mode in [SvgTextMode::VectorGlyphs, SvgTextMode::SelectableText] {
+        let svg = serializer
+            .serialize_svg(&slide, &NoAssets, mode)
+            .expect("serialize warped svg");
+        assert!(svg.contains("<path"), "warped glyphs are outlined");
+        assert!(
+            !svg.contains("<text"),
+            "warped runs must not fall back to a flat text frame"
+        );
+    }
+}
