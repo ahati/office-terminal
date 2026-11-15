@@ -53,11 +53,11 @@ pub fn serialize_svg_image(
         }
         (png_bytes, "image/png".to_string())
     } else {
-        return String::new();
+        return serialize_svg_missing_picture(dest_rect, transform, opacity);
     };
 
     if bytes.is_empty() {
-        return String::new();
+        return serialize_svg_missing_picture(dest_rect, transform, opacity);
     }
 
     let b64 = BASE64_STANDARD.encode(&bytes);
@@ -368,11 +368,19 @@ pub fn serialize_svg_bitmap(
     )
 }
 
-/// Defensive fallback for an unexpanded `DrawMetafile` marker.
-pub fn serialize_svg_missing_metafile(
+/// Neutral placeholder for a picture whose asset is missing or undecodable.
+///
+/// Also used for an unexpanded `DrawMetafile` marker. A dashed frame keeps the
+/// failure visible; no `<image>` with an empty data URI is emitted.
+pub fn serialize_svg_missing_picture(
     dest_rect: &RectF32,
     transform: &AffineTransform,
+    opacity: f32,
 ) -> String {
+    let opacity = opacity.clamp(0.0, 1.0);
+    if opacity <= 0.0 {
+        return String::new();
+    }
     let local = AffineTransform {
         tx: dest_rect.x,
         ty: dest_rect.y,
@@ -381,8 +389,86 @@ pub fn serialize_svg_missing_metafile(
     let placed = transform.post_concat(&local);
     let transform_attr = format_transform_attr(&placed);
     format!(
-        r##"  <rect x="0" y="0" width="{:.1}" height="{:.1}" fill="#f2f2f2" fill-opacity="0.6" stroke="#969696" stroke-width="1.5" stroke-dasharray="4 3"{transform_attr}/>"##,
+        r##"  <rect x="0" y="0" width="{:.1}" height="{:.1}" fill="#f2f2f2" fill-opacity="{:.2}" stroke="#969696" stroke-opacity="{:.2}" stroke-width="1.5" stroke-dasharray="4 3"{transform_attr}/>"##,
         dest_rect.w.max(1.0),
-        dest_rect.h.max(1.0)
+        dest_rect.h.max(1.0),
+        0.6 * opacity,
+        opacity
     )
+}
+
+/// Backwards-compatible name for the metafile-marker fallback.
+pub fn serialize_svg_missing_metafile(
+    dest_rect: &RectF32,
+    transform: &AffineTransform,
+) -> String {
+    serialize_svg_missing_picture(dest_rect, transform, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::AssetError;
+    use crate::loader::{AssetStoreStats, DecodedImage};
+
+    struct MissingAsset;
+
+    impl AssetStore for MissingAsset {
+        fn get(&self, rel_id: &str, _: SizeHint) -> Result<DecodedImage, AssetError> {
+            Err(AssetError::NotFound(rel_id.to_string()))
+        }
+
+        fn stats(&self) -> AssetStoreStats {
+            AssetStoreStats::default()
+        }
+    }
+
+    #[test]
+    fn missing_picture_serializes_a_visible_placeholder() {
+        let svg = serialize_svg_image(
+            &MissingAsset,
+            "ppt/media/missing.png",
+            &NormalizedRect::default(),
+            &RectF32::new(10.0, 20.0, 30.0, 40.0),
+            1.0,
+            &AffineTransform::default(),
+            &[],
+        );
+        assert!(svg.contains("<rect "), "{svg}");
+        assert!(svg.contains("stroke-dasharray"), "{svg}");
+        assert!(!svg.contains("<image"), "no empty image URI: {svg}");
+    }
+}
+
+#[cfg(test)]
+mod opacity_tests {
+    use super::*;
+    use crate::error::AssetError;
+    use crate::loader::{AssetStoreStats, DecodedImage};
+
+    struct MissingAsset;
+
+    impl AssetStore for MissingAsset {
+        fn get(&self, rel_id: &str, _: SizeHint) -> Result<DecodedImage, AssetError> {
+            Err(AssetError::NotFound(rel_id.to_string()))
+        }
+
+        fn stats(&self) -> AssetStoreStats {
+            AssetStoreStats::default()
+        }
+    }
+
+    #[test]
+    fn fully_transparent_missing_picture_emits_nothing() {
+        let svg = serialize_svg_image(
+            &MissingAsset,
+            "ppt/media/missing.png",
+            &NormalizedRect::default(),
+            &RectF32::new(10.0, 20.0, 30.0, 40.0),
+            0.0,
+            &AffineTransform::default(),
+            &[],
+        );
+        assert!(svg.is_empty(), "an invisible picture must stay invisible: {svg}");
+    }
 }

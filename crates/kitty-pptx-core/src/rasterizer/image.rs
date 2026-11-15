@@ -52,10 +52,21 @@ pub fn render_image_with_hint(
 ) {
     let decoded = match assets.get(rel_id, hint) {
         Ok(img) => img,
-        Err(_) => return, // Asset missing, fail-soft
+        Err(_) => {
+            // A missing/corrupt picture must stay visible: a silent return
+            // leaves an unexplained hole in the slide. Paint the neutral
+            // frame used for unexpanded metafiles instead.
+            render_missing_picture(
+                pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y,
+            );
+            return;
+        }
     };
 
     if decoded.width == 0 || decoded.height == 0 {
+        render_missing_picture(
+            pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y,
+        );
         return;
     }
 
@@ -74,7 +85,12 @@ pub fn render_image_with_hint(
 
     let mut src_pixmap = match tiny_skia::Pixmap::new(crop_w, crop_h) {
         Some(p) => p,
-        None => return,
+        None => {
+            render_missing_picture(
+                pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y,
+            );
+            return;
+        }
     };
 
     // Extract cropped straight RGBA8 pixels
@@ -220,19 +236,23 @@ pub fn render_bitmap(
     pixmap.draw_pixmap(0, 0, src.as_ref(), &paint, transform, None);
 }
 
-/// Defensive fallback for an unexpanded `DrawMetafile` marker.
+/// Neutral placeholder for a picture whose asset is missing or undecodable.
 ///
-/// Expansion always replaces markers, so this only fires on a pipeline bug or
-/// when a caller hands a raw compiled scene to a backend. It paints a light box
-/// with a grey border instead of leaving an invisible hole.
-pub fn render_missing_metafile(
+/// Also used for an unexpanded `DrawMetafile` marker, which should never reach
+/// a backend. The box keeps the failure visible without inventing content.
+pub fn render_missing_picture(
     pixmap: &mut tiny_skia::Pixmap,
     dest_rect: &RectF32,
     transform: &AffineTransform,
+    opacity: f32,
     scale: f32,
     offset_x: f32,
     offset_y: f32,
 ) {
+    let opacity = opacity.clamp(0.0, 1.0);
+    if opacity <= 0.0 {
+        return;
+    }
     let local = AffineTransform {
         tx: dest_rect.x,
         ty: dest_rect.y,
@@ -261,7 +281,12 @@ pub fn render_missing_metafile(
     };
 
     let mut fill = tiny_skia::Paint::default();
-    fill.set_color(tiny_skia::Color::from_rgba8(242, 242, 242, 255));
+    fill.set_color(tiny_skia::Color::from_rgba8(
+        242,
+        242,
+        242,
+        (255.0 * opacity).round() as u8,
+    ));
     pixmap.fill_path(
         &path,
         &fill,
@@ -271,11 +296,154 @@ pub fn render_missing_metafile(
     );
 
     let mut stroke = tiny_skia::Paint::default();
-    stroke.set_color(tiny_skia::Color::from_rgba8(150, 150, 150, 255));
+    stroke.set_color(tiny_skia::Color::from_rgba8(
+        150,
+        150,
+        150,
+        (255.0 * opacity).round() as u8,
+    ));
     stroke.anti_alias = true;
     let stroke_style = tiny_skia::Stroke {
         width: 1.0,
         ..Default::default()
     };
     pixmap.stroke_path(&path, &stroke, &stroke_style, target, None);
+}
+
+/// Backwards-compatible name for the metafile-marker fallback.
+pub fn render_missing_metafile(
+    pixmap: &mut tiny_skia::Pixmap,
+    dest_rect: &RectF32,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) {
+    render_missing_picture(pixmap, dest_rect, transform, 1.0, scale, offset_x, offset_y);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::AssetError;
+    use crate::loader::AssetStoreStats;
+
+    struct MissingAsset;
+
+    impl AssetStore for MissingAsset {
+        fn get(&self, rel_id: &str, _: SizeHint) -> Result<crate::loader::DecodedImage, AssetError> {
+            Err(AssetError::NotFound(rel_id.to_string()))
+        }
+
+        fn stats(&self) -> AssetStoreStats {
+            AssetStoreStats::default()
+        }
+    }
+
+    struct CorruptAsset;
+
+    impl AssetStore for CorruptAsset {
+        fn get(&self, _: &str, _: SizeHint) -> Result<crate::loader::DecodedImage, AssetError> {
+            Err(AssetError::DecodeFailed("corrupt picture".to_string()))
+        }
+
+        fn stats(&self) -> AssetStoreStats {
+            AssetStoreStats::default()
+        }
+    }
+
+    fn render_with(store: &dyn AssetStore) -> tiny_skia::Pixmap {
+        let mut pixmap = tiny_skia::Pixmap::new(100, 80).expect("pixmap");
+        let dest = RectF32::new(10.0, 10.0, 40.0, 30.0);
+        render_image(
+            &mut pixmap,
+            store,
+            "ppt/media/missing.png",
+            &NormalizedRect::default(),
+            &dest,
+            1.0,
+            &AffineTransform::default(),
+            &[],
+            1.0,
+            0.0,
+            0.0,
+        );
+        pixmap
+    }
+
+    fn foreground_pixels(pixmap: &tiny_skia::Pixmap, inside: bool) -> usize {
+        let mut count = 0;
+        for y in 0..pixmap.height() {
+            for x in 0..pixmap.width() {
+                let in_box = (10..50).contains(&x) && (10..40).contains(&y);
+                if in_box != inside {
+                    continue;
+                }
+                if pixmap.pixel(x, y).is_some_and(|p| p.alpha() > 0) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// Pixels beyond the 1 px placeholder border.
+    fn far_foreground_pixels(pixmap: &tiny_skia::Pixmap) -> usize {
+        let mut count = 0;
+        for y in 0..pixmap.height() {
+            for x in 0..pixmap.width() {
+                if (9..51).contains(&x) && (9..41).contains(&y) {
+                    continue;
+                }
+                if pixmap.pixel(x, y).is_some_and(|p| p.alpha() > 0) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn missing_picture_paints_a_visible_placeholder() {
+        let pixmap = render_with(&MissingAsset);
+        assert!(
+            foreground_pixels(&pixmap, true) > 0,
+            "a missing picture must not leave an invisible hole"
+        );
+        assert_eq!(
+            far_foreground_pixels(&pixmap),
+            0,
+            "the placeholder must stay inside the destination box"
+        );
+    }
+
+    #[test]
+    fn fully_transparent_missing_picture_stays_invisible() {
+        let mut pixmap = tiny_skia::Pixmap::new(100, 80).expect("pixmap");
+        let dest = RectF32::new(10.0, 10.0, 40.0, 30.0);
+        render_image(
+            &mut pixmap,
+            &MissingAsset,
+            "ppt/media/missing.png",
+            &NormalizedRect::default(),
+            &dest,
+            0.0,
+            &AffineTransform::default(),
+            &[],
+            1.0,
+            0.0,
+            0.0,
+        );
+        assert!(pixmap.data().iter().all(|value| *value == 0));
+    }
+
+    #[test]
+    fn corrupt_picture_paints_a_visible_placeholder() {
+        let pixmap = render_with(&CorruptAsset);
+        assert!(
+            foreground_pixels(&pixmap, true) > 0,
+            "a corrupt picture must not leave an invisible hole"
+        );
+        assert_eq!(far_foreground_pixels(&pixmap), 0);
+    }
 }
