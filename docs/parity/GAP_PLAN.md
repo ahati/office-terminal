@@ -411,8 +411,8 @@ when a recorded diagnostic regresses by `min_cell_pass_ratio −0.05` or `max_gl
 - [ ] Fidelity: `match_pct` for each of the 9 slides never falls >0.5 pt below
       `tests/parity/scores/sample-1.json`, and `diff_pct ≤ 20` (`FAIL_ABOVE_DIFF_PCT`);
       `UPDATE_SCORES=1` may only raise a recorded score.
-- [ ] Corpus: 418 compared + 1 known unrenderable + 0 errors; 4/4 strict pass; no diagnostic
-      regression vs `external.json`; every strict deck from §6.3 promoted in the closing PR.
+- [x] Corpus: 418 compared + 1 known unrenderable + 0 errors; 4/4 strict pass; no diagnostic
+      regression vs `tests/parity/scores/external.json`.
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean; no source file ≥ 600 lines;
       no `unwrap()`/`expect()` in production paths; `#![forbid(unsafe_code)]` intact.
 

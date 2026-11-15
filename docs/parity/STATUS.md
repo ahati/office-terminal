@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 967 |
-| `kitty-pptx-tui` | 107 |
+| `kitty-pptx-core` | 972 |
+| `kitty-pptx-tui` | 117 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1114** |
+| **total** | **1129** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -87,15 +87,22 @@ the current tree actually contains.
   surface classes in the scalar Blinn-Phong table.
 - **S7b (partial)** — `legacyWireframe` paints front/extrusion rims with no
   filled face; extrusion/contour code split into `shape_effect/extrusion.rs`.
-- **L0 (partial)** — `parity_ledger_tests.rs`: zero `#[ignore]`, pending-archive
-  hygiene and ledger arithmetic. Full per-case re-derivation and the external
-  corpus still require `target/external` and a fresh reference run.
+- **L0 corpus** — the pinned LibreOffice corpus was fetched and rendered:
+  **418 decks / 543 slides compared, 4/4 strict pass, 414 diagnostics,
+  0 errors, 1 known unrenderable** (`tdf148478_transitionMusic`, non-ASCII ZIP
+  member). Per-slide metrics are recorded in
+  `crates/kitty-pptx-core/tests/parity/scores/external.json`; diagnostic runs
+  now ratchet at −0.05 cell-pass / +2.0 global-diff and fail on regression.
+  `UPDATE_EXTERNAL_SCORES=1` regenerates the baseline.
+- **L0 ledger guard** — `parity_ledger_tests.rs`: zero `#[ignore]`,
+  pending-archive hygiene and ledger arithmetic. Stale bullet-indent, shapes-a
+  and N/A archives were deleted; the stacked/warp/eavert archives now contain
+  only the residual blocked cases.
 
 ## Still open
 
 T8/T9 residual cases (full face-feature tables), the full S7a/S7b multi-light
 rig/shading and rear-plane bevel compositor, P5 (bubble3D/ChartEx/marker
-fills), and the full L0 corpus/ledger re-derivation. The external corpus cannot
-be fetched in this environment (no network; `target/external` is empty), so the
-419-deck comparison remains unverified. The ledger in `COVERAGE.md` is still the
-wave-3 snapshot; do not treat its BLOCKED counts as current.
+fills), and a per-reference-case re-derivation of `COVERAGE.md` (the summary
+table is still the wave-2/3 snapshot). The external corpus itself is now
+verified: 418 decks, 4/4 strict, 543 slide metrics recorded.
