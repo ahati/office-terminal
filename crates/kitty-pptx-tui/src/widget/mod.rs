@@ -14,6 +14,10 @@ pub use layout::{
     DEFAULT_CELL_ASPECT_RATIO,
 };
 
+/// Shared sink for a slide-sorter grid: the fitted `CellRect` of every card
+/// drawn in the last frame, keyed by slide index.
+pub type RectListSink = Arc<Mutex<Vec<(usize, CellRect)>>>;
+
 /// A Ratatui widget that displays a slide within a given `Rect` while preserving aspect ratio.
 ///
 /// The widget only reserves the canvas and records its cell rectangle. The Kitty
@@ -25,6 +29,8 @@ pub struct SlideWidget {
     pub aspect_ratio: f32,
     pub cell_aspect_ratio: f32,
     pub direct_rect: Option<Arc<Mutex<Option<CellRect>>>>,
+    /// `(slide index, sink)` for thumbnail cards; records one rect per card.
+    pub rect_list: Option<(usize, RectListSink)>,
     pub letterbox_bg: Color,
 }
 
@@ -36,6 +42,7 @@ impl Default for SlideWidget {
             aspect_ratio: ASPECT_16_9,
             cell_aspect_ratio: DEFAULT_CELL_ASPECT_RATIO,
             direct_rect: None,
+            rect_list: None,
             letterbox_bg: Color::Black,
         }
     }
@@ -58,6 +65,17 @@ impl SlideWidget {
         }
     }
 
+    /// Builds a slide-sorter card.
+    ///
+    /// Thumbnail image ids are owned by the graphics syncer (it stages and
+    /// releases them per visible card), so the widget only records geometry.
+    pub fn thumbnail(slide_index: usize, sink: RectListSink) -> Self {
+        Self {
+            rect_list: Some((slide_index, sink)),
+            ..Default::default()
+        }
+    }
+
     pub fn with_aspect_ratio(mut self, aspect_ratio: f32) -> Self {
         self.aspect_ratio = aspect_ratio;
         self
@@ -70,6 +88,12 @@ impl SlideWidget {
 
     pub fn with_direct_sink(mut self, sink: Arc<Mutex<Option<CellRect>>>) -> Self {
         self.direct_rect = Some(sink);
+        self
+    }
+
+    /// Records this card's fitted rect into a shared grid sink.
+    pub fn with_rect_list_sink(mut self, slide_index: usize, sink: RectListSink) -> Self {
+        self.rect_list = Some((slide_index, sink));
         self
     }
 
@@ -100,7 +124,21 @@ impl Widget for &SlideWidget {
             }
         }
 
+        if let Some((slide_index, sink)) = &self.rect_list {
+            record_rect(sink, *slide_index, rect_to_cell_rect(fitted));
+        }
+
         emit_direct_canvas(buf, fitted, Color::Reset);
+    }
+}
+
+/// Records a grid card's rect, replacing any earlier entry for the same slide.
+fn record_rect(sink: &RectListSink, slide_index: usize, rect: CellRect) {
+    if let Ok(mut list) = sink.lock() {
+        match list.iter_mut().find(|(index, _)| *index == slide_index) {
+            Some(entry) => entry.1 = rect,
+            None => list.push((slide_index, rect)),
+        }
     }
 }
 

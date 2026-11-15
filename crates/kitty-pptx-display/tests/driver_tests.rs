@@ -26,7 +26,11 @@ fn test_kitty_driver_caps() {
     let caps = driver.caps();
     assert!(caps.alpha);
     assert!(caps.terminal_side_scaling);
-    assert_eq!(caps.resident_ids, 8);
+    assert_eq!(caps.resident_ids, RESIDENT_IMAGE_IDS);
+    assert!(
+        caps.resident_ids >= THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES - 1,
+        "resident pool must cover the thumbnail id range"
+    );
     assert_eq!(driver.placement_mode(), PlacementMode::Interactive);
 }
 
@@ -71,7 +75,7 @@ fn test_kitty_present_sequence_uses_direct_placement() {
 fn test_kitty_stage_and_sink() {
     let slide = create_test_slide(16, 16, [255, 0, 0, 255]);
     let driver = KittyDriver::new(PlacementMode::Interactive);
-    assert_eq!(driver.resident_capacity(), 8);
+    assert_eq!(driver.resident_capacity(), RESIDENT_IMAGE_IDS);
     assert!(driver.stage(ImageId(10), &slide).is_ok());
     assert!(driver.release(ImageId(10)).is_ok());
 }

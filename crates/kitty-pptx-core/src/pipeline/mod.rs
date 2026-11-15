@@ -114,7 +114,16 @@ impl DefaultRenderPipeline {
         if let Ok(mut t) = self.last_target.lock() {
             *t = *target;
         }
+        self.rasterize_now(index, target)
+    }
 
+    /// Compiles and rasterizes `index` for `target` without changing the
+    /// pipeline's notion of the main canvas target.
+    fn rasterize_now(
+        &self,
+        index: usize,
+        target: &RenderTargetSpec,
+    ) -> Result<RgbaSlide, RenderError> {
         if index >= self.presentation.slides.len() {
             return Err(RenderError::CompilationFailed(format!(
                 "slide index {} out of bounds (total slides: {})",
@@ -160,6 +169,33 @@ impl DefaultRenderPipeline {
         target: &RenderTargetSpec,
     ) -> Result<RgbaSlide, RenderError> {
         self.render_sync(index, target)
+    }
+
+    /// Shared tail of `entry`/`entry_at` once the target raster cache missed.
+    fn entry_after_cache_miss(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
+        // 1. Synchronous fallback if enabled
+        if self.sync_fallback.load(Ordering::Acquire) {
+            return match self.rasterize_now(index, target) {
+                Ok(bitmap) => PipelineEntry::Ready {
+                    bitmap,
+                    staged: false,
+                },
+                Err(error) => PipelineEntry::Failed { error },
+            };
+        }
+
+        // 2. Check for a latched background failure
+        if let Some(error) = self.workers.get_failed(index) {
+            return PipelineEntry::Failed { error };
+        }
+
+        // 3. Check if currently in-flight
+        if self.workers.is_in_flight(index) {
+            return PipelineEntry::Rendering;
+        }
+
+        // 4. Not yet loaded
+        PipelineEntry::NotLoaded
     }
 }
 
@@ -231,9 +267,17 @@ impl RenderPipeline for DefaultRenderPipeline {
             };
         }
 
-        // Also check if any resolution is cached for this slide index
+        // Also check whether a *larger* raster is cached for this slide index:
+        // after a resize the previous target may still be the sharpest frame we
+        // have. Rasters below half the requested width are ignored so a
+        // card-sized sorter thumbnail is never upscaled onto the full canvas.
         if let Ok(rcache) = self.cache.raw_raster_cache().lock() {
-            if let Some((_, bmp)) = rcache.iter().find(|((idx, _), _)| *idx == index) {
+            let min_width = target.width_px / 2;
+            if let Some((_, bmp)) = rcache
+                .iter()
+                .filter(|((idx, spec), _)| *idx == index && spec.width_px >= min_width)
+                .max_by_key(|((_, spec), _)| spec.width_px)
+            {
                 return PipelineEntry::Ready {
                     bitmap: bmp.clone(),
                     staged: false,
@@ -241,31 +285,44 @@ impl RenderPipeline for DefaultRenderPipeline {
             }
         }
 
-        // 2. Synchronous fallback if enabled
-        if self.sync_fallback.load(Ordering::Acquire) {
-            match self.render_sync(index, &target) {
-                Ok(bmp) => {
-                    return PipelineEntry::Ready {
-                        bitmap: bmp,
-                        staged: false,
-                    }
-                }
-                Err(error) => return PipelineEntry::Failed { error },
+        self.entry_after_cache_miss(index, &target)
+    }
+
+    fn entry_at(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
+        // Exact target only: falling back to another resolution would transmit
+        // a full-canvas bitmap for a card a few hundred pixels wide.
+        if let Some(bmp) = self.cache.get_raster(index, target) {
+            return PipelineEntry::Ready {
+                bitmap: bmp,
+                staged: false,
+            };
+        }
+
+        self.entry_after_cache_miss(index, target)
+    }
+
+    fn prefetch_thumbnails(&self, slides: &[usize], target: &RenderTargetSpec) {
+        if self.presentation.slides.is_empty() {
+            return;
+        }
+
+        // Deliberately does not touch `last_target` nor cancel the main-target
+        // window: a grid is opportunistic work next to the presented slide.
+        let mut prio = 9_000u32;
+        for &index in slides {
+            if index >= self.presentation.slides.len() {
+                continue;
             }
+            if self.cache.contains_raster(index, target) {
+                continue;
+            }
+            // A latched failure would otherwise be re-queued every frame.
+            if self.workers.get_failed(index).is_some() || self.workers.is_in_flight(index) {
+                continue;
+            }
+            self.workers.schedule(index, prio, *target);
+            prio = prio.saturating_sub(10);
         }
-
-        // 3. Check for previous background failure
-        if let Some(error) = self.workers.get_failed(index) {
-            return PipelineEntry::Failed { error };
-        }
-
-        // 4. Check if currently in-flight
-        if self.workers.is_in_flight(index) {
-            return PipelineEntry::Rendering;
-        }
-
-        // 5. Not yet loaded
-        PipelineEntry::NotLoaded
     }
 
     fn invalidate(&self, cause: InvalidateCause) {

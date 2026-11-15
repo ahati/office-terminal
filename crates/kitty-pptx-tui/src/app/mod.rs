@@ -8,6 +8,8 @@ pub mod media;
 pub mod mode;
 pub mod nav_state;
 pub mod search_state;
+#[cfg(test)]
+mod sorter_graphics_tests;
 pub mod sorter_state;
 pub mod state;
 mod state_timing;
@@ -139,16 +141,31 @@ impl PresentationApp {
 
     /// Process a keyboard event and perform necessary pipeline actions.
     pub fn handle_key(&mut self, key: KeyEvent) -> AppAction {
+        let leaving_sorter = self.state.base_mode() == AppMode::Sorter;
         let action = handle_key_event(key, &mut self.state);
+        self.prefetch_after_leaving_sorter(leaving_sorter);
         self.apply_action(&action);
         action
     }
 
     /// Process a mouse event and perform the resulting action.
     pub fn handle_mouse(&mut self, mouse: MouseEvent) -> AppAction {
+        let leaving_sorter = self.state.base_mode() == AppMode::Sorter;
         let action = handle_mouse_event(mouse, &mut self.state);
+        self.prefetch_after_leaving_sorter(leaving_sorter);
         self.apply_action(&action);
         action
+    }
+
+    /// Queues a full-canvas render when the sorter hands the screen back.
+    ///
+    /// Leaving the grid does not always produce a `SlideChanged` action (Esc
+    /// returns `Redraw`), yet the full-screen slide must be re-rendered at the
+    /// main target before it can be staged again.
+    fn prefetch_after_leaving_sorter(&mut self, was_sorter: bool) {
+        if was_sorter && self.state.base_mode() != AppMode::Sorter {
+            self.trigger_prefetch();
+        }
     }
 
     fn apply_action(&mut self, action: &AppAction) {
@@ -221,7 +238,7 @@ impl PresentationApp {
         let (cols, rows) = self.state.layout_size();
         self.recompute_target(cols, rows);
         self.pipeline.invalidate(InvalidateCause::TargetChanged);
-        self.graphics.reset();
+        self.restage_graphics();
         self.trigger_prefetch();
     }
 
@@ -252,8 +269,18 @@ impl PresentationApp {
         self.state.update_layout_dimensions(cols, rows);
         self.pipeline.invalidate(InvalidateCause::Resize);
         // Re-stage at the new target resolution and re-place at the new rect.
-        self.graphics.reset();
+        self.restage_graphics();
         self.trigger_prefetch();
+    }
+
+    /// Drops every placement before re-staging on a new target.
+    ///
+    /// Forgetting the bookkeeping alone is not enough: sorter thumbnails are
+    /// re-allocated from a free-list, so a card that moves to a lower image id
+    /// would otherwise leave its old placement behind at the previous geometry.
+    fn restage_graphics(&mut self) {
+        let _ = self.driver.release_all();
+        self.graphics.reset();
     }
 
     /// Stages and places terminal graphics for the frame that was just drawn.
@@ -261,8 +288,11 @@ impl PresentationApp {
     /// Safe to call every frame: the syncer only talks to the driver when the
     /// slide, its rect, or the blank state actually changed.
     pub fn sync_graphics(&mut self) -> Result<(), kitty_pptx_core::DisplayError> {
-        self.graphics
-            .sync(&mut self.state, self.pipeline.as_ref(), self.driver.as_mut())
+        self.graphics.sync(
+            &mut self.state,
+            self.pipeline.as_ref(),
+            self.driver.as_mut(),
+        )
     }
 
     /// Runs the interactive presentation event loop.

@@ -78,10 +78,19 @@ Idle Time (Pipeline Worker)                 Flip Time (UI Keypress)
    └─ Decoded into GPU memory                  └─ Flip latency < 16 ms (O(1))
 ```
 
-### 5.1 The 8-Slot Image ID Pool
-The driver maintains a pool of 8 numeric IDs (`1..=8`) for current-slide images. Presenter previews use a separate `9..=16` range so releasing a preview cannot delete the current slide's image.
+### 5.1 The Partitioned Image ID Pool
+The driver partitions the terminal's image namespace into disjoint ranges so that releasing one class of images can never delete another ([`driver.rs`](../crates/kitty-pptx-display/src/driver.rs)):
+
+| Range | Class | Slots | Notes |
+| :--- | :--- | :--- | :--- |
+| `1..=8` (`CURRENT_IMAGE_ID_BASE`) | Full-screen current slide | 8 | Rotates with `slide_index % 8`. |
+| `9..=16` (`PREVIEW_IMAGE_ID_BASE`) | Presenter next-slide preview | 8 | Separate range so releasing a preview cannot delete the incoming slide. |
+| `17..=48` (`THUMBNAIL_IMAGE_ID_BASE`) | Slide-sorter thumbnail cards | 32 (`MAX_THUMBNAIL_IMAGES`) | Allocated from a free-list, stable while a card stays visible. |
+
 - **Idempotent Replacement**: Staging a new frame with an existing active `id` atomically overwrites the slot in terminal memory without screen flicker.
-- Maximum terminal memory residency is bounded to 8 slides ($\approx 12\text{ MB}$ GPU VRAM).
+- **Resident capacity**: `DriverCaps::resident_ids` and `StageSink::resident_capacity()` report `RESIDENT_IMAGE_IDS` (48), covering all three ranges.
+- **Memory bound**: thumbnails are rendered at a card-sized target (160–640 px wide), so a decoded card is $\le 0.9\text{ MB}$ and a full 32-card grid stays under $\approx 7\text{ MB}$.
+- **Sorter lifecycle**: only visible cards are staged (at most 4 new transmissions per frame, to keep the event loop responsive); cards that scroll out of view are released immediately, and leaving the sorter releases every thumbnail.
 
 ### 5.2 Driver Operations
 
