@@ -15,6 +15,7 @@
 pub mod cache;
 pub mod classify;
 pub mod diagnostics;
+pub mod effects;
 #[cfg(feature = "metafile")]
 pub mod engine_metafile_rs;
 pub mod expand;

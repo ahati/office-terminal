@@ -46,14 +46,15 @@ pub fn expand_metafiles(
     let mut expanded_commands = Vec::with_capacity(scene.commands.len());
 
     for command in std::mem::take(&mut scene.commands) {
-        let (rel_id, transform, src_rect, dest_rect, opacity) = match command {
+        let (rel_id, transform, src_rect, dest_rect, opacity, effects) = match command {
             VectorCommand::DrawMetafile {
                 rel_id,
                 transform,
                 src_rect,
                 dest_rect,
                 opacity,
-            } => (rel_id, transform, src_rect, dest_rect, opacity),
+                effects,
+            } => (rel_id, transform, src_rect, dest_rect, opacity, effects),
             other => {
                 expanded_commands.push(other);
                 continue;
@@ -78,14 +79,16 @@ pub fn expand_metafiles(
         match resolver.resolve(&rel_id, assets, engine, &limits, &src_rect, &dest_rect) {
             Ok(compiled) if !compiled.commands.is_empty() => {
                 for command in &compiled.commands {
-                    expanded_commands.push(mapping::transform_command(command, &transform));
+                    let mut transformed = mapping::transform_command(command, &transform);
+                    super::effects::apply_metafile_effects(&mut transformed, &effects, opacity);
+                    expanded_commands.push(transformed);
                 }
                 let element_id = element_id(&rel_id);
                 for diagnostic in dedup(compiled.diagnostics.clone()) {
                     let _ = warnings.send(warning_for(element_id.clone(), &diagnostic));
                     summary.warnings += 1;
                 }
-                if opacity < 1.0 {
+                if opacity < 1.0 && super::effects::is_opacity_unrepresentable(&compiled.commands) {
                     let _ = warnings.send(WarningEvent::FidelityDegraded {
                         element_id,
                         feature: "metafile_opacity",

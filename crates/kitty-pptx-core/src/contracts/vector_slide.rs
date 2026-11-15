@@ -165,6 +165,7 @@ pub enum VectorCommand {
         /// Visible destination box in picture-local EMU.
         dest_rect: RectF32,
         opacity: f32,
+        effects: Vec<BlipEffect>,
     },
     /// Bitmap embedded in another container (e.g. an EMF record stream).
     /// Carried inline as PNG so the display list stays self-contained across
