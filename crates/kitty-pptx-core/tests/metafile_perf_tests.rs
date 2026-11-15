@@ -153,9 +153,13 @@ fn large_streams_and_repeated_pictures_stay_bounded() {
         eprintln!("skipped: release-only metafile budget");
         return;
     }
-    // ~8 MiB of geometry: the large-metafile class from PRD 13a §8.
-    let bytes = support::emf(&[support::polyline(&points(1_000_000))]);
-    assert!(bytes.len() > 8_000_000, "expected a multi-MiB stream");
+    // >10 MiB total: 1M points (~8 MiB) plus an ignored GDI comment.
+    let padding = vec![0u8; 3_000_000];
+    let bytes = support::emf(&[
+        support::polyline(&points(1_000_000)),
+        support::emf_comment(&padding),
+    ]);
+    assert!(bytes.len() > 10 * 1024 * 1024, "expected a >10 MiB stream");
     let store = support::FixtureStore::new("ppt/media/image1.emf", bytes.clone());
 
     metafile::clear_global_cache();
@@ -216,6 +220,36 @@ fn dc_depth_limit_is_bounded() {
     let mut over = Vec::new();
     for id in 0..65u32 {
         over.push(support::emf_plus_save(id));
+    }
+    let mut recorder = MetafileRecorder::new(AffineTransform::identity(), 1.0);
+    let result = MetafileRsEngine.play(
+        &support::emf_plus_only_emf(&over),
+        &MetafileLimits::default(),
+        &mut recorder,
+    );
+    assert!(matches!(result, Err(MetafileError::Limit(_))), "{result:?}");
+}
+
+#[test]
+fn container_depth_limit_is_bounded() {
+    let mut within = Vec::new();
+    for id in 0..256u32 {
+        within.push(support::emf_plus_begin_container(id));
+    }
+    for id in (0..256u32).rev() {
+        within.push(support::emf_plus_end_container(id));
+    }
+    let mut recorder = MetafileRecorder::new(AffineTransform::identity(), 1.0);
+    let result = MetafileRsEngine.play(
+        &support::emf_plus_only_emf(&within),
+        &MetafileLimits::default(),
+        &mut recorder,
+    );
+    assert!(result.is_ok(), "256 nested containers must fit: {result:?}");
+
+    let mut over = Vec::new();
+    for id in 0..257u32 {
+        over.push(support::emf_plus_begin_container(id));
     }
     let mut recorder = MetafileRecorder::new(AffineTransform::identity(), 1.0);
     let result = MetafileRsEngine.play(

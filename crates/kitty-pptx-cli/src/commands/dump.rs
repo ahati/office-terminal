@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
-use kitty_pptx_core::{DefaultPresentationLoader, PresentationLoader};
+use kitty_pptx_core::metafile::expand_metafiles;
+use kitty_pptx_core::{
+    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, SlideCompiler,
+};
+use serde_json::Value;
+use crate::commands::dump_ast;
 use crate::commands::source_from_path;
 
 #[derive(serde::Serialize)]
@@ -9,6 +14,8 @@ struct DumpJsonEnvelope<'a> {
     schema_version: u32,
     warnings: Vec<String>,
     presentation: &'a pptx_model::Presentation,
+    /// Expanded vector scenes (no `DrawMetafile` markers survive).
+    vector_slides: Vec<Value>,
 }
 
 pub fn run_dump(
@@ -17,6 +24,7 @@ pub fn run_dump(
     comments: bool,
     markdown: bool,
     json: bool,
+    embed_bitmaps: bool,
     loader: &DefaultPresentationLoader,
 ) -> ExitCode {
     let source = source_from_path(file.clone());
@@ -111,10 +119,42 @@ pub fn run_dump(
     }
 
     if json {
+        let compiler = DefaultSlideCompiler::new();
+        let (compile_tx, compile_rx) = crossbeam_channel::unbounded();
+        let mut warnings = Vec::new();
+        let mut vector_slides = Vec::with_capacity(presentation.slides.len());
+        for (index, slide) in presentation.slides.iter().enumerate() {
+            let mut scene = match compiler.compile_in_deck(
+                slide,
+                &presentation.slides,
+                presentation.slide_width,
+                presentation.slide_height,
+                &compile_tx,
+            ) {
+                Ok(scene) => scene,
+                Err(error) => {
+                    warnings.push(format!("slide {}: {error}", index + 1));
+                    continue;
+                }
+            };
+            for warning in compile_rx.try_iter() {
+                warnings.push(format!("slide {}: {warning:?}", index + 1));
+            }
+            let (warning_tx, warning_rx) = crossbeam_channel::unbounded();
+            expand_metafiles(&mut scene, asset_store.as_ref(), &warning_tx);
+            for warning in warning_rx.try_iter() {
+                warnings.push(format!("slide {}: {warning:?}", index + 1));
+            }
+            vector_slides.push(serde_json::json!({
+                "slideNumber": index + 1,
+                "scene": dump_ast::slide_json(&scene, embed_bitmaps),
+            }));
+        }
         let envelope = DumpJsonEnvelope {
             schema_version: 1,
-            warnings: Vec::new(),
+            warnings,
             presentation: &presentation,
+            vector_slides,
         };
         match serde_json::to_string_pretty(&envelope) {
             Ok(json_str) => {

@@ -295,23 +295,23 @@ fn test_run_dump_all_variants() {
     let path = temp_file.path().to_path_buf();
 
     // 1. --notes
-    let code_notes = run_dump(path.clone(), true, false, false, false, &loader);
+    let code_notes = run_dump(path.clone(), true, false, false, false, false, &loader);
     assert_eq!(code_notes, ExitCode::SUCCESS);
 
     // 2. --comments
-    let code_comments = run_dump(path.clone(), false, true, false, false, &loader);
+    let code_comments = run_dump(path.clone(), false, true, false, false, false, &loader);
     assert_eq!(code_comments, ExitCode::SUCCESS);
 
     // 3. --markdown
-    let code_md = run_dump(path.clone(), false, false, true, false, &loader);
+    let code_md = run_dump(path.clone(), false, false, true, false, false, &loader);
     assert_eq!(code_md, ExitCode::SUCCESS);
 
     // 4. --json
-    let code_json = run_dump(path.clone(), false, false, false, true, &loader);
+    let code_json = run_dump(path.clone(), false, false, false, true, false, &loader);
     assert_eq!(code_json, ExitCode::SUCCESS);
 
     // 5. No flags passed: prints summary, exits 0
-    let code_none = run_dump(path, false, false, false, false, &loader);
+    let code_none = run_dump(path, false, false, false, false, false, &loader);
     assert_eq!(code_none, ExitCode::SUCCESS);
 }
 

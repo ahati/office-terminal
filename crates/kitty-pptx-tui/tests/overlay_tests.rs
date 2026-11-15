@@ -406,3 +406,30 @@ fn test_content_find_jumps_to_matching_slide() {
     assert_eq!(state.current_slide(), 1);
     assert_eq!(state.mode(), AppMode::Fullscreen);
 }
+
+#[test]
+fn metafile_warnings_render_in_the_drawer() {
+    let mut state = PresentationState::new(1, vec![]);
+    state.set_slides(vec![create_sample_slide(0, "EMF slide", None)]);
+    state.add_warning(WarningEvent::FidelityDegraded {
+        element_id: "picture/ppt/media/image1.emf".to_string(),
+        feature: "metafile_gradient",
+        class: FidelityClass::Degraded,
+    });
+    state.open_warnings();
+
+    let backend = TestBackend::new(160, 40);
+    let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+    terminal
+        .draw(|frame| render_app(&state, frame))
+        .expect("draw warnings drawer");
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("metafile_gradient"), "{text}");
+    assert!(text.contains("image1.emf"), "{text}");
+}

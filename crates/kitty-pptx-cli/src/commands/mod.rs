@@ -4,6 +4,7 @@ use kitty_pptx_core::Source;
 pub mod export;
 pub mod info;
 pub mod dump;
+pub mod dump_ast;
 pub mod view;
 pub mod present;
 pub mod completions;

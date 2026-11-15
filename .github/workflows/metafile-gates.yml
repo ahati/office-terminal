@@ -1,0 +1,46 @@
+name: metafile-gates
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  metafile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (zero warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Feature-off build
+        run: cargo check -p kitty-pptx-core --no-default-features --tests
+      - name: Metafile unit + fixture tests
+        run: |
+          cargo test -p kitty-pptx-core --lib metafile
+          cargo test -p kitty-pptx-core --test metafile_skeleton_tests
+          cargo test -p kitty-pptx-core --test metafile_milestone_tests
+          cargo test -p kitty-pptx-core --test metafile_mode_tests
+          cargo test -p kitty-pptx-core --test metafile_robustness_tests
+          cargo test -p kitty-pptx-core --test warning_plumbing_tests
+      - name: Metafile budgets (release)
+        run: cargo test --release -p kitty-pptx-core --test metafile_perf_tests
+      - name: Metafile peak allocation (release)
+        run: cargo test --release -p kitty-pptx-core --test metafile_rss_tests
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Seed corpus
+        run: |
+          mkdir -p fuzz/corpus/fuzz_metafile
+          cp crates/kitty-pptx-core/tests/fixtures/metafile/* fuzz/corpus/fuzz_metafile/ || true
+      - name: Fuzz smoke
+        run: cd fuzz && cargo fuzz run fuzz_metafile -- -runs=2000 -max_total_time=180
