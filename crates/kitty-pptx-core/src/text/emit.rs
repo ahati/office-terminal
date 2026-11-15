@@ -48,6 +48,8 @@ pub(super) struct StyleDef {
     pub(super) letter_spacing_emu: f32,
     /// `rPr/a:highlight` (ECMA-376 §21.1.2.3.4) marker colour, resolved.
     pub(super) highlight: Option<[u8; 4]>,
+    /// `rPr@lang` / authored East Asian language, used as kinsoku seam evidence.
+    pub(super) lang: Option<String>,
 }
 
 impl StyleDef {
@@ -196,6 +198,7 @@ pub fn compile_text_body_with_markers(
         baseline: None,
         letter_spacing_emu: 0.0,
         highlight: None,
+        lang: None,
     });
 
     // `a:bodyPr@vert` dispatch (renderer.ts:5021-5035). Stacked WordArt is a

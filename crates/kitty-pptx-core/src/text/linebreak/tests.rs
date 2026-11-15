@@ -215,3 +215,44 @@ fn terminal_spaces_do_not_open_a_tail_line() {
     assert_eq!(wrap(&["abc  "], 35.0), ["abc"]);
     assert_eq!(wrap(&["abc", "  "], 35.0), ["abc"]);
 }
+
+/// The same advance model with host evidence that the two runs are one East
+/// Asian search container (T5).
+struct KinsokuLen10;
+impl TextMeasure for KinsokuLen10 {
+    fn advance(&self, text: &str, _: StyleId) -> f32 {
+        text.chars().count() as f32 * 10.0
+    }
+    fn space(&self, _: StyleId) -> f32 {
+        10.0
+    }
+    fn kinsoku_across_runs(&self, _: StyleId, _: StyleId) -> bool {
+        true
+    }
+}
+static KINSOKU: KinsokuLen10 = KinsokuLen10;
+
+#[test]
+fn retracts_kinsoku_across_an_east_asian_run_seam() {
+    let items = [
+        BreakItem::Text {
+            text: "漢漢".to_string(),
+            style: S,
+        },
+        BreakItem::Text {
+            text: "、漢".to_string(),
+            style: S,
+        },
+    ];
+    let options = BreakOptions {
+        max_width: 20.0,
+        first_line_indent: 0.0,
+        tab_stops: &[],
+        default_tab_size: 0.0,
+        east_asian_line_break: true,
+        measurer: &KINSOKU,
+    };
+    let lines = break_paragraph(&items, &options);
+    let texts: Vec<String> = lines.iter().map(line_text).collect();
+    assert_eq!(texts, ["漢", "漢、", "漢"]);
+}
