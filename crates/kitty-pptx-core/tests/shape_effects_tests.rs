@@ -465,3 +465,21 @@ fn legacy_wireframe_paints_rims_not_a_filled_face() {
     // The silhouette rim is painted.
     assert_ne!(px(10, 30), [255, 255, 255, 255], "front rim is stroked");
 }
+
+#[test]
+fn every_preset_material_has_a_surface_class() {
+    use kitty_pptx_core::scene3d::Material;
+    let names = [
+        "legacyMatte", "legacyPlastic", "legacyMetal", "legacyWireframe", "matte",
+        "plastic", "metal", "warmMatte", "translucentPowder", "powder", "dkEdge",
+        "softEdge", "clear", "flat", "softmetal",
+    ];
+    for name in names {
+        let material = Material::from_preset(name);
+        assert!(
+            material.diffuse > 0.0 || material.specular > 0.0 || name == "legacyWireframe",
+            "{name} keeps a surface"
+        );
+    }
+    assert!(Material::from_preset("metal").specular > Material::from_preset("matte").specular);
+}
