@@ -208,6 +208,7 @@ pub(super) fn compile_text_body_warped(
                 glyphs,
                 decorations: Default::default(),
                 warp: None,
+                reflection: None,
             });
             cur_line_w += shaped.width;
         }
@@ -276,6 +277,10 @@ pub(super) fn compile_text_body_warped(
                             data.strike_double,
                         ),
                         warp: None,
+                        reflection: data
+                            .reflection
+                            .as_ref()
+                            .map(crate::compiler::shape_effects::reflection),
                     });
                     cur_line_w += shaped.width;
                 }

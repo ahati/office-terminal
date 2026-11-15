@@ -18,7 +18,7 @@ use crate::rasterizer::mask::pixmap_from_premultiplied;
 use super::filters;
 
 /// `(x, y, w, h)` box in the coordinate space of the target canvas.
-type Bbox = (f32, f32, f32, f32);
+pub(crate) type Bbox = (f32, f32, f32, f32);
 
 /// Alpha at band offset `t` — `0` at the shape's bottom edge, `1` at its top.
 ///
@@ -27,7 +27,7 @@ type Bbox = (f32, f32, f32, f32);
 /// holds beyond. The reference skips the `endPos` stop when `endPos >= 1` or
 /// `endPos <= stPos` (canvas stops must be non-decreasing), which leaves the
 /// ramp spanning the rest of the band — mirrored here.
-fn band_alpha(t: f32, r: &VectorReflection) -> f32 {
+pub(crate) fn band_alpha(t: f32, r: &VectorReflection) -> f32 {
     let st_a = r.start_opacity.clamp(0.0, 1.0);
     let end_a = r.end_opacity.clamp(0.0, 1.0);
     let st_pos = r.start_pos.clamp(0.0, 1.0);
@@ -48,7 +48,7 @@ fn band_alpha(t: f32, r: &VectorReflection) -> f32 {
 
 /// `algn` pivot (`ST_RectAlignment`), defaulting to the bottom centre.
 /// ref effects.ts:98-110 `shadowAlignmentPoint`.
-fn align_point(bbox: Bbox, align: &str) -> (f32, f32) {
+pub(crate) fn align_point(bbox: Bbox, align: &str) -> (f32, f32) {
     let (x, y, w, h) = bbox;
     let ax = match align {
         "tl" | "l" | "bl" => x,
@@ -66,7 +66,7 @@ fn align_point(bbox: Bbox, align: &str) -> (f32, f32) {
 /// Authored `sx`/`sy` as a positive magnitude (the reference passes the sign
 /// through `scale()`, and ECMA defaults `sy` to −100 %). Degenerate and
 /// non-finite values must not poison the blit matrix.
-fn scale_magnitude(v: f32) -> f32 {
+pub(crate) fn scale_magnitude(v: f32) -> f32 {
     if v.is_finite() {
         v.abs().clamp(1e-3, 64.0)
     } else {
@@ -79,7 +79,7 @@ fn scale_magnitude(v: f32) -> f32 {
 /// The mirrored copy is `R(θ)·diag(sx, -sy)` about the `algn` pivot, where
 /// `θ = dir - 90°` turns the default downward mirror onto `dir`, plus the
 /// `dist` offset along `dir`. ref effects.ts:626-639.
-fn mirror_matrix(r: &VectorReflection, bbox: Bbox, scale: f32) -> [f32; 6] {
+pub(crate) fn mirror_matrix(r: &VectorReflection, bbox: Bbox, scale: f32) -> [f32; 6] {
     let (ax, ay) = align_point(bbox, &r.align);
     let mx = scale_magnitude(r.scale_x);
     let my = scale_magnitude(r.scale_y);
@@ -109,7 +109,7 @@ fn mirror_matrix(r: &VectorReflection, bbox: Bbox, scale: f32) -> [f32; 6] {
 
 /// Pixels the mirrored copy reaches outside `bbox`, plus the blur margin.
 /// Used to size the scratch layer (ref effects.ts:4385-4400 `margin`).
-pub(super) fn padding(r: &VectorReflection, bbox: Bbox, scale: f32, sigma: f32) -> Bbox {
+pub(crate) fn padding(r: &VectorReflection, bbox: Bbox, scale: f32, sigma: f32) -> Bbox {
     let m = mirror_matrix(r, bbox, scale);
     let (x, y, w, h) = bbox;
     let mut lo = (f32::MAX, f32::MAX);

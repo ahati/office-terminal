@@ -242,7 +242,7 @@ fn emit_filter(index: usize, effects: &ShapeEffects, defs: &mut String) -> Optio
 /// `R(dir - 90°) · diag(sx, -sy)` about the `algn` pivot, pushed `dist` along
 /// `dir`. The contract has no skew terms (OOXML `kx`/`ky` are dropped at parse
 /// time), so every combination is expressible and no vertical fallback exists.
-struct MirrorGeometry {
+pub(crate) struct MirrorGeometry {
     pivot: (f32, f32),
     rotate_deg: f32,
     scale_x: f32,
@@ -250,7 +250,7 @@ struct MirrorGeometry {
     offset: (f32, f32),
 }
 
-fn mirror_geometry(
+pub(crate) fn mirror_geometry(
     reflection: &VectorReflection,
     bounds: (f32, f32, f32, f32),
 ) -> MirrorGeometry {
@@ -298,7 +298,7 @@ fn scale_magnitude(v: f32) -> f32 {
     }
 }
 
-fn mirror_transform_attr(m: &MirrorGeometry) -> String {
+pub(crate) fn mirror_transform_attr(m: &MirrorGeometry) -> String {
     format!(
         r#"transform="translate({}, {}) rotate({}) scale({}, {}) translate({}, {})""#,
         fmt_num(m.pivot.0),
@@ -313,7 +313,7 @@ fn mirror_transform_attr(m: &MirrorGeometry) -> String {
 
 /// Filter region covering the mirrored copy, its `dist` shift, and the 3σ blur
 /// tail. `filterUnits="userSpaceOnUse"` keeps the numbers in slide EMU.
-fn reflection_region(
+pub(crate) fn reflection_region(
     reflection: &VectorReflection,
     bounds: (f32, f32, f32, f32),
     m: &MirrorGeometry,
@@ -384,7 +384,7 @@ fn ramp_table_values(r: &VectorReflection) -> String {
     out
 }
 
-fn emit_reflection_defs(
+pub(crate) fn emit_reflection_defs(
     index: usize,
     mask_id: &str,
     grad_id: &str,

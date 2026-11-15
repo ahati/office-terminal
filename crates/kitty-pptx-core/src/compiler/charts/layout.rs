@@ -567,5 +567,6 @@ pub fn make_simple_run(
         glyphs,
         decorations: Default::default(),
         warp: None,
+        reflection: None,
     }
 }

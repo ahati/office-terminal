@@ -231,6 +231,18 @@ fn run_json(run: &PositionedGlyphRun) -> Value {
             .collect::<Vec<_>>(),
         "underline": run.decorations.underline.as_ref().map(decoration_json),
         "strike": run.decorations.strike.as_ref().map(decoration_json),
+        "reflection": run.reflection.as_ref().map(|r| json!({
+            "blurRadiusEmu": r.blur_radius_emu,
+            "startOpacity": r.start_opacity,
+            "startPos": r.start_pos,
+            "endOpacity": r.end_opacity,
+            "endPos": r.end_pos,
+            "distanceEmu": r.distance_emu,
+            "directionDeg": r.direction_deg,
+            "scaleX": r.scale_x,
+            "scaleY": r.scale_y,
+            "align": r.align,
+        })),
     })
 }
 

@@ -60,7 +60,7 @@ fn glow(glow: &ooxml_common::effect::Glow) -> VectorGlow {
     }
 }
 
-fn reflection(reflection: &ooxml_common::effect::Reflection) -> VectorReflection {
+pub(crate) fn reflection(reflection: &ooxml_common::effect::Reflection) -> VectorReflection {
     VectorReflection {
         blur_radius_emu: reflection.blur,
         start_opacity: reflection.st_a as f32,

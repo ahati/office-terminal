@@ -524,5 +524,6 @@ fn emit_run_at(
         glyphs,
         decorations: super::run_decorations::resolve(def),
         warp: None,
+        reflection: def.reflection.clone(),
     });
 }

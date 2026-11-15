@@ -254,6 +254,7 @@ fn text_command(
             glyphs,
             decorations: Default::default(),
             warp: None,
+            reflection: None,
         }],
         transform: identity(),
     }
