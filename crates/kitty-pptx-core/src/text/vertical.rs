@@ -129,7 +129,9 @@ pub enum Orient {
 /// the FE31/FE32 vertical form draws the substituted glyph upright instead
 /// ([`vertical_form`]).
 fn rotates_with_the_frame(cp: u32) -> bool {
-    matches!(cp, 0x30fc | 0x301c | 0xff5e)
+    // The Tr fallback set whose FE13/FE14 forms were dropped: long marks,
+    // wave dashes and the fullwidth colon. The semicolon stays upright.
+    matches!(cp, 0x30fc | 0x301c | 0xff5e | 0xff1a)
 }
 
 /// The U+FE10–FE19 / U+FE30–FE4F vertical presentation forms are by definition

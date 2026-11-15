@@ -12,7 +12,6 @@
 // into the compiled test file as soon as the named API lands.
 //
 // Missing API per blocked case:
-//   fullwidth_colon_rotates_with_the_page                      blocked: orientation() classifies the fullwidth colon U+FF1A as Upright; the reference rotates it (Tr fallback)
 //   colon_is_not_reflected                                     N/A: no per-glyph scale-y / reflection in the eaVert model; only the rotation class exists
 //   helper_uses_the_vert_feature_for_long_marks_only           blocked: no "vert " font-feature model in ea_vert_pieces (capability is glyph presence, not the feature)
 //   helper_keeps_uncovered_glyphs_on_the_plain_fallback        blocked: no "vert " font-feature model; ea_vert_pieces cannot distinguish feature coverage from glyph presence
@@ -27,13 +26,6 @@
 //   east_asian_slot_symbol_stack_resolves_per_cluster          blocked: TextRunData::font_family_ea is not consumed by text::emit
 
 // ============================================================================
-/// `:200` "ROTATES the vo=Tr colon `：`…": the draw class itself.
-#[test]
-#[ignore = "blocked: orientation() classifies the fullwidth colon U+FF1A as Upright; the reference rotates it (Tr fallback)"]
-fn fullwidth_colon_rotates_with_the_page() {
-    assert_eq!(pieces("：", all_forms), [("：".to_string(), false)]);
-}
-
 /// `:230` "does NOT reflect the vo=Tr colon `：`" — N/A: the reference's
 /// `scale(1, -1)` reflection has no counterpart here (nothing in
 /// `EaVertPiece`/`EaVertFrame` carries a scale, and the colon still rotates).
