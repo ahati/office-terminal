@@ -333,3 +333,8 @@ fn ascii_graphemes_stay_one_per_column() {
     assert_eq!(graphemes("AB"), ["A", "B"]);
     assert_eq!(VertMode::of("eaVert"), VertMode::EaVert);
 }
+
+#[test]
+fn fullwidth_colon_rotates_with_the_page() {
+    assert_eq!(pieces("：", all_forms), [("：".to_string(), false)]);
+}

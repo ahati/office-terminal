@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 965 |
+| `kitty-pptx-core` | 966 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1112** |
+| **total** | **1113** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -66,6 +66,8 @@ the current tree actually contains.
   selectable SVG keeps CSS decoration with the authored colour/style.
 - **T4 RTL tabs** — LTR/RTL multi-cell tab lines are verified end-to-end
   (mirrored stops, reversed visual order, start-tab gap, first-line indent).
+- **T8 eaVert colon** — U+FF1A joins the Tr fallback rotation set, so the
+  fullwidth colon rotates with the page while the semicolon stays upright.
 - **T5 kinsoku seams** — `TextMeasure::kinsoku_across_runs` carries host evidence;
   the real measurer enables retraction when both runs are East Asian by
   `rPr@lang` or face, while the default stays C08-safe.
