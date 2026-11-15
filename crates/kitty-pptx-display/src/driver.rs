@@ -8,6 +8,29 @@ pub use crate::geometry::*;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ImageId(pub u32);
 
+// ─── Resident image-id pool ────────────────────────────────────────────────
+// The interactive TUI partitions the terminal's image namespace into disjoint
+// ranges so that releasing one class of images can never delete another:
+// current slide `1..=8`, presenter preview `9..=16`, sorter thumbnails `17..`.
+
+/// First image id used by the full-screen current-slide slot.
+pub const CURRENT_IMAGE_ID_BASE: u32 = 1;
+/// Number of rotating image ids for the current slide.
+pub const CURRENT_IMAGE_ID_SLOTS: u32 = 8;
+/// First image id used by the presenter next-slide preview.
+pub const PREVIEW_IMAGE_ID_BASE: u32 = CURRENT_IMAGE_ID_BASE + CURRENT_IMAGE_ID_SLOTS;
+/// Number of rotating image ids for the presenter preview.
+pub const PREVIEW_IMAGE_ID_SLOTS: u32 = 8;
+/// First image id available to slide-sorter thumbnail cards.
+pub const THUMBNAIL_IMAGE_ID_BASE: u32 = PREVIEW_IMAGE_ID_BASE + PREVIEW_IMAGE_ID_SLOTS;
+/// Maximum number of sorter thumbnails that may be resident at the same time.
+///
+/// A decoded 320x180 thumbnail costs ~225 KB, so the whole grid stays under
+/// ~7 MB of terminal image memory.
+pub const MAX_THUMBNAIL_IMAGES: u32 = 32;
+/// Total number of resident image ids the interactive path can keep alive.
+pub const RESIDENT_IMAGE_IDS: u32 = THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES - 1;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CellRect {
     pub row: u16,
@@ -119,6 +142,7 @@ pub enum PlacementMode {
 pub struct DriverCaps {
     pub alpha: bool,
     pub terminal_side_scaling: bool,
+    /// How many [`ImageId`] slots the terminal can keep decoded at once.
     pub resident_ids: u32,
 }
 
