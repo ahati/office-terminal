@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 921 |
+| `kitty-pptx-core` | 949 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1068** |
+| **total** | **1096** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -59,6 +59,12 @@ the current tree actually contains.
   text-rotation/flip helper is landed, and stacked strikes/underlines plus the
   paragraph-mark strike gate are emitted as vector bars (one underline frame
   per column). Character and auto-number prefixes occupy cells.
+- **T10 warp residuals** — `warp_envelope_for_line` expands
+  single-edge arch/circle envelopes radially, clockwise presets anchor the
+  last line and `textArchDown` anchors the first; warp layout now applies
+  `a:lnSpc` (pts and pct), `spcBef`/`spcAft`, mixed-size line boxes and the
+  0.8 baseline fraction. 14 warp tests green; the SVG per-glyph affine and
+  measure-call-count cases remain.
 - **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
   fallback (`scene3d/bevel_profiles.rs`), replacing the four hand-written
   profiles.
@@ -71,7 +77,7 @@ the current tree actually contains.
 ## Still open
 
 T4 (RTL tab frame), T5 (kinsoku across run seams), T7 (glyph decorations),
-T8/T9 residual cases (full face-feature tables), T10 (warp residuals), the full S7a/S7b multi-light rig/shading and rear-plane
-bevel compositor, P5 (bubble3D/ChartEx/marker fills), and the
+T8/T9 residual cases (full face-feature tables), T10 residual SVG/measurement
+cases, the full S7a/S7b multi-light rig/shading and rear-plane bevel compositor, P5 (bubble3D/ChartEx/marker fills), and the
 full L0 corpus/ledger re-derivation. The ledger in `COVERAGE.md` is still the
 wave-3 snapshot; do not treat its BLOCKED counts as current.
