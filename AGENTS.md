@@ -163,6 +163,9 @@ cargo run -p kitty-pptx-cli -- view presentation.pptx
 cargo run -p kitty-pptx-cli -- export presentation.pptx --format svg -o out/
 ```
 
+- `external_libreoffice_renderer_comparison` is cache-gated, not `#[ignore]`: with `target/external/` populated it renders 418 decks / 543 slides on every `cargo test`.
+- After changing `COMPARE_WIDTH` or re-rendering references, refresh the width-tagged baseline with `UPDATE_EXTERNAL_SCORES=1 cargo test -p kitty-pptx-core --test external_fixture_tests -- --nocapture`.
+
 ### Git Commit Guidelines & User Approval
 - **Mandatory User Approval**: **Always request and receive explicit approval from the user before committing changes**, presenting the exact proposed commit message and changed files for review.
 - Use clear, conventional commit prefixes:
