@@ -1,4 +1,7 @@
-use kitty_pptx_display::{CellRect, ImageId};
+use kitty_pptx_display::{
+    CellRect, ImageId, CURRENT_IMAGE_ID_BASE, CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE,
+    PREVIEW_IMAGE_ID_SLOTS,
+};
 use pptx_model::{PptxComment, Slide};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -49,6 +52,8 @@ pub struct PresentationState {
     // Terminal graphics placement
     pub(crate) placement_rect: Arc<Mutex<Option<CellRect>>>,
     pub(crate) preview_placement_rect: Arc<Mutex<Option<CellRect>>>,
+    /// Fitted rects of every sorter card drawn in the last frame.
+    pub(crate) thumbnail_placement_rects: Arc<Mutex<Vec<(usize, CellRect)>>>,
 
     // Notification toast
     pub(crate) toast_message: Option<String>,
@@ -90,6 +95,7 @@ impl PresentationState {
             layout_rows: 24,
             placement_rect: Arc::new(Mutex::new(None)),
             preview_placement_rect: Arc::new(Mutex::new(None)),
+            thumbnail_placement_rects: Arc::new(Mutex::new(Vec::new())),
             toast_message: None,
             toast_time: None,
             render_failure: None,
@@ -106,6 +112,21 @@ impl PresentationState {
 
     pub fn mode(&self) -> AppMode {
         self.mode
+    }
+
+    /// The persistent view underneath any overlay modal.
+    ///
+    /// Both the renderer and the graphics syncer resolve the visible base view
+    /// through this method so thumbnails keep their images while a help modal
+    /// or drawer is open on top of the sorter.
+    pub fn base_mode(&self) -> AppMode {
+        if self.mode.is_base_mode() {
+            self.mode
+        } else if self.previous_mode.is_base_mode() {
+            self.previous_mode
+        } else {
+            AppMode::Fullscreen
+        }
     }
 
     pub fn blank_mode(&self) -> BlankMode {
@@ -355,7 +376,7 @@ impl PresentationState {
 
     /// ImageId for the current slide.
     pub fn current_image_id(&self) -> ImageId {
-        ImageId((self.current_slide % 8 + 1) as u32)
+        ImageId(CURRENT_IMAGE_ID_BASE + (self.current_slide as u32 % CURRENT_IMAGE_ID_SLOTS))
     }
 
     /// ImageId for the next slide preview.
@@ -364,7 +385,7 @@ impl PresentationState {
     /// preview cannot delete an image that has just become the current slide.
     pub fn next_image_id(&self) -> Option<ImageId> {
         self.next_slide_index()
-            .map(|idx| ImageId((idx % 8 + 1 + 8) as u32))
+            .map(|idx| ImageId(PREVIEW_IMAGE_ID_BASE + (idx as u32 % PREVIEW_IMAGE_ID_SLOTS)))
     }
 
     /// Return the previous app mode before entering overlay or modal.

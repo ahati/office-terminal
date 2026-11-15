@@ -96,13 +96,7 @@ pub fn render_app(state: &PresentationState, f: &mut Frame) {
     }
 
     // Determine the base view to render
-    let base_mode = if state.mode().is_base_mode() {
-        state.mode()
-    } else if state.previous_mode().is_base_mode() {
-        state.previous_mode()
-    } else {
-        AppMode::Fullscreen
-    };
+    let base_mode = state.base_mode();
 
     match base_mode {
         AppMode::Fullscreen => render_normal(state, f, area),
