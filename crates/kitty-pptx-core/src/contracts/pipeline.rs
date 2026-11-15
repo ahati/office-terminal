@@ -86,4 +86,11 @@ pub trait RenderPipeline: Send + Sync {
     }
 
     fn invalidate(&self, cause: InvalidateCause);
+
+    /// Drains warnings produced by compilation/expansion since the last call.
+    ///
+    /// Pipelines that do not surface diagnostics may keep the default no-op.
+    fn drain_warnings(&self) -> Vec<(usize, WarningEvent)> {
+        Vec::new()
+    }
 }

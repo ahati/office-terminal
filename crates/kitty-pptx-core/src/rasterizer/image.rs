@@ -1,6 +1,6 @@
 //! The `<p:pic>` blit path.
 
-use crate::contracts::{AffineTransform, NormalizedRect, RectF32};
+use crate::contracts::{AffineTransform, BitmapSampling, NormalizedRect, RectF32};
 use crate::loader::{AssetStore, SizeHint};
 
 #[allow(clippy::too_many_arguments)]
@@ -173,4 +173,109 @@ pub fn render_image_with_hint(
         ts_transform,
         None,
     );
+}
+
+/// Paints an inline PNG from `VectorCommand::DrawBitmap`.
+///
+/// `placement` maps the bitmap's `[0, 1]` square into element-local EMU; the
+/// target scale/offset of the current raster pass is applied on top.
+#[allow(clippy::too_many_arguments)]
+pub fn render_bitmap(
+    pixmap: &mut tiny_skia::Pixmap,
+    png: &[u8],
+    placement: &AffineTransform,
+    opacity: f32,
+    sampling: BitmapSampling,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) {
+    let Ok(src) = tiny_skia::Pixmap::decode_png(png) else {
+        return;
+    };
+    // `placement` maps the bitmap's [0, 1] square into element-local EMU, while
+    // `draw_pixmap` transforms source *pixel* coordinates. Fold the inverse
+    // source size into the matrix: pixel → unit → EMU → screen pixels.
+    let src_w = src.width() as f32;
+    let src_h = src.height() as f32;
+    if src_w <= 0.0 || src_h <= 0.0 {
+        return;
+    }
+    let transform = tiny_skia::Transform::from_row(
+        placement.sx * scale / src_w,
+        placement.ky * scale / src_w,
+        placement.kx * scale / src_h,
+        placement.sy * scale / src_h,
+        offset_x + placement.tx * scale,
+        offset_y + placement.ty * scale,
+    );
+    let paint = tiny_skia::PixmapPaint {
+        opacity: opacity.clamp(0.0, 1.0),
+        quality: match sampling {
+            BitmapSampling::Nearest => tiny_skia::FilterQuality::Nearest,
+            BitmapSampling::Linear => tiny_skia::FilterQuality::Bilinear,
+        },
+        ..Default::default()
+    };
+    pixmap.draw_pixmap(0, 0, src.as_ref(), &paint, transform, None);
+}
+
+/// Defensive fallback for an unexpanded `DrawMetafile` marker.
+///
+/// Expansion always replaces markers, so this only fires on a pipeline bug or
+/// when a caller hands a raw compiled scene to a backend. It paints a light box
+/// with a grey border instead of leaving an invisible hole.
+pub fn render_missing_metafile(
+    pixmap: &mut tiny_skia::Pixmap,
+    dest_rect: &RectF32,
+    transform: &AffineTransform,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+) {
+    let local = AffineTransform {
+        tx: dest_rect.x,
+        ty: dest_rect.y,
+        ..AffineTransform::default()
+    };
+    let m = transform.post_concat(&local);
+    let target = tiny_skia::Transform::from_row(
+        m.sx * scale,
+        m.ky * scale,
+        m.kx * scale,
+        m.sy * scale,
+        offset_x + m.tx * scale,
+        offset_y + m.ty * scale,
+    );
+
+    let w = dest_rect.w.max(1.0);
+    let h = dest_rect.h.max(1.0);
+    let mut builder = tiny_skia::PathBuilder::new();
+    builder.move_to(0.0, 0.0);
+    builder.line_to(w, 0.0);
+    builder.line_to(w, h);
+    builder.line_to(0.0, h);
+    builder.close();
+    let Some(path) = builder.finish() else {
+        return;
+    };
+
+    let mut fill = tiny_skia::Paint::default();
+    fill.set_color(tiny_skia::Color::from_rgba8(242, 242, 242, 255));
+    pixmap.fill_path(
+        &path,
+        &fill,
+        tiny_skia::FillRule::Winding,
+        target,
+        None,
+    );
+
+    let mut stroke = tiny_skia::Paint::default();
+    stroke.set_color(tiny_skia::Color::from_rgba8(150, 150, 150, 255));
+    stroke.anti_alias = true;
+    let stroke_style = tiny_skia::Stroke {
+        width: 1.0,
+        ..Default::default()
+    };
+    pixmap.stroke_path(&path, &stroke, &stroke_style, target, None);
 }

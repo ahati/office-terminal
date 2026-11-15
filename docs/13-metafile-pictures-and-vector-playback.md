@@ -39,21 +39,24 @@ PRD 02d currently classifies EMF/WMF as `PLACEHOLDER` with "PNG fallback used if
 
 | Crate | Version | Role | License |
 | :--- | :--- | :--- | :--- |
-| `metafile-core` | `=1.0.1` | Renderer-neutral primitives: `Renderer`, `Pen`, `Brush`, `Paint`, `Stroke`, `Font`, `TextRun`, `Bitmap`, `BitmapPlacement`, `BitmapSampling`, `ClipRegion`, `Mapping`, `ResourceLimits`, `Diagnostic` | Apache-2.0 |
-| `metafile-emf` | `=1.0.1` | Classic EMF parsing, DC state machine, EMF+ stream arbitration, `playback(bytes, options, &mut dyn Renderer)` | Apache-2.0 |
-| `metafile-emfplus` | `=1.0.1` | EMF+ record playback (Only / Dual) | Apache-2.0 |
-| `metafile-wmf` | `=1.0.1` | WMF (standard + placeable) playback | Apache-2.0 |
-| `metafile-dib` | `=1.0.1` | Bounded DIB/BMP decoding shared by the players | Apache-2.0 |
+| `metafile-core` | `=1.0.1` (crates.io) | Renderer-neutral primitives: `Renderer`, `Pen`, `Brush`, `Paint`, `Stroke`, `Font`, `TextRun`, `Bitmap`, `BitmapPlacement`, `BitmapSampling`, `ClipRegion`, `Mapping`, `ResourceLimits`, `Diagnostic` | Apache-2.0 |
+| `metafile-emf` | `=1.0.1` (crates.io) | Classic EMF parsing, DC state machine, EMF+ stream arbitration, `playback(bytes, options, &mut dyn Renderer)` | Apache-2.0 |
+| `metafile-wmf` | `=1.0.1` (crates.io) | WMF (standard + placeable) playback | Apache-2.0 |
+| `metafile-emfplus` | `=1.0.1` (**local patched**) | EMF+ record playback (Only / Dual) | Apache-2.0 |
+| `metafile-dib` | `=1.0.1` (**local patched**) | Bounded DIB/BMP decoding shared by the players | Apache-2.0 |
 
-**Not used:** `metafile` (high-level convenience wrapper) and `metafile-svg` (its SVG backend). We implement the renderer ourselves to emit `VectorSlide` commands. The SVG backend is kept only as a **test oracle** in the differential suite ([PRD 13a](./13a-metafile-fidelity-and-validation.md) §6).
+**Not used:** `metafile` (high-level convenience wrapper) and `metafile-svg` (its SVG backend). We implement the renderer ourselves to emit `VectorSlide` commands. A differential oracle can add `metafile-svg` as a **dev-dependency** later ([PRD 13a](./13a-metafile-fidelity-and-validation.md) §6); it is never linked into release binaries.
 
-### 2.2 Vendoring & patch policy
+**Consumption model:** unpatched crates come from crates.io pinned with `=`; only the crates carrying local fixes live in-tree and are wired through `[patch.crates-io]`. This keeps the source tree small and the provenance auditable while preserving the crop-clamping fixes.
 
-- The five crates are vendored under `crates/metafile-core/`, `crates/metafile-emf/`, `crates/metafile-emfplus/`, `crates/metafile-wmf/`, `crates/metafile-dib/`, following [AGENTS.md](../AGENTS.md) §E.
-- `crates/VENDORED.md` records upstream repository, pinned revision, license and any local patch.
-- Any behavioural fix is a minimal patch in `crates/patches/` applied by a documented script — never an ad-hoc edit.
-- `Cargo.toml` pins `=1.0.1` in `[workspace.dependencies]`; a version bump requires the full metafile corpus to pass.
-- Apache-2.0 is compatible with this project's MIT license; the NOTICE text is preserved and linked from `crates/VENDORED.md`.
+### 2.2 Patch & dependency policy
+
+- **crates.io crates** (`metafile-core`, `metafile-emf`, `metafile-wmf`) are pinned with `=1.0.1` in `[workspace.dependencies]`; `Cargo.lock` pins the checksums. A version bump requires the metafile corpus to pass.
+- **Patched crates** (`metafile-emfplus`, `metafile-dib`) live under `crates/` and are selected via `[patch.crates-io]`. They are listed in `crates/VENDORED.md` with upstream revision, license and patch references, following [AGENTS.md](../AGENTS.md) §E.
+- Every behavioural change to a patched crate is a minimal diff in `crates/patches/` (currently `0003-metafile-clamp-bitmap-crops.patch`), never an undocumented edit.
+- Once the clamp fixes are released upstream, delete the two local copies, drop the `[patch.crates-io]` entries and consume the new pinned version from crates.io.
+- Both patched crates are excluded from `cargo clippy --workspace`/`cargo test --workspace` so upstream code is not held to first-party lints; `-p kitty-pptx-core` still compiles them as dependencies.
+- Apache-2.0 is compatible with this project's MIT license; each local crate keeps its LICENSE and `crates/VENDORED.md` records the NOTICE.
 - **Supply-chain audit (pinned revision):** no `unsafe` blocks, no `build.rs` scripts, no C bindings; transitive dependencies are `serde`, `thiserror`, `encoding_rs`, `png`, `jpeg-decoder`. The audit result is recorded in `crates/VENDORED.md` and re-run on every version bump.
 
 ### 2.3 Why this engine (alternatives considered)
@@ -563,7 +566,7 @@ Every `WarningEvent` produced by the compiler today (font substitution, unsuppor
 4. The CLI `export` path drains and prints warnings unless `--quiet`; `dump` includes them in its JSON envelope.
 5. A test asserts that a fixture with a substituted font produces exactly one drawer entry through the real pipeline.
 
-This is scheduled as **M0**, before metafile playback lands, because M2–M5 cannot demonstrate their diagnostics without it.
+Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`): the pipeline owns the buffer, flushes it before publishing a cached scene, and `WarningsState` deduplicates entries per `(slide, event)`. The CLI export prints drained warnings to stderr.
 
 ---
 
@@ -595,6 +598,39 @@ This is scheduled as **M0**, before metafile playback lands, because M2–M5 can
 | **M4 — EMF+** | Only/Dual arbitration, gradients, textures, transforms, regions | EMF+ fixtures pass; dual-fallback diagnostic covered |
 | **M5 — WMF & EMZ/WMZ** | Placeable headers, window mapping, bounded gzip | WMF fixtures pass; bomb test degrades |
 | **M6 — Default-on hardening** | Warnings drawer, perf budgets, fuzz corpus, docs | PRD 13a §10 checklist complete; feature default on |
+
+### 12.1 Milestone status
+
+| Milestone | Status | Evidence / notes |
+| :--- | :--- | :--- |
+| M0 | ✅ done (`124a1e4`) | `tests/warning_plumbing_tests.rs` |
+| M1 | ✅ done (`5a3cd20`) | marker/bitmap contracts, raster + SVG, expansion wired |
+| M2 | ✅ done (`1ff178d`) | `metafile-rs` adapter; real EMF/EMF+/WMF fixtures |
+| M3 | ✅ done | `tests/metafile_milestone_tests.rs`: alignment (left/center), `dx` overrides, escapement rotation, decorations, `ETO_OPAQUE` background, size clamping, `FontSubstituted` for substituted faces |
+| M4 | ✅ done with engine limits | dual `GetDC` fallback diagnostic, hatch → preset pattern, texture → average solid (DEGRADED), gradient axis from the brush transform. `metafile-emfplus =1.0.1` rejects path/radial gradients and glyph-index text, so those records degrade to the placeholder/omitted run with the mapped tag instead of the FULL row in PRD 13a §2.2 |
+| M5 | ✅ done | placeable WMF + `META_EXTTEXTOUT`, `.emz`/`.wmz` bounded inflate (bomb degrades to `ResourceLimitHit`), mislabelled containers classified by content |
+| M6 | pending | golden corpus (AST/PNG), perf/fuzz jobs, `--metafile` override, feature flag default-on |
+
+**Playback fixes landed with M3–M5:**
+
+- EMF+ `DrawString` carries `position` in page coordinates and the
+  world/container affine in `TextRun.transform`; the adapter now applies that
+  affine to the anchor and the glyph axes, so labels inside transformed
+  containers (chart insets, translated callouts) land at their authored spot.
+- EMF+ pens that declare distinct start/end caps no longer become unsupported
+  objects: patch `0004` keeps the start cap, so frames, spines and tick marks
+  that select those pens are stroked instead of being dropped.
+
+**Engine-capability deltas (normative until the upstream fix lands):**
+
+- `metafile-core 1.0.1` exposes no radial/path gradient paint; `metafile-emfplus
+  1.0.1` reports those brushes as unsupported critical features, so the picture
+  falls back to the §3 placeholder with a `metafile_parse` warning.
+- Texture brushes have no inline-image paint in the display list; they are
+  approximated by the bitmap's alpha-weighted average colour and tagged
+  `metafile_pattern_brush` (DEGRADED).
+- `ETO_GLYPH_INDEX` text cannot be decoded by the engine (no source glyph map);
+  the record is skipped and tagged `metafile_glyph_index_text`.
 
 ---
 

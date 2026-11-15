@@ -9,6 +9,14 @@ members = [
     "crates/kitty-pptx-tui",
     "crates/kitty-pptx-cli",
 ]
+# Locally patched metafile-rs crates (Apache-2.0). The rest of the family is
+# consumed from crates.io; these two are overridden via [patch.crates-io]
+# because they carry crop-clamping fixes (crates/patches/0003). Excluded from
+# workspace lints/tests so upstream code is not held to first-party rules.
+exclude = [
+    "crates/metafile-dib",
+    "crates/metafile-emfplus",
+]
 default-members = ["crates/kitty-pptx-cli"]
 
 [workspace.dependencies]
@@ -18,6 +26,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasm-bindgen = "0.2"
 zip = { version = "=9.0.4", default-features = false, features = ["deflate-flate2"] }
+metafile-core = "=1.0.1"
+metafile-emf = "=1.0.1"
+metafile-wmf = "=1.0.1"
 roxmltree = "0.20"
 quick-xml = "0.41"
 base64 = "0.22"
@@ -49,3 +60,8 @@ fontdb = "0.16"
 swash = "0.1"
 rustybuzz = "0.14"
 resvg = "0.44"
+
+[patch.crates-io]
+# Only the crates carrying local fixes are kept in-tree (PRD 13 §2.2).
+metafile-dib = { path = "crates/metafile-dib" }
+metafile-emfplus = { path = "crates/metafile-emfplus" }
