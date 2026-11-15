@@ -1,0 +1,20 @@
+[package]
+name = "metafile-emfplus"
+description = "EMF+ parsing, inspection, and renderer-independent playback for metafile-rs"
+version = "1.0.1"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/Dantusaikamal/metafile-rs"
+homepage = "https://github.com/Dantusaikamal/metafile-rs"
+publish = false
+documentation = "https://docs.rs/metafile-emfplus"
+readme = "README.md"
+keywords = ["emf-plus", "emf", "windows-metafile", "gdiplus", "graphics"]
+categories = ["graphics", "parser-implementations"]
+
+[dependencies]
+metafile-core = "=1.0.1"
+serde = { version = "1", features = ["derive"] }
+png = "0.17"
+jpeg-decoder = { version = "0.3", default-features = false }

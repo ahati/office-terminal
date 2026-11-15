@@ -1,0 +1,17 @@
+[package]
+name = "metafile-dib"
+description = "Bounded DIB decoding shared by metafile-rs format players"
+version = "1.0.1"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/Dantusaikamal/metafile-rs"
+homepage = "https://github.com/Dantusaikamal/metafile-rs"
+publish = false
+documentation = "https://docs.rs/metafile-dib"
+readme = "README.md"
+keywords = ["dib", "bitmap", "wmf", "emf", "windows-metafile"]
+categories = ["multimedia::images", "parser-implementations"]
+
+[dependencies]
+metafile-core = "=1.0.1"

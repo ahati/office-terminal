@@ -22,6 +22,31 @@ The following crates in this directory are vendored from [`yukiyokotani/office-o
      defaults unit test is updated to the spec value.
 
 
+## Metafile Playback Crates (`metafile-rs`)
+
+Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pictures-and-vector-playback.md)).
+
+- **Upstream**: [`Dantusaikamal/metafile-rs`](https://github.com/Dantusaikamal/metafile-rs)
+- **Pinned Commit**: `619d8c464cdd7eb21354b3a9ecf541f56cc7f955` (v1.0.1)
+- **License**: Apache-2.0 (NOTICE retained in each crate directory)
+- **Consumed from crates.io** (pinned `=1.0.1` in `[workspace.dependencies]`):
+  `metafile-core`, `metafile-emf`, `metafile-wmf`
+- **Local patched copies** (overridden via `[patch.crates-io]`, excluded from workspace lints/tests):
+  `crates/metafile-dib`, `crates/metafile-emfplus`
+- `metafile-svg` is not used (the project renders into `VectorSlide`; the SVG backend is not linked).
+
+### Applied Patches
+
+3. `crates/patches/0003-metafile-clamp-bitmap-crops.patch`:
+   - `metafile-dib::crop_bitmap` and `metafile-emfplus::crop_bitmap` clamp
+     source rectangles to the bitmap bounds instead of failing playback.
+     Windows GDI/GDI+ clamp in the same situation, and Office-authored
+     metafiles routinely overhang by a fraction of a pixel; without this,
+     real EMFs abort with `source crop lies outside bitmap` /
+     `image source rectangle is empty or outside bitmap bounds`.
+   - Upstreamed separately; when a release contains the fix, delete the two
+     local copies and drop the `[patch.crates-io]` section.
+
 ## Bundled test/parity assets (not vendored crates)
 
 - `crates/kitty-pptx-core/assets/fonts/` — Carlito, Caladea and Nunito Sans (SIL OFL 1.1), bundled so
