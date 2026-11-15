@@ -174,14 +174,43 @@ impl WorkerPool {
             });
         }
 
-        // Clean out canceled tasks waiting in queue
+        // Drop canceled tasks that have not started yet.
+        let mut canceled = Vec::new();
         if let Ok(mut q) = self.queue.lock() {
-            let retained: Vec<PrefetchTask> = q
-                .drain()
-                .filter(|t| !t.cancellation.is_canceled())
-                .collect();
+            let mut retained = Vec::with_capacity(q.len());
+            for task in q.drain() {
+                if task.cancellation.is_canceled() {
+                    canceled.push(task.slide_index);
+                } else {
+                    retained.push(task);
+                }
+            }
             for task in retained {
                 q.push(task);
+            }
+        }
+
+        if canceled.is_empty() {
+            return;
+        }
+
+        // A canceled queued task will never reach `execute_task`, so nothing
+        // else clears its `in_flight` slot. Leaving it behind makes
+        // `is_in_flight` true forever, which stops `prefetch` from ever
+        // re-scheduling the slide: the canvas and any sorter card for it stay
+        // blank until `cancel_all`. Release the slots for indices that no
+        // longer have a live token (a running task keeps its token and clears
+        // its own slot when it finishes).
+        let still_active: HashSet<usize> = self
+            .active_tokens
+            .lock()
+            .map(|tokens| tokens.keys().copied().collect())
+            .unwrap_or_default();
+        if let Ok(mut in_flight) = self.in_flight.lock() {
+            for index in canceled {
+                if !still_active.contains(&index) {
+                    in_flight.remove(&index);
+                }
             }
         }
     }
