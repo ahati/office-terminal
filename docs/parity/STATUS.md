@@ -8,11 +8,11 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 956 |
+| `kitty-pptx-core` | 957 |
 | `kitty-pptx-tui` | 107 |
 | `kitty-pptx-display` | 12 |
 | `kitty-pptx-cli` | 28 |
-| **total** | **1103** |
+| **total** | **1104** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
 -D warnings` is clean; every project source file is < 600 lines.
@@ -72,8 +72,8 @@ the current tree actually contains.
   vector and selectable modes force outlines for a warped run), and a long
   compound segment stays one run with no wrap fragments. 16 warp tests green.
 - **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
-  fallback (`scene3d/bevel_profiles.rs`), replacing the four hand-written
-  profiles.
+  fallback (`scene3d/bevel_profiles.rs`), and all 15 `ST_PresetMaterialType`
+  surface classes in the scalar Blinn-Phong table.
 - **S7b (partial)** — `legacyWireframe` paints front/extrusion rims with no
   filled face; extrusion/contour code split into `shape_effect/extrusion.rs`.
 - **L0 (partial)** — `parity_ledger_tests.rs`: zero `#[ignore]`, pending-archive

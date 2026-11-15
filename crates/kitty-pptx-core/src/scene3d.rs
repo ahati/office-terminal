@@ -205,9 +205,27 @@ pub struct Material {
 impl Material {
     /// Material presets from `ST_PresetMaterialType`.
     pub fn from_preset(name: &str) -> Self {
+        // Scalar reduction of the MS-OI29500 §2.1.1334 material classes. The
+        // reference stores separate diffuse/specular colour columns and
+        // Fresnel terms; this backend consumes the ambient/diffuse/specular
+        // coefficients and a Blinn-Phong exponent, so the table keeps those
+        // columns representative rather than dropping the material identity.
         match name {
-            "metal" => Self { ambient: 0.10, diffuse: 0.30, specular: 0.90, shininess: 64.0 },
-            "plastic" => Self { ambient: 0.20, diffuse: 0.65, specular: 0.45, shininess: 32.0 },
+            "legacyMatte" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.0, shininess: 1.0 },
+            "legacyPlastic" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.6, shininess: 32.0 },
+            "legacyMetal" => Self { ambient: 0.0, diffuse: 0.667, specular: 1.0, shininess: 32.0 },
+            "legacyWireframe" => Self { ambient: 0.0, diffuse: 0.0, specular: 0.0, shininess: 1.0 },
+            "matte" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.0, shininess: 1.0 },
+            "plastic" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.6, shininess: 12.0 },
+            "metal" => Self { ambient: 0.0, diffuse: 1.0, specular: 1.32, shininess: 12.0 },
+            "warmMatte" => Self { ambient: 0.3, diffuse: 1.0, specular: 0.3, shininess: 8.0 },
+            "translucentPowder" => Self { ambient: 0.3, diffuse: 1.0, specular: 0.3, shininess: 10.0 },
+            "powder" => Self { ambient: 0.3, diffuse: 1.0, specular: 0.3, shininess: 10.0 },
+            "dkEdge" => Self { ambient: 0.0, diffuse: 1.0, specular: 1.0, shininess: 35.0 },
+            "softEdge" => Self { ambient: 0.0, diffuse: 1.0, specular: 1.0, shininess: 35.0 },
+            "clear" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.6, shininess: 20.0 },
+            "flat" => Self { ambient: 0.0, diffuse: 0.0, specular: 0.8, shininess: 50.0 },
+            "softmetal" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.5, shininess: 8.0 },
             // warmMatte is also the safe fallback for unknown presets.
             _ => Self { ambient: 0.35, diffuse: 0.70, specular: 0.05, shininess: 4.0 },
         }
