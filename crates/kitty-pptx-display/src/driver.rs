@@ -25,9 +25,11 @@ pub const PREVIEW_IMAGE_ID_SLOTS: u32 = 8;
 pub const THUMBNAIL_IMAGE_ID_BASE: u32 = PREVIEW_IMAGE_ID_BASE + PREVIEW_IMAGE_ID_SLOTS;
 /// Maximum number of sorter thumbnails that may be resident at the same time.
 ///
-/// A decoded 320x180 thumbnail costs ~225 KB, so the whole grid stays under
-/// ~7 MB of terminal image memory.
-pub const MAX_THUMBNAIL_IMAGES: u32 = 32;
+/// Cards reuse the canvas raster, so a resident card costs as much as a slide
+/// at the terminal's canvas target (roughly 1.4 MB at an 800x450 canvas, ~8 MB
+/// at 1920x1080). Sixteen cards matches common 4x3/5x3 grids while keeping the
+/// grid inside the documented terminal-memory budget.
+pub const MAX_THUMBNAIL_IMAGES: u32 = 16;
 /// Total number of resident image ids the interactive path can keep alive.
 pub const RESIDENT_IMAGE_IDS: u32 = THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES - 1;
 

@@ -71,23 +71,15 @@ pub enum InvalidateCause {
 pub trait RenderPipeline: Send + Sync {
     fn prefetch(&self, plan: &PrefetchPlan, target: &RenderTargetSpec);
 
-    /// Queues low-priority renders for a thumbnail grid.
-    ///
-    /// Unlike [`RenderPipeline::prefetch`] this must not disturb the main
-    /// canvas target: a grid of cards is opportunistic work that may be
-    /// dropped at any time. Implementations that do not distinguish targets
-    /// may keep the default no-op.
-    fn prefetch_thumbnails(&self, slides: &[usize], target: &RenderTargetSpec) {
-        let _ = (slides, target);
-    }
-
     fn entry(&self, index: usize) -> PipelineEntry;
 
     /// Resolves `index` against an explicit render target.
     ///
-    /// Used by thumbnail grids, which need a small raster while the main
-    /// canvas keeps its own full-resolution target. Implementations without
-    /// target-aware caches may fall back to [`RenderPipeline::entry`].
+    /// Views that share a raster (the sorter grid reuses the canvas bitmap and
+    /// lets the terminal scale it) look up the exact target they draw with
+    /// instead of relying on the pipeline's last-requested target.
+    /// Implementations without target-aware caches may fall back to
+    /// [`RenderPipeline::entry`].
     fn entry_at(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
         let _ = target;
         self.entry(index)
