@@ -144,3 +144,341 @@ fn a_word_wider_than_the_arch_clamps_to_the_full_path() {
     let span = (glyph_x(&env, 1.0, 9.0) - glyph_x(&env, 0.0, 9.0)).abs();
     assert!(span > BOX_W * 0.5, "fills the arch: {span}");
 }
+
+use crossbeam_channel::unbounded;
+use kitty_pptx_core::compiler::text_warp::warp_envelope_for_line;
+use kitty_pptx_core::contracts::AffineTransform;
+use kitty_pptx_core::compiler::text::compile_text_body;
+use serde_json::json;
+
+const PT: f32 = 12_700.0;
+
+fn text_run(text: &str, size: f64) -> serde_json::Value {
+    json!({
+        "type": "text", "text": text, "bold": null, "italic": null,
+        "underline": false, "strikethrough": false, "strikeDouble": false,
+        "hyperlinkUsesTextFill": false, "fieldType": null,
+        "fontSize": size, "color": "000000", "fontFamily": "Arial"
+    })
+}
+
+fn warp_body(
+    preset: &str,
+    runs: Vec<serde_json::Value>,
+    space_line: serde_json::Value,
+    space_before: Option<i64>,
+    space_after: Option<i64>,
+) -> pptx_model::TextBody {
+    let value = json!({
+        "verticalAnchor": "ctr",
+        "paragraphs": [{
+            "alignment": "ctr", "marL": 0, "marR": 0, "indent": 0,
+            "spaceBefore": space_before, "spaceAfter": space_after,
+            "spaceLine": space_line, "lvl": 0, "bullet": { "type": "none" },
+            "defFontSize": null, "defColor": null, "defBold": null,
+            "defItalic": null, "defFontFamily": null, "tabStops": [],
+            "defTabSz": null, "rtl": false, "eaLnBrk": true, "fontAlgn": null,
+            "runs": runs
+        }],
+        "defaultFontSize": 40,
+        "defaultBold": null, "defaultItalic": null,
+        "lIns": 91_440, "rIns": 91_440, "tIns": 45_720, "bIns": 45_720,
+        "wrap": "square", "vert": "horz", "autoFit": "none",
+        "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false,
+        "textWarp": { "preset": preset, "adj": [] }
+    });
+    serde_json::from_value(value).expect("warp body")
+}
+
+fn warp_runs(body: &pptx_model::TextBody) -> Vec<kitty_pptx_core::contracts::PositionedGlyphRun> {
+    let (tx, _rx) = unbounded();
+    compile_text_body(
+        body,
+        (620.0 * PT) as i64,
+        (150.0 * PT) as i64,
+        &AffineTransform::identity(),
+        None,
+        &tx,
+    )
+    .into_iter()
+    .filter_map(|command| match command {
+        kitty_pptx_core::contracts::VectorCommand::DrawText { runs, .. } => Some(runs),
+        _ => None,
+    })
+    .flatten()
+    .collect()
+}
+
+#[test]
+fn warp_honours_fixed_line_spacing() {
+    let body = warp_body(
+        "textArchUp",
+        vec![
+            text_run("A", 40.0),
+            json!({"type": "break"}),
+            text_run("A", 40.0),
+        ],
+        json!({"type": "pts", "val": 18.0}),
+        None,
+        None,
+    );
+    let runs = warp_runs(&body);
+    let lines: Vec<f32> = runs
+        .iter()
+        .filter_map(|run| run.glyphs.first().map(|glyph| glyph.y))
+        .collect();
+    assert_eq!(lines.len(), 2, "two runs");
+    assert!((lines[1] - lines[0] - 18.0 * PT).abs() < 0.5);
+}
+
+#[test]
+fn warp_uses_authored_percentage_line_spacing() {
+    for (percent, expected) in [(50, 24.0), (100, 48.0), (150, 72.0), (200, 96.0)] {
+        let body = warp_body(
+            "textArchUp",
+            vec![
+                text_run("A", 40.0),
+                json!({"type": "break"}),
+                text_run("A", 40.0),
+            ],
+            json!({"type": "pct", "val": percent * 1000}),
+            None,
+            None,
+        );
+        let runs = warp_runs(&body);
+        let lines: Vec<f32> = runs
+            .iter()
+            .filter_map(|run| run.glyphs.first().map(|glyph| glyph.y))
+            .collect();
+        assert!(
+            (lines[1] - lines[0] - expected * PT).abs() < 0.5,
+            "{percent}%: expected {expected}, got {}",
+            (lines[1] - lines[0]) / PT
+        );
+    }
+}
+
+#[test]
+fn warp_expands_preceding_lines_outside_the_authored_arch() {
+    let envelope = envelope("textArchUp", &[]);
+    let expanded = warp_envelope_for_line(&envelope, 48.0);
+    assert!(
+        expanded.top.points.iter().any(|(_, y)| *y < envelope.top.points.iter().map(|p| p.1).fold(f32::MAX, f32::min)),
+        "outer line moves away from the curve"
+    );
+    assert_eq!(warp_envelope_for_line(&envelope, 0.0), envelope);
+}
+
+#[test]
+fn warp_multi_line_arch_anchors_the_last_line() {
+    let body = warp_body(
+        "textArchUp",
+        vec![
+            text_run("Top", 40.0),
+            json!({"type": "break"}),
+            text_run("Bottom", 40.0),
+        ],
+        json!(null),
+        None,
+        None,
+    );
+    let runs = warp_runs(&body);
+    let warped: Vec<f32> = runs
+        .iter()
+        .filter_map(|run| {
+            let glyph = run.glyphs.first()?;
+            let warp = run.warp.as_ref()?;
+            let transform = warp_glyph_transform(
+                &warp.envelope,
+                glyph.warp_u?,
+                warp.warp_box_h,
+                warp.band_frac,
+            )?;
+            Some(transform.y)
+        })
+        .collect();
+    assert_eq!(warped.len(), 2);
+    assert!(warped[0] < warped[1], "first line expands upward");
+    assert!(warped[0] / PT < 0.0, "expanded above the box, got {}", warped[0] / PT);
+    assert!(warped[1] / PT < 10.0, "last line stays on the arch, got {}", warped[1] / PT);
+}
+
+#[test]
+fn warp_keeps_paragraph_spacing_between_paragraphs() {
+    let mut body = warp_body(
+        "textArchUp",
+        vec![text_run("A", 40.0)],
+        json!(null),
+        Some(1200),
+        Some(600),
+    );
+    let second = body.paragraphs[0].clone();
+    body.paragraphs.push(second);
+    let runs = warp_runs(&body);
+    let lines: Vec<f32> = runs
+        .iter()
+        .filter_map(|run| run.glyphs.first().map(|glyph| glyph.y))
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert!(
+        ((lines[1] - lines[0]) / PT - 66.0).abs() < 0.5,
+        "spaceBefore 12 + spaceAfter 6 + 48: got {}",
+        (lines[1] - lines[0]) / PT
+    );
+}
+
+#[test]
+fn circle_anchors_the_final_line_and_expands_radially() {
+    let body = warp_body(
+        "textCircle",
+        vec![
+            text_run("A", 40.0),
+            json!({"type": "break"}),
+            text_run("A", 40.0),
+        ],
+        json!(null),
+        None,
+        None,
+    );
+    let runs = warp_runs(&body);
+    let warped: Vec<(f32, f32)> = runs
+        .iter()
+        .filter_map(|run| {
+            let glyph = run.glyphs.first()?;
+            let warp = run.warp.as_ref()?;
+            let transform = warp_glyph_transform(
+                &warp.envelope,
+                glyph.warp_u?,
+                warp.warp_box_h,
+                warp.band_frac,
+            )?;
+            Some((transform.x, transform.y))
+        })
+        .collect();
+    assert_eq!(warped.len(), 2);
+    // The final line stays on the authored circle; the preceding line expands
+    // radially outward.
+    assert!((warped[0].0 - warped[1].0).abs() / PT > 10.0);
+    assert!(warped[0].0 / PT > 0.0 && warped[1].0 / PT > 0.0);
+}
+
+#[test]
+fn warp_follows_the_path_winding_at_135_and_225_degrees() {
+    for angle in [135_i64, 225] {
+        let value = json!({
+            "verticalAnchor": "ctr",
+            "paragraphs": [{
+                "alignment": "ctr", "marL": 0, "marR": 0, "indent": 0,
+                "spaceBefore": null, "spaceAfter": null, "spaceLine": null,
+                "lvl": 0, "bullet": { "type": "none" },
+                "defFontSize": null, "defColor": null, "defBold": null,
+                "defItalic": null, "defFontFamily": null, "tabStops": [],
+                "defTabSz": null, "rtl": false, "eaLnBrk": true, "fontAlgn": null,
+                "runs": [
+                    text_run("A", 40.0), json!({"type": "break"}), text_run("A", 40.0)
+                ]
+            }],
+            "defaultFontSize": 40,
+            "defaultBold": null, "defaultItalic": null,
+            "lIns": 91_440, "rIns": 91_440, "tIns": 45_720, "bIns": 45_720,
+            "wrap": "square", "vert": "horz", "autoFit": "none",
+            "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false,
+            "textWarp": { "preset": "textArchDown", "adj": [angle * 60_000] }
+        });
+        let body: pptx_model::TextBody = serde_json::from_value(value).expect("warp body");
+        let runs = warp_runs(&body);
+        let warped: Vec<f32> = runs
+            .iter()
+            .filter_map(|run| {
+                let glyph = run.glyphs.first()?;
+                let warp = run.warp.as_ref()?;
+                let transform = warp_glyph_transform(
+                    &warp.envelope,
+                    glyph.warp_u?,
+                    warp.warp_box_h,
+                    warp.band_frac,
+                )?;
+                Some(transform.y)
+            })
+            .collect();
+        assert_eq!(warped.len(), 2);
+        assert!(
+            warped[1] < warped[0] - 40.0 * PT,
+            "{angle}°: second line above first, got {:?}",
+            warped.iter().map(|y| y / PT).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn counterclockwise_lines_expand_outside_the_lower_arch() {
+    let body = warp_body(
+        "textArchDown",
+        vec![
+            text_run("A", 40.0),
+            json!({"type": "break"}),
+            text_run("A", 40.0),
+        ],
+        json!(null),
+        None,
+        None,
+    );
+    let runs = warp_runs(&body);
+    let warped: Vec<f32> = runs
+        .iter()
+        .filter_map(|run| {
+            let glyph = run.glyphs.first()?;
+            let warp = run.warp.as_ref()?;
+            let transform = warp_glyph_transform(
+                &warp.envelope,
+                glyph.warp_u?,
+                warp.warp_box_h,
+                warp.band_frac,
+            )?;
+            Some(transform.y)
+        })
+        .collect();
+    assert_eq!(warped.len(), 2);
+    assert!((warped[1] - warped[0]) / PT > 20.0, "later line outside the lower arch");
+    assert!(warped[0] / PT >= 0.0);
+}
+
+#[test]
+fn warp_accumulates_mixed_size_line_boxes() {
+    let paragraphs: Vec<serde_json::Value> = [16.0, 32.0, 48.0].iter().map(|size| json!({
+            "alignment": "ctr", "marL": 0, "marR": 0, "indent": 0,
+            "spaceBefore": null, "spaceAfter": null, "spaceLine": null,
+            "lvl": 0, "bullet": { "type": "none" },
+            "defFontSize": null, "defColor": null, "defBold": null,
+            "defItalic": null, "defFontFamily": null, "tabStops": [],
+            "defTabSz": null, "rtl": false, "eaLnBrk": true, "fontAlgn": null,
+            "runs": [text_run("A", *size)]
+        })).collect();
+    let value = json!({
+        "verticalAnchor": "ctr",
+        "paragraphs": paragraphs,
+        "defaultFontSize": 40,
+        "defaultBold": null, "defaultItalic": null,
+        "lIns": 91_440, "rIns": 91_440, "tIns": 45_720, "bIns": 45_720,
+        "wrap": "square", "vert": "horz", "autoFit": "none",
+        "numCol": 1, "spcCol": 0, "rtlCol": false, "spcFirstLastPara": false,
+        "textWarp": { "preset": "textArchUp", "adj": [] }
+    });
+    let body: pptx_model::TextBody = serde_json::from_value(value).expect("warp body");
+    let runs = warp_runs(&body);
+    let lines: Vec<f32> = runs
+        .iter()
+        .filter_map(|run| run.glyphs.first().map(|glyph| glyph.y))
+        .collect();
+    assert_eq!(lines.len(), 3);
+    assert!(
+        ((lines[1] - lines[0]) / PT - 34.56).abs() < 0.5,
+        "first mixed step: {}",
+        (lines[1] - lines[0]) / PT
+    );
+    assert!(
+        ((lines[2] - lines[1]) / PT - 53.76).abs() < 0.5,
+        "second mixed step: {}",
+        (lines[2] - lines[1]) / PT
+    );
+}

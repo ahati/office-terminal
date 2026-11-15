@@ -459,3 +459,51 @@ pub fn warp_glyph_transform(
         shear,
     })
 }
+
+/// Expand a single-edge envelope radially by `offset` pixels from its centroid.
+///
+/// PowerPoint anchors the LAST line on the authored arch/circle and expands
+/// preceding lines outward by their line pitch. A paired-edge envelope already
+/// fills its box and is returned unchanged. ref `renderer.ts:3236-3305`
+/// (`expandedEnvelopeForLine`) and `wordart-follow-path.test.ts:159-250`.
+pub fn warp_envelope_for_line(envelope: &WarpEnvelope, offset: f32) -> WarpEnvelope {
+    if !envelope.single_edge || offset.abs() <= 1e-6 {
+        return envelope.clone();
+    }
+    let points = &envelope.top.points;
+    if points.is_empty() {
+        return envelope.clone();
+    }
+    let count = points.len() as f32;
+    let center = (
+        points.iter().map(|point| point.0).sum::<f32>() / count,
+        points.iter().map(|point| point.1).sum::<f32>() / count,
+    );
+    let expand = |polyline: &WarpPolyline| {
+        let mut expanded = Vec::with_capacity(polyline.points.len());
+        for &(x, y) in &polyline.points {
+            let (dx, dy) = (x - center.0, y - center.1);
+            let length = dx.hypot(dy);
+            if length <= 1e-6 {
+                expanded.push((x, y));
+            } else {
+                expanded.push((x + dx / length * offset, y + dy / length * offset));
+            }
+        }
+        WarpPolyline {
+            cumulative: cumulative(&expanded),
+            points: expanded,
+        }
+    };
+    let top = expand(&envelope.top);
+    let bottom = if envelope.single_edge {
+        top.clone()
+    } else {
+        expand(&envelope.bottom)
+    };
+    WarpEnvelope {
+        top,
+        bottom,
+        single_edge: envelope.single_edge,
+    }
+}

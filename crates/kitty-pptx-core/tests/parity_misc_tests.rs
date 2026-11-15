@@ -396,7 +396,7 @@ fn wordart_empty_manual_lines_do_not_build_per_line_envelopes() {
 }
 
 #[test]
-fn wordart_painted_lines_share_the_same_envelope() {
+fn wordart_painted_lines_own_their_expanded_envelopes() {
     let (tx, _rx) = unbounded();
     let transform = AffineTransform {
         sx: 1.0,
@@ -409,8 +409,9 @@ fn wordart_painted_lines_share_the_same_envelope() {
     let body = warped_body(97, &["Line1", "Line2", "Line3"]);
     let commands = compile_text_body(&body, 620 * 12_700, 150 * 12_700, &transform, None, &tx);
 
-    let (envelopes, _) = envelope_allocations(&commands);
-    assert_eq!(envelopes, 1, "three painted lines reuse one envelope");
+    let (envelopes, warps) = envelope_allocations(&commands);
+    assert_eq!(envelopes, 3, "each painted line owns its expanded envelope");
+    assert_eq!(warps, 3, "run-warps stay distinct per line");
 
     let texts: Vec<String> = commands
         .iter()
