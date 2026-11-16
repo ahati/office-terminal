@@ -2,6 +2,7 @@ pub mod area;
 pub mod axes;
 pub mod bands;
 pub mod bar;
+pub mod bubble;
 pub mod color;
 pub mod layout;
 pub mod line;
@@ -17,6 +18,7 @@ use crate::compiler::transform::compute_shape_transform;
 use self::area::compile_area;
 use self::axes::compile_axes;
 use self::bar::compile_bars;
+use self::bubble::compile_bubbles;
 use self::layout::{
     compile_chart_background, compile_chart_legend, compile_chart_title, compute_chart_layout,
     make_simple_run, rect_path,
@@ -106,11 +108,13 @@ pub fn compile_chart(
         ChartFamily::Area | ChartFamily::StackedArea => {
             commands.extend(compile_area(chart, &layout, &bounds, family, transform));
         }
+        ChartFamily::Bubble => {
+            commands.extend(compile_bubbles(chart, &layout, &bounds, transform));
+        }
         // Unsupported families returned the placeholder above. This arm is
         // unreachable; it deliberately emits no geometry so a future family
         // that forgets `is_supported` cannot silently fall back to columns.
         ChartFamily::Scatter
-        | ChartFamily::Bubble
         | ChartFamily::Radar
         | ChartFamily::Stock
         | ChartFamily::Surface

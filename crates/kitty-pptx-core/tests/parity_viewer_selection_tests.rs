@@ -329,3 +329,141 @@ fn topmost_link_wins_at_an_overlapping_point() {
     // Outside every box nothing is hit.
     assert!(index.hit_test(500.0, 500.0).is_none());
 }
+
+// ── element selection contexts & find (ref element-selection / find) ────────
+
+#[allow(clippy::too_many_arguments)]
+fn sel_shape(
+    x: i64, y: i64, w: i64, h: i64, rot: f64, geom: &str, id: &str, body: Option<serde_json::Value>,
+) -> SlideElement {
+    serde_json::from_value(serde_json::json!({
+        "type": "shape", "x": x, "y": y, "width": w, "height": h, "rotation": rot, "flipH": false, "flipV": false,
+        "geometry": geom, "fill": null, "stroke": null, "textBody": body, "id": id, "name": id,
+    }))
+    .expect("shape")
+}
+
+fn sel_slide(elements: Vec<SlideElement>) -> Slide {
+    Slide {
+        theme: None, index: 0, slide_number: 1, part_name: Some("ppt/slides/slide1.xml".into()), background: None,
+        element_sources: elements.iter().enumerate().map(|(i, _)| pptx_model::SlideElementSource {
+            origin: if i == 0 { pptx_model::SlideElementOrigin::Master } else { pptx_model::SlideElementOrigin::Slide },
+        }).collect(),
+        elements, notes: None, comments: Vec::new(), hidden: false, parse_error: None,
+    }
+}
+
+fn sel_body_runs(runs: &[&str]) -> serde_json::Value {
+    let run_values: Vec<serde_json::Value> = runs
+        .iter()
+        .map(|text| {
+            serde_json::json!({
+                "type": "text", "text": text, "bold": null, "italic": null,
+                "underline": false, "strikethrough": false, "strikeDouble": false,
+                "hyperlinkUsesTextFill": false, "fieldType": null,
+                "fontSize": 20, "color": "000000", "fontFamily": "Arial"
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "verticalAnchor": "t", "defaultFontSize": 20, "lIns": 0, "rIns": 0, "tIns": 0, "bIns": 0,
+        "wrap": "square", "vert": "horz", "autoFit": "none",
+        "paragraphs": [{
+            "alignment": "l", "marL": 0, "marR": 0, "indent": 0, "lvl": 0, "bullet": { "type": "inherit" }, "tabStops": [], "rtl": false, "eaLnBrk": true,
+            "runs": run_values
+        }]
+    })
+}
+
+fn sel_body(text: &str) -> serde_json::Value {
+    sel_body_runs(&[text])
+}
+
+#[test]
+fn topmost_element_context_reports_identity_and_origin() {
+    use kitty_pptx_core::selection::{hit_test_slide_context, ElementContextOptions, SlidePoint};
+    let slide = sel_slide(vec![
+        sel_shape(0, 0, 100, 50, 0.0, "rect", "1", None),
+        sel_shape(0, 0, 100, 50, 0.0, "roundRect", "2", None),
+    ]);
+    let ctx = hit_test_slide_context(0, &slide, SlidePoint { x: 20.0, y: 20.0 }, ElementContextOptions::default()).unwrap().unwrap();
+    assert_eq!(ctx.element_index, 1);
+    assert_eq!(ctx.origin, "slide");
+    assert_eq!(ctx.shape_id.as_deref(), Some("2"));
+    assert_eq!(ctx.geometry.as_deref(), Some("roundRect"));
+}
+
+#[test]
+fn rotation_inversion_and_line_tolerance() {
+    use kitty_pptx_core::selection::{hit_test_slide_element, SlidePoint};
+    let rotated = sel_shape(25, 0, 50, 100, 90.0, "rect", "1", None);
+    assert!(hit_test_slide_element(&rotated, SlidePoint { x: 0.0, y: 25.0 }, 0.0));
+    let line = sel_shape(0, 0, 100, 0, 0.0, "line", "2", None);
+    assert!(!hit_test_slide_element(&line, SlidePoint { x: 50.0, y: 4.0 }, 3.0));
+    assert!(hit_test_slide_element(&line, SlidePoint { x: 50.0, y: 4.0 }, 5.0));
+}
+
+#[test]
+fn bounded_element_text_never_splits_unicode() {
+    use kitty_pptx_core::selection::{hit_test_slide_context, limit_element_context, ElementContextOptions, SlidePoint};
+    let slide = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "1", Some(sel_body("\u{1F600}x")))]);
+    let point = SlidePoint { x: 10.0, y: 10.0 };
+    let empty = hit_test_slide_context(0, &slide, point, ElementContextOptions { tolerance: 0.0, max_text_characters: Some(1) }).unwrap().unwrap();
+    assert_eq!(empty.text.as_deref(), Some(""));
+    let emoji = hit_test_slide_context(0, &slide, point, ElementContextOptions { tolerance: 0.0, max_text_characters: Some(2) }).unwrap().unwrap();
+    assert_eq!(emoji.text.as_deref(), Some("\u{1F600}"));
+    let limited = limit_element_context(emoji, 1).unwrap();
+    assert_eq!(limited.text.as_deref(), Some(""));
+}
+
+#[test]
+fn chart_labels_stream_into_bounded_context_text() {
+    use kitty_pptx_core::selection::bounded_chart_context_text;
+    use ooxml_common::chart::ChartSeries;
+    use pptx_model::{ChartElement, ChartModel};
+    let chart = ChartElement {
+        id: Some("7".into()), x: 0, y: 0, width: 100, height: 50, rotation: 0.0, flip_h: false, flip_v: false,
+        chart: ChartModel {
+            chart_type: "bar".into(), title: Some("Rev".into()), categories: vec!["Q1".into()],
+            series: vec![ChartSeries { name: "FY".into(), values: vec![Some(10.0)], ..Default::default() }],
+            ..Default::default()
+        },
+    };
+    let summary = bounded_chart_context_text(&chart.chart, None);
+    assert!(summary.text.as_deref().unwrap().contains("Rev"));
+}
+
+#[test]
+fn find_maps_matches_and_highlights_to_slides() {
+    use kitty_pptx_core::text::find::FindController;
+    use pptx_model::Presentation;
+    let s0 = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "1", Some(sel_body_runs(&["Hel", "lo"])))]);
+    let s1 = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "2", Some(sel_body("hello")))]);
+    let pres = Presentation { slide_width: 1000, slide_height: 1000, slides: vec![s0, s1], default_text_color: None, major_font: None, minor_font: None, hlink_color: None, fol_hlink_color: None };
+    let mut find = FindController::from_presentation(&pres);
+    let matches = find.find("hello", false);
+    assert_eq!(matches.len(), 2);
+    assert_eq!(find.next().map(|m| m.slide), Some(0));
+    assert_eq!(find.next().map(|m| m.slide), Some(1));
+    let hl0 = find.highlights(0);
+    assert_eq!(hl0.len(), 1);
+    assert!(!hl0[0].active);
+    let hl1 = find.highlights(1);
+    assert_eq!(hl1.len(), 1);
+    assert!(hl1[0].active);
+}
+
+#[test]
+fn find_rejects_matches_crossing_table_cells() {
+    use kitty_pptx_core::text::find::{FindController, FindRun};
+    use pptx_model::Presentation;
+    let s0 = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "1", Some(sel_body("Hello")))]);
+    let pres = Presentation { slide_width: 1000, slide_height: 1000, slides: vec![s0], default_text_color: None, major_font: None, minor_font: None, hlink_color: None, fol_hlink_color: None };
+    let mut find = FindController::from_presentation(&pres);
+    find.set_slide_runs(0, vec![
+        FindRun { text: "foo".into(), element_index: 0, origin: "slide", shape_id: Some("1".into()), table_cell: Some((0, 0)) },
+        FindRun { text: "bar".into(), element_index: 0, origin: "slide", shape_id: Some("1".into()), table_cell: Some((0, 1)) },
+    ]);
+    assert!(find.find("foobar", false).is_empty());
+    assert_eq!(find.find("foo", false).len(), 1);
+}

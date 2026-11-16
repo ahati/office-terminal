@@ -8,54 +8,12 @@
 // tests/parity/coverage/) stays authoritative: the BLOCKED rows are still
 // recorded there.
 //
-// Wave 3 reinstates each function below (with its doc comment and attributes)
-// into the compiled test file as soon as the named API lands.
-//
 // Missing API per blocked case:
-//   topmost_element_context_reports_identity_and_origin        BLOCKED: no hit_test_slide_context / PptxElementContext projection (element-selection.ts has no Rust port)
-//   rotation_inversion_and_line_tolerance                      BLOCKED: no hit_test_slide_element (no inverse-frame point or distance-to-segment hit test)
-//   bounded_element_text_never_splits_unicode                  BLOCKED: no limit_element_context / bounded element text (safeUtf16Prefix has no Rust port)
-//   chart_labels_stream_into_bounded_context_text              BLOCKED: no bounded_chart_context_text projection
-//   find_maps_matches_and_highlights_to_slides                 BLOCKED: no PptxFindController / UnitFindController (run-level find index)
-//   find_rejects_matches_crossing_table_cells                  BLOCKED: no PptxFindController (cross-container match rejection)
 //   highlight_boxes_sit_at_the_slice_offset                    BLOCKED: no paint_find_highlights (no find highlight geometry)
 //   slide_cursor_prepares_before_ack_and_publishes_after       BLOCKED: no load_slide_from_cursor (no pull/ACK cursor operation)
 //   text_selection_context_reports_run_locators                N/A (DOM): readPptxTextSelectionContext reads HTML Range/Selection; the terminal has no DOM selection
 
 // ============================================================================
-/// ref element-selection.test.ts:38-48 — a full `PptxElementContext`.
-#[test]
-#[ignore = "BLOCKED: no hit_test_slide_context / PptxElementContext projection \
-            (element-selection.ts has no Rust port)"]
-fn topmost_element_context_reports_identity_and_origin() {}
-
-/// ref element-selection.test.ts:50-58 — inverse rotation + line tolerance.
-#[test]
-#[ignore = "BLOCKED: no hit_test_slide_element (no inverse-frame point or \
-            distance-to-segment hit test)"]
-fn rotation_inversion_and_line_tolerance() {}
-
-/// ref element-selection.test.ts:60-78 — bounded, Unicode-safe element text.
-#[test]
-#[ignore = "BLOCKED: no limit_element_context / bounded element text \
-            (safeUtf16Prefix has no Rust port)"]
-fn bounded_element_text_never_splits_unicode() {}
-
-/// ref element-selection.test.ts:90-110 — chart label/value context text.
-#[test]
-#[ignore = "BLOCKED: no bounded_chart_context_text projection"]
-fn chart_labels_stream_into_bounded_context_text() {}
-
-/// ref find.test.ts:19-27 — cross-run matches + per-slide highlights.
-#[test]
-#[ignore = "BLOCKED: no PptxFindController / UnitFindController (run-level find index)"]
-fn find_maps_matches_and_highlights_to_slides() {}
-
-/// ref find.test.ts:29-38 — a match may not cross a table-cell boundary.
-#[test]
-#[ignore = "BLOCKED: no PptxFindController (cross-container match rejection)"]
-fn find_rejects_matches_crossing_table_cells() {}
-
 /// ref find-highlight-layer.test.ts:72-100 — highlight box at the slice offset.
 #[test]
 #[ignore = "BLOCKED: no paint_find_highlights (no find highlight geometry)"]

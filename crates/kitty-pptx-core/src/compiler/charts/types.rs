@@ -46,6 +46,7 @@ impl ChartFamily {
                 | ChartFamily::Line
                 | ChartFamily::Area
                 | ChartFamily::StackedArea
+                | ChartFamily::Bubble
         )
     }
 
@@ -79,6 +80,7 @@ impl ChartFamily {
                 | ChartFamily::StackedArea
                 | ChartFamily::Pie
                 | ChartFamily::Doughnut
+                | ChartFamily::Bubble
         )
     }
 

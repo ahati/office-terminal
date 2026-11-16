@@ -12,20 +12,12 @@
 // into the compiled test file as soon as the named API lands.
 //
 // Missing API per blocked case:
-//   cfb_containers_are_rejected_with_a_typed_code              BLOCKED: no assert_not_cfb_container (pptx-parser reports a CFB payload as ParseError::ArchiveError; ParseError::PasswordProtected is never produced)
 //   encrypted_decks_require_the_right_password                 BLOCKED: no decrypt_ooxml (no [MS-OFFCRYPTO] Agile decryption)
 //   preflight_unions_fonts_across_slides                       BLOCKED: no PresentationPreflightBuilder / collect_deck_fonts (no deck-level font union or structural projection)
 //   unreadable_media_degrades_with_a_warning                   BLOCKED: WarningEvent::MediaFailed is never emitted by the compiler
 //   a_hanging_worker_init_times_out                            BLOCKED: no worker init timeout (WorkerPool spawns OS threads with no hang bound)
 
 // ============================================================================
-/// ref presentation-cfb-guard.test.ts:12-28 — a CFB container is rejected with a
-/// typed `encrypted` / `legacy-binary-format` / `not-ooxml` code.
-#[test]
-#[ignore = "BLOCKED: no assert_not_cfb_container (pptx-parser reports a CFB payload as \
-            ParseError::ArchiveError; ParseError::PasswordProtected is never produced)"]
-fn cfb_containers_are_rejected_with_a_typed_code() {}
-
 /// ref presentation-decrypt.test.ts:19-49 — wrong/absent password handling.
 #[test]
 #[ignore = "BLOCKED: no decrypt_ooxml (no [MS-OFFCRYPTO] Agile decryption)"]

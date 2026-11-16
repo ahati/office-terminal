@@ -70,8 +70,10 @@ pub fn compile_lines(
         ));
 
         // 2. Draw point markers
-        let show_markers = s.show_marker.unwrap_or(true);
-        let marker_r = 3.5 * 12700.0; // 3.5 pt
+        let symbol = s.marker_symbol.as_deref().unwrap_or("circle").to_lowercase();
+        let show_markers = s.show_marker.unwrap_or(true) && symbol != "none";
+        let marker_size_pt = s.marker_size.unwrap_or(5.0) as f32;
+        let marker_r = (marker_size_pt * 12700.0 / 2.0).max(12700.0);
         let marker_color = resolve_series_color(s_idx, s);
 
         if show_markers {
@@ -86,13 +88,38 @@ pub fn compile_lines(
             };
 
             for &(px, py, _) in &points {
-                let mut marker_segs = Vec::new();
-                marker_segs.push(PathSegment::MoveTo {
-                    x: px + marker_r,
-                    y: py,
-                });
-                decompose_arc_to_cubic(px, py, marker_r, marker_r, 0.0, 360.0, &mut marker_segs);
-                marker_segs.push(PathSegment::Close);
+                let marker_segs = match symbol.as_str() {
+                    "square" => vec![
+                        PathSegment::MoveTo { x: px - marker_r, y: py - marker_r },
+                        PathSegment::LineTo { x: px + marker_r, y: py - marker_r },
+                        PathSegment::LineTo { x: px + marker_r, y: py + marker_r },
+                        PathSegment::LineTo { x: px - marker_r, y: py + marker_r },
+                        PathSegment::Close,
+                    ],
+                    "diamond" => vec![
+                        PathSegment::MoveTo { x: px, y: py - marker_r },
+                        PathSegment::LineTo { x: px + marker_r, y: py },
+                        PathSegment::LineTo { x: px, y: py + marker_r },
+                        PathSegment::LineTo { x: px - marker_r, y: py },
+                        PathSegment::Close,
+                    ],
+                    "triangle" => vec![
+                        PathSegment::MoveTo { x: px, y: py - marker_r },
+                        PathSegment::LineTo { x: px + marker_r, y: py + marker_r },
+                        PathSegment::LineTo { x: px - marker_r, y: py + marker_r },
+                        PathSegment::Close,
+                    ],
+                    _ => {
+                        let mut segs = Vec::with_capacity(6);
+                        segs.push(PathSegment::MoveTo {
+                            x: px + marker_r,
+                            y: py,
+                        });
+                        decompose_arc_to_cubic(px, py, marker_r, marker_r, 0.0, 360.0, &mut segs);
+                        segs.push(PathSegment::Close);
+                        segs
+                    }
+                };
 
                 let marker_path = VectorPath::new(marker_segs, FillRule::NonZero);
                 commands.push(VectorCommand::draw_path(

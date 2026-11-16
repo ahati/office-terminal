@@ -45,7 +45,8 @@ use kitty_pptx_core::loader::{
     SizeHint, Source,
 };
 use kitty_pptx_core::{
-    DefaultRenderPipeline, DefaultSlideCompiler, RenderError, SlideCompiler, TinySkiaRasterizer,
+    DefaultRenderPipeline, DefaultSlideCompiler, ParseError, RenderError, SlideCompiler,
+    TinySkiaRasterizer,
 };
 use zip::write::SimpleFileOptions;
 
@@ -562,4 +563,32 @@ fn deck_reload_clears_latched_failures() {
         "a reload drops the stale failure"
     );
     assert!(matches!(pipeline.entry(1), PipelineEntry::NotLoaded));
+}
+
+fn cfb_with(stream: &str) -> Vec<u8> {
+    let mut bytes = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+    bytes.extend([0u8; 512]);
+    bytes.extend(stream.encode_utf16().flat_map(|u| u.to_le_bytes()));
+    bytes
+}
+
+/// ref presentation-cfb-guard.test.ts:12-28 — a CFB container is rejected with a typed code.
+#[test]
+fn cfb_containers_are_rejected_with_a_typed_code() {
+    let loader = DefaultPresentationLoader;
+    let enc = match loader.load(Source::Bytes(cfb_with("EncryptedPackage"))) {
+        Err(e) => e,
+        Ok(_) => panic!("expected encrypted error"),
+    };
+    assert!(matches!(enc, ParseError::PasswordProtected));
+    let leg = match loader.load(Source::Bytes(cfb_with("PowerPoint Document"))) {
+        Err(e) => e,
+        Ok(_) => panic!("expected legacy error"),
+    };
+    assert!(matches!(leg, ParseError::ArchiveError(ref m) if m.contains("legacy binary PowerPoint")));
+    let unk = match loader.load(Source::Bytes(cfb_with("Unknown"))) {
+        Err(e) => e,
+        Ok(_) => panic!("expected unknown error"),
+    };
+    assert!(matches!(unk, ParseError::ArchiveError(ref m) if m.contains("not an OOXML package")));
 }

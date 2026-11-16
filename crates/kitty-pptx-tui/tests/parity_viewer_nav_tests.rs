@@ -34,22 +34,23 @@ const SLIDE_H: i64 = 6_858_000;
 
 /// Slide `index` with `part` and an optional shape hyperlink (`link` + `action`).
 fn slide(index: usize, hidden: bool, link: Option<&str>, action: Option<&str>) -> Slide {
+    slide_full(index, hidden, link, action, None)
+}
+
+fn slide_full(
+    index: usize, hidden: bool, link: Option<&str>, action: Option<&str>, text: Option<&str>,
+) -> Slide {
     let mut shape = serde_json::json!({
-        "type": "shape",
-        "x": 0,
-        "y": 0,
-        "width": 100_000,
-        "height": 100_000,
-        "rotation": 0.0,
-        "flipH": false,
-        "flipV": false,
-        "geometry": "rect"
+        "type": "shape", "x": 0, "y": 0, "width": 100_000, "height": 100_000,
+        "rotation": 0.0, "flipH": false, "flipV": false, "geometry": "rect"
     });
-    if let Some(link) = link {
-        shape["hyperlink"] = serde_json::Value::String(link.to_string());
-    }
-    if let Some(action) = action {
-        shape["hyperlinkAction"] = serde_json::Value::String(action.to_string());
+    if let Some(link) = link { shape["hyperlink"] = link.into(); }
+    if let Some(action) = action { shape["hyperlinkAction"] = action.into(); }
+    if let Some(text) = text {
+        let body_json = format!(
+            r#"{{"verticalAnchor":"t","defaultFontSize":20,"defaultBold":null,"defaultItalic":null,"lIns":0,"rIns":0,"tIns":0,"bIns":0,"wrap":"square","vert":"horz","autoFit":"none","paragraphs":[{{"alignment":"l","marL":0,"marR":0,"indent":0,"spaceBefore":null,"spaceAfter":null,"spaceLine":null,"lvl":0,"bullet":{{"type":"none"}},"defFontSize":null,"defColor":null,"defBold":null,"defItalic":null,"defFontFamily":null,"tabStops":[],"defTabSz":null,"rtl":false,"eaLnBrk":true,"fontAlgn":null,"runs":[{{"type":"text","text":"{text}","bold":null,"italic":null,"underline":false,"strikethrough":false,"strikeDouble":false,"hyperlinkUsesTextFill":false,"fieldType":null,"fontSize":20,"color":"000000","fontFamily":"Arial"}}]}}]}}"#
+        );
+        shape["textBody"] = serde_json::from_str(&body_json).unwrap();
     }
     serde_json::from_value(serde_json::json!({
         "index": index,
@@ -512,6 +513,28 @@ fn search_never_matches_a_hidden_slide_under_skip() {
     state.set_hidden_slide_mode(HiddenSlideMode::Show);
     state.open_search();
     assert_eq!(state.search_state().matched_indices(), &[0, 1, 2, 3]);
+}
+
+/// "findText/findNext skip hidden slides" — run-level find excludes hidden slides under skip.
+/// ref viewer-hidden-skip.test.ts:95-111
+#[test]
+fn find_text_excludes_hidden_slides() {
+    let deck = vec![
+        slide_full(0, false, None, None, Some("target")),
+        slide_full(1, true, None, None, Some("target")),
+    ];
+    let mut state = skip_presentation(deck);
+    state.sync_find_index();
+    state.open_find();
+    for ch in "target".chars() { state.find_push_char(ch); }
+    assert_eq!(state.find_state().matches().len(), 1);
+    assert_eq!(state.find_state().matches()[0].slide, 0);
+
+    state.close_find();
+    state.set_hidden_slide_mode(HiddenSlideMode::Show);
+    state.open_find();
+    for ch in "target".chars() { state.find_push_char(ch); }
+    assert_eq!(state.find_state().matches().len(), 2);
 }
 
 /// "setScale clamps to [zoomMin, zoomMax]". ref viewer-zoom-contract.test.ts:58-63

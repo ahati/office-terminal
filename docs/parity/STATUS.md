@@ -95,14 +95,19 @@ the current tree actually contains.
   now ratchet at −0.05 cell-pass / +2.0 global-diff and fail on regression.
   `UPDATE_EXTERNAL_SCORES=1` regenerates the baseline.
 - **L0 ledger guard** — `parity_ledger_tests.rs`: zero `#[ignore]`,
-  pending-archive hygiene and ledger arithmetic. Stale bullet-indent, shapes-a
-  and N/A archives were deleted; the stacked/warp/eavert archives now contain
-  only the residual blocked cases.
+  pending-archive hygiene, ledger row arithmetic, per-batch `pass == #[test]`
+  counts, exact match of BLOCKED cases against the pending archives allowlist (19 total),
+  and validation of `scores/external.json`. Stale archives for find, selection, CFB,
+  and stacked text were deleted; all 19 residual blocked cases are explicitly justified.
+- **P5 bubble & bubble3D charts (#17)** — `compiler/charts/bubble.rs`: Bubble and
+  Bubble3D chart compiler with 3-layer radial gradient shading, negative bubble
+  handling, scale suppression, and marker fills.
+- **T8/T9 font features & stacked text (#18)** — full OpenType `vert`/`vrt2` feature
+  substitution and stacked text layout with bracket rotation and marker prefix cells.
 
 ## Still open
 
-T8/T9 residual cases (full face-feature tables), the full S7a/S7b multi-light
-rig/shading and rear-plane bevel compositor, P5 (bubble3D/ChartEx/marker
-fills), and a per-reference-case re-derivation of `COVERAGE.md` (the summary
-table is still the wave-2/3 snapshot). The external corpus itself is now
-verified: 418 decks, 4/4 strict, 543 slide metrics recorded.
+The full S7a/S7b multi-light rig/shading and rear-plane bevel compositor (#15/#16),
+and the 19 residual owner-assigned blocked cases tracked in `COVERAGE.md` and
+`crates/kitty-pptx-core/tests/parity/pending/*.txt`. The external corpus itself is
+verified: 418 decks, 4/4 strict, 543 slide metrics recorded in `scores/external.json`.

@@ -176,6 +176,7 @@ impl PresentationState {
         if previous.is_skip() || mode.is_skip() {
             self.sync_search_entries();
             self.search.clear_matches();
+            self.sync_find_index();
         }
         let target = if self.total_slides == 0 {
             0
