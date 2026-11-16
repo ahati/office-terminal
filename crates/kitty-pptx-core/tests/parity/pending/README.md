@@ -20,31 +20,19 @@ per-batch reports in `tests/parity/coverage/*.md` still record every BLOCKED cas
 reference `it()`, and the symbol that would unblock it. The archive header repeats the
 missing API per function, so the ledger row and the code stay in sync.
 
-Counts: 86 blocked cases are archived here (85 in the `core` batch targets, 1 in
-`parity_text_tests`), plus 1 in the TUI archive — 87 in total. Every compiled test in
-`crates/kitty-pptx-core/tests` runs.
+Counts: 23 residual cases (19 BLOCKED, 4 N/A) are archived here across 5 files;
+the TUI archive is empty (0 pending). Every compiled test in `crates/kitty-pptx-core/tests` runs.
 
-| archive | blocked cases |
-| :--- | --: |
-| `parity_playwright_tests.rs.txt` | 11 |
-| `parity_shapes_a_tests.rs.txt` | 1 |
-| `parity_text_box_b_bullet_image_tests.rs.txt` | 4 |
-| `parity_text_box_b_eavert_tests.rs.txt` | 13 (+6 scaffolding helpers) |
-| `parity_text_box_b_stacked_tests.rs.txt` | 25 |
-| `parity_text_box_b_warp_tests.rs.txt` | 14 |
-| `parity_text_tests.rs.txt` | 1 |
-| `parity_viewer_lifecycle_tests.rs.txt` | 5 |
-| `parity_viewer_selection_tests.rs.txt` | 9 |
-| `parity_viewer_worker_tests.rs.txt` | 3 |
-| **total** | **86** |
+| archive | cases | BLOCKED | N/A |
+| :--- | --: | --: | --: |
+| `parity_playwright_tests.rs.txt` | 11 | 9 | 2 |
+| `parity_text_box_b_warp_tests.rs.txt` | 2 | 2 | 0 |
+| `parity_viewer_lifecycle_tests.rs.txt` | 4 | 4 | 0 |
+| `parity_viewer_selection_tests.rs.txt` | 3 | 2 | 1 |
+| `parity_viewer_worker_tests.rs.txt` | 3 | 2 | 1 |
+| **total** | **23** | **19** | **4** |
 
-The TUI crate has its own archive at
-`crates/kitty-pptx-tui/tests/parity/pending/parity_viewer_nav_tests.rs.txt` (1 case,
-re-scoped to V2/wave 4). `parity_viewer_nav_tests.rs.txt` was reinstated in wave 3
-(the hidden-slide helpers, zoom clamp/change gate landed; the `fitWidth` DOM-container
-case is N/A for a terminal presenter).
-
-## Wave 3: reinstating a case
+## Wave 3 / Wave 5: reinstating a case
 
 When the named API lands:
 
@@ -56,6 +44,3 @@ When the named API lands:
    `cargo test -p kitty-pptx-core --test <target>`.
 4. Move the ledger row in `tests/parity/COVERAGE.md` and the per-batch report from BLOCKED
    to EXACT/BEHAVIOURAL (adjust the test/pass counts by the same delta).
-
-Helpers archived next to their cases (for example the `east_asian_default` stubs or the
-line-end `shaft_ends` recorder in the `text-box-b` archives) come back with them.

@@ -106,7 +106,7 @@ impl FindState {
 
 impl PresentationState {
     /// Rebuild the content-find index from the current slides and hidden mask.
-    pub(crate) fn sync_find_index(&mut self) {
+    pub fn sync_find_index(&mut self) {
         let hidden: Vec<bool> = (0..self.total_slides)
             .map(|index| self.nav.is_hidden(index))
             .collect();

@@ -140,12 +140,11 @@ fn warning(events: &[WarningEvent]) -> (&'static str, FidelityClass) {
     }
 }
 
-/// The six families without a compiler must never fall back to columns.
+/// The families without a compiler must never fall back to columns.
 #[test]
 fn unsupported_families_paint_the_placeholder() {
     let cases = [
         ("scatter", ChartFamily::Scatter),
-        ("bubble", ChartFamily::Bubble),
         ("radar", ChartFamily::Radar),
         ("stock", ChartFamily::Stock),
         ("surface", ChartFamily::Surface),
@@ -182,7 +181,6 @@ fn unsupported_families_paint_the_placeholder() {
 fn unsupported_family_warning_is_emitted_with_the_family_identity() {
     for (chart_type, family) in [
         ("scatter", ChartFamily::Scatter),
-        ("bubble", ChartFamily::Bubble),
         ("radar", ChartFamily::Radar),
         ("stock", ChartFamily::Stock),
         ("surface", ChartFamily::Surface),
@@ -200,6 +198,18 @@ fn unsupported_family_warning_is_emitted_with_the_family_identity() {
         assert_eq!(feature, "chart_family_unsupported", "{}", family.label());
         assert_eq!(class, FidelityClass::Placeholder, "{}", family.label());
     }
+}
+
+#[test]
+fn bubble_family_compiles_series_geometry() {
+    let mut model = chart("bubble");
+    model.series[0].bubble_sizes = Some(vec![Some(50.0), Some(100.0)]);
+    let (commands, events) = compile(model);
+    assert!(events.is_empty(), "supported bubble chart emits no placeholder warnings");
+    assert!(
+        commands.iter().any(|c| matches!(c, VectorCommand::DrawPath { .. })),
+        "bubble chart must emit vector paths"
+    );
 }
 
 #[test]
