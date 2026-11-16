@@ -59,7 +59,7 @@ pub struct SlideWidget<'a> {
 ### 3.1 Direct Placement Rendering
 - `SlideWidget::render` computes the aspect-preserving fitted rectangle inside the available area and clears those cells in `ratatui::buffer::Buffer`.
 - Immediately following `terminal.draw()`, the TUI triggers `driver.present(id, Placement::Cells(rect))` to position the Kitty image over the blank terminal region.
-- Any active overlay (e.g. `HelpModal` or `TocSearchModal`) is drawn after the slide and composites above the image because Kitty placement uses `z=-1`.
+- Any active overlay (e.g. `HelpModal` or `TocSearchModal`) is drawn after the slide and composites above the image because the placement z-index is below `INT32_MIN/2`, which Kitty and Ghostty draw beneath non-default cell backgrounds.
 - The layout is recomputed on every resize from the deck's original aspect ratio, so slides always best-fit without stretching.
 
 ---

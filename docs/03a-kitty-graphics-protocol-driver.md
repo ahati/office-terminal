@@ -58,10 +58,10 @@ If the entire payload fits within 4096 characters, it is emitted in a single seq
 
 The TUI reserves a rectangular cell region with blank cells and the driver presents the image there:
 ```
-\x1b[<row+1>;<col+1>H\x1b_Ga=p,i=<id>,p=1,c=<cols>,r=<rows>,z=-1,q=2\x1b\
+\x1b[<row+1>;<col+1>H\x1b_Ga=p,i=<id>,p=1,c=<cols>,r=<rows>,z=-1073741825,q=2\x1b\
 ```
 - `c`/`r` scale the image to the fitted slide rectangle.
-- `z=-1` keeps the image behind text, so help modals, warning drawers, and the presenter UI composite above it.
+- `z` is `INT32_MIN/2 - 1` (`-1073741825`). Kitty draws `INT32_MIN/2 <= z < 0` images *between* cell backgrounds and text, so `z=-1` covers an overlay's opaque fill and leaves only its glyphs visible on Kitty and Ghostty. Values strictly below `INT32_MIN/2` are drawn under non-default cell backgrounds, keeping help modals, warning drawers, and the presenter UI opaque. The Alacritty fork collapses every negative `z` into that same behind-the-cell-pass layer, so one value behaves identically on Kitty, Ghostty and the fork.
 - Repositioning uses the same sequence with a new cursor position and cell rectangle.
 - Unicode placeholder cells (`U=1`, `U+10EEEE`) are not used.
 
@@ -98,7 +98,7 @@ The driver partitions the terminal's image namespace into disjoint ranges so tha
 | Method | Escape Sequence Form | Latency Cost |
 | :--- | :--- | :--- |
 | `stage(bmp, id)` | `\x1b_Ga=t,f=100,i=<id>,m=...;...\x1b\` | Idle time (amortized) |
-| `present(id, rect)` | Cursor position + `a=p,c=...,r=...,z=-1` | $< 16\text{ ms}$ ($O(1)$) |
+| `present(id, rect)` | Cursor position + `a=p,c=...,r=...,z=-1073741825` | $< 16\text{ ms}$ ($O(1)$) |
 | `reposition(id, rect)` | Re-emit `a=p` at the new cell rect | $< 5\text{ ms}$ ($O(1)$) |
 | `release(id)` | `\x1b_Ga=d,d=i,i=<id>\x1b\` | Instantaneous |
 | `release_all()` | `\x1b_Ga=d,d=a\x1b\` | Single sequence |

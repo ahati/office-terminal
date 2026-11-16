@@ -45,7 +45,8 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
     let key_style = Style::default().fg(Color::Green).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::White);
     // Base style for every cell the paragraph covers: an opaque background so
-    // the z=-1 slide image behind the text never bleeds through the overlay.
+    // the slide image, placed below the terminal's cell-background layer,
+    // never bleeds through the overlay.
     // Span styles patch on top (fg-only spans keep this bg).
     let body_style = Style::default().bg(Color::Black);
 
