@@ -67,3 +67,12 @@ resvg = "0.44"
 # Only the crates carrying local fixes are kept in-tree (PRD 13 §2.2).
 metafile-dib = { path = "crates/metafile-dib" }
 metafile-emfplus = { path = "crates/metafile-emfplus" }
+
+[profile.dev]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+codegen-units = 16
+
