@@ -214,7 +214,11 @@ impl GraphicsSyncer {
 
         let mut stages_left = MAX_THUMBNAIL_STAGES_PER_FRAME;
         for (slide, rect) in visible {
-            match pipeline.entry_at(slide, canvas_target) {
+            let entry = match pipeline.entry_at(slide, canvas_target) {
+                PipelineEntry::Ready { bitmap, staged } => PipelineEntry::Ready { bitmap, staged },
+                _ => pipeline.entry(slide),
+            };
+            match entry {
                 PipelineEntry::Ready { bitmap, .. } => {
                     state.clear_render_failure_for(slide);
 

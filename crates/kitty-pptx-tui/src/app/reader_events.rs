@@ -138,7 +138,7 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
         }
 
         // Focus & Sync
-        KeyCode::Tab | KeyCode::BackTab => {
+        KeyCode::BackTab | KeyCode::Char('w') | KeyCode::Char('\\') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.toggle_focus();
             }
@@ -156,37 +156,37 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             if let Some(reader) = state.reader_state_mut() {
                 reader.cycle_fit();
             }
-            AppAction::ScaleChanged
+            AppAction::Redraw
         }
         KeyCode::Char('+') | KeyCode::Char('=') if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.adjust_zoom(1.1);
             }
-            AppAction::ScaleChanged
+            AppAction::Redraw
         }
         KeyCode::Char('+') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.adjust_zoom(1.1);
             }
-            AppAction::ScaleChanged
+            AppAction::Redraw
         }
         KeyCode::Char('-') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.adjust_zoom(0.9);
             }
-            AppAction::ScaleChanged
+            AppAction::Redraw
         }
         KeyCode::Char('=') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.reset_view();
             }
-            AppAction::ScaleChanged
+            AppAction::Redraw
         }
         KeyCode::Char('Z') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.apply_zoom_all();
             }
-            AppAction::ScaleChanged
+            AppAction::Redraw
         }
 
         // Layout toggles
@@ -273,7 +273,8 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             state.toggle_blank(crate::app::state::BlankMode::Black);
             AppAction::Redraw
         }
-        KeyCode::Char('t') => {
+        KeyCode::Tab | KeyCode::Char('t') | KeyCode::Char('s') => {
+            state.clear_digits();
             state.toggle_sorter();
             AppAction::Redraw
         }

@@ -274,6 +274,18 @@ impl PresentationApp {
 
     /// Base target for the terminal grid, multiplied by the latched zoom.
     fn recompute_target(&mut self, cols: u16, rows: u16) {
+        if self.state.reader_state().is_some() {
+            let (slide_width, slide_height) = self.state.slide_dimensions();
+            let slide_aspect = (slide_width as f64 / slide_height.max(1) as f64).max(0.1);
+            let target_w = 2560u32;
+            let target_h = ((target_w as f64 / slide_aspect).round() as u32).clamp(1024, 8192);
+            self.current_target = RenderTargetSpec {
+                width_px: target_w,
+                height_px: target_h,
+            };
+            return;
+        }
+
         // Pixel target based on live terminal dimensions and slide aspect ratio.
         let (slide_width, slide_height) = self.state.slide_dimensions();
         let slide_aspect = slide_width as f64 / slide_height.max(1) as f64;

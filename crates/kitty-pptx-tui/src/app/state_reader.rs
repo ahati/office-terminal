@@ -10,6 +10,11 @@ use crate::app::state::PresentationState;
 impl PresentationState {
     /// Enable document reader mode with total page count and page dimensions.
     pub fn enable_reader_mode(&mut self, total_pages: usize, page_sizes: Vec<(f32, f32)>) {
+        if let Some(&(w_pt, h_pt)) = page_sizes.first() {
+            let w_emu = (w_pt * 12_700.0).round() as i64;
+            let h_emu = (h_pt * 12_700.0).round() as i64;
+            self.set_slide_dimensions(w_emu, h_emu);
+        }
         self.reader_state = Some(ReaderState::new(total_pages, page_sizes));
         self.mode = AppMode::Reader;
         self.previous_mode = AppMode::Reader;

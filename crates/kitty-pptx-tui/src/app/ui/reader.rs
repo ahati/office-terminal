@@ -49,20 +49,31 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
         let (pt_w, pt_h) = reader.page_size_pt(left_page);
         let ar = (pt_w / pt_h).max(0.1);
 
-        let pane_w_px = slot_w_px * view.zoom;
-        let pane_h_px = match view.fit {
-            ReaderFitMode::FitWidth => pane_w_px / ar,
-            ReaderFitMode::FitPage => viewport_h_px.min(pane_w_px / ar),
+        let (base_w_px, base_h_px) = match view.fit {
+            ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
+            ReaderFitMode::FitPage => {
+                let h = viewport_h_px.min(slot_w_px / ar);
+                let w = h * ar;
+                (w, h)
+            }
         };
 
-        let cols = ((pane_w_px / cell_w_px).round() as u16).min(viewport_area.width);
-        let rows = ((pane_h_px / cell_h_px).round() as u16).min(viewport_area.height);
+        let pane_w_px = base_w_px * view.zoom;
+        let pane_h_px = base_h_px * view.zoom;
+
+        let left_max_cols = if is_spread {
+            (viewport_area.width.saturating_sub(gutter_cols)) / 2
+        } else {
+            viewport_area.width
+        };
+        let cols = ((pane_w_px / cell_w_px).round() as u16).clamp(1, left_max_cols);
+        let rows = ((pane_h_px / cell_h_px).round() as u16).clamp(1, viewport_area.height);
 
         let cell_rect = CellRect {
             row: viewport_area.y,
             col: viewport_area.x,
-            rows: rows.max(1),
-            cols: cols.max(1),
+            rows,
+            cols,
         };
 
         let target_w = 2560u32;
@@ -82,10 +93,21 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
         let scroll_x = view.scroll_x.min(max_scroll_x);
         let scroll_y = view.scroll_y.min(max_scroll_y);
 
-        let src_w = ((screen_w_px * scale).round() as u32).min(target_w);
-        let src_h = ((screen_h_px * scale).round() as u32).min(target_h);
-        let src_x = ((scroll_x as f32 * scale).round() as u32).min(target_w.saturating_sub(src_w));
-        let src_y = ((scroll_y as f32 * scale).round() as u32).min(target_h.saturating_sub(src_h));
+        let (src_w, src_x) = if max_scroll_x == 0 {
+            (target_w, 0)
+        } else {
+            let w = ((screen_w_px * scale).round() as u32).min(target_w);
+            let x = ((scroll_x as f32 * scale).round() as u32).min(target_w.saturating_sub(w));
+            (w, x)
+        };
+
+        let (src_h, src_y) = if max_scroll_y == 0 {
+            (target_h, 0)
+        } else {
+            let h = ((screen_h_px * scale).round() as u32).min(target_h);
+            let y = ((scroll_y as f32 * scale).round() as u32).min(target_h.saturating_sub(h));
+            (h, y)
+        };
 
         let pixel_src = PixelRect {
             x: src_x,
@@ -94,9 +116,26 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
             height: src_h.max(1),
         };
 
+        let left_id = match reader.layout {
+            ReaderLayout::Single => {
+                if left_page.is_multiple_of(2) {
+                    ImageId(1)
+                } else {
+                    ImageId(3)
+                }
+            }
+            ReaderLayout::Spread => {
+                if (left_page / 2).is_multiple_of(2) {
+                    ImageId(1)
+                } else {
+                    ImageId(3)
+                }
+            }
+        };
+
         placements.push(ReaderSlotPlacement {
             page: left_page,
-            id: ImageId(1),
+            id: left_id,
             cell_rect,
             pixel_src,
             page_target,
@@ -123,11 +162,17 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
         let (pt_w, pt_h) = reader.page_size_pt(right_page);
         let ar = (pt_w / pt_h).max(0.1);
 
-        let pane_w_px = slot_w_px * view.zoom;
-        let pane_h_px = match view.fit {
-            ReaderFitMode::FitWidth => pane_w_px / ar,
-            ReaderFitMode::FitPage => viewport_h_px.min(pane_w_px / ar),
+        let (base_w_px, base_h_px) = match view.fit {
+            ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
+            ReaderFitMode::FitPage => {
+                let h = viewport_h_px.min(slot_w_px / ar);
+                let w = h * ar;
+                (w, h)
+            }
         };
+
+        let pane_w_px = base_w_px * view.zoom;
+        let pane_h_px = base_h_px * view.zoom;
 
         let left_cols = placements[0].cell_rect.cols;
         let start_col = viewport_area.x + left_cols + gutter_cols;
@@ -135,14 +180,14 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
         if start_col < viewport_area.right() {
             let max_avail_cols = viewport_area.right().saturating_sub(start_col);
             let full_cols = (pane_w_px / cell_w_px).round() as u16;
-            let cols = full_cols.min(max_avail_cols);
-            let rows = ((pane_h_px / cell_h_px).round() as u16).min(viewport_area.height);
+            let cols = full_cols.min(max_avail_cols).clamp(1, max_avail_cols);
+            let rows = ((pane_h_px / cell_h_px).round() as u16).clamp(1, viewport_area.height);
 
             let cell_rect = CellRect {
                 row: viewport_area.y,
                 col: start_col,
-                rows: rows.max(1),
-                cols: cols.max(1),
+                rows,
+                cols,
             };
 
             let target_w = 2560u32;
@@ -162,10 +207,21 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
             let scroll_x = view.scroll_x.min(max_scroll_x);
             let scroll_y = view.scroll_y.min(max_scroll_y);
 
-            let src_w = ((screen_w_px * scale).round() as u32).min(target_w);
-            let src_h = ((screen_h_px * scale).round() as u32).min(target_h);
-            let src_x = ((scroll_x as f32 * scale).round() as u32).min(target_w.saturating_sub(src_w));
-            let src_y = ((scroll_y as f32 * scale).round() as u32).min(target_h.saturating_sub(src_h));
+            let (src_w, src_x) = if max_scroll_x == 0 {
+                (target_w, 0)
+            } else {
+                let w = ((screen_w_px * scale).round() as u32).min(target_w);
+                let x = ((scroll_x as f32 * scale).round() as u32).min(target_w.saturating_sub(w));
+                (w, x)
+            };
+
+            let (src_h, src_y) = if max_scroll_y == 0 {
+                (target_h, 0)
+            } else {
+                let h = ((screen_h_px * scale).round() as u32).min(target_h);
+                let y = ((scroll_y as f32 * scale).round() as u32).min(target_h.saturating_sub(h));
+                (h, y)
+            };
 
             let pixel_src = PixelRect {
                 x: src_x,
@@ -174,9 +230,15 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                 height: src_h.max(1),
             };
 
+            let right_id = if (right_page / 2).is_multiple_of(2) {
+                ImageId(2)
+            } else {
+                ImageId(4)
+            };
+
             placements.push(ReaderSlotPlacement {
                 page: right_page,
-                id: ImageId(2),
+                id: right_id,
                 cell_rect,
                 pixel_src,
                 page_target,
