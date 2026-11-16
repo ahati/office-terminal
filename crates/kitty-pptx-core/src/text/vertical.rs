@@ -220,31 +220,43 @@ pub struct EaVertPiece {
     pub measured: String,
 }
 
+fn is_tr_long_mark(ch: char) -> bool {
+    matches!(ch, '\u{30fc}' | '\u{301c}' | '\u{ff5e}')
+}
+
 /// Split a run into `eaVert` paint pieces (`drawEaVertRunWithCapability`,
 /// `vertical-text.ts:96-170`).
 ///
 /// Each upright cluster is its own piece (the counter-rotated cell is drawn
 /// alone); consecutive sideways clusters stay one rotated group. `has_glyph`
-/// answers whether the resolved face can draw a code point, so a vertical form
-/// is only substituted when present (`vertical-text.ts:171-183` probes the same
-/// capability).
+/// probes font-feature coverage for long marks or glyph presence for vertical
+/// presentation forms (`vertical-text.ts:118-135`).
 pub fn ea_vert_pieces(text: &str, has_glyph: impl Fn(char) -> bool) -> Vec<EaVertPiece> {
     let mut out: Vec<EaVertPiece> = Vec::new();
     let mut sideways: Option<(String, String)> = None;
     for cluster in graphemes(text) {
         let mut chars = cluster.chars();
         let first = chars.next();
-        // Substitution is glyph-only and per code point: a cluster with a
-        // combining mark keeps its authored text.
-        let substitute = match (first, chars.next()) {
-            (Some(ch), None) => vertical_form(ch).filter(|form| has_glyph(*form)),
-            _ => None,
+        let is_single = first.is_some() && chars.next().is_none();
+        let (upright, painted) = if let (true, Some(ch)) = (is_single, first) {
+            if is_tr_long_mark(ch) {
+                (has_glyph(ch), cluster.to_string())
+            } else if ch == '\u{ff1b}' {
+                (true, cluster.to_string())
+            } else if ch == '\u{ff1a}' {
+                (false, cluster.to_string())
+            } else if let Some(form) = vertical_form(ch).filter(|f| has_glyph(*f)) {
+                (true, form.to_string())
+            } else if orientation(ch) == Orient::Upright {
+                (true, cluster.to_string())
+            } else {
+                (false, cluster.to_string())
+            }
+        } else {
+            let upright = first.is_some_and(|ch| orientation(ch) == Orient::Upright);
+            (upright, cluster.to_string())
         };
-        // A substituted vertical form is already vertical, so it is drawn
-        // upright even when the authored code point would rotate
-        // (`vertical-text.ts:131` `upright = ... || bracketCp !== null`).
-        let upright =
-            substitute.is_some() || first.is_some_and(|ch| orientation(ch) == Orient::Upright);
+
         if upright {
             if let Some((painted, measured)) = sideways.take() {
                 out.push(EaVertPiece {
@@ -255,12 +267,11 @@ pub fn ea_vert_pieces(text: &str, has_glyph: impl Fn(char) -> bool) -> Vec<EaVer
             }
             out.push(EaVertPiece {
                 upright: true,
-                painted: substitute.map_or_else(|| cluster.to_string(), String::from),
+                painted,
                 measured: cluster.to_string(),
             });
             continue;
         }
-        let painted = substitute.map_or_else(|| cluster.to_string(), String::from);
         match &mut sideways {
             Some((group, source)) => {
                 group.push_str(&painted);

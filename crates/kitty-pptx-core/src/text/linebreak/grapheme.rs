@@ -85,7 +85,7 @@ fn is_ext_pict(cp: u32) -> bool {
 
 /// UAX #29 boundary before `cur`; `ri_run` counts the regional indicators ending
 /// at `prev`, `zwj_ready` records `ExtPict Extend* ZWJ` (GB11).
-fn gb_break(prev: char, cur: char, ri_run: usize, zwj_ready: bool) -> bool {
+pub(crate) fn gb_break(prev: char, cur: char, ri_run: usize, zwj_ready: bool) -> bool {
     let (p, c) = (prev as u32, cur as u32);
     if p == 0x0d && c == 0x0a {
         return false; // GB3

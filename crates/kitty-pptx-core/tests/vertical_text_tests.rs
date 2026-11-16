@@ -114,8 +114,6 @@ fn punctuation_substitutes_vertical_forms_when_present() {
         ('」', '\u{fe42}'),
         ('、', '\u{fe11}'),
         ('。', '\u{fe12}'),
-        ('ー', '\u{fe31}'),
-        ('〜', '\u{fe32}'),
     ];
     for (source, form) in pairs {
         assert_eq!(vertical_form(source), Some(form), "{source}");
@@ -130,8 +128,22 @@ fn punctuation_substitutes_vertical_forms_when_present() {
         assert_eq!(absent.len(), 1, "{source}");
         assert_eq!(absent[0].painted, source.to_string(), "{source} fallback");
     }
+    // Long marks use the OpenType vert feature rather than code-point substitution:
+    // with vert capability they stand upright with their authored cluster.
+    for mark in ['ー', '〜'] {
+        let present = ea_vert_pieces(&mark.to_string(), |_| true);
+        assert_eq!(present.len(), 1);
+        assert!(present[0].upright);
+        assert_eq!(present[0].painted, mark.to_string());
+        assert_eq!(present[0].measured, mark.to_string());
+
+        let absent = ea_vert_pieces(&mark.to_string(), |_| false);
+        assert_eq!(absent.len(), 1);
+        assert!(!absent[0].upright);
+        assert_eq!(absent[0].painted, mark.to_string());
+    }
     // A substituted vertical form is already vertical, so it stands up; with no
-    // form in the face the vo=Tr long marks keep their rotate fallback.
+    // vert feature the vo=Tr long marks keep their rotate fallback.
     for source in ["（", "、", "ー"] {
         assert!(ea_vert_pieces(source, |_| true)[0].upright, "{source}");
     }

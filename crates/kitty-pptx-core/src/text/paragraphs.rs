@@ -138,7 +138,49 @@ pub(super) fn build_paragraphs(
         }
         let mut preview_end = 0usize;
 
-        for (run_index, run) in p.runs.iter().enumerate() {
+        // Transfer leading extenders across text run seams so a grapheme cluster
+        // spanning run boundaries stays in the base run's font and style.
+        let mut normalized_runs: Vec<pptx_model::TextRun> = p.runs.clone();
+        let mut last_text_idx: Option<usize> = None;
+        for i in 0..normalized_runs.len() {
+            if let pptx_model::TextRun::Text(next) = &normalized_runs[i] {
+                if let Some(prev_idx) = last_text_idx {
+                    let prev_char = match &normalized_runs[prev_idx] {
+                        pptx_model::TextRun::Text(t) => t.text.chars().last(),
+                        _ => None,
+                    };
+                    if let Some(mut prev_char) = prev_char {
+                        let mut take_bytes = 0usize;
+                        for ch in next.text.chars() {
+                            if !crate::text::linebreak::grapheme::gb_break(prev_char, ch, 0, false) {
+                                take_bytes += ch.len_utf8();
+                                prev_char = ch;
+                            } else {
+                                break;
+                            }
+                        }
+                        if take_bytes > 0 {
+                            let extenders = next.text[..take_bytes].to_string();
+                            if let pptx_model::TextRun::Text(prev) = &mut normalized_runs[prev_idx] {
+                                prev.text.push_str(&extenders);
+                            }
+                            if let pptx_model::TextRun::Text(next) = &mut normalized_runs[i] {
+                                next.text.drain(..take_bytes);
+                            }
+                        }
+                    }
+                }
+            }
+            if let pptx_model::TextRun::Text(t) = &normalized_runs[i] {
+                if !t.text.is_empty() {
+                    last_text_idx = Some(i);
+                }
+            } else {
+                last_text_idx = None;
+            }
+        }
+
+        for (run_index, run) in normalized_runs.iter().enumerate() {
             if run_index < preview_end {
                 continue;
             }
@@ -148,7 +190,7 @@ pub(super) fn build_paragraphs(
                     font_size,
                     color,
                     ..
-                } = &p.runs[run_index]
+                } = &normalized_runs[run_index]
                 {
                     let sz_pt = font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
                     let id = measurer.push(StyleDef {
@@ -258,24 +300,17 @@ pub(super) fn build_paragraphs(
                     fallback_text,
                 } => {
                     let sz_pt = font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
-                    let params = MathParams {
-                        display: *display,
-                        font_size_pt: sz_pt,
-                        color: parse_hex_color(color.as_deref().unwrap_or("000000")),
-                        fallback: fallback_text.as_deref(),
-                    };
-                    let piece = math::layout_math(nodes, params, warning_sink);
-                    if piece.is_empty() {
-                        continue;
-                    }
-                    let width = piece.width.max(1.0);
+                    let run_color = color
+                        .as_deref()
+                        .map(parse_hex_color)
+                        .unwrap_or(default_color);
                     let id = measurer.push(StyleDef {
                         family: "Cambria Math".to_string(),
                         size_emu: sz_pt * 12700.0,
                         size_pt: sz_pt,
                         bold: false,
                         italic: false,
-                        color: default_color,
+                        color: run_color,
                         underline: false,
                         underline_style: None,
                         underline_color: None,
@@ -307,6 +342,38 @@ pub(super) fn build_paragraphs(
                             marker: None,
                         }
                     };
+                    let params = MathParams {
+                        display: *display,
+                        font_size_pt: sz_pt,
+                        color: run_color,
+                        fallback: fallback_text.as_deref(),
+                    };
+                    let piece = math::layout_math(nodes, params, warning_sink);
+                    if piece.is_empty() {
+                        if let Some(fallback) = fallback_text.as_deref().filter(|t| !t.is_empty()) {
+                            items.push(BreakItem::Text {
+                                text: fallback.to_string(),
+                                style: id,
+                            });
+                        } else if !nodes.is_empty() {
+                            items.push(BreakItem::Text {
+                                text: "Equation unavailable".to_string(),
+                                style: id,
+                            });
+                        } else if *display {
+                            if !items.is_empty() {
+                                let flushed = std::mem::take(&mut items);
+                                let flushed_math = std::mem::take(&mut math_pieces);
+                                out.push(layout(flushed, flushed_math, p.alignment.clone()));
+                            }
+                            let equation_items = vec![BreakItem::Object { width: 0.0, style: id }];
+                            out.push(layout(equation_items, Vec::new(), "ctr".to_string()));
+                        } else {
+                            items.push(BreakItem::Object { width: 0.0, style: id });
+                        }
+                        continue;
+                    }
+                    let width = piece.width.max(1.0);
                     if *display {
                         // Display equations are their own centred block
                         // (renderer.ts:5087 `m:oMathPara`).

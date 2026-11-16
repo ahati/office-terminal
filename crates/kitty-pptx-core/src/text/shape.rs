@@ -229,3 +229,39 @@ fn face_ascent_share(db: &fontdb::Database, family: &str, bold: bool, italic: bo
     });
     share
 }
+
+/// Run a closure over the raw face data of `family` at the given weight/style.
+pub(crate) fn with_face_data<R>(
+    family: &str,
+    bold: bool,
+    italic: bool,
+    f: impl FnOnce(&[u8], u32) -> R,
+) -> Option<R> {
+    FACE_DB.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let db = slot.get_or_insert_with(|| {
+            let mut db = fontdb::Database::new();
+            db.load_system_fonts();
+            super::fonts::install_into_db(&mut db);
+            db
+        });
+        let weight = if bold {
+            fontdb::Weight::BOLD
+        } else {
+            fontdb::Weight::NORMAL
+        };
+        let style = if italic {
+            fontdb::Style::Italic
+        } else {
+            fontdb::Style::Normal
+        };
+        let query = fontdb::Query {
+            families: &[fontdb::Family::Name(family)],
+            weight,
+            stretch: fontdb::Stretch::Normal,
+            style,
+        };
+        let id = db.query(&query)?;
+        db.with_face_data(id, f)
+    })
+}

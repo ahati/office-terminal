@@ -497,6 +497,9 @@ fn stacked_picture_markers_keep_their_source_aspect() {
 #[path = "text_box_b_support/stacked_decor_cases.rs"]
 mod stacked_decor_cases;
 
+#[path = "text_box_b_support/stacked_feature_cases.rs"]
+mod stacked_feature_cases;
+
 fn math_fallback_body(vert: &str) -> pptx_model::TextBody {
     let math = |text: &str| {
         json!({

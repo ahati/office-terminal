@@ -410,15 +410,17 @@ fn emit_ea_vert(
     let baseline = baseline_y + def.baseline_shift_emu();
     let mut pen = 0.0f32;
     for piece in vertical::ea_vert_pieces(text, |ch| has_glyph(measurer, style, ch)) {
-        let advance = measurer.advance(&piece.measured, style);
+        let measure_advance = measurer.advance(&piece.measured, style);
+        let cell_pitch = measure_advance
+            + def.letter_spacing_emu * (piece.measured.chars().count() as f32);
         if piece.upright {
             // One run per upright cell: both paint backends place a run from its
             // first glyph origin, so a column cannot share a run. The reference
             // likewise fills one code point at a time (`vertical-text.ts:143`).
             let (glyph_x, glyph_y) = upper.frame.upright_origin(
-                x + pen + advance * 0.5,
+                x + pen + cell_pitch * 0.5,
                 baseline,
-                advance,
+                measure_advance,
                 centre_above,
             );
             emit_run_at(
@@ -432,7 +434,7 @@ fn emit_ea_vert(
         } else {
             emit_run(measurer, &piece.painted, style, x + pen, baseline_y, out);
         }
-        pen += advance;
+        pen += cell_pitch;
     }
     pen
 }
@@ -445,14 +447,13 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-/// Whether the resolved face stack can draw `ch`.
-///
-/// The reference probes the painted font's `vert` glyph
-/// (`verticalTrGlyphReachable`); this renderer has no `vert` feature, so the
-/// equivalent capability is "shaping resolves a non-`.notdef` glyph for the
-/// substituted code point" — the same face selection the painter will use.
+/// Whether the resolved face stack has `vert` feature coverage for long marks or
+/// can draw `ch`.
 fn has_glyph(measurer: &Measurer, style: StyleId, ch: char) -> bool {
     let def = measurer.style(style);
+    if matches!(ch, '\u{30fc}' | '\u{301c}' | '\u{ff5e}') {
+        return super::face_features::has_vert_feature(&def.family, def.bold, def.italic, ch);
+    }
     let key = (def.family.clone(), def.bold, def.italic, ch);
     if let Some(present) = GLYPH_PRESENCE.with(|cache| cache.borrow().get(&key).copied()) {
         return present;
