@@ -65,11 +65,33 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
             cols: cols.max(1),
         };
 
+        let target_w = 2560u32;
+        let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
+        let page_target = kitty_pptx_core::RenderTargetSpec {
+            width_px: target_w,
+            height_px: target_h,
+        };
+
+        let scale = target_w as f32 / pane_w_px.max(1.0);
+        let screen_w_px = (cell_rect.cols as f32) * cell_w_px;
+        let screen_h_px = (cell_rect.rows as f32) * cell_h_px;
+        let full_page_h_px = pane_w_px / ar;
+        let max_scroll_x = (pane_w_px - screen_w_px).max(0.0) as u32;
+        let max_scroll_y = (full_page_h_px - screen_h_px).max(0.0) as u32;
+
+        let scroll_x = view.scroll_x.min(max_scroll_x);
+        let scroll_y = view.scroll_y.min(max_scroll_y);
+
+        let src_w = ((screen_w_px * scale).round() as u32).min(target_w);
+        let src_h = ((screen_h_px * scale).round() as u32).min(target_h);
+        let src_x = ((scroll_x as f32 * scale).round() as u32).min(target_w.saturating_sub(src_w));
+        let src_y = ((scroll_y as f32 * scale).round() as u32).min(target_h.saturating_sub(src_h));
+
         let pixel_src = PixelRect {
-            x: view.scroll_x,
-            y: view.scroll_y,
-            width: (pane_w_px as u32).max(1),
-            height: (pane_h_px as u32).max(1),
+            x: src_x,
+            y: src_y,
+            width: src_w.max(1),
+            height: src_h.max(1),
         };
 
         placements.push(ReaderSlotPlacement {
@@ -77,6 +99,7 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
             id: ImageId(1),
             cell_rect,
             pixel_src,
+            page_target,
         });
 
         // Focus and placeholder indicator
@@ -122,11 +145,33 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                 cols: cols.max(1),
             };
 
+            let target_w = 2560u32;
+            let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
+            let page_target = kitty_pptx_core::RenderTargetSpec {
+                width_px: target_w,
+                height_px: target_h,
+            };
+
+            let scale = target_w as f32 / pane_w_px.max(1.0);
+            let screen_w_px = (cell_rect.cols as f32) * cell_w_px;
+            let screen_h_px = (cell_rect.rows as f32) * cell_h_px;
+            let full_page_h_px = pane_w_px / ar;
+            let max_scroll_x = (pane_w_px - screen_w_px).max(0.0) as u32;
+            let max_scroll_y = (full_page_h_px - screen_h_px).max(0.0) as u32;
+
+            let scroll_x = view.scroll_x.min(max_scroll_x);
+            let scroll_y = view.scroll_y.min(max_scroll_y);
+
+            let src_w = ((screen_w_px * scale).round() as u32).min(target_w);
+            let src_h = ((screen_h_px * scale).round() as u32).min(target_h);
+            let src_x = ((scroll_x as f32 * scale).round() as u32).min(target_w.saturating_sub(src_w));
+            let src_y = ((scroll_y as f32 * scale).round() as u32).min(target_h.saturating_sub(src_h));
+
             let pixel_src = PixelRect {
-                x: view.scroll_x,
-                y: view.scroll_y,
-                width: ((cols as f32) * cell_w_px) as u32,
-                height: (pane_h_px as u32).max(1),
+                x: src_x,
+                y: src_y,
+                width: src_w.max(1),
+                height: src_h.max(1),
             };
 
             placements.push(ReaderSlotPlacement {
@@ -134,6 +179,7 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                 id: ImageId(2),
                 cell_rect,
                 pixel_src,
+                page_target,
             });
 
             let is_focused = reader.focus == Slot::Right;
