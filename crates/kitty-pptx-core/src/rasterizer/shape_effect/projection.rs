@@ -13,7 +13,8 @@
 //! limit). Affine quads go through the same sampler, which keeps one code path
 //! and the reference's single projection.
 
-use super::{draw_shape_layer, effect_padding, painted_padding, MAX_LAYER_PIXELS};
+use super::extrusion::draw_projected_solid;
+use super::{effect_padding, painted_padding, MAX_LAYER_PIXELS};
 use crate::contracts::{AffineTransform, ShapeEffects, VectorPaint, VectorPath, VectorStroke};
 use crate::scene3d::{self, CameraInput, EffectTransform, ProjectedSurface};
 
@@ -78,14 +79,18 @@ pub(super) fn project_body_layer(
     let camera = CameraInput::from_scene(scene)
         .scaled(local_scale)
         .with_scene_depth(extrusion_dev);
+    let (depth_ox, depth_oy) = scene3d::compute_depth_offset(&camera, w_dev, h_dev, extrusion_dev);
+    let depth_reach = (depth_ox * depth_ox + depth_oy * depth_oy).sqrt() as f32;
     // ref renderer.ts:3944 — identity/front cameras keep the flat path.
-    if !scene3d::is_scene3d_non_identity(&camera, Some(w_dev), Some(h_dev), back_depth) {
+    if !scene3d::is_scene3d_non_identity(&camera, Some(w_dev), Some(h_dev), back_depth)
+        && depth_reach < 0.75
+    {
         return None;
     }
 
     // Local margin: the bevel/extrusion raster plus the painted stroke/contour
     // overhang (ref `edgePadCss`, `renderer.ts:4013-4018`).
-    let painted_pad = painted_padding(stroke, effects, local_scale as f32) + 2.0;
+    let painted_pad = painted_padding(stroke, effects, local_scale as f32) + depth_reach + 2.0;
     let mut pad = painted_pad;
     let padding = effect_padding(effects, local_scale as f32, (0.0, 0.0, w_dev as f32, h_dev as f32), reach_cap);
     pad = pad.max(padding.0).max(padding.1).max(padding.2).max(padding.3);
@@ -106,19 +111,22 @@ pub(super) fn project_body_layer(
     }
     let mut local = tiny_skia::Pixmap::new(ow, oh)?;
 
-    // Paint the authored face at the origin of the padded local buffer. The
-    // camera acts in local space, ahead of the shape's 2D placement.
-    draw_shape_layer(
+    // Paint the authored face and extruded side walls in local space, ahead of
+    // the shape's 2D placement.
+    draw_projected_solid(
         &mut local,
         assets,
         path,
         fill,
         stroke,
-        &AffineTransform::identity(),
         effects,
         local_scale as f32,
         surface_pad - min_x * local_scale as f32,
         surface_pad - min_y * local_scale as f32,
+        depth_ox as f32,
+        depth_oy as f32,
+        surface.back_facing,
+        back_depth > 0.0,
     );
 
     let dst = destination_corners(transform, scale, offset_x, offset_y, local_scale, (min_x, min_y), &surface);

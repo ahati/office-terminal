@@ -26,7 +26,7 @@ pub struct MappedText {
 
 /// Shapes one engine text run into element-local EMU.
 pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Option<MappedText> {
-    if run.text.is_empty() {
+    if run.text.is_empty() && run.glyph_indices.as_ref().is_none_or(|g| g.is_empty()) {
         return None;
     }
     // EMF+ positions text in page-transformed coordinates and carries the
@@ -48,7 +48,37 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
     }
 
     let mut diagnostics = Vec::new();
+    let family = resolve_family(&run.family, &mut diagnostics);
     let mut text = run.text.clone();
+
+    if let Some(ref glyph_ids) = run.glyph_indices {
+        if !glyph_ids.is_empty() {
+            let fallback_chars: Vec<char> = text.chars().collect();
+            let (mapped_str, mapped_any) = crate::text::cmap::reverse_map_glyphs(
+                &family,
+                run.bold,
+                run.italic,
+                glyph_ids,
+                if fallback_chars.is_empty() {
+                    None
+                } else {
+                    Some(&fallback_chars)
+                },
+            );
+            diagnostics.push(MetafileDiagnostic::degraded(
+                "metafile_glyph_index_text",
+                if mapped_any {
+                    "glyph-indexed text mapped via font cmap"
+                } else {
+                    "glyph-indexed text mapped via glyph index fallback"
+                },
+            ));
+            text = mapped_str;
+        }
+    }
+    if text.is_empty() {
+        return None;
+    }
     if run.right_to_left {
         // The display list has no bidi base-direction control. RTL scripts are
         // already reordered by the shaper, so only an explicit RTL flag on
@@ -63,7 +93,6 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
     }
 
     let size_emu = clamp_font_size(run.size, scale_y, &mut diagnostics);
-    let family = resolve_family(&run.family, &mut diagnostics);
     // The shared line model uses a 1.2-em box (`text::metrics::natural_line_box`),
     // so the ascent is the face share of that box, not of the em.
     let line_height = size_emu * 1.2;
@@ -83,7 +112,7 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
         ));
     }
 
-    let (runs, advance) = if dx_override {
+    let (mut runs, advance) = if dx_override {
         shaping_with_dx(
             &chars,
             &run.dx,
@@ -119,6 +148,24 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
             advance,
         )
     };
+
+    if let Some(ref glyph_ids) = run.glyph_indices {
+        if runs.len() == 1 && runs[0].glyphs.len() == glyph_ids.len() {
+            for (g, &gid) in runs[0].glyphs.iter_mut().zip(glyph_ids.iter()) {
+                if gid != 0 {
+                    g.glyph_id = gid;
+                }
+            }
+        } else if runs.len() == glyph_ids.len() {
+            for (r, &gid) in runs.iter_mut().zip(glyph_ids.iter()) {
+                if gid != 0 {
+                    if let Some(g) = r.glyphs.first_mut() {
+                        g.glyph_id = gid;
+                    }
+                }
+            }
+        }
+    }
 
     let origin_x = match run.horizontal_align {
         TextAlignH::Left => anchor_x,

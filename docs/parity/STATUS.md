@@ -85,8 +85,12 @@ the current tree actually contains.
 - **S7a (partial)** — all 12 Office bevel profile curves plus the `circle`
   fallback (`scene3d/bevel_profiles.rs`), and all 15 `ST_PresetMaterialType`
   surface classes in the scalar Blinn-Phong table.
-- **S7b (partial)** — `legacyWireframe` paints front/extrusion rims with no
-  filled face; extrusion/contour code split into `shape_effect/extrusion.rs`.
+- **S7b** — completed 3D solid compositor (`rasterizer/shape_effect/extrusion.rs`,
+  `projection.rs`, `bevel.rs`, `tests/shape_3d_extrusion_tests.rs`): rear-plane
+  bottom bevel shading with surface frame normal transformations, 3D screen-space
+  depth offset silhouette sweep side-wall compositor, camera occlusion behavior
+  (extrusion hidden when face-on, exposed when tilted), and `legacyWireframe` front
+  and rear depth rims. Resolves #16.
 - **L0 corpus** — the pinned LibreOffice corpus was fetched and rendered:
   **418 decks / 543 slides compared, 4/4 strict pass, 414 diagnostics,
   0 errors, 1 known unrenderable** (`tdf148478_transitionMusic`, non-ASCII ZIP

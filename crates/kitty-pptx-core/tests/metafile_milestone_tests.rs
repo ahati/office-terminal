@@ -214,6 +214,7 @@ fn emf_opaque_text_emits_a_background_fill() {
 fn text_mapper_tags_size_clamping_and_dx_mismatch() {
     let run = MetafileTextRun {
         text: "ab".into(),
+        glyph_indices: None,
         family: "Carlito".into(),
         size: 1.0e9,
         color: [0, 0, 0, 255],
@@ -375,6 +376,7 @@ fn emfplus_text_anchor_follows_the_world_transform() {
 fn emfplus_rotated_text_rotates_about_the_anchor() {
     let run = MetafileTextRun {
         text: "A".into(),
+        glyph_indices: None,
         family: "Carlito".into(),
         size: 12.0,
         color: [0, 0, 0, 255],

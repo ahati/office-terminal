@@ -53,6 +53,7 @@ const SET_CLIP_RECT: u16 = 0x4032;
 const SET_CLIP_PATH: u16 = 0x4033;
 const SET_CLIP_REGION: u16 = 0x4034;
 const OFFSET_CLIP: u16 = 0x4035;
+const DRAW_DRIVER_STRING: u16 = 0x4036;
 const SET_RENDERING_ORIGIN: u16 = 0x401d;
 const SET_SMOOTHING_MODE: u16 = 0x401e;
 const SET_TEXT_RENDERING_HINT: u16 = 0x401f;
@@ -294,6 +295,7 @@ fn is_drawing_record(kind: u16) -> bool {
             | DRAW_IMAGE
             | DRAW_IMAGE_POINTS
             | DRAW_STRING
+            | DRAW_DRIVER_STRING
     )
 }
 
@@ -502,6 +504,7 @@ impl Player<'_> {
             FILL_REGION => self.fill_region(record, renderer),
             FILL_CLOSED_CURVE | DRAW_CLOSED_CURVE | DRAW_CURVE => self.curve(record, renderer),
             DRAW_STRING => self.draw_string(record, renderer, diagnostics),
+            DRAW_DRIVER_STRING => self.draw_driver_string(record, renderer, diagnostics),
             DRAW_IMAGE | DRAW_IMAGE_POINTS => self.draw_image(record, renderer, diagnostics),
             SAVE => self.save(record),
             RESTORE => self.restore(record),
@@ -1087,6 +1090,158 @@ impl Player<'_> {
             dx: Vec::new(),
             transform: self.state.transform,
             right_to_left: format.flags & 1 != 0,
+            glyph_indices: Vec::new(),
+        })
+    }
+
+    fn draw_driver_string(
+        &self,
+        record: Record<'_>,
+        renderer: &mut dyn Renderer,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) -> Result<()> {
+        require_len(record, 16)?;
+        let paint = self.paint(record, 0)?;
+        let color = if let Paint::Solid(color) = paint {
+            color
+        } else {
+            self.note(
+                record,
+                diagnostics,
+                "emfplus_text_paint_approximate",
+                "non-solid DrawDriverString paint cannot be represented by the shared text run",
+            )?;
+            match paint {
+                Paint::Hatch { foreground, .. } => foreground,
+                Paint::LinearGradient { stops, .. } => {
+                    stops.first().map_or(Color::BLACK, |stop| stop.color)
+                }
+                Paint::Texture { .. } => Color::BLACK,
+                Paint::Solid(color) => color,
+            }
+        };
+
+        let options = u32_at(record.data, 4)?;
+        let matrix_present = u32_at(record.data, 8)? != 0;
+        let count = usize::try_from(u32_at(record.data, 12)?).map_err(|_| {
+            malformed(
+                record.origin,
+                record.index,
+                record.kind,
+                record.offset,
+                "glyph count overflow",
+            )
+        })?;
+        if count > self.limits.max_string_chars {
+            return Err(MetafileError::ResourceLimitExceeded {
+                resource: "EMF+ driver string glyphs",
+                actual: count as u64,
+                limit: self.limits.max_string_chars as u64,
+            });
+        }
+        let glyph_bytes = count.checked_mul(2).ok_or_else(|| {
+            malformed(
+                record.origin,
+                record.index,
+                record.kind,
+                record.offset,
+                "glyph byte length overflow",
+            )
+        })?;
+        require_len(record, 16 + glyph_bytes)?;
+        let glyph_slice = &record.data[16..16 + glyph_bytes];
+        let units = (0..count)
+            .map(|i| u16::from_le_bytes([glyph_slice[i * 2], glyph_slice[i * 2 + 1]]))
+            .collect::<Vec<_>>();
+
+        let pos_offset = 16 + glyph_bytes + (if glyph_bytes % 4 != 0 { 2 } else { 0 });
+        let is_realized_advance = options & 0x0004 != 0;
+        let points_needed = if is_realized_advance { 1 } else { count };
+        let pos_bytes = points_needed.checked_mul(8).ok_or_else(|| {
+            malformed(
+                record.origin,
+                record.index,
+                record.kind,
+                record.offset,
+                "position bytes overflow",
+            )
+        })?;
+        require_len(record, pos_offset + pos_bytes)?;
+
+        let mut positions = Vec::with_capacity(points_needed);
+        for i in 0..points_needed {
+            let offset = pos_offset + i * 8;
+            let x = f64::from(f32_at(record.data, offset)?);
+            let y = f64::from(f32_at(record.data, offset + 4)?);
+            positions.push(Point::new(x, y));
+        }
+
+        let matrix_offset = pos_offset + pos_bytes;
+        let transform = if matrix_present {
+            require_len(record, matrix_offset + 24)?;
+            let matrix = read_transform(&record.data[matrix_offset..matrix_offset + 24], record)?;
+            matrix.compose(self.state.transform)
+        } else {
+            self.state.transform
+        };
+
+        let font_id = usize::from(record.flags & 0xff);
+        let Object::Font(font) = self.object_ref(font_id, record)? else {
+            return invalid(
+                record.origin,
+                record.index,
+                record.kind,
+                record.offset,
+                "DrawDriverString references a non-font object",
+            );
+        };
+        let mut run_font = font.font.clone();
+        run_font.height *= self.unit_scale(font.unit, true);
+
+        let is_cmap = options & 0x0001 != 0;
+        let (text, glyph_indices) = if is_cmap {
+            (String::from_utf16_lossy(&units), Vec::new())
+        } else {
+            self.note(
+                record,
+                diagnostics,
+                "glyph_index_text",
+                "EmfPlusDrawDriverString glyph indices mapped via font glyph map",
+            )?;
+            (String::from_utf16(&units).unwrap_or_default(), units)
+        };
+
+        let start_pos = positions.first().copied().unwrap_or_else(|| Point::new(0.0, 0.0));
+        let page = Transform {
+            m11: self.unit_scale(self.state.page_unit, false) * self.state.page_scale,
+            m22: self.unit_scale(self.state.page_unit, true) * self.state.page_scale,
+            ..Transform::IDENTITY
+        };
+        let position = page.transform_point(start_pos);
+
+        let mut dx = Vec::new();
+        if positions.len() > 1 {
+            for i in 0..positions.len() - 1 {
+                let d = positions[i + 1].x - positions[i].x;
+                dx.push(d * self.unit_scale(self.state.page_unit, false) * self.state.page_scale);
+            }
+        }
+
+        renderer.text(&TextRun {
+            position,
+            text,
+            font: run_font,
+            color,
+            background: None,
+            background_rect: None,
+            background_path: None,
+            horizontal_align: HorizontalTextAlignment::Left,
+            vertical_align: VerticalTextAlignment::Baseline,
+            clip: self.state.clip.clone(),
+            dx,
+            transform,
+            right_to_left: false,
+            glyph_indices,
         })
     }
 
@@ -4144,6 +4299,7 @@ fn record_name(kind: u16) -> &'static str {
         DRAW_IMAGE => "EmfPlusDrawImage",
         DRAW_IMAGE_POINTS => "EmfPlusDrawImagePoints",
         DRAW_STRING => "EmfPlusDrawString",
+        DRAW_DRIVER_STRING => "EmfPlusDrawDriverString",
         SAVE => "EmfPlusSave",
         RESTORE => "EmfPlusRestore",
         BEGIN_CONTAINER => "EmfPlusBeginContainer",

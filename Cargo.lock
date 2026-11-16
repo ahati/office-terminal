@@ -1020,8 +1020,6 @@ dependencies = [
 [[package]]
 name = "metafile-core"
 version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7af96f382e9a1719c37b2115eea27e02f2cfa6c4768a4e425b57c5dc4f30d898"
 dependencies = [
  "serde",
  "thiserror",
@@ -1037,8 +1035,6 @@ dependencies = [
 [[package]]
 name = "metafile-emf"
 version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c84a060c1070e33c1feee535a1a48034c582a72931d548dd43b0bce49b0a659"
 dependencies = [
  "encoding_rs",
  "metafile-core",
@@ -1060,8 +1056,6 @@ dependencies = [
 [[package]]
 name = "metafile-wmf"
 version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e8e92fb57f4d4490ea2c13d973c769660b7405ab08f617b0aad45f2ee9ea9d7"
 dependencies = [
  "encoding_rs",
  "metafile-core",
