@@ -51,12 +51,15 @@ pub fn run_interactive(
             let total = pres_arc.slides.len();
             let notes: Vec<Option<String>> =
                 pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
-            let pipeline = Arc::new(DefaultRenderPipeline::new(
-                pres_arc.clone(),
-                asset_store,
-                compiler,
-                rasterizer,
-            ));
+            let pipeline = Arc::new(
+                DefaultRenderPipeline::new(
+                    pres_arc.clone(),
+                    asset_store,
+                    compiler,
+                    rasterizer,
+                )
+                .with_sync_fallback(true),
+            );
             let mut a = PresentationApp::new(pipeline, driver, total, notes)
                 .with_presenter_mode(presenter)
                 .with_slides(pres_arc.slides.clone())
@@ -95,10 +98,13 @@ pub fn run_interactive(
                 }
             };
 
-            let pipeline = Arc::new(DefaultRenderPipeline::from_page_source(
-                Arc::clone(&pdf_source),
-                rasterizer,
-            ));
+            let pipeline = Arc::new(
+                DefaultRenderPipeline::from_page_source(
+                    Arc::clone(&pdf_source),
+                    rasterizer,
+                )
+                .with_sync_fallback(true),
+            );
             let notes = vec![None; total];
             let (first_w_emu, first_h_emu) = if total > 0 {
                 pdf_source.page_size_emu(0)

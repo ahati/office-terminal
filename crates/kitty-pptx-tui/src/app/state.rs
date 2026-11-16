@@ -197,6 +197,11 @@ impl PresentationState {
         if changed {
             self.comments_scroll = 0;
         }
+        if let Some(reader) = self.reader_state.as_mut() {
+            if reader.focused_page() != target {
+                reader.jump_to_page(target);
+            }
+        }
         changed
     }
 
@@ -234,6 +239,11 @@ impl PresentationState {
         self.current_slide = target;
         if changed {
             self.comments_scroll = 0;
+        }
+        if let Some(reader) = self.reader_state.as_mut() {
+            if reader.focused_page() != target {
+                reader.jump_to_page(target);
+            }
         }
         changed
     }

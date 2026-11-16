@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::contracts::{RenderTargetSpec, RgbaSlide, VectorSlide};
 
-/// Default raster retention budget (PRD 02a §3: 64 MB).
-const DEFAULT_RASTER_BUDGET_BYTES: usize = 64 * 1024 * 1024;
+/// Default raster retention budget (512 MB).
+const DEFAULT_RASTER_BUDGET_BYTES: usize = 512 * 1024 * 1024;
 
 /// Bookkeeping that keeps the Tier 2 cache bounded and its resolution
 /// fallback O(1).

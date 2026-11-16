@@ -30,6 +30,7 @@ struct ReaderPlaced {
 pub(crate) struct ReaderGraphicsSyncer {
     staged: [Option<ReaderStaged>; 2],
     placed: [Option<ReaderPlaced>; 2],
+    last_prefetch: Option<(usize, RenderTargetSpec)>,
 }
 
 impl ReaderGraphicsSyncer {
@@ -98,6 +99,7 @@ impl ReaderGraphicsSyncer {
                     };
 
                     if needs_place {
+                        let prev_placed = self.placed[slot_idx];
                         let direct = Placement::CellsSubrect {
                             rect: placement.cell_rect,
                             src: placement.pixel_src,
@@ -109,6 +111,11 @@ impl ReaderGraphicsSyncer {
                             pixel_src: placement.pixel_src,
                             epoch: cur_epoch,
                         });
+                        if let Some(prev) = prev_placed {
+                            if prev.id != id {
+                                let _ = driver.release(prev.id);
+                            }
+                        }
                     }
                 }
                 PipelineEntry::Failed { error } => {
@@ -128,15 +135,9 @@ impl ReaderGraphicsSyncer {
             }
         }
 
-        // Trigger prefetching for focused page
+        // Trigger prefetching for focused page when center or target changes
         if let Some(reader) = state.reader_state() {
             let center = reader.focused_page();
-            let plan = PrefetchPlan {
-                center,
-                behind: 2,
-                ahead: 4,
-                stage: false,
-            };
             let (pt_w, pt_h) = reader.page_size_pt(center);
             let ar = (pt_w / pt_h).max(0.1);
             let target_w = 2560u32;
@@ -145,7 +146,17 @@ impl ReaderGraphicsSyncer {
                 width_px: target_w,
                 height_px: target_h,
             };
-            pipeline.prefetch(&plan, &prefetch_target);
+            let prefetch_key = (center, prefetch_target);
+            if self.last_prefetch != Some(prefetch_key) {
+                let plan = PrefetchPlan {
+                    center,
+                    behind: 2,
+                    ahead: 4,
+                    stage: false,
+                };
+                pipeline.prefetch(&plan, &prefetch_target);
+                self.last_prefetch = Some(prefetch_key);
+            }
         }
 
         Ok(())

@@ -35,7 +35,7 @@ pub struct PageView {
 impl Default for PageView {
     fn default() -> Self {
         Self {
-            fit: ReaderFitMode::FitWidth,
+            fit: ReaderFitMode::FitPage,
             zoom: 1.0,
             scroll_x: 0,
             scroll_y: 0,
@@ -74,11 +74,11 @@ impl ReaderState {
         Self {
             anchor: 0,
             layout: ReaderLayout::Spread,
-            default_fit: ReaderFitMode::FitWidth,
+            default_fit: ReaderFitMode::FitPage,
             default_zoom: 1.0,
             focus: Slot::Left,
             sync: true,
-            cover_alone: true,
+            cover_alone: false,
             views: HashMap::new(),
             total_pages,
             page_sizes,
@@ -200,7 +200,6 @@ impl ReaderState {
             Slot::Left => Slot::Right,
             Slot::Right => Slot::Left,
         };
-        self.sync = false;
     }
 
     pub fn set_sync(&mut self, sync: bool) {
@@ -224,27 +223,47 @@ impl ReaderState {
     }
 
     pub fn adjust_zoom(&mut self, factor: f32) {
-        let targets = if self.sync {
-            self.visible_pages()
+        let new_zoom = (self.default_zoom * factor).clamp(0.1, 4.0);
+        self.default_zoom = new_zoom;
+        if self.sync {
+            for view in self.views.values_mut() {
+                view.zoom = new_zoom;
+            }
+            for page in self.visible_pages() {
+                let view = self.page_view_mut(page);
+                view.zoom = new_zoom;
+            }
         } else {
-            vec![self.focused_page()]
-        };
-
-        for page in targets {
+            let page = self.focused_page();
             let view = self.page_view_mut(page);
             view.zoom = (view.zoom * factor).clamp(0.1, 4.0);
         }
     }
 
     pub fn reset_view(&mut self) {
-        let page = self.focused_page();
-        let def_zoom = self.default_zoom;
-        let def_fit = self.default_fit;
-        let view = self.page_view_mut(page);
-        view.zoom = def_zoom;
-        view.fit = def_fit;
-        view.scroll_x = 0;
-        view.scroll_y = 0;
+        self.default_zoom = 1.0;
+        if self.sync {
+            for view in self.views.values_mut() {
+                view.zoom = 1.0;
+                view.scroll_x = 0;
+                view.scroll_y = 0;
+            }
+            for page in self.visible_pages() {
+                let view = self.page_view_mut(page);
+                view.zoom = 1.0;
+                view.scroll_x = 0;
+                view.scroll_y = 0;
+            }
+        } else {
+            let page = self.focused_page();
+            let def_zoom = self.default_zoom;
+            let def_fit = self.default_fit;
+            let view = self.page_view_mut(page);
+            view.zoom = def_zoom;
+            view.fit = def_fit;
+            view.scroll_x = 0;
+            view.scroll_y = 0;
+        }
     }
 
     pub fn apply_zoom_all(&mut self) {
@@ -304,10 +323,20 @@ impl ReaderState {
             return;
         }
         let clamped = page_0based.min(self.total_pages - 1);
-        if self.layout == ReaderLayout::Spread && self.cover_alone && clamped > 0 {
-            self.anchor = if clamped % 2 == 1 { clamped } else { clamped - 1 };
+        if self.layout == ReaderLayout::Spread {
+            if self.cover_alone && clamped > 0 {
+                self.anchor = if !clamped.is_multiple_of(2) { clamped } else { clamped - 1 };
+                self.focus = if !clamped.is_multiple_of(2) { Slot::Left } else { Slot::Right };
+            } else if !self.cover_alone {
+                self.anchor = (clamped / 2) * 2;
+                self.focus = if clamped.is_multiple_of(2) { Slot::Left } else { Slot::Right };
+            } else {
+                self.anchor = clamped;
+                self.focus = Slot::Left;
+            }
         } else {
             self.anchor = clamped;
+            self.focus = Slot::Left;
         }
     }
 

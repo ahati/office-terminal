@@ -21,13 +21,13 @@ fn test_reader_state_initialization() {
     assert_eq!(reader.total_pages(), 10);
     assert_eq!(reader.layout, ReaderLayout::Spread);
     assert_eq!(reader.focus, Slot::Left);
-    assert_eq!(reader.default_fit, ReaderFitMode::FitWidth);
+    assert_eq!(reader.default_fit, ReaderFitMode::FitPage);
     assert_eq!(reader.default_zoom, 1.0);
     assert!(reader.sync);
-    assert!(reader.cover_alone);
+    assert!(!reader.cover_alone);
 
-    // Cover alone: page 0 is alone
-    assert_eq!(reader.visible_pages(), vec![0]);
+    // Initial pages: side-by-side spread [0, 1]
+    assert_eq!(reader.visible_pages(), vec![0, 1]);
     assert_eq!(reader.focused_page(), 0);
 }
 
@@ -36,29 +36,29 @@ fn test_reader_spread_navigation() {
     let page_sizes = vec![(612.0, 792.0); 10];
     let mut reader = ReaderState::new(10, page_sizes);
 
-    // Anchor 0 -> cover alone [0]
-    assert_eq!(reader.visible_pages(), vec![0]);
+    // Anchor 0 -> spread [0, 1]
+    assert_eq!(reader.visible_pages(), vec![0, 1]);
 
-    // Next row -> [1, 2]
+    // Next row -> [2, 3]
     reader.next_row();
-    assert_eq!(reader.visible_pages(), vec![1, 2]);
+    assert_eq!(reader.visible_pages(), vec![2, 3]);
 
-    // Next row -> [3, 4]
+    // Next row -> [4, 5]
     reader.next_row();
-    assert_eq!(reader.visible_pages(), vec![3, 4]);
+    assert_eq!(reader.visible_pages(), vec![4, 5]);
 
-    // Focus right -> focused page is 4
+    // Focus right -> focused page is 5
     reader.toggle_focus();
     assert_eq!(reader.focus, Slot::Right);
-    assert_eq!(reader.focused_page(), 4);
+    assert_eq!(reader.focused_page(), 5);
 
-    // Prev row -> [1, 2]
+    // Prev row -> [2, 3]
     reader.prev_row();
-    assert_eq!(reader.visible_pages(), vec![1, 2]);
+    assert_eq!(reader.visible_pages(), vec![2, 3]);
 
-    // Prev row -> [0]
+    // Prev row -> [0, 1]
     reader.prev_row();
-    assert_eq!(reader.visible_pages(), vec![0]);
+    assert_eq!(reader.visible_pages(), vec![0, 1]);
 }
 
 #[test]
@@ -82,70 +82,76 @@ fn test_reader_jump_to_page() {
     let page_sizes = vec![(612.0, 792.0); 10];
     let mut reader = ReaderState::new(10, page_sizes);
 
-    // Jump to page 4 (0-based index 4: pages 5 and 6 in 1-based, spread [3, 4] or [4, 5])
+    // Jump to page 4 -> spread [4, 5]
     reader.jump_to_page(4);
-    assert!(reader.visible_pages().contains(&4));
+    assert_eq!(reader.visible_pages(), vec![4, 5]);
+    assert_eq!(reader.focused_page(), 4);
 
-    // Jump to 0 -> cover
+    // Jump to page 5 -> spread [4, 5], focused on right (page 5)
+    reader.jump_to_page(5);
+    assert_eq!(reader.visible_pages(), vec![4, 5]);
+    assert_eq!(reader.focused_page(), 5);
+
+    // Jump to 0 -> spread [0, 1]
     reader.jump_to_page(0);
-    assert_eq!(reader.visible_pages(), vec![0]);
+    assert_eq!(reader.visible_pages(), vec![0, 1]);
 
     // Jump beyond total
     reader.jump_to_page(99);
-    assert_eq!(reader.anchor, 9);
+    assert_eq!(reader.anchor, 8);
 }
 
 #[test]
 fn test_reader_scroll_and_zoom() {
     let page_sizes = vec![(612.0, 792.0); 5];
     let mut reader = ReaderState::new(5, page_sizes);
-    reader.next_row(); // spread [1, 2]
+    reader.next_row(); // spread [2, 3]
+    reader.cycle_fit(); // Switch visible pages [2, 3] to FitWidth to test vertical scrolling
 
     // Sync scroll: scrolls both visible pages
     reader.scroll_vertical(50);
-    assert_eq!(reader.page_view(1).scroll_y, 50);
     assert_eq!(reader.page_view(2).scroll_y, 50);
+    assert_eq!(reader.page_view(3).scroll_y, 50);
 
     reader.scroll_horizontal(30);
-    assert_eq!(reader.page_view(1).scroll_x, 30);
-    assert_eq!(reader.page_view(2).scroll_x, 0);
+    assert_eq!(reader.page_view(2).scroll_x, 30);
+    assert_eq!(reader.page_view(3).scroll_x, 0);
 
     // Zoom
     reader.adjust_zoom(1.2);
-    assert!((reader.page_view(1).zoom - 1.2).abs() < 0.01);
+    assert!((reader.page_view(2).zoom - 1.2).abs() < 0.01);
 
     // Reset view
     reader.reset_view();
-    assert_eq!(reader.page_view(1).scroll_y, 0);
-    assert!((reader.page_view(1).zoom - 1.0).abs() < 0.01);
+    assert_eq!(reader.page_view(2).scroll_y, 0);
+    assert!((reader.page_view(2).zoom - 1.0).abs() < 0.01);
 }
 
 #[test]
 fn test_reader_fit_cycle() {
     let page_sizes = vec![(612.0, 792.0); 5];
     let mut reader = ReaderState::new(5, page_sizes);
-    assert_eq!(reader.default_fit, ReaderFitMode::FitWidth);
-
-    reader.cycle_fit();
-    assert_eq!(reader.page_view(0).fit, ReaderFitMode::FitPage);
+    assert_eq!(reader.default_fit, ReaderFitMode::FitPage);
 
     reader.cycle_fit();
     assert_eq!(reader.page_view(0).fit, ReaderFitMode::FitWidth);
+
+    reader.cycle_fit();
+    assert_eq!(reader.page_view(0).fit, ReaderFitMode::FitPage);
 }
 
 #[test]
 fn test_reader_status_line_format() {
     let page_sizes = vec![(612.0, 792.0); 10];
     let mut reader = ReaderState::new(10, page_sizes);
-    reader.next_row(); // spread [1, 2] -> 1-based "spread 2-3"
+    reader.next_row(); // spread [2, 3] -> 1-based "spread 3-4"
 
     let status = reader.status_line("report.pdf");
     assert!(status.contains("report.pdf"));
-    assert!(status.contains("spread 2-3/10"));
-    assert!(status.contains("fit:width 100%"));
+    assert!(status.contains("spread 3-4/10"));
+    assert!(status.contains("fit:page 100%"));
     assert!(status.contains("focus:L"));
     assert!(status.contains("sync:on"));
-    assert!(status.contains("cover:on"));
     assert!(status.contains("q:help"));
 }
 
@@ -160,21 +166,22 @@ fn test_reader_key_events() {
     // Next row
     let action = handle_key_event(make_key(KeyCode::PageDown), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().visible_pages(), vec![1, 2]);
+    assert_eq!(state.reader_state().unwrap().visible_pages(), vec![2, 3]);
 
-    // Scroll vertical down
+    // Scroll vertical down in FitWidth mode
+    state.reader_state_mut().unwrap().cycle_fit();
     let action = handle_key_event(make_key(KeyCode::Char('j')), &mut state);
     assert_eq!(action, AppAction::Redraw);
-    assert_eq!(state.reader_state().unwrap().page_view(1).scroll_y, 24);
+    assert_eq!(state.reader_state().unwrap().page_view(2).scroll_y, 24);
 
     // Focus toggle
-    let action = handle_key_event(make_key(KeyCode::Tab), &mut state);
+    let action = handle_key_event(make_key(KeyCode::BackTab), &mut state);
     assert_eq!(action, AppAction::Redraw);
     assert_eq!(state.reader_state().unwrap().focus, Slot::Right);
 
     // Fit cycle
     let action = handle_key_event(make_key(KeyCode::Char('f')), &mut state);
-    assert_eq!(action, AppAction::ScaleChanged);
+    assert_eq!(action, AppAction::Redraw);
 
     // Layout toggle
     let action = handle_key_event(make_key(KeyCode::Char('2')), &mut state);
@@ -191,39 +198,62 @@ fn test_reader_arrow_keys_navigation() {
     let mut state = PresentationState::new(10, vec![]);
     state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
 
-    // Initial: anchor 0 (cover page 0 alone in spread mode)
+    // Initial: anchor 0 (spread [0, 1])
     assert_eq!(state.reader_state().unwrap().anchor, 0);
 
-    // Right Arrow advances to next spread
+    // Right Arrow advances to next spread [2, 3]
     let action = handle_key_event(make_key(KeyCode::Right), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().anchor, 1);
-    assert_eq!(state.current_slide(), 1);
+    assert_eq!(state.reader_state().unwrap().anchor, 2);
+    assert_eq!(state.current_slide(), 2);
 
-    // Right Arrow advances to next spread [3, 4]
+    // Right Arrow advances to next spread [4, 5]
     let action = handle_key_event(make_key(KeyCode::Right), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().anchor, 3);
-    assert_eq!(state.current_slide(), 3);
+    assert_eq!(state.reader_state().unwrap().anchor, 4);
+    assert_eq!(state.current_slide(), 4);
 
-    // Left Arrow retreats to previous spread [1, 2]
+    // Left Arrow retreats to previous spread [2, 3]
     let action = handle_key_event(make_key(KeyCode::Left), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().anchor, 1);
-    assert_eq!(state.current_slide(), 1);
+    assert_eq!(state.reader_state().unwrap().anchor, 2);
+    assert_eq!(state.current_slide(), 2);
 
-    // In FitWidth mode, Down Arrow scrolls down
-    let action = handle_key_event(make_key(KeyCode::Down), &mut state);
-    assert_eq!(action, AppAction::Redraw);
-
-    // Cycle to FitPage mode: Down Arrow directly advances to next page
-    state.reader_state_mut().unwrap().cycle_fit();
+    // In FitPage mode, Down Arrow directly advances to next spread [4, 5]
     let action = handle_key_event(make_key(KeyCode::Down), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().anchor, 3);
+    assert_eq!(state.reader_state().unwrap().anchor, 4);
 
-    // Up Arrow in FitPage mode retreats to previous page
+    // Up Arrow in FitPage mode retreats to previous spread [2, 3]
     let action = handle_key_event(make_key(KeyCode::Up), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().anchor, 1);
+    assert_eq!(state.reader_state().unwrap().anchor, 2);
+
+    // Cycle to FitWidth mode: Down Arrow scrolls down
+    state.reader_state_mut().unwrap().cycle_fit();
+    let action = handle_key_event(make_key(KeyCode::Down), &mut state);
+    assert_eq!(action, AppAction::Redraw);
+}
+
+#[test]
+fn test_reader_sorter_integration() {
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+
+    // Tab opens sorter
+    handle_key_event(make_key(KeyCode::Tab), &mut state);
+    assert_eq!(state.mode(), AppMode::Sorter);
+
+    // In sorter, move right twice to slide index 2
+    handle_key_event(make_key(KeyCode::Right), &mut state);
+    handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert_eq!(state.selected_sorter_index(), 2);
+
+    // Press Enter to select slide 2 and exit sorter
+    let action = handle_key_event(make_key(KeyCode::Enter), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.mode(), AppMode::Reader);
+    assert_eq!(state.current_slide(), 2);
+    assert_eq!(state.reader_state().unwrap().anchor, 2);
+    assert_eq!(state.reader_state().unwrap().visible_pages(), vec![2, 3]);
 }
