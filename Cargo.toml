@@ -14,8 +14,11 @@ members = [
 # because they carry crop-clamping fixes (crates/patches/0003). Excluded from
 # workspace lints/tests so upstream code is not held to first-party rules.
 exclude = [
+    "crates/metafile-core",
     "crates/metafile-dib",
+    "crates/metafile-emf",
     "crates/metafile-emfplus",
+    "crates/metafile-wmf",
     "fuzz",
 ]
 default-members = ["crates/kitty-pptx-cli"]
@@ -65,8 +68,11 @@ resvg = "0.44"
 
 [patch.crates-io]
 # Only the crates carrying local fixes are kept in-tree (PRD 13 §2.2).
+metafile-core = { path = "crates/metafile-core" }
 metafile-dib = { path = "crates/metafile-dib" }
+metafile-emf = { path = "crates/metafile-emf" }
 metafile-emfplus = { path = "crates/metafile-emfplus" }
+metafile-wmf = { path = "crates/metafile-wmf" }
 
 [profile.dev]
 opt-level = 3

@@ -23,11 +23,20 @@ pub(crate) fn apply_bevel_shading(
     // plays the role of the reference's `scale × devScale`; `devScale` is 1.
     // ref renderer.ts:6302-6330 — no band clamp, and `w > 0 && h > 0` gates the
     // whole lip, so a zero-sized bevel shades nothing.
+    let camera_input = effects.scene_3d.as_ref().map(scene3d::CameraInput::from_scene);
+    let (rotation, back_facing) = camera_input
+        .as_ref()
+        .map(scene3d::scene3d_surface_frame)
+        .unwrap_or((
+            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            false,
+        ));
+
     let inputs = scene3d::build_bevel_inputs(Some(shape_3d), effects.scene_3d.as_ref(), scale as f64, 1.0);
-    // The rasterizer paints a single planar layer (no rear plane), so only the
-    // front lip is shaded; the bottom lip additionally needs the back-face
-    // surface geometry (MS-OI29500 §2.1.1268) that this layer does not build.
-    let Some(bevel) = inputs.iter().find(|bevel| !bevel.bottom) else {
+    // When the camera exposes the back face, the bottom bevel is shaded using
+    // its surface frame rotation (MS-OI29500 §2.1.1268); otherwise the front
+    // lip is shaded.
+    let Some(bevel) = inputs.iter().find(|bevel| bevel.bottom == back_facing) else {
         return;
     };
     let band_px = bevel.width_px as f32;
@@ -58,6 +67,14 @@ pub(crate) fn apply_bevel_shading(
             let gx = (sample(&dist, width, height, x + 1, y) - sample(&dist, width, height, x - 1, y)) * 0.5;
             let gy = (sample(&dist, width, height, x, y + 1) - sample(&dist, width, height, x, y - 1)) * 0.5;
             let normal = scene3d::bevel_normal(slope.min(8.0), (gx, gy));
+            let (nx, ny, nz) = if bevel.bottom {
+                let rx = rotation[0] * normal[0] as f64 + rotation[1] * normal[1] as f64 - rotation[2] * normal[2] as f64;
+                let ry = rotation[3] * normal[0] as f64 + rotation[4] * normal[1] as f64 - rotation[5] * normal[2] as f64;
+                let rz = rotation[6] * normal[0] as f64 + rotation[7] * normal[1] as f64 - rotation[8] * normal[2] as f64;
+                (rx as f32, ry as f32, rz as f32)
+            } else {
+                (normal[0], normal[1], normal[2])
+            };
 
             let base = idx * 4;
             let pa = pixels[base + 3] as f32;
@@ -69,8 +86,14 @@ pub(crate) fn apply_bevel_shading(
             let g = (pixels[base + 1] as f32 * inv_pa).min(255.0);
             let b = (pixels[base + 2] as f32 * inv_pa).min(255.0);
 
-            let flat_col = scene3d::lighting::shade_surface(r, g, b, pa, 0.0, 0.0, 1.0, &lighting);
-            let bevel_col = scene3d::lighting::shade_surface(r, g, b, pa, normal[0], normal[1], normal[2], &lighting);
+            let (fnx, fny, fnz) = if bevel.bottom {
+                (-rotation[2] as f32, -rotation[5] as f32, -rotation[8] as f32)
+            } else {
+                (0.0, 0.0, 1.0)
+            };
+
+            let flat_col = scene3d::lighting::shade_surface(r, g, b, pa, fnx, fny, fnz, &lighting);
+            let bevel_col = scene3d::lighting::shade_surface(r, g, b, pa, nx, ny, nz, &lighting);
 
             for c in 0..3 {
                 let factor = if flat_col[c] > 1.0 {

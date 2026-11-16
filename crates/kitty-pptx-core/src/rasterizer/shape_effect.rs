@@ -310,8 +310,10 @@ pub(super) fn draw_shape_layer(
         return;
     }
 
-    if let Some(shape_3d) = effects.shape_3d.as_ref() {
-        draw_extrusion(layer, assets, path, fill, shape_3d, transform, scale, offset_x, offset_y);
+    if effects.scene_3d.is_none() {
+        if let Some(shape_3d) = effects.shape_3d.as_ref() {
+            draw_extrusion(layer, assets, path, fill, shape_3d, transform, scale, offset_x, offset_y);
+        }
     }
 
     path::render_path(layer, assets, path, fill, stroke, transform, scale, offset_x, offset_y);

@@ -236,6 +236,7 @@ pub enum TextAlignV {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetafileTextRun {
     pub text: String,
+    pub glyph_indices: Option<Vec<u16>>,
     pub family: String,
     /// Height in output units.
     pub size: f32,

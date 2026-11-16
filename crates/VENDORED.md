@@ -37,10 +37,8 @@ Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pict
 - **Upstream**: [`Dantusaikamal/metafile-rs`](https://github.com/Dantusaikamal/metafile-rs)
 - **Pinned Commit**: `619d8c464cdd7eb21354b3a9ecf541f56cc7f955` (v1.0.1)
 - **License**: Apache-2.0 (NOTICE retained in each crate directory)
-- **Consumed from crates.io** (pinned `=1.0.1` in `[workspace.dependencies]`):
-  `metafile-core`, `metafile-emf`, `metafile-wmf`
 - **Local patched copies** (overridden via `[patch.crates-io]`, excluded from workspace lints/tests):
-  `crates/metafile-dib`, `crates/metafile-emfplus`
+  `crates/metafile-core`, `crates/metafile-dib`, `crates/metafile-emf`, `crates/metafile-emfplus`, `crates/metafile-wmf`
 - `metafile-svg` is not used (the project renders into `VectorSlide`; the SVG backend is not linked).
 
 ### Applied Patches
@@ -80,6 +78,11 @@ Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pict
      `metafile_gradient`. Object parsing now threads the diagnostic sink so the
      approximation is reported per picture instead of only being visible as a
      whole-picture placeholder.
+
+8. `crates/patches/0008-metafile-glyph-index-text.patch`:
+   - `metafile-core::TextRun` adds `glyph_indices: Vec<u16>` to preserve low-level glyph IDs.
+   - `metafile-emf` maps `ETO_GLYPH_INDEX` records into `TextRun.glyph_indices` and emits non-fatal `glyph_index_text` diagnostic instead of aborting playback.
+   - `metafile-emfplus` implements `EmfPlusDrawDriverString` (0x4036), parsing glyph arrays, brush paints, and transform matrices per MS-EMFPLUS §2.3.4.15.
 
 ## Bundled test/parity assets (not vendored crates)
 

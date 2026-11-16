@@ -6,6 +6,7 @@
 //! `packages/core/src/drawingml-text/`.
 
 pub mod bidi;
+pub mod cmap;
 pub mod columns;
 pub mod east_asian_default;
 mod east_asian_coverage;

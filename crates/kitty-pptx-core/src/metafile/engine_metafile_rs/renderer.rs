@@ -317,6 +317,11 @@ impl mc::Renderer for SinkRenderer<'_> {
     fn text(&mut self, run: &mc::TextRun) -> mc::Result<()> {
         let mapped = MetafileTextRun {
             text: run.text.clone(),
+            glyph_indices: if run.glyph_indices.is_empty() {
+                None
+            } else {
+                Some(run.glyph_indices.clone())
+            },
             family: run.font.family.clone(),
             size: run.font.height as f32,
             color: rgba(run.color),

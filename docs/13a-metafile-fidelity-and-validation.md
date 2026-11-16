@@ -63,7 +63,7 @@ Three rules govern this document:
 | Lines, polygons, paths, curves, beziers | **FULL** | Path → `VectorPath`; fill modes preserved |
 | Rectangles, ellipses, arcs, pies, closed curves | **FULL** | Path construction per §4.3 of PRD 13 |
 | Text (DrawString) | **FULL** | Alignment, escapement, `dx`, decorations; re-shaped via PRD 02c |
-| Text with glyph indices | **DEGRADED** | `metafile-emfplus` cannot decode index text without the source glyph map → record skipped + `metafile_glyph_index_text` |
+| Text with glyph indices | **DEGRADED** | Re-mapped through font cmap / `EmfPlusDrawDriverString` with fallback + `metafile_glyph_index_text` |
 | Images (DrawImage, DrawImagePoints) | **FULL** | `DrawBitmap` with affine placement (rotation/shear preserved) |
 | Clipping (SetClipRect, SetClipPath, SetClipRegion, ResetClip) | **FULL** | Nested clips; combine modes as §2.1 |
 | World transform / page transform | **FULL** | Affine composition |
