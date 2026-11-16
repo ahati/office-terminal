@@ -62,6 +62,7 @@ pub(crate) struct GraphicsSyncer {
     /// Visible page + target the last sorter prefetch was issued for. An
     /// unchanged grid must not re-queue (and re-cancel) work every frame.
     thumb_prefetch: Option<(usize, usize, RenderTargetSpec)>,
+    reader: crate::app::graphics_reader::ReaderGraphicsSyncer,
     suppressed: bool,
     epoch: u64,
 }
@@ -100,6 +101,14 @@ impl GraphicsSyncer {
 
         // Resolve the base view exactly like the renderer does, so an overlay
         // modal on top of the sorter does not tear the grid images down.
+        if state.base_mode() == AppMode::Reader {
+            self.release_thumbnails(driver)?;
+            self.release_current(driver)?;
+            self.release_preview(driver)?;
+            return self.reader.sync(state, pipeline, driver, canvas_target, &mut self.epoch);
+        }
+
+        self.reader.release_all(driver)?;
         if state.base_mode() == AppMode::Sorter {
             return self.sync_thumbnails(state, pipeline, driver, canvas_target);
         }
@@ -528,6 +537,7 @@ impl PresentationState {
         if let Ok(mut rects) = self.thumbnail_placement_rects.lock() {
             rects.clear();
         }
+        self.clear_reader_placements();
     }
 }
 

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 kitty-pptx-core = { workspace = true }
 kitty-pptx-display = { workspace = true }
+kitty-pptx-pdf = { workspace = true }
 pptx-model = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }

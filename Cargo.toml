@@ -6,6 +6,7 @@ members = [
     "crates/pptx-parser",
     "crates/kitty-pptx-core",
     "crates/kitty-pptx-display",
+    "crates/kitty-pptx-pdf",
     "crates/kitty-pptx-tui",
     "crates/kitty-pptx-cli",
 ]
@@ -45,7 +46,14 @@ pptx-model = { path = "crates/pptx-model" }
 pptx-parser = { path = "crates/pptx-parser", default-features = false }
 kitty-pptx-core = { path = "crates/kitty-pptx-core" }
 kitty-pptx-display = { path = "crates/kitty-pptx-display" }
+kitty-pptx-pdf = { path = "crates/kitty-pptx-pdf" }
 kitty-pptx-tui = { path = "crates/kitty-pptx-tui" }
+
+# PDF engine dependencies (PRD 14)
+hayro = "=0.9.0"
+hayro-syntax = "=0.9.0"
+hayro-interpret = "=0.9.0"
+hayro-svg = "=0.9.0"
 
 # Shared utility & display dependencies
 thiserror = "2"

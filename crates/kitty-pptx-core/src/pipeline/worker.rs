@@ -7,7 +7,7 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::compiler::SlideCompiler;
-use crate::contracts::{RenderTargetSpec, WarningEvent};
+use crate::contracts::{PageSource, PptxPageSource, RenderTargetSpec, WarningEvent};
 use crate::error::RenderError;
 use crate::loader::AssetStore;
 use crate::rasterizer::SlideRasterizer;
@@ -50,9 +50,8 @@ impl Ord for PrefetchTask {
 
 #[derive(Clone)]
 pub struct WorkerSharedContext {
-    pub presentation: Arc<pptx_model::Presentation>,
-    pub asset_store: Arc<dyn AssetStore>,
-    pub compiler: Arc<dyn SlideCompiler>,
+    pub source: Arc<dyn PageSource>,
+    pub asset_store: Option<Arc<dyn AssetStore>>,
     pub rasterizer: Arc<dyn SlideRasterizer>,
     pub cache: PipelineCache,
     pub in_flight: Arc<Mutex<HashSet<usize>>>,
@@ -104,6 +103,30 @@ impl WorkerPool {
         cache: PipelineCache,
         warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
     ) -> Self {
+        let source = Arc::new(PptxPageSource::new(
+            presentation,
+            Arc::clone(&asset_store),
+            compiler,
+        ));
+        Self::with_source_and_warnings(
+            num_workers,
+            source,
+            Some(asset_store),
+            rasterizer,
+            cache,
+            warnings,
+        )
+    }
+
+    /// Spawns a background worker pool from a generalized [`PageSource`].
+    pub fn with_source_and_warnings(
+        num_workers: usize,
+        source: Arc<dyn PageSource>,
+        asset_store: Option<Arc<dyn AssetStore>>,
+        rasterizer: Arc<dyn SlideRasterizer>,
+        cache: PipelineCache,
+        warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
+    ) -> Self {
         let queue = Arc::new(Mutex::new(BinaryHeap::new()));
         let (notify_tx, notify_rx) = crossbeam_channel::unbounded();
         let in_flight = Arc::new(Mutex::new(HashSet::new()));
@@ -112,9 +135,8 @@ impl WorkerPool {
         let shutdown = Arc::new(AtomicBool::new(false));
 
         let ctx = WorkerSharedContext {
-            presentation,
+            source,
             asset_store,
-            compiler,
             rasterizer,
             cache,
             in_flight: Arc::clone(&in_flight),
@@ -358,7 +380,7 @@ fn execute_task(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &Atomi
         return;
     }
 
-    if index >= ctx.presentation.slides.len() {
+    if index >= ctx.source.len() {
         if let Ok(mut inf) = ctx.in_flight.lock() {
             inf.remove(&index);
         }
@@ -424,15 +446,8 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                 return;
             }
 
-            let slide = &ctx.presentation.slides[index];
-            match ctx.compiler.compile_in_deck(
-                slide,
-                &ctx.presentation.slides,
-                ctx.presentation.slide_width,
-                ctx.presentation.slide_height,
-                &warning_tx,
-            ) {
-                Ok(mut v) => {
+            match ctx.source.compile_page(index, &warning_tx) {
+                Ok(v) => {
                     // A cancellation that arrived during compilation must not
                     // publish a stale scene into the cache (the deck may have
                     // been reloaded while the compiler was running).
@@ -444,11 +459,6 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                         }
                         return;
                     }
-                    crate::metafile::expand_metafiles(
-                        &mut v,
-                        ctx.asset_store.as_ref(),
-                        &warning_tx,
-                    );
                     // Publish warnings before the cache entry so a consumer
                     // that observes `Ready` can also drain them.
                     flush_warnings(ctx, index, &warning_rx);
@@ -478,7 +488,12 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
     }
 
     // Step 2: Rasterize to RgbaSlide (Tier 2)
-    match ctx.rasterizer.rasterize(&vector_slide, &target, ctx.asset_store.as_ref()) {
+    let empty_store = crate::loader::asset_store::EmptyAssetStore;
+    let store: &dyn AssetStore = match &ctx.asset_store {
+        Some(s) => s.as_ref(),
+        None => &empty_store,
+    };
+    match ctx.rasterizer.rasterize(&vector_slide, &target, store) {
         Ok(bmp) => {
             if !task.cancellation.is_canceled() && !shutdown.load(AtomicOrdering::Acquire) {
                 ctx.cache.put_raster(index, target, bmp);

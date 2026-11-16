@@ -128,9 +128,18 @@ pub fn map_slide_links_to_cells(
     mapped
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PixelRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Placement {
     Cells(CellRect),
+    CellsSubrect { rect: CellRect, src: PixelRect },
     ScrollbackBlock,
 }
 

@@ -144,6 +144,29 @@ impl SearchState {
         self.recompute_matches();
     }
 
+    /// Populate TOC entries from document outlines / bookmarks.
+    pub fn sync_from_toc(&mut self, toc: &[kitty_pptx_core::TocEntry], total_pages: usize) {
+        self.hidden.clear();
+        self.skip_hidden = false;
+        self.entries.clear();
+        for i in 0..total_pages {
+            let slide_number = i + 1;
+            let title = toc
+                .iter()
+                .find(|t| t.page_index == i)
+                .map(|t| t.title.clone())
+                .unwrap_or_else(|| format!("Page {}", slide_number));
+
+            self.entries.push(SlideSearchEntry {
+                slide_index: i,
+                slide_number,
+                title,
+                notes: String::new(),
+            });
+        }
+        self.recompute_matches();
+    }
+
     /// Re-filter and rank slide entries matching the active query.
     pub fn recompute_matches(&mut self) {
         let q = self.query.trim().to_lowercase();

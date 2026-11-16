@@ -57,6 +57,12 @@ pub struct PresentationState {
     pub(crate) preview_placement_rect: Arc<Mutex<Option<CellRect>>>,
     /// Fitted rects of every sorter card drawn in the last frame.
     pub(crate) thumbnail_placement_rects: Arc<Mutex<Vec<(usize, CellRect)>>>,
+    /// Placements of visible document pages in reader mode.
+    pub(crate) reader_placements: Arc<Mutex<Vec<crate::app::reader_state::ReaderSlotPlacement>>>,
+
+    // Reader state & doc title
+    pub(crate) reader_state: Option<crate::app::reader_state::ReaderState>,
+    pub(crate) deck_title: Option<String>,
 
     // Notification toast
     pub(crate) toast_message: Option<String>,
@@ -100,6 +106,9 @@ impl PresentationState {
             placement_rect: Arc::new(Mutex::new(None)),
             preview_placement_rect: Arc::new(Mutex::new(None)),
             thumbnail_placement_rects: Arc::new(Mutex::new(Vec::new())),
+            reader_placements: Arc::new(Mutex::new(Vec::new())),
+            reader_state: None,
+            deck_title: None,
             toast_message: None,
             toast_time: None,
             render_failure: None,
