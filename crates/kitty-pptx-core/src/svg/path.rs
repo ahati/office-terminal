@@ -114,7 +114,9 @@ pub fn format_fill_attr(fill: Option<&VectorPaint>, gradient_id: Option<&str>) -
         // §20.1.8.14 / §20.1.8.40 brushes: both reference a paint-server def
         // (`<pattern>`) collected with the gradients; without one the path keeps
         // an unpainted fill (ref renderer.ts:2620-2700, paint.ts:459-479).
-        Some(VectorPaint::Image(_)) | Some(VectorPaint::Pattern(_)) => match gradient_id {
+        Some(VectorPaint::Image(_))
+        | Some(VectorPaint::Pattern(_))
+        | Some(VectorPaint::Texture(_)) => match gradient_id {
             Some(id) => format!(r#"fill="url(#{})""#, id),
             None => r#"fill="none""#.to_string(),
         },

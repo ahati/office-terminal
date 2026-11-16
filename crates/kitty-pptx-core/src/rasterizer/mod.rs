@@ -18,6 +18,7 @@ pub mod reflection_blur;
 mod path;
 mod shape_effect;
 mod text;
+mod texture_fill;
 
 use std::sync::Arc;
 use crate::contracts::{

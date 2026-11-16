@@ -51,7 +51,7 @@ impl MetafileSink for MetafileRecorder {
         fill: Option<&MetafilePaint>,
         stroke: Option<&MetafilePen>,
     ) -> Result<(), MetafileError> {
-        let fill = fill.and_then(mapping::paint::map_paint);
+        let fill = fill.and_then(|p| mapping::paint::map_paint(p, &self.unit_to_emu));
         let stroke = stroke.map(|pen| mapping::pen::map_pen(pen, self.emu_per_unit));
         if fill.is_none() && stroke.is_none() {
             return Ok(());

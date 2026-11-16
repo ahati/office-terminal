@@ -162,6 +162,21 @@ pub fn map_paint(paint: &mut VectorPaint, effects: &[BlipEffect], opacity: f32) 
                 }
             }
         }
+        VectorPaint::Texture(tex) => {
+            if (0.0..1.0).contains(&opacity) {
+                tex.opacity = (tex.opacity * opacity).clamp(0.0, 1.0);
+            }
+            for effect in effects {
+                if let BlipEffect::AlphaModFix { amt } = effect {
+                    let factor = if *amt > 1.0 {
+                        (*amt / 100000.0).clamp(0.0, 1.0) as f32
+                    } else {
+                        *amt as f32
+                    };
+                    tex.opacity = (tex.opacity * factor).clamp(0.0, 1.0);
+                }
+            }
+        }
     }
 }
 

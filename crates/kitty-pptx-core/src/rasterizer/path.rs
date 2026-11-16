@@ -169,6 +169,18 @@ pub fn render_path(
                     offset_y,
                 );
             }
+            VectorPaint::Texture(texture) => {
+                super::texture_fill::fill_path_with_texture(
+                    pixmap,
+                    texture,
+                    &ts_path,
+                    ts_fill_rule,
+                    transform,
+                    scale,
+                    offset_x,
+                    offset_y,
+                );
+            }
         }
     }
 
@@ -356,7 +368,9 @@ fn stroke_paint(
         None if stroke.paint.is_none()
             || matches!(
                 stroke.paint.as_deref(),
-                Some(VectorPaint::Image(_)) | Some(VectorPaint::Pattern(_))
+                Some(VectorPaint::Image(_))
+                    | Some(VectorPaint::Pattern(_))
+                    | Some(VectorPaint::Texture(_))
             ) =>
         {
             let [r, g, b, a] = stroke.color;

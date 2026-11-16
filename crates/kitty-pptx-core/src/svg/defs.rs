@@ -55,6 +55,12 @@ pub(super) fn emit_fill_def(
             image::emit_pattern_fill_def(defs, &id, pattern);
             Some(id)
         }
+        VectorPaint::Texture(texture) => {
+            *counter += 1;
+            let id = format!("texfill_{}", counter);
+            image::emit_texture_fill_def(defs, &id, texture);
+            Some(id)
+        }
         VectorPaint::Solid(_) => None,
     }
 }
@@ -86,7 +92,7 @@ pub(super) fn emit_stroke_def(
             image::emit_pattern_fill_def(defs, &id, pattern);
             Some(id)
         }
-        VectorPaint::Solid(_) | VectorPaint::Image(_) => None,
+        VectorPaint::Solid(_) | VectorPaint::Image(_) | VectorPaint::Texture(_) => None,
     }
 }
 

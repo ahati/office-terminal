@@ -167,6 +167,13 @@ pub fn paint_to_ast(paint: &VectorPaint) -> Value {
             "fg": p.fg,
             "bg": p.bg,
         }),
+        VectorPaint::Texture(tex) => json!({
+            "type": "texture",
+            "width": tex.width,
+            "height": tex.height,
+            "repeat": tex.repeat,
+            "opacity": r4(tex.opacity),
+        }),
     }
 }
 
