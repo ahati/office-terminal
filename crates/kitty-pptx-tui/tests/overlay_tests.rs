@@ -343,9 +343,10 @@ fn test_ui_rendering_smoke_across_overlays() {
     terminal.draw(|f| render_app(&state, f)).expect("Render search modal");
 }
 
-/// Regression test: overlays must be opaque edge-to-edge. With kitty z=-1
-/// slide images behind text, any popup cell left at the default background
-/// lets the slide bleed through and makes the text unreadable.
+/// Regression test: overlays must be opaque edge-to-edge. The slide image is
+/// placed below the terminal's cell-background layer, so any popup cell left
+/// at the default background lets the slide bleed through and makes the text
+/// unreadable.
 #[test]
 fn test_help_modal_opaque_edge_to_edge() {
     use ratatui::buffer::Buffer;
