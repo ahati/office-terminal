@@ -185,3 +185,45 @@ fn test_reader_key_events() {
     let action = handle_key_event(make_key(KeyCode::Char('q')), &mut state);
     assert_eq!(action, AppAction::Quit);
 }
+
+#[test]
+fn test_reader_arrow_keys_navigation() {
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+
+    // Initial: anchor 0 (cover page 0 alone in spread mode)
+    assert_eq!(state.reader_state().unwrap().anchor, 0);
+
+    // Right Arrow advances to next spread
+    let action = handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 1);
+    assert_eq!(state.current_slide(), 1);
+
+    // Right Arrow advances to next spread [3, 4]
+    let action = handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 3);
+    assert_eq!(state.current_slide(), 3);
+
+    // Left Arrow retreats to previous spread [1, 2]
+    let action = handle_key_event(make_key(KeyCode::Left), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 1);
+    assert_eq!(state.current_slide(), 1);
+
+    // In FitWidth mode, Down Arrow scrolls down
+    let action = handle_key_event(make_key(KeyCode::Down), &mut state);
+    assert_eq!(action, AppAction::Redraw);
+
+    // Cycle to FitPage mode: Down Arrow directly advances to next page
+    state.reader_state_mut().unwrap().cycle_fit();
+    let action = handle_key_event(make_key(KeyCode::Down), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 3);
+
+    // Up Arrow in FitPage mode retreats to previous page
+    let action = handle_key_event(make_key(KeyCode::Up), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 1);
+}

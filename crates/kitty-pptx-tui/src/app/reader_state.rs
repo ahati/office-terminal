@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use kitty_pptx_core::RenderTargetSpec;
 use kitty_pptx_display::{CellRect, ImageId, PixelRect};
 
 /// Layout model for displaying document pages in reader mode.
@@ -49,6 +50,7 @@ pub struct ReaderSlotPlacement {
     pub id: ImageId,
     pub cell_rect: CellRect,
     pub pixel_src: PixelRect,
+    pub page_target: RenderTargetSpec,
 }
 
 /// Full interactive state model for Reader mode (PRD 14a §4).
@@ -141,25 +143,56 @@ impl ReaderState {
         }
     }
 
-    pub fn scroll_vertical(&mut self, delta_px: i32) {
+    pub fn slot_width(&self, viewport_w_px: f32, cell_w_px: f32) -> f32 {
+        let gutter_cols = 2u16;
+        let gutter_px = (gutter_cols as f32) * cell_w_px;
+        let vis = self.visible_pages();
+        let is_spread = self.layout == ReaderLayout::Spread && vis.len() > 1;
+        if is_spread {
+            ((viewport_w_px - gutter_px) / 2.0).max(10.0)
+        } else {
+            viewport_w_px
+        }
+    }
+
+    pub fn scroll_vertical(&mut self, delta_px: i32) -> bool {
+        self.scroll_vertical_bounded(delta_px, u32::MAX)
+    }
+
+    pub fn scroll_vertical_bounded(&mut self, delta_px: i32, max_scroll_y: u32) -> bool {
         let targets = if self.sync {
             self.visible_pages()
         } else {
             vec![self.focused_page()]
         };
 
+        let mut moved = false;
         for page in targets {
             let view = self.page_view_mut(page);
-            let next_y = (view.scroll_y as i32 + delta_px).max(0) as u32;
+            if view.fit == ReaderFitMode::FitPage {
+                continue;
+            }
+            let prev = view.scroll_y;
+            let next_y = ((view.scroll_y as i32 + delta_px).max(0) as u32).min(max_scroll_y);
             view.scroll_y = next_y;
+            if view.scroll_y != prev {
+                moved = true;
+            }
         }
+        moved
     }
 
-    pub fn scroll_horizontal(&mut self, delta_px: i32) {
+    pub fn scroll_horizontal(&mut self, delta_px: i32) -> bool {
+        self.scroll_horizontal_bounded(delta_px, u32::MAX)
+    }
+
+    pub fn scroll_horizontal_bounded(&mut self, delta_px: i32, max_scroll_x: u32) -> bool {
         let page = self.focused_page();
         let view = self.page_view_mut(page);
-        let next_x = (view.scroll_x as i32 + delta_px).max(0) as u32;
+        let prev = view.scroll_x;
+        let next_x = ((view.scroll_x as i32 + delta_px).max(0) as u32).min(max_scroll_x);
         view.scroll_x = next_x;
+        view.scroll_x != prev
     }
 
     pub fn toggle_focus(&mut self) {

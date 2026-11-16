@@ -100,8 +100,14 @@ pub fn run_interactive(
                 rasterizer,
             ));
             let notes = vec![None; total];
+            let (first_w_emu, first_h_emu) = if total > 0 {
+                pdf_source.page_size_emu(0)
+            } else {
+                (12_192_000, 6_858_000)
+            };
             let mut a = PresentationApp::new(pipeline, driver, total, notes)
                 .with_presenter_mode(presenter)
+                .with_slide_dimensions(first_w_emu, first_h_emu)
                 .with_deck_title(doc_title)
                 .with_toc(toc);
             if enable_reader {

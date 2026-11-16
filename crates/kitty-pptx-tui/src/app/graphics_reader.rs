@@ -51,7 +51,7 @@ impl ReaderGraphicsSyncer {
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
-        canvas_target: &RenderTargetSpec,
+        _canvas_target: &RenderTargetSpec,
         epoch: &mut u64,
     ) -> Result<(), DisplayError> {
         let placements = state.reader_placements();
@@ -62,7 +62,7 @@ impl ReaderGraphicsSyncer {
             let page = placement.page;
             let id = placement.id;
 
-            match pipeline.entry_at(page, canvas_target) {
+            match pipeline.entry_at(page, &placement.page_target) {
                 PipelineEntry::Ready { bitmap, .. } => {
                     let needs_stage = match self.staged[slot_idx] {
                         Some(s) => {
@@ -137,7 +137,15 @@ impl ReaderGraphicsSyncer {
                 ahead: 4,
                 stage: false,
             };
-            pipeline.prefetch(&plan, canvas_target);
+            let (pt_w, pt_h) = reader.page_size_pt(center);
+            let ar = (pt_w / pt_h).max(0.1);
+            let target_w = 2560u32;
+            let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
+            let prefetch_target = RenderTargetSpec {
+                width_px: target_w,
+                height_px: target_h,
+            };
+            pipeline.prefetch(&plan, &prefetch_target);
         }
 
         Ok(())

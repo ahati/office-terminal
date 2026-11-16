@@ -274,16 +274,20 @@ impl PresentationApp {
 
     /// Base target for the terminal grid, multiplied by the latched zoom.
     fn recompute_target(&mut self, cols: u16, rows: u16) {
-        // Approximate pixel target based on terminal dimensions (typical cell is ~10x20 px).
-        // The slide aspect ratio is authoritative: fit the slide inside the terminal
-        // pixel budget so resizing never stretches it.
+        // Pixel target based on live terminal dimensions and slide aspect ratio.
         let (slide_width, slide_height) = self.state.slide_dimensions();
-        let slide_aspect = slide_width as f64 / slide_height as f64;
-        let max_width = (cols as u32 * 10).max(640);
-        let max_height = (rows as u32 * 20).max(360);
+        let slide_aspect = slide_width as f64 / slide_height.max(1) as f64;
+        let metrics = kitty_pptx_display::probe_cell_pixel_size();
+        let cell_w = metrics.width_px.max(8.0);
+        let cell_h = metrics.height_px.max(16.0);
+        let screen_w = (cols as f64 * cell_w * 2.0).round() as u32;
+        let screen_h = (rows as f64 * cell_h * 2.0).round() as u32;
+        let max_width = screen_w.clamp(1920, 3840);
+        let max_height = screen_h.clamp(1080, 2160);
+
         let base_width = max_width
             .min((max_height as f64 * slide_aspect).round() as u32)
-            .max(1);
+            .max(640);
         let scale = self.state.scale().max(0.01);
         let width_px = ((base_width as f32 * scale).round() as u32).max(1);
         let height_px = ((width_px as f64 / slide_aspect).round().max(1.0)) as u32;
