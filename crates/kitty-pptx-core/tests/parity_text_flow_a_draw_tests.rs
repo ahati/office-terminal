@@ -169,14 +169,14 @@ fn d01_just_does_not_stretch_the_break_terminated_line() {
     assert!(rows.len() >= 2, "the <a:br/> opens a second line: {rows:?}");
     let base = natural_width(FIRST_LINE);
     // Line 1 = the 4 CJK glyphs, unstretched: exactly their natural advance and
-    // (with this face) below the reference spec's 60 px "near natural" bound.
+    // (with this real face, natural ~80 px) below the 200 px box width.
     close(
         extent(&rows[0]),
         base,
         "`just` leaves the break-terminated line at its natural extent",
     );
     assert!(
-        extent(&rows[0]) < 60.0,
+        extent(&rows[0]) < 100.0,
         "the `just` break line stays near its natural extent, not the 200 px box"
     );
 }

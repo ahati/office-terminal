@@ -13,6 +13,7 @@ pub mod bullets;
 pub mod emit;
 mod face_cache;
 pub mod faces;
+pub mod face_features;
 pub mod find;
 pub mod fonts;
 pub mod linebreak;

@@ -75,19 +75,32 @@ fn push_clusters(
         let def = measurer.style(style);
         let (painted, rotation, advance) = if cluster.chars().count() == 1 {
             let ch = cluster.chars().next().unwrap_or(' ');
-            let family = def.family.to_ascii_lowercase();
-            if ch == '\u{30fc}' && family.contains("jhenghei") && def.bold {
-                // Bold Microsoft JhengHei has no `vert` glyph for the long
-                // mark; the reference rotates the horizontal glyph.
+            if is_ascii_bracket(ch) {
                 (cluster.to_string(), FRAC_PI_2, width)
-            } else if ch == '\u{2225}' && family.contains("yu gothic") {
-                // Yu Gothic's vrt2-only parallel mark stands unturned.
+            } else if ch >= '\u{0080}'
+                && super::face_features::has_vrt2_feature(&def.family, def.bold, def.italic, ch)
+            {
+                // vrt2-only coverage outside Basic Latin (e.g. ∥ in Yu Gothic):
+                // stands unturned in a 1 em cell as its horizontal glyph.
                 (cluster.to_string(), 0.0, size)
-            } else if ch == '\u{2225}' {
-                (cluster.to_string(), FRAC_PI_2, width)
+            } else if super::face_features::has_vert_feature(&def.family, def.bold, def.italic, ch) {
+                // vert coverage: ∥ turns; vertical_form stands upright.
+                if ch == '\u{2225}' {
+                    (cluster.to_string(), FRAC_PI_2, width)
+                } else if let Some(form) = vertical::vertical_form(ch) {
+                    (form.to_string(), 0.0, size)
+                } else {
+                    (cluster.to_string(), FRAC_PI_2, width)
+                }
             } else if let Some(form) = vertical::vertical_form(ch) {
-                (form.to_string(), 0.0, size)
-            } else if is_ascii_bracket(ch) {
+                // When a long mark has no vert feature coverage (e.g. bold JhengHei),
+                // it rotates horizontal glyph rather than substituting.
+                if matches!(ch, '\u{30fc}' | '\u{301c}') {
+                    (cluster.to_string(), FRAC_PI_2, width)
+                } else {
+                    (form.to_string(), 0.0, size)
+                }
+            } else if ch == '\u{2225}' {
                 (cluster.to_string(), FRAC_PI_2, width)
             } else {
                 (cluster.to_string(), 0.0, cell)
@@ -330,7 +343,7 @@ pub(super) fn compile_stacked(
             push_clusters(measurer, &stream, paragraph_index, false, &mut glyphs);
         }
         let mut stream: Vec<(char, StyleId)> = Vec::new();
-        let mut break_before = false;
+        let mut break_before = paragraph_index > 0;
         let mut math_cursor = 0usize;
         for item in &para.items {
             match item {
@@ -363,6 +376,22 @@ pub(super) fn compile_stacked(
                             descent: piece.descent,
                             rotation: 0.0,
                             object: Some(math_cursor),
+                            paragraph: paragraph_index,
+                            break_before: false,
+                        });
+                    } else {
+                        // Empty equation (e.g. no engine): reserve the mark cell!
+                        let (cell, ascent, descent, size) = cell_metrics(measurer, *style);
+                        glyphs.push(vertical::StackedGlyph {
+                            text: String::new(),
+                            style: *style,
+                            advance: cell,
+                            width: (*width).max(size),
+                            thickness: cell,
+                            ascent,
+                            descent,
+                            rotation: 0.0,
+                            object: None,
                             paragraph: paragraph_index,
                             break_before: false,
                         });

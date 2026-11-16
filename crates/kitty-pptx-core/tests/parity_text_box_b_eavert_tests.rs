@@ -338,3 +338,78 @@ fn ascii_graphemes_stay_one_per_column() {
 fn fullwidth_colon_rotates_with_the_page() {
     assert_eq!(pieces("：", all_forms), [("：".to_string(), false)]);
 }
+
+fn upright_column_spaced(
+    text: &str,
+    alignment: &str,
+    box_w: f32,
+    box_h: f32,
+    spc_pt: f64,
+) -> Vec<PositionedGlyphRun> {
+    let mut body = ea_vert_body(text, alignment);
+    if let pptx_model::TextRun::Text(run) = &mut body.paragraphs[0].runs[0] {
+        run.letter_spacing = Some(spc_pt);
+    }
+    let (tx, _rx) = unbounded();
+    let commands = compile_text_body(
+        &body,
+        (box_w * PT) as i64,
+        (box_h * PT) as i64,
+        &AffineTransform::identity(),
+        None,
+        &tx,
+    );
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            VectorCommand::DrawText { runs, .. } => Some(runs.iter().cloned()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|run| run.text.chars().count() == 1)
+        .collect()
+}
+
+/// `:288` "uses vert only for long marks and keeps other glyphs on manual
+/// paths" — the painted sequence
+/// `['ー','〜','～','︑','︒','：','；','﹁','﹂','“','”','A']` with the `vert`
+/// font FEATURE on only the first three.
+#[test]
+fn helper_uses_the_vert_feature_for_long_marks_only() {
+    let painted: Vec<String> = pieces("ー〜～、。：；「」“”A", all_forms)
+        .into_iter()
+        .flat_map(|(text, _)| {
+            graphemes(&text)
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        painted,
+        ["ー", "〜", "～", "︑", "︒", "：", "；", "﹁", "﹂", "“", "”", "A"]
+    );
+}
+
+/// `:317` "keeps a glyph without vert coverage on the plain geometric
+/// fallback".
+#[test]
+fn helper_keeps_uncovered_glyphs_on_the_plain_fallback() {
+    assert_eq!(
+        pieces("ー〜", |ch| ch == 'ー'),
+        [("ー".to_string(), true), ("〜".to_string(), false)]
+    );
+}
+
+/// `:341` "advances each cell by measure + letterSpacingPx (the justification
+/// pitch)": 国国 steps by `FONT_PX` and by `FONT_PX + 8` with an 8 px pitch.
+#[test]
+fn helper_advances_by_measure_plus_spacing() {
+    let plain = upright_column("国国", "l", 200.0, 400.0);
+    assert!((column_pitch(&plain) - 20.0 * PT).abs() < 1.0, "one em step");
+    let spaced = upright_column_spaced("国国", "l", 200.0, 400.0, 8.0);
+    assert!(
+        (column_pitch(&spaced) - 28.0 * PT).abs() < 1.0,
+        "step includes 8 px spacing"
+    );
+}
