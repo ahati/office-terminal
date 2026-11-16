@@ -334,6 +334,26 @@ pub fn emit_pattern_fill_def(defs: &mut String, id: &str, pattern: &VectorPatter
     let _ = writeln!(defs, "    </pattern>");
 }
 
+/// Paint-server def for an inline texture fill (`VectorPaint::Texture`).
+pub fn emit_texture_fill_def(defs: &mut String, id: &str, texture: &crate::contracts::VectorTextureFill) {
+    let b64 = BASE64_STANDARD.encode(&texture.png);
+    let t = &texture.transform;
+    let transform_attr = format_transform_attr(t);
+    let opacity_attr = if (texture.opacity - 1.0).abs() > 1e-3 {
+        format!(r#" opacity="{:.2}""#, texture.opacity)
+    } else {
+        String::new()
+    };
+    let w = texture.width;
+    let h = texture.height;
+    let _ = writeln!(
+        defs,
+        r#"    <pattern id="{id}" patternUnits="userSpaceOnUse" x="0" y="0" width="{w}" height="{h}"{transform_attr}>
+      <image x="0" y="0" width="{w}" height="{h}" preserveAspectRatio="none" href="data:image/png;base64,{b64}"{opacity_attr}/>
+    </pattern>"#
+    );
+}
+
 /// Anchor of the first tile for an `ST_RectAlignment` value
 /// (ref renderer.ts:2377-2403, `tileAnchorOffset`).
 fn tile_anchor(algn: &str, box_w: f32, box_h: f32, tile_w: f32, tile_h: f32) -> (f32, f32) {

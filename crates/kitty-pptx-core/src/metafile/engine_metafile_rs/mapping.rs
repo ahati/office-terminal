@@ -3,6 +3,7 @@
 use metafile_core as mc;
 
 use super::rgba;
+use crate::contracts::AffineTransform;
 use crate::metafile::{MetafilePaint, MetafilePen};
 
 pub(super) fn map_pen(pen: &mc::Pen) -> (Option<MetafilePen>, Option<&'static str>) {
@@ -70,7 +71,7 @@ pub(super) fn map_stroke(stroke: &mc::Stroke) -> (MetafilePen, Option<&'static s
     )
 }
 
-pub(super) fn map_paint(paint: &mc::Paint) -> (Option<MetafilePaint>, Option<&'static str>) {
+pub fn map_paint(paint: &mc::Paint) -> (Option<MetafilePaint>, Option<&'static str>) {
     match paint {
         mc::Paint::Solid(paint_color) => (Some(MetafilePaint::Solid(rgba(*paint_color))), None),
         mc::Paint::LinearGradient {
@@ -111,14 +112,50 @@ pub(super) fn map_paint(paint: &mc::Paint) -> (Option<MetafilePaint>, Option<&'s
             Some("metafile_hatch"),
         ),
         mc::Paint::Texture {
-            bitmap, opacity, ..
+            bitmap,
+            transform,
+            wrap_mode,
+            opacity,
+            do_not_transform,
         } => {
-            let mut color = bitmap_average(bitmap);
-            color[3] = (f64::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
-            (
-                Some(MetafilePaint::Solid(color)),
-                Some("metafile_pattern_brush"),
-            )
+            if (*wrap_mode == 0 || *wrap_mode == 4) && bitmap.width > 0 && bitmap.height > 0 {
+                if let Some(png) = crate::metafile::mapping::bitmap::encode_raw_png(
+                    bitmap.width,
+                    bitmap.height,
+                    &bitmap.rgba,
+                ) {
+                    let brush_transform = if *do_not_transform {
+                        AffineTransform::identity()
+                    } else {
+                        from_engine_transform(*transform)
+                    };
+                    (
+                        Some(MetafilePaint::Texture {
+                            png,
+                            width: bitmap.width,
+                            height: bitmap.height,
+                            transform: brush_transform,
+                            repeat: *wrap_mode == 0,
+                            opacity: *opacity as f32,
+                        }),
+                        None,
+                    )
+                } else {
+                    let mut color = bitmap_average(bitmap);
+                    color[3] = (f64::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
+                    (
+                        Some(MetafilePaint::Solid(color)),
+                        Some("metafile_pattern_brush"),
+                    )
+                }
+            } else {
+                let mut color = bitmap_average(bitmap);
+                color[3] = (f64::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
+                (
+                    Some(MetafilePaint::Solid(color)),
+                    Some("metafile_pattern_brush"),
+                )
+            }
         }
     }
 }
@@ -204,6 +241,20 @@ pub(super) fn transform_point(transform: mc::Transform, point: mc::Point) -> (f3
     )
 }
 
+pub(super) fn from_engine_transform(transform: mc::Transform) -> AffineTransform {
+    if !transform.is_finite() {
+        return AffineTransform::identity();
+    }
+    AffineTransform {
+        sx: transform.m11 as f32,
+        ky: transform.m12 as f32,
+        kx: transform.m21 as f32,
+        sy: transform.m22 as f32,
+        tx: transform.dx as f32,
+        ty: transform.dy as f32,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,11 +268,38 @@ mod tests {
     }
 
     #[test]
-    fn texture_brushes_approximate_to_an_average_colour() {
+    fn texture_brushes_map_to_texture_fill() {
         let (paint, tag) = map_paint(&mc::Paint::Texture {
             bitmap: solid_bitmap(),
             transform: mc::Transform::IDENTITY,
             wrap_mode: 0,
+            opacity: 0.8,
+            do_not_transform: false,
+        });
+        assert_eq!(tag, None, "supported wrap mode must not emit degraded warning");
+        match paint {
+            Some(MetafilePaint::Texture {
+                width,
+                height,
+                repeat,
+                opacity,
+                ..
+            }) => {
+                assert_eq!(width, 2);
+                assert_eq!(height, 2);
+                assert!(repeat);
+                assert!((opacity - 0.8).abs() < 1e-4);
+            }
+            other => panic!("expected MetafilePaint::Texture, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn texture_brushes_unsupported_wrap_approximate_to_average() {
+        let (paint, tag) = map_paint(&mc::Paint::Texture {
+            bitmap: solid_bitmap(),
+            transform: mc::Transform::IDENTITY,
+            wrap_mode: 1, // TileFlipX (unsupported)
             opacity: 0.5,
             do_not_transform: false,
         });
@@ -229,7 +307,7 @@ mod tests {
         assert_eq!(
             paint,
             Some(MetafilePaint::Solid([255, 0, 0, 128])),
-            "texture fills must paint their average colour instead of vanishing"
+            "unsupported wrap mode must fall back to average colour"
         );
     }
 

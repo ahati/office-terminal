@@ -320,7 +320,7 @@ fn linear_gradient_paint_maps_to_the_display_list() {
         to: (10.0, 0.0),
         stops: vec![(0.0, [255, 0, 0, 255]), (1.0, [0, 0, 255, 255])],
     };
-    match mapping::paint::map_paint(&paint) {
+    match mapping::paint::map_paint(&paint, &kitty_pptx_core::contracts::AffineTransform::identity()) {
         Some(VectorPaint::LinearGradient(gradient)) => {
             assert_eq!(gradient.stops.len(), 2);
             assert!(gradient.angle_deg.abs() < 1.0e-3, "horizontal axis");
@@ -333,7 +333,7 @@ fn linear_gradient_paint_maps_to_the_display_list() {
         to: (0.0, 10.0),
         stops: vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])],
     };
-    match mapping::paint::map_paint(&vertical) {
+    match mapping::paint::map_paint(&vertical, &kitty_pptx_core::contracts::AffineTransform::identity()) {
         Some(VectorPaint::LinearGradient(gradient)) => {
             assert!((gradient.angle_deg - 90.0).abs() < 1.0e-3);
         }

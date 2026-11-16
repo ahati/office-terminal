@@ -1,11 +1,15 @@
 //! Brush / paint → `VectorPaint`.
 
-use crate::contracts::{VectorGradient, VectorPaint, VectorPattern};
+use std::sync::Arc;
+
+use crate::contracts::{
+    AffineTransform, VectorGradient, VectorPaint, VectorPattern, VectorTextureFill,
+};
 
 use crate::metafile::MetafilePaint;
 
 /// Maps an engine brush into a display-list paint.
-pub fn map_paint(paint: &MetafilePaint) -> Option<VectorPaint> {
+pub fn map_paint(paint: &MetafilePaint, unit_to_emu: &AffineTransform) -> Option<VectorPaint> {
     match paint {
         MetafilePaint::None => None,
         MetafilePaint::Solid(color) => Some(VectorPaint::Solid(*color)),
@@ -25,5 +29,20 @@ pub fn map_paint(paint: &MetafilePaint) -> Option<VectorPaint> {
             fg: *fg,
             bg: *bg,
         })),
+        MetafilePaint::Texture {
+            png,
+            width,
+            height,
+            transform,
+            repeat,
+            opacity,
+        } => Some(VectorPaint::Texture(Box::new(VectorTextureFill {
+            png: Arc::clone(png),
+            width: *width,
+            height: *height,
+            transform: super::compose(unit_to_emu, transform),
+            repeat: *repeat,
+            opacity: *opacity,
+        }))),
     }
 }

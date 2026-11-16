@@ -102,6 +102,7 @@ fn command_bytes(commands: &[VectorCommand]) -> usize {
             }
             VectorPaint::Image(fill) => 64 + fill.rel_id.len(),
             VectorPaint::Pattern(_) => 64,
+            VectorPaint::Texture(tex) => 64 + tex.png.len(),
         }
     }
     fn stroke_bytes(stroke: &VectorStroke) -> usize {

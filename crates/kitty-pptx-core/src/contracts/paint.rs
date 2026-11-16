@@ -1,4 +1,6 @@
-use super::geometry::{LineCap, LineJoin, NormalizedRect};
+use std::sync::Arc;
+
+use super::geometry::{AffineTransform, LineCap, LineJoin, NormalizedRect};
 use super::vector_slide::BlipEffect;
 
 /// One preset-pattern cell in EMU: the measured 8×8-cell tile spans 8 pt, so a
@@ -19,6 +21,21 @@ pub enum VectorPaint {
     /// ECMA-376 §20.1.8.40 `a:pattFill` preset pattern, painted as a tiled
     /// bitmap on the [`PATTERN_CELL_EMU`] cell grid.
     Pattern(VectorPattern),
+    /// Inline texture brush fill for metafile vector playback (EMF+ `EmfPlusTextureBrush`).
+    Texture(Box<VectorTextureFill>),
+}
+
+/// Inline texture/bitmap fill descriptor for metafile vector playback.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VectorTextureFill {
+    pub png: Arc<[u8]>,
+    pub width: u32,
+    pub height: u32,
+    /// Maps texture bitmap pixels `(0..width, 0..height)` into slide EMU coordinates.
+    pub transform: AffineTransform,
+    /// `true` repeats the cell (tile mode), `false` pads/clamps (stretch mode).
+    pub repeat: bool,
+    pub opacity: f32,
 }
 
 /// Color gradient descriptor.

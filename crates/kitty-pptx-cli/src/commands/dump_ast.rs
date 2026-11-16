@@ -187,6 +187,13 @@ fn paint_json(paint: &VectorPaint) -> Value {
             "fg": pattern.fg,
             "bg": pattern.bg,
         }),
+        VectorPaint::Texture(texture) => json!({
+            "type": "texture",
+            "width": texture.width,
+            "height": texture.height,
+            "repeat": texture.repeat,
+            "opacity": texture.opacity,
+        }),
     }
 }
 

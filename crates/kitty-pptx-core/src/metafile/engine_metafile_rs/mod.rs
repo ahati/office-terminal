@@ -14,9 +14,9 @@ use super::{
     MetafileLimits, MetafileSink, PlaybackOutcome,
 };
 
-mod mapping;
-mod primitives;
-mod renderer;
+pub mod mapping;
+pub mod primitives;
+pub mod renderer;
 
 use renderer::SinkRenderer;
 

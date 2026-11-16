@@ -25,6 +25,7 @@ pub mod recorder;
 pub mod unpack;
 
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use crate::contracts::{
     AffineTransform, FidelityClass, FillRule, PathSegment, RectF32, VectorPath, WarningEvent,
@@ -183,6 +184,16 @@ pub enum MetafilePaint {
         preset: &'static str,
         fg: [u8; 4],
         bg: [u8; 4],
+    },
+    /// EMF+ texture brush fill in output coordinates.
+    Texture {
+        png: Arc<[u8]>,
+        width: u32,
+        height: u32,
+        /// Maps bitmap pixels to output units.
+        transform: AffineTransform,
+        repeat: bool,
+        opacity: f32,
     },
 }
 
