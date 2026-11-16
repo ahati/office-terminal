@@ -1,18 +1,22 @@
 pub mod events;
 mod find_state;
 mod graphics;
+pub(crate) mod graphics_reader;
 #[cfg(test)]
 mod graphics_tests;
 pub mod link_state;
 pub mod media;
 pub mod mode;
 pub mod nav_state;
+pub mod reader_events;
+pub mod reader_state;
 pub mod search_state;
 #[cfg(test)]
 mod sorter_graphics_tests;
 pub mod sorter_state;
 pub mod state;
 mod state_notices;
+mod state_reader;
 mod state_timing;
 mod terminal_guard;
 pub mod ui;
@@ -99,6 +103,31 @@ impl PresentationApp {
     /// Attach physical slide dimensions for hyperlink mouse hit-testing.
     pub fn with_slide_dimensions(mut self, width_emu: i64, height_emu: i64) -> Self {
         self.state.set_slide_dimensions(width_emu, height_emu);
+        self
+    }
+
+    /// Configure reader mode with total page count and page dimensions in points.
+    pub fn with_reader_mode(
+        mut self,
+        enabled: bool,
+        total_pages: usize,
+        page_sizes: Vec<(f32, f32)>,
+    ) -> Self {
+        if enabled {
+            self.state.enable_reader_mode(total_pages, page_sizes);
+        }
+        self
+    }
+
+    /// Set presentation or document title.
+    pub fn with_deck_title(mut self, title: impl Into<String>) -> Self {
+        self.state.set_deck_title(title);
+        self
+    }
+
+    /// Attach a document table of contents for fuzzy search.
+    pub fn with_toc(mut self, toc: Vec<kitty_pptx_core::TocEntry>) -> Self {
+        self.state.set_toc(&toc);
         self
     }
 

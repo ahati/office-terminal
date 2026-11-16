@@ -135,6 +135,20 @@ impl KittyDriver {
                     rect.rows
                 )]
             }
+            Placement::CellsSubrect { rect, src } => {
+                vec![format!(
+                    "\x1b[{};{}H\x1b_Ga=p,i={},p=1,x={},y={},w={},h={},c={},r={},z=-1,C=1,q=2\x1b\\",
+                    rect.row + 1,
+                    rect.col + 1,
+                    id.0,
+                    src.x,
+                    src.y,
+                    src.width,
+                    src.height,
+                    rect.cols,
+                    rect.rows
+                )]
+            }
             Placement::ScrollbackBlock => {
                 vec![format!("\x1b_Ga=p,i={},q=2\x1b\\\n", id.0)]
             }

@@ -2,9 +2,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use kitty_pptx_core::metafile::expand_metafiles;
 use kitty_pptx_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, SlideCompiler,
+    DeckSource, DefaultPresentationLoader, DefaultSlideCompiler, PageSource, PresentationLoader,
+    SlideCompiler,
 };
 use serde_json::Value;
+use std::sync::Arc;
 use crate::commands::dump_ast;
 use crate::commands::source_from_path;
 
@@ -14,7 +16,6 @@ struct DumpJsonEnvelope<'a> {
     schema_version: u32,
     warnings: Vec<String>,
     presentation: &'a pptx_model::Presentation,
-    /// Expanded vector scenes (no `DrawMetafile` markers survive).
     vector_slides: Vec<Value>,
 }
 
@@ -28,7 +29,7 @@ pub fn run_dump(
     loader: &DefaultPresentationLoader,
 ) -> ExitCode {
     let source = source_from_path(file.clone());
-    let (presentation, asset_store) = match loader.load(source) {
+    let deck = match loader.load_deck(source) {
         Ok(res) => res,
         Err(e) => {
             eprintln!("Error loading deck: {}", e);
@@ -36,6 +37,38 @@ pub fn run_dump(
         }
     };
 
+    match deck {
+        DeckSource::Pptx(presentation, asset_store) => dump_pptx(
+            file,
+            presentation,
+            asset_store,
+            notes,
+            comments,
+            markdown,
+            json,
+            embed_bitmaps,
+        ),
+        DeckSource::Pdf(pdf_source) => dump_pdf(
+            pdf_source,
+            notes,
+            comments,
+            markdown,
+            json,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dump_pptx(
+    file: PathBuf,
+    presentation: pptx_model::Presentation,
+    asset_store: Arc<dyn kitty_pptx_core::AssetStore>,
+    notes: bool,
+    comments: bool,
+    markdown: bool,
+    json: bool,
+    embed_bitmaps: bool,
+) -> ExitCode {
     let any_flag = notes || comments || markdown || json;
     if !any_flag {
         println!(
@@ -165,6 +198,69 @@ pub fn run_dump(
                 return ExitCode::from(2);
             }
         }
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn dump_pdf(
+    pdf_source: Arc<dyn PageSource>,
+    notes: bool,
+    comments: bool,
+    markdown: bool,
+    json: bool,
+) -> ExitCode {
+    let any_flag = notes || comments || markdown || json;
+    let total = pdf_source.len();
+    if !any_flag {
+        println!(
+            "Document has {} pages. Use --notes, --comments, --markdown, or --json.",
+            total
+        );
+        return ExitCode::SUCCESS;
+    }
+
+    if notes {
+        for i in 0..total {
+            println!("--- Slide {} Notes ---", i + 1);
+            println!("(No notes)");
+        }
+    }
+
+    if comments {
+        for i in 0..total {
+            println!("--- Slide {} Comments ---", i + 1);
+            println!("(No comments)");
+        }
+    }
+
+    if markdown {
+        let corpus = pdf_source.search_corpus();
+        for i in 0..total {
+            println!("# Page {}\n", i + 1);
+            for line in corpus.page_text(i) {
+                println!("{}", line.text);
+            }
+            println!();
+        }
+    }
+
+    if json {
+        let corpus = pdf_source.search_corpus();
+        let mut pages = Vec::with_capacity(total);
+        for i in 0..total {
+            let lines: Vec<String> = corpus.page_text(i).iter().map(|l| l.text.clone()).collect();
+            pages.push(serde_json::json!({
+                "page": i + 1,
+                "text": lines.join("\n"),
+            }));
+        }
+        let env = serde_json::json!({
+            "schemaVersion": 1,
+            "pageCount": total,
+            "pages": pages,
+        });
+        println!("{}", serde_json::to_string_pretty(&env).unwrap_or_default());
     }
 
     ExitCode::SUCCESS

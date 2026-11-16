@@ -72,6 +72,36 @@ fn test_kitty_present_sequence_uses_direct_placement() {
 }
 
 #[test]
+fn test_kitty_present_sequence_subrect() {
+    let rect = CellRect {
+        row: 2,
+        col: 3,
+        rows: 4,
+        cols: 5,
+    };
+    let src = PixelRect {
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 200,
+    };
+    let sequences = KittyDriver::present_sequences(ImageId(7), Placement::CellsSubrect { rect, src });
+    assert_eq!(sequences.len(), 1);
+    assert_eq!(
+        sequences[0],
+        "\x1b[3;4H\x1b_Ga=p,i=7,p=1,x=10,y=20,w=100,h=200,c=5,r=4,z=-1,C=1,q=2\x1b\\"
+    );
+}
+
+#[test]
+fn test_cell_pixel_metrics() {
+    let default_metric = CellPixelSize::default();
+    assert_eq!(default_metric.width_px, 10.0);
+    assert_eq!(default_metric.height_px, 20.0);
+    assert_eq!(default_metric.aspect_ratio(), 0.5);
+}
+
+#[test]
 fn test_kitty_stage_and_sink() {
     let slide = create_test_slide(16, 16, [255, 0, 0, 255]);
     let driver = KittyDriver::new(PlacementMode::Interactive);

@@ -4,6 +4,50 @@ use crate::driver::CellRect;
 /// Monospace fonts in terminal emulators are conventionally roughly twice as tall as they are wide (1:2 ratio, 0.5).
 pub const DEFAULT_CELL_ASPECT_RATIO: f64 = 0.5;
 
+/// Character cell dimensions in physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CellPixelSize {
+    pub width_px: f64,
+    pub height_px: f64,
+}
+
+impl Default for CellPixelSize {
+    fn default() -> Self {
+        Self {
+            width_px: 10.0,
+            height_px: 20.0,
+        }
+    }
+}
+
+impl CellPixelSize {
+    pub fn aspect_ratio(&self) -> f64 {
+        if self.height_px > 0.0 {
+            self.width_px / self.height_px
+        } else {
+            DEFAULT_CELL_ASPECT_RATIO
+        }
+    }
+}
+
+/// Probes terminal for character cell pixel metrics.
+pub fn probe_cell_pixel_size() -> CellPixelSize {
+    if let Ok(size) = crossterm::terminal::window_size() {
+        if size.columns > 0 && size.rows > 0 && size.width > 0 && size.height > 0 {
+            return CellPixelSize {
+                width_px: size.width as f64 / size.columns as f64,
+                height_px: size.height as f64 / size.rows as f64,
+            };
+        }
+    }
+    CellPixelSize::default()
+}
+
+/// Probes the terminal for live cell aspect ratio (width / height).
+pub fn probe_cell_aspect_ratio() -> f64 {
+    probe_cell_pixel_size().aspect_ratio()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FitMode {
     /// Scale image to fit inside bounds while preserving aspect ratio.

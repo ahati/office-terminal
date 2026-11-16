@@ -5,6 +5,7 @@ pub mod help;
 pub mod link_picker;
 pub mod normal;
 pub mod presenter;
+pub mod reader;
 pub mod search;
 pub mod sorter;
 pub mod warnings;
@@ -27,6 +28,7 @@ pub use help::render_help_modal;
 pub use link_picker::render_link_picker;
 pub use normal::render_normal;
 pub use presenter::render_presenter;
+pub use reader::render_reader;
 pub use search::render_search_modal;
 pub use sorter::render_sorter;
 pub use warnings::render_warning_drawer;
@@ -102,6 +104,7 @@ pub fn render_app(state: &PresentationState, f: &mut Frame) {
         AppMode::Fullscreen => render_normal(state, f, area),
         AppMode::PresenterConsole => render_presenter(state, f, area),
         AppMode::Sorter => render_sorter(state, f, area),
+        AppMode::Reader => render_reader(state, f, area),
         _ => render_normal(state, f, area),
     }
 
