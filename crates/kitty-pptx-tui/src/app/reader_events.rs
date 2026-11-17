@@ -12,16 +12,34 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => AppAction::Quit,
 
-        // Vertical scroll
+        // Column scroll (vertical continuous flow)
         KeyCode::Char('j') => {
+            let (cols, rows) = state.layout_size();
+            let metrics = kitty_pptx_display::probe_cell_pixel_size();
+            let cell_w_px = metrics.width_px.max(4.0) as f32;
+            let cell_h_px = metrics.height_px.max(8.0) as f32;
+            let viewport_w_px = (cols as f32) * cell_w_px;
+            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+
             if let Some(reader) = state.reader_state_mut() {
-                reader.scroll_vertical(24);
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((row_h / 8.0).round() as i64).max(24);
+                reader.scroll_column(step, row_h);
             }
             AppAction::Redraw
         }
         KeyCode::Char('k') => {
+            let (cols, rows) = state.layout_size();
+            let metrics = kitty_pptx_display::probe_cell_pixel_size();
+            let cell_w_px = metrics.width_px.max(4.0) as f32;
+            let cell_h_px = metrics.height_px.max(8.0) as f32;
+            let viewport_w_px = (cols as f32) * cell_w_px;
+            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+
             if let Some(reader) = state.reader_state_mut() {
-                reader.scroll_vertical(-24);
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((row_h / 8.0).round() as i64).max(24);
+                reader.scroll_column(-step, row_h);
             }
             AppAction::Redraw
         }
@@ -32,26 +50,12 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             let cell_h_px = metrics.height_px.max(8.0) as f32;
             let viewport_w_px = (cols as f32) * cell_w_px;
             let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-            let step = (cell_h_px * 2.0).round() as i32;
 
             let mut advanced = false;
             if let Some(reader) = state.reader_state_mut() {
-                let page = reader.focused_page();
-                let view = reader.page_view(page);
-                let (pt_w, pt_h) = reader.page_size_pt(page);
-                let ar = (pt_w / pt_h).max(0.1);
-                let slot_w = reader.slot_width(viewport_w_px, cell_w_px);
-                let pane_w = slot_w * view.zoom;
-                let pane_h = pane_w / ar;
-                let max_y = (pane_h - viewport_h_px).max(0.0) as u32;
-
-                if view.fit == crate::app::reader_state::ReaderFitMode::FitPage
-                    || max_y == 0
-                    || !reader.scroll_vertical_bounded(step, max_y)
-                {
-                    reader.next_row();
-                    advanced = true;
-                }
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((row_h / 8.0).round() as i64).max(1);
+                advanced = reader.scroll_column(step, row_h);
             }
             if advanced {
                 if let Some(reader) = state.reader_state() {
@@ -63,21 +67,18 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             }
         }
         KeyCode::Up => {
-            let mut retreated = false;
+            let (cols, rows) = state.layout_size();
             let metrics = kitty_pptx_display::probe_cell_pixel_size();
+            let cell_w_px = metrics.width_px.max(4.0) as f32;
             let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let step = (cell_h_px * 2.0).round() as i32;
+            let viewport_w_px = (cols as f32) * cell_w_px;
+            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
 
+            let mut retreated = false;
             if let Some(reader) = state.reader_state_mut() {
-                let page = reader.focused_page();
-                let view = reader.page_view(page);
-                if view.fit == crate::app::reader_state::ReaderFitMode::FitPage
-                    || view.scroll_y == 0
-                    || !reader.scroll_vertical_bounded(-step, u32::MAX)
-                {
-                    reader.prev_row();
-                    retreated = true;
-                }
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((row_h / 8.0).round() as i64).max(1);
+                retreated = reader.scroll_column(-step, row_h);
             }
             if retreated {
                 if let Some(reader) = state.reader_state() {
@@ -88,53 +89,111 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
                 AppAction::Redraw
             }
         }
-        KeyCode::Char('d') => {
+        KeyCode::Right => {
+            state.clear_digits();
+            let (cols, rows) = state.layout_size();
+            let metrics = kitty_pptx_display::probe_cell_pixel_size();
+            let cell_w_px = metrics.width_px.max(4.0) as f32;
+            let cell_h_px = metrics.height_px.max(8.0) as f32;
+            let viewport_w_px = (cols as f32) * cell_w_px;
+            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+
+            let mut moved = false;
             if let Some(reader) = state.reader_state_mut() {
-                reader.scroll_vertical(200);
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((row_h / 8.0).round() as i64).max(1);
+                moved = reader.scroll_column(step, row_h);
+            }
+            if moved {
+                if let Some(reader) = state.reader_state() {
+                    state.set_current_slide(reader.focused_page());
+                }
+                AppAction::SlideChanged
+            } else {
+                AppAction::Redraw
+            }
+        }
+        KeyCode::Left => {
+            state.clear_digits();
+            let (cols, rows) = state.layout_size();
+            let metrics = kitty_pptx_display::probe_cell_pixel_size();
+            let cell_w_px = metrics.width_px.max(4.0) as f32;
+            let cell_h_px = metrics.height_px.max(8.0) as f32;
+            let viewport_w_px = (cols as f32) * cell_w_px;
+            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+
+            let mut moved = false;
+            if let Some(reader) = state.reader_state_mut() {
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((row_h / 8.0).round() as i64).max(1);
+                moved = reader.scroll_column(-step, row_h);
+            }
+            if moved {
+                if let Some(reader) = state.reader_state() {
+                    state.set_current_slide(reader.focused_page());
+                }
+                AppAction::SlideChanged
+            } else {
+                AppAction::Redraw
+            }
+        }
+        KeyCode::Char('d') => {
+            let (cols, rows) = state.layout_size();
+            let metrics = kitty_pptx_display::probe_cell_pixel_size();
+            let cell_w_px = metrics.width_px.max(4.0) as f32;
+            let cell_h_px = metrics.height_px.max(8.0) as f32;
+            let viewport_w_px = (cols as f32) * cell_w_px;
+            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+
+            if let Some(reader) = state.reader_state_mut() {
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((viewport_h_px / 2.0).round() as i64).max(1);
+                reader.scroll_column(step, row_h);
             }
             AppAction::Redraw
         }
         KeyCode::Char('u') => {
+            let (cols, rows) = state.layout_size();
+            let metrics = kitty_pptx_display::probe_cell_pixel_size();
+            let cell_w_px = metrics.width_px.max(4.0) as f32;
+            let cell_h_px = metrics.height_px.max(8.0) as f32;
+            let viewport_w_px = (cols as f32) * cell_w_px;
+            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+
             if let Some(reader) = state.reader_state_mut() {
-                reader.scroll_vertical(-200);
+                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                let step = ((viewport_h_px / 2.0).round() as i64).max(1);
+                reader.scroll_column(-step, row_h);
             }
             AppAction::Redraw
         }
 
-        // Horizontal pan
+        // Horizontal pan (clamped to overflow)
         KeyCode::Char('h') => {
             if let Some(reader) = state.reader_state_mut() {
-                reader.scroll_horizontal(-24);
+                let page = reader.focused_page();
+                let max_x = reader
+                    .placements()
+                    .iter()
+                    .find(|p| p.page == page)
+                    .map(|p| p.max_scroll_x)
+                    .unwrap_or(0);
+                reader.scroll_horizontal_bounded(-24, max_x);
             }
             AppAction::Redraw
         }
         KeyCode::Char('l') => {
             if let Some(reader) = state.reader_state_mut() {
-                reader.scroll_horizontal(24);
+                let page = reader.focused_page();
+                let max_x = reader
+                    .placements()
+                    .iter()
+                    .find(|p| p.page == page)
+                    .map(|p| p.max_scroll_x)
+                    .unwrap_or(0);
+                reader.scroll_horizontal_bounded(24, max_x);
             }
             AppAction::Redraw
-        }
-
-        // Page turn with arrow keys
-        KeyCode::Right => {
-            state.clear_digits();
-            if let Some(reader) = state.reader_state_mut() {
-                reader.next_row();
-            }
-            if let Some(reader) = state.reader_state() {
-                state.set_current_slide(reader.focused_page());
-            }
-            AppAction::SlideChanged
-        }
-        KeyCode::Left => {
-            state.clear_digits();
-            if let Some(reader) = state.reader_state_mut() {
-                reader.prev_row();
-            }
-            if let Some(reader) = state.reader_state() {
-                state.set_current_slide(reader.focused_page());
-            }
-            AppAction::SlideChanged
         }
 
         // Focus & Sync

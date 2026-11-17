@@ -6,7 +6,6 @@ use ratatui::Frame;
 
 use crate::app::state::PresentationState;
 use crate::widget::SlideWidget;
-use kitty_pptx_display::MAX_THUMBNAIL_IMAGES;
 
 /// Render the interactive thumbnail slide sorter grid.
 pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -60,9 +59,14 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
 
     let cols = state.sorter_cols().max(1);
     let card_height = (grid_area.height / 3).clamp(5, 12);
-    // Never plan more cards than the image-id pool can keep resident; the
+    // Never plan more cards than the terminal image quota and image-id pool can keep resident; the
     // graphics syncer would otherwise leave the overflow blank.
-    let capacity_rows = (MAX_THUMBNAIL_IMAGES as usize / cols).max(1) as u16;
+    let canvas_target = kitty_pptx_core::RenderTargetSpec {
+        width_px: 2560,
+        height_px: 1440,
+    };
+    let max_cards = crate::app::graphics_thumbnails::max_sorter_cards_for_target(&canvas_target);
+    let capacity_rows = (max_cards / cols).max(1) as u16;
     let rows_visible = (grid_area.height / card_height).max(1).min(capacity_rows);
     let cursor = state.selected_sorter_index();
     let cursor_row = (cursor / cols) as u16;

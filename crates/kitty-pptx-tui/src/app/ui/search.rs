@@ -105,19 +105,36 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
 
         for row in 0..visible_count {
             let item_idx = scroll_top + row;
-            let slide_idx = matched[item_idx];
+            let entry_idx = matched[item_idx];
             let is_selected = item_idx == cursor;
 
-            if let Some(entry) = search.entry_by_slide_index(slide_idx) {
+            if let Some(entry) = search.entry(entry_idx) {
                 let mut spans = Vec::new();
+                let indent = "  ".repeat(entry.level);
+                let icon = if entry.has_children {
+                    if entry.expanded { "▾ " } else { "▸ " }
+                } else if entry.level > 0 {
+                    "• "
+                } else {
+                    "  "
+                };
+
+                let q = search.query().trim().to_lowercase();
+                let is_direct_match = q.is_empty() || {
+                    let title_lower = entry.title.to_lowercase();
+                    let num_str = entry.slide_number.to_string();
+                    title_lower.contains(&q) || num_str.contains(&q)
+                };
+
+                let max_title_len = 40usize.saturating_sub(entry.level * 2).max(15);
 
                 if is_selected {
                     spans.push(Span::styled(
-                        format!(" ▶ [{:>2}] ", entry.slide_number),
+                        format!(" ▶ {}{}[{:>2}] ", indent, icon, entry.slide_number),
                         Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::styled(
-                        truncate_str(&entry.title, 40),
+                        truncate_str(&entry.title, max_title_len),
                         Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
                     ));
 
@@ -127,13 +144,13 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                             Style::default().bg(Color::Cyan).fg(Color::DarkGray),
                         ));
                     }
-                } else {
+                } else if is_direct_match {
                     spans.push(Span::styled(
-                        format!("   [{:>2}] ", entry.slide_number),
+                        format!("   {}{}[{:>2}] ", indent, icon, entry.slide_number),
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::styled(
-                        truncate_str(&entry.title, 40),
+                        truncate_str(&entry.title, max_title_len),
                         Style::default().fg(Color::White),
                     ));
 
@@ -143,6 +160,16 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                             Style::default().fg(Color::DarkGray),
                         ));
                     }
+                } else {
+                    // Ancestor context node shown dimmed
+                    spans.push(Span::styled(
+                        format!("   {}{}[{:>2}] ", indent, icon, entry.slide_number),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                    spans.push(Span::styled(
+                        truncate_str(&entry.title, max_title_len),
+                        Style::default().fg(Color::DarkGray),
+                    ));
                 }
 
                 list_lines.push(Line::from(spans));

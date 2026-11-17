@@ -63,6 +63,7 @@ pub struct PresentationState {
     // Reader state & doc title
     pub(crate) reader_state: Option<crate::app::reader_state::ReaderState>,
     pub(crate) deck_title: Option<String>,
+    pub(crate) toc: Vec<kitty_pptx_core::TocEntry>,
 
     // Notification toast
     pub(crate) toast_message: Option<String>,
@@ -109,6 +110,7 @@ impl PresentationState {
             reader_placements: Arc::new(Mutex::new(Vec::new())),
             reader_state: None,
             deck_title: None,
+            toc: Vec::new(),
             toast_message: None,
             toast_time: None,
             render_failure: None,
@@ -492,16 +494,20 @@ impl PresentationState {
 
     /// Rebuild the search index, excluding hidden slides while in `skip` mode.
     pub(crate) fn sync_search_entries(&mut self) {
-        let hidden: Vec<bool> = (0..self.total_slides)
-            .map(|index| self.nav.is_hidden(index))
-            .collect();
-        self.search.sync_entries_filtered(
-            &self.slides,
-            &self.notes,
-            self.total_slides,
-            &hidden,
-            self.nav.hidden_mode().is_skip(),
-        );
+        if !self.toc.is_empty() {
+            self.search.sync_from_toc(&self.toc, self.total_slides);
+        } else {
+            let hidden: Vec<bool> = (0..self.total_slides)
+                .map(|index| self.nav.is_hidden(index))
+                .collect();
+            self.search.sync_entries_filtered(
+                &self.slides,
+                &self.notes,
+                self.total_slides,
+                &hidden,
+                self.nav.hidden_mode().is_skip(),
+            );
+        }
         self.sync_find_index();
     }
 

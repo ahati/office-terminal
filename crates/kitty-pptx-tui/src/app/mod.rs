@@ -13,11 +13,14 @@ pub mod reader_state;
 pub mod search_state;
 #[cfg(test)]
 mod sorter_graphics_tests;
+#[cfg(test)]
+mod reader_graphics_tests;
 pub mod sorter_state;
 pub mod state;
 mod state_notices;
 mod state_reader;
 mod state_timing;
+pub(crate) mod graphics_thumbnails;
 mod terminal_guard;
 pub mod ui;
 pub mod warnings_state;
@@ -370,18 +373,26 @@ impl PresentationApp {
             // failed placement must not terminate the presentation.
             let _ = self.sync_graphics();
 
-            if event::poll(Duration::from_millis(50))? {
-                match event::read()? {
-                    Event::Key(key) => {
-                        self.handle_key(key);
+            if event::poll(Duration::from_millis(16))? {
+                let mut ev_opt = Some(event::read()?);
+                while let Some(e) = ev_opt {
+                    match e {
+                        Event::Key(key) => {
+                            self.handle_key(key);
+                        }
+                        Event::Resize(cols, rows) => {
+                            self.handle_resize(cols, rows);
+                        }
+                        Event::Mouse(mouse) => {
+                            self.handle_mouse(mouse);
+                        }
+                        _ => {}
                     }
-                    Event::Resize(cols, rows) => {
-                        self.handle_resize(cols, rows);
+                    if event::poll(Duration::from_millis(0))? {
+                        ev_opt = Some(event::read()?);
+                    } else {
+                        ev_opt = None;
                     }
-                    Event::Mouse(mouse) => {
-                        self.handle_mouse(mouse);
-                    }
-                    _ => {}
                 }
             }
         }

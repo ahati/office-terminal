@@ -28,8 +28,8 @@ struct ReaderPlaced {
 /// Graphics syncer state for document reader viewports.
 #[derive(Default)]
 pub(crate) struct ReaderGraphicsSyncer {
-    staged: [Option<ReaderStaged>; 2],
-    placed: [Option<ReaderPlaced>; 2],
+    staged: [Option<ReaderStaged>; 4],
+    placed: [Option<ReaderPlaced>; 4],
     last_prefetch: Option<(usize, RenderTargetSpec)>,
 }
 
@@ -38,7 +38,7 @@ impl ReaderGraphicsSyncer {
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        for slot in 0..2 {
+        for slot in 0..4 {
             if let Some(placed) = self.placed[slot].take() {
                 let _ = driver.release(placed.id);
             }
@@ -56,9 +56,10 @@ impl ReaderGraphicsSyncer {
         epoch: &mut u64,
     ) -> Result<(), DisplayError> {
         let placements = state.reader_placements();
-        let mut active_slots = [false; 2];
+        let mut active_slots = [false; 4];
 
-        for (slot_idx, placement) in placements.into_iter().take(2).enumerate() {
+        for placement in placements {
+            let slot_idx = (placement.id.0.saturating_sub(1) as usize).min(3);
             active_slots[slot_idx] = true;
             let page = placement.page;
             let id = placement.id;

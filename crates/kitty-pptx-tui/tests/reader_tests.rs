@@ -168,11 +168,11 @@ fn test_reader_key_events() {
     assert_eq!(action, AppAction::SlideChanged);
     assert_eq!(state.reader_state().unwrap().visible_pages(), vec![2, 3]);
 
-    // Scroll vertical down in FitWidth mode
+    // Scroll vertical down in FitWidth mode moves column offset
     state.reader_state_mut().unwrap().cycle_fit();
     let action = handle_key_event(make_key(KeyCode::Char('j')), &mut state);
     assert_eq!(action, AppAction::Redraw);
-    assert_eq!(state.reader_state().unwrap().page_view(2).scroll_y, 24);
+    assert!(state.reader_state().unwrap().scroll_px > 0);
 
     // Focus toggle
     let action = handle_key_event(make_key(KeyCode::BackTab), &mut state);
@@ -201,38 +201,35 @@ fn test_reader_arrow_keys_navigation() {
     // Initial: anchor 0 (spread [0, 1])
     assert_eq!(state.reader_state().unwrap().anchor, 0);
 
-    // Right Arrow advances to next spread [2, 3]
+    // Right Arrow advances fractionally (>= 8 steps per row)
+    for _ in 0..7 {
+        handle_key_event(make_key(KeyCode::Right), &mut state);
+        assert_eq!(state.reader_state().unwrap().anchor, 0);
+        assert!(state.reader_state().unwrap().scroll_px > 0);
+    }
+
+    // 8th step completes the row transition to spread [2, 3]
     let action = handle_key_event(make_key(KeyCode::Right), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
     assert_eq!(state.reader_state().unwrap().anchor, 2);
     assert_eq!(state.current_slide(), 2);
 
-    // Right Arrow advances to next spread [4, 5]
-    let action = handle_key_event(make_key(KeyCode::Right), &mut state);
+    // PageDown immediately advances to next row [4, 5] (snaps to row top)
+    let action = handle_key_event(make_key(KeyCode::PageDown), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
     assert_eq!(state.reader_state().unwrap().anchor, 4);
-    assert_eq!(state.current_slide(), 4);
+    assert_eq!(state.reader_state().unwrap().scroll_px, 0);
 
-    // Left Arrow retreats to previous spread [2, 3]
-    let action = handle_key_event(make_key(KeyCode::Left), &mut state);
+    // PageUp retreats to previous spread [2, 3] (snaps to row top)
+    let action = handle_key_event(make_key(KeyCode::PageUp), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
     assert_eq!(state.reader_state().unwrap().anchor, 2);
-    assert_eq!(state.current_slide(), 2);
+    assert_eq!(state.reader_state().unwrap().scroll_px, 0);
 
-    // In FitPage mode, Down Arrow directly advances to next spread [4, 5]
+    // Down Arrow also moves column fractionally
     let action = handle_key_event(make_key(KeyCode::Down), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().anchor, 4);
-
-    // Up Arrow in FitPage mode retreats to previous spread [2, 3]
-    let action = handle_key_event(make_key(KeyCode::Up), &mut state);
-    assert_eq!(action, AppAction::SlideChanged);
-    assert_eq!(state.reader_state().unwrap().anchor, 2);
-
-    // Cycle to FitWidth mode: Down Arrow scrolls down
-    state.reader_state_mut().unwrap().cycle_fit();
-    let action = handle_key_event(make_key(KeyCode::Down), &mut state);
-    assert_eq!(action, AppAction::Redraw);
+    assert!(state.reader_state().unwrap().scroll_px > 0);
 }
 
 #[test]

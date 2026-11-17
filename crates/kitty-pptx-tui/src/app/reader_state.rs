@@ -51,6 +51,7 @@ pub struct ReaderSlotPlacement {
     pub cell_rect: CellRect,
     pub pixel_src: PixelRect,
     pub page_target: RenderTargetSpec,
+    pub max_scroll_x: u32,
 }
 
 /// Full interactive state model for Reader mode (PRD 14a §4).
@@ -63,6 +64,7 @@ pub struct ReaderState {
     pub focus: Slot,
     pub sync: bool,
     pub cover_alone: bool,
+    pub scroll_px: i64,
     views: HashMap<usize, PageView>,
     total_pages: usize,
     page_sizes: Vec<(f32, f32)>,
@@ -79,6 +81,7 @@ impl ReaderState {
             focus: Slot::Left,
             sync: true,
             cover_alone: false,
+            scroll_px: 0,
             views: HashMap::new(),
             total_pages,
             page_sizes,
@@ -145,14 +148,101 @@ impl ReaderState {
 
     pub fn slot_width(&self, viewport_w_px: f32, cell_w_px: f32) -> f32 {
         let gutter_cols = 2u16;
+        let min_pane_cols = 10u16;
+        let min_spread_cols = 2 * min_pane_cols + gutter_cols;
+        let viewport_cols = (viewport_w_px / cell_w_px).round() as u16;
         let gutter_px = (gutter_cols as f32) * cell_w_px;
         let vis = self.visible_pages();
-        let is_spread = self.layout == ReaderLayout::Spread && vis.len() > 1;
+        let is_spread = self.layout == ReaderLayout::Spread
+            && vis.len() > 1
+            && viewport_cols >= min_spread_cols;
         if is_spread {
             ((viewport_w_px - gutter_px) / 2.0).max(10.0)
         } else {
             viewport_w_px
         }
+    }
+
+    pub fn current_row_height_px(
+        &self,
+        viewport_w_px: f32,
+        viewport_h_px: f32,
+        cell_w_px: f32,
+    ) -> f32 {
+        let vis = self.visible_pages();
+        if vis.is_empty() {
+            return viewport_h_px;
+        }
+        let slot_w = self.slot_width(viewport_w_px, cell_w_px);
+        let mut max_h = 0.0f32;
+        for &page in &vis {
+            let (pt_w, pt_h) = self.page_size_pt(page);
+            let ar = (pt_w / pt_h).max(0.1);
+            let view = self.page_view(page);
+            let base_h = match view.fit {
+                ReaderFitMode::FitWidth => slot_w / ar,
+                ReaderFitMode::FitPage => viewport_h_px.min(slot_w / ar),
+            };
+            let h = base_h * view.zoom;
+            if h > max_h {
+                max_h = h;
+            }
+        }
+        max_h.max(10.0)
+    }
+
+    pub fn scroll_column(&mut self, delta_px: i64, row_h_px: f32) -> bool {
+        if self.total_pages == 0 || row_h_px <= 0.0 {
+            return false;
+        }
+        let prev_anchor = self.anchor;
+        let prev_scroll_px = self.scroll_px;
+
+        self.scroll_px += delta_px;
+
+        // If scrolled past bottom of current row, advance anchor
+        while self.scroll_px >= row_h_px as i64 {
+            let next_anchor = match self.layout {
+                ReaderLayout::Single => self.anchor + 1,
+                ReaderLayout::Spread => {
+                    if self.cover_alone && self.anchor == 0 {
+                        1
+                    } else {
+                        self.anchor + 2
+                    }
+                }
+            };
+            if next_anchor < self.total_pages {
+                self.anchor = next_anchor;
+                self.scroll_px -= row_h_px as i64;
+            } else {
+                self.scroll_px = (row_h_px as i64).saturating_sub(1);
+                break;
+            }
+        }
+
+        // If scrolled past top of current row, retreat anchor
+        while self.scroll_px < 0 {
+            if self.anchor > 0 {
+                let prev = match self.layout {
+                    ReaderLayout::Single => self.anchor.saturating_sub(1),
+                    ReaderLayout::Spread => {
+                        if self.cover_alone && self.anchor <= 2 {
+                            0
+                        } else {
+                            self.anchor.saturating_sub(2)
+                        }
+                    }
+                };
+                self.anchor = prev;
+                self.scroll_px += row_h_px as i64;
+            } else {
+                self.scroll_px = 0;
+                break;
+            }
+        }
+
+        self.anchor != prev_anchor || self.scroll_px != prev_scroll_px
     }
 
     pub fn scroll_vertical(&mut self, delta_px: i32) -> bool {
@@ -189,6 +279,10 @@ impl ReaderState {
     pub fn scroll_horizontal_bounded(&mut self, delta_px: i32, max_scroll_x: u32) -> bool {
         let page = self.focused_page();
         let view = self.page_view_mut(page);
+        if view.fit == ReaderFitMode::FitPage || max_scroll_x == 0 {
+            view.scroll_x = 0;
+            return false;
+        }
         let prev = view.scroll_x;
         let next_x = ((view.scroll_x as i32 + delta_px).max(0) as u32).min(max_scroll_x);
         view.scroll_x = next_x;
@@ -242,6 +336,7 @@ impl ReaderState {
 
     pub fn reset_view(&mut self) {
         self.default_zoom = 1.0;
+        self.scroll_px = 0;
         if self.sync {
             for view in self.views.values_mut() {
                 view.zoom = 1.0;
@@ -279,13 +374,16 @@ impl ReaderState {
             ReaderLayout::Single => ReaderLayout::Spread,
             ReaderLayout::Spread => ReaderLayout::Single,
         };
+        self.scroll_px = 0;
     }
 
     pub fn toggle_cover_alone(&mut self) {
         self.cover_alone = !self.cover_alone;
+        self.scroll_px = 0;
     }
 
     pub fn next_row(&mut self) {
+        self.scroll_px = 0;
         if self.total_pages == 0 {
             return;
         }
@@ -304,6 +402,7 @@ impl ReaderState {
     }
 
     pub fn prev_row(&mut self) {
+        self.scroll_px = 0;
         match self.layout {
             ReaderLayout::Single => {
                 self.anchor = self.anchor.saturating_sub(1);
@@ -319,6 +418,7 @@ impl ReaderState {
     }
 
     pub fn jump_to_page(&mut self, page_0based: usize) {
+        self.scroll_px = 0;
         if self.total_pages == 0 {
             return;
         }
@@ -349,13 +449,27 @@ impl ReaderState {
     }
 
     pub fn status_line(&self, filename: &str) -> String {
-        let vis = self.visible_pages();
-        let page_label = if vis.len() > 1 {
-            format!("spread {}-{}", vis[0] + 1, vis[1] + 1)
-        } else if !vis.is_empty() {
-            format!("p.{}", vis[0] + 1)
+        let mut active_pages: Vec<usize> = self.placements.iter().map(|p| p.page).collect();
+        active_pages.sort_unstable();
+        active_pages.dedup();
+
+        let page_label = if active_pages.len() > 1 {
+            format!(
+                "spread {}-{}",
+                active_pages[0] + 1,
+                active_pages[active_pages.len() - 1] + 1
+            )
+        } else if let Some(&p) = active_pages.first() {
+            format!("p.{}", p + 1)
         } else {
-            "p.0".to_string()
+            let vis = self.visible_pages();
+            if vis.len() > 1 {
+                format!("spread {}-{}", vis[0] + 1, vis[1] + 1)
+            } else if !vis.is_empty() {
+                format!("p.{}", vis[0] + 1)
+            } else {
+                "p.0".to_string()
+            }
         };
 
         let focused_page = self.focused_page();
