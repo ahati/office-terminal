@@ -62,9 +62,16 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
 
     // Never plan more cards than the terminal image quota and image-id pool can keep resident; the
     // graphics syncer would otherwise leave the overflow blank.
+    let (w_emu, h_emu) = state.slide_dimensions();
+    let ar = if h_emu > 0 { w_emu as f32 / h_emu as f32 } else { 16.0 / 9.0 };
+    let (target_w, target_h) = if ar >= 1.0 {
+        (2560u32, ((2560.0 / ar).round() as u32).clamp(1024, 8192))
+    } else {
+        (((2560.0 * ar).round() as u32).clamp(1024, 8192), 2560u32)
+    };
     let canvas_target = kitty_pptx_core::RenderTargetSpec {
-        width_px: 2560,
-        height_px: 1440,
+        width_px: target_w,
+        height_px: target_h,
     };
     let max_cards = crate::app::graphics_thumbnails::max_sorter_cards_for_target(&canvas_target);
     let capacity_rows = (max_cards / cols).max(1) as u16;
@@ -72,14 +79,7 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
     let cursor = state.selected_sorter_index();
     let cursor_row = cursor / cols;
 
-    let mut scroll_row = state.sorter_scroll_row();
-    if cursor_row < scroll_row {
-        scroll_row = cursor_row;
-        state.set_sorter_scroll_row(scroll_row);
-    } else if cursor_row >= scroll_row + rows_visible as usize {
-        scroll_row = cursor_row.saturating_sub(rows_visible as usize - 1);
-        state.set_sorter_scroll_row(scroll_row);
-    }
+    let scroll_row = state.sorter_scroll_row_with_hysteresis(cursor_row, rows_visible as usize);
 
     let start_idx = scroll_row * cols;
     let num_rows_to_render =

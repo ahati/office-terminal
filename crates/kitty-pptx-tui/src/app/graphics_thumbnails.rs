@@ -1,7 +1,9 @@
 //! Slide sorter thumbnail graphics synchronization and quota accounting.
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
-use kitty_pptx_core::{DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use kitty_pptx_core::{
+    DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
+};
 use kitty_pptx_display::{
     terminal_image_quota_bytes, CellRect, ImageId, Placement, TerminalGraphicsDriver,
     MAX_THUMBNAIL_IMAGES, THUMBNAIL_IMAGE_ID_BASE,
@@ -13,8 +15,14 @@ use crate::app::state::PresentationState;
 pub const MAX_THUMBNAIL_STAGES_PER_FRAME: usize = 4;
 
 /// Calculate the maximum number of visible sorter cards given a target spec.
+///
+/// Cards are downscaled to thumbnail dimensions (~480x360), so per-card memory
+/// is computed against the downscaled bounds to avoid prematurely capping
+/// portrait or high-resolution canvas targets.
 pub fn max_sorter_cards_for_target(target: &RenderTargetSpec) -> usize {
-    let per_card = (target.width_px as usize) * (target.height_px as usize) * 4;
+    let w = (target.width_px as usize).min(480);
+    let h = (target.height_px as usize).min(360);
+    let per_card = (w * h * 4).max(1);
     let quota = terminal_image_quota_bytes();
     quota
         .checked_div(per_card)
@@ -38,11 +46,13 @@ pub struct ThumbnailSyncer {
     pub staging_order: VecDeque<usize>,
     pub total_staged_bytes: usize,
     pub thumb_prefetch: Option<(usize, usize, RenderTargetSpec)>,
+    pub downscale_cache: HashMap<usize, (u32, u32, RgbaSlide)>,
 }
 
 impl ThumbnailSyncer {
     pub fn release_all(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
         self.thumb_prefetch = None;
+        self.downscale_cache.clear();
         if self.thumbs.is_empty() {
             return Ok(());
         }
@@ -151,7 +161,24 @@ impl ThumbnailSyncer {
                     }
                     stages_left -= 1;
 
-                    let downscaled = bitmap.downscale_to(480, 360);
+                    // Cached thumbnail downscaling to avoid repeated resizing on UI thread (PRD 14a §11)
+                    let downscaled = if let Some((w, h, cached)) = self.downscale_cache.get(&slide) {
+                        if *w == bitmap.width && *h == bitmap.height {
+                            cached.clone()
+                        } else {
+                            let ds = bitmap.downscale_to(480, 360);
+                            self.downscale_cache.insert(slide, (bitmap.width, bitmap.height, ds.clone()));
+                            ds
+                        }
+                    } else {
+                        let ds = bitmap.downscale_to(480, 360);
+                        if self.downscale_cache.len() >= 64 {
+                            self.downscale_cache.clear();
+                        }
+                        self.downscale_cache.insert(slide, (bitmap.width, bitmap.height, ds.clone()));
+                        ds
+                    };
+
                     let card_bytes = (downscaled.width as usize) * (downscaled.height as usize) * 4;
 
                     // Enforce terminal quota by evicting oldest cards if needed

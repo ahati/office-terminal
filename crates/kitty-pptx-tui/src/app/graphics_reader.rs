@@ -57,7 +57,7 @@ impl ReaderGraphicsSyncer {
         _canvas_target: &RenderTargetSpec,
         epoch: &mut u64,
     ) -> Result<(), DisplayError> {
-        // Trigger prefetching early so adjacent pages are warm in cache ahead of scrolling
+        // Trigger prefetching sized to viewport columns to avoid thrashing the cache budget (P1-1)
         if let Some(reader) = state.reader_state() {
             let center = reader.focused_page();
             let (pt_w, pt_h) = reader.page_size_pt(center);
@@ -70,10 +70,11 @@ impl ReaderGraphicsSyncer {
             };
             let prefetch_key = (center, prefetch_target);
             if self.last_prefetch != Some(prefetch_key) {
+                let cols = reader.effective_columns();
                 let plan = PrefetchPlan {
                     center,
-                    behind: 4,
-                    ahead: 8,
+                    behind: cols + 1,
+                    ahead: cols * 2 + 1,
                     stage: false,
                 };
                 pipeline.prefetch(&plan, &prefetch_target);
@@ -145,14 +146,20 @@ impl ReaderGraphicsSyncer {
                         }
                     }
                 }
-                PipelineEntry::Rendering => {
-                    // Page is currently rendering in background worker.
-                    // Keep existing placed bitmap (if any) to prevent flickering.
+                PipelineEntry::Rendering | PipelineEntry::NotLoaded => {
+                    // If this slot was showing a different page before, release it so
+                    // stale pages are never shown during page turns (P1-2)
+                    if let Some(staged) = self.staged[slot_idx] {
+                        if staged.page != page {
+                            if let Some(placed) = self.placed[slot_idx].take() {
+                                let _ = driver.release(placed.id);
+                            }
+                        }
+                    }
                 }
                 PipelineEntry::Failed { error } => {
                     state.note_render_failure(page, error.to_string());
                 }
-                _ => {}
             }
         }
 

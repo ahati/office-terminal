@@ -9,6 +9,7 @@ pub mod media;
 pub mod mode;
 pub mod nav_state;
 pub mod reader_events;
+pub mod reader_scroll;
 pub mod reader_state;
 pub mod reader_types;
 pub mod search_state;
@@ -162,6 +163,28 @@ impl PresentationApp {
     /// Triggers background prefetching and staging around the current slide.
     pub fn trigger_prefetch(&self) {
         if self.state.total_slides() == 0 {
+            return;
+        }
+        if self.state.base_mode() == AppMode::Reader {
+            if let Some(reader) = self.state.reader_state() {
+                let center = reader.focused_page();
+                let (pt_w, pt_h) = reader.page_size_pt(center);
+                let ar = (pt_w / pt_h).max(0.1);
+                let target_w = 2560u32;
+                let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
+                let reader_target = RenderTargetSpec {
+                    width_px: target_w,
+                    height_px: target_h,
+                };
+                let cols = reader.effective_columns();
+                let plan = PrefetchPlan {
+                    center,
+                    behind: cols + 1,
+                    ahead: cols * 2 + 1,
+                    stage: false,
+                };
+                self.pipeline.prefetch(&plan, &reader_target);
+            }
             return;
         }
         let plan = PrefetchPlan {

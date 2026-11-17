@@ -15,7 +15,10 @@ impl PresentationState {
             let h_emu = (h_pt * 12_700.0).round() as i64;
             self.set_slide_dimensions(w_emu, h_emu);
         }
-        self.reader_state = Some(ReaderState::new(total_pages, page_sizes));
+        self.reader_state = Some(
+            ReaderState::new(total_pages, page_sizes)
+                .with_shared_placements(self.reader_placements.clone()),
+        );
         self.mode = AppMode::Reader;
         self.previous_mode = AppMode::Reader;
     }
@@ -38,6 +41,18 @@ impl PresentationState {
     /// Mutable access to reader mode state.
     pub fn reader_state_mut(&mut self) -> Option<&mut ReaderState> {
         self.reader_state.as_mut()
+    }
+
+    /// Update effective columns for multi-column reader layouts.
+    pub fn set_reader_num_columns(&self, cols: usize) {
+        if let Some(reader) = self.reader_state() {
+            reader.set_num_columns(cols);
+        }
+    }
+
+    /// Retrieve effective columns for multi-column reader layouts.
+    pub fn reader_num_columns(&self) -> usize {
+        self.reader_state().map(|r| r.num_columns()).unwrap_or(1)
     }
 
     /// Update staged placement coordinates recorded during reader layout rendering.

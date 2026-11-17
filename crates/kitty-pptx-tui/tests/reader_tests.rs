@@ -201,15 +201,16 @@ fn test_reader_arrow_keys_navigation() {
     // Initial: anchor 0 (spread [0, 1])
     assert_eq!(state.reader_state().unwrap().anchor, 0);
 
-    // Right Arrow advances fractionally (>= 8 steps per row)
+    // Down Arrow advances fractionally (>= 8 steps per row)
     for _ in 0..7 {
-        handle_key_event(make_key(KeyCode::Right), &mut state);
+        let action = handle_key_event(make_key(KeyCode::Down), &mut state);
+        assert_eq!(action, AppAction::Redraw);
         assert_eq!(state.reader_state().unwrap().anchor, 0);
         assert!(state.reader_state().unwrap().scroll_px > 0);
     }
 
     // 8th step completes the row transition to spread [2, 3]
-    let action = handle_key_event(make_key(KeyCode::Right), &mut state);
+    let action = handle_key_event(make_key(KeyCode::Down), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
     assert_eq!(state.reader_state().unwrap().anchor, 2);
     assert_eq!(state.current_slide(), 2);
@@ -226,10 +227,16 @@ fn test_reader_arrow_keys_navigation() {
     assert_eq!(state.reader_state().unwrap().anchor, 2);
     assert_eq!(state.reader_state().unwrap().scroll_px, 0);
 
-    // Down Arrow also moves column fractionally
-    let action = handle_key_event(make_key(KeyCode::Down), &mut state);
-    assert_eq!(action, AppAction::SlideChanged);
-    assert!(state.reader_state().unwrap().scroll_px > 0);
+    // Right Arrow does horizontal scroll when zoomed or row overflows
+    state.reader_state_mut().unwrap().set_max_row_scroll_x(100);
+    let action = handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert_eq!(action, AppAction::Redraw);
+    assert!(state.reader_state().unwrap().row_scroll_x() > 0);
+
+    // Left Arrow scrolls back
+    let action = handle_key_event(make_key(KeyCode::Left), &mut state);
+    assert_eq!(action, AppAction::Redraw);
+    assert_eq!(state.reader_state().unwrap().row_scroll_x(), 0);
 }
 
 #[test]
