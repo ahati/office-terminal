@@ -185,7 +185,13 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
     let total_panes_w: f32 = pane_widths.iter().sum();
     let total_gutters_w: f32 = primary_pages.len().saturating_sub(1) as f32 * gutter_px;
     let total_row_w_px = total_panes_w + total_gutters_w;
-    let max_row_scroll_x = (total_row_w_px - viewport_w_px).max(0.0).round() as i64;
+    let is_zoomed = primary_pages.iter().any(|&p| reader.page_view(p).zoom > 1.0);
+    let overflow_row_w = total_row_w_px - viewport_w_px;
+    let max_row_scroll_x = if is_zoomed && overflow_row_w >= cell_w_px {
+        overflow_row_w.round() as i64
+    } else {
+        0
+    };
     reader.set_max_row_scroll_x(max_row_scroll_x);
 
     let row_idx = if reader.cover_alone {

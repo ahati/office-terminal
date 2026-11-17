@@ -135,7 +135,12 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
                         }
                     } else {
                         let page = reader.focused_page();
-                        let max_x = reader.placements().iter().find(|p| p.page == page).map(|p| p.max_scroll_x).unwrap_or(0);
+                        let is_zoomed = reader.page_view(page).zoom > 1.0;
+                        let max_x = if is_zoomed {
+                            reader.placements().iter().find(|p| p.page == page).map(|p| p.max_scroll_x).unwrap_or(0)
+                        } else {
+                            0
+                        };
                         if max_x > 0 {
                             if reader.scroll_horizontal_bounded(24, max_x) {
                                 action = AppAction::Redraw;
@@ -193,7 +198,12 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
                         }
                     } else {
                         let page = reader.focused_page();
-                        let max_x = reader.placements().iter().find(|p| p.page == page).map(|p| p.max_scroll_x).unwrap_or(0);
+                        let is_zoomed = reader.page_view(page).zoom > 1.0;
+                        let max_x = if is_zoomed {
+                            reader.placements().iter().find(|p| p.page == page).map(|p| p.max_scroll_x).unwrap_or(0)
+                        } else {
+                            0
+                        };
                         if max_x > 0 {
                             if reader.scroll_horizontal_bounded(-24, max_x) {
                                 action = AppAction::Redraw;

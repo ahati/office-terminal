@@ -528,3 +528,58 @@ fn test_reproduce_zoomed_v_scroll_blank_screen_in_gutter() {
     );
 }
 
+#[test]
+fn test_reproduce_horizontal_arrow_right_page_shift() {
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    // Test a common terminal size, e.g. 160x45 or 120x40
+    for &(w, h) in &[(160, 45), (140, 40), (120, 35), (180, 50)] {
+        let backend = TestBackend::new(w, h);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut state = PresentationState::new(10, vec![]);
+        state.update_layout_dimensions(w, h);
+        state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+
+        terminal.draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, w, h));
+        }).unwrap();
+
+        let p0 = state.reader_placements();
+        let max_row_x = state.reader_state().unwrap().max_row_scroll_x();
+
+        // Verify unzoomed pages at fit have zero horizontal scroll noise
+        assert_eq!(max_row_x, 0, "max_row_scroll_x must be 0 at fit");
+        for p in &p0 {
+            assert_eq!(p.max_scroll_x, 0, "max_scroll_x must be 0 at fit");
+            assert_eq!(p.pixel_src.x, 0, "pixel_src.x must be 0 at fit");
+        }
+
+        // Press Right arrow: must advance to next spread cleanly without twitching
+        let action = handle_key_event(make_key(KeyCode::Right), &mut state);
+        assert_eq!(action, AppAction::SlideChanged);
+        assert_eq!(state.reader_state().unwrap().anchor, 2);
+
+        terminal.draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, w, h));
+        }).unwrap();
+        let p1 = state.reader_placements();
+        assert_eq!(p1[0].page, 2);
+        assert_eq!(p1[0].pixel_src.x, 0);
+
+        // Press Left arrow: must retreat to previous spread cleanly without twitching
+        let action_l = handle_key_event(make_key(KeyCode::Left), &mut state);
+        assert_eq!(action_l, AppAction::SlideChanged);
+        assert_eq!(state.reader_state().unwrap().anchor, 0);
+
+        terminal.draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, w, h));
+        }).unwrap();
+        let p2 = state.reader_placements();
+        assert_eq!(p2[0].page, 0);
+        assert_eq!(p2[0].pixel_src.x, 0);
+    }
+}
+

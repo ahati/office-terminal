@@ -1,19 +1,40 @@
 # kitty-pptx
 
-> High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`) decks.
+> High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`) and PDF documents.
 
-`kitty-pptx` renders PowerPoint presentations directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, and headless SVG/PNG export.
+`kitty-pptx` renders presentations and documents directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, visual slide sorting, and headless SVG/PNG export.
+
+---
+
+## Previews
+
+### Fullscreen Presentation View
+*Clean, full-bleed slide rendering centered with automatic aspect ratio compensation.*
+
+![Fullscreen Presentation View](./media/presentation-view.png)
+
+### Presenter Console
+*Dual-pane console featuring current slide, next slide preview thumbnail, speaker notes, elapsed presentation timer, and progress gauge (`p` key).*
+
+![Presenter View](./media/presenter-view.png)
+
+### Visual Slide Sorter
+*Interactive 2D thumbnail grid for visual navigation across the entire deck (`Tab` or `s` key).*
+
+![Slide Sorter View](./media/slide-sorter.png)
 
 ---
 
 ## What to Expect
 
-- **Native Terminal Presentation**: Present `.pptx` slide decks directly from the command line without opening a heavy office suite.
+- **Native Terminal Presentation**: Present `.pptx` slide decks and PDF documents directly from the command line without opening a heavy office suite.
 - **Hardware-Accelerated Terminal Graphics**: Uses the Kitty Graphics Protocol with PNG transmission and direct cursor placement for full-resolution slides.
 - **Kitty-Only Display**: Startup fails with a clear error when the terminal does not implement the Kitty graphics protocol. There is no Sixel, iTerm2, or half-block fallback.
-- **Interactive Dual-Mode TUI**:
-  - **Normal Mode**: Clean, full-bleed slide rendering centered with automatic aspect ratio compensation (16:9, 4:3, widescreen).
-  - **Presenter Mode**: Dual-pane console featuring current slide, next slide preview thumbnail, speaker notes, elapsed presentation timer, and progress gauge.
+- **Interactive TUI Presenter**:
+  - **Normal View**: Clean, full-bleed slide rendering centered with automatic aspect ratio compensation (16:9, 4:3, widescreen).
+  - **Presenter View**: Dual-pane console featuring current slide, next slide preview thumbnail, speaker notes, elapsed presentation timer, and progress gauge.
+  - **Slide Sorter**: Visual 2D thumbnail grid (`Tab` or `s`) with instant slide navigation.
+  - **Document Reader Mode**: Multi-page side-by-side spread and continuous scroll modes optimized for documents.
 - **Headless Vector & Raster Export**: Batch export presentations to standalone SVG (with selectable text or converted glyph outlines) and high-resolution PNG at custom DPI.
 - **Resolution-Independent Vector Pipeline**: Presentation shapes, gradients, and typography compile to an intermediate vector display list (`VectorSlide`) before rasterization, ensuring crisp rendering at any terminal size or display scale.
 
@@ -120,6 +141,8 @@ kitty-pptx dump presentation.pptx --json
 | `g` | Jump to first slide |
 | `G` | Jump to last slide |
 | `p` | Toggle **Presenter Mode** (split view with notes, preview & timer) |
+| `Tab` / `s` | Toggle **Slide Sorter** (interactive 2D thumbnail grid) |
+| `/` | Open Table of Contents / fuzzy search modal |
 | `t` | Toggle minimal status line in normal view |
 | `b` | Blank screen (black pause screen) |
 | `w` | White screen (white pause screen) |
