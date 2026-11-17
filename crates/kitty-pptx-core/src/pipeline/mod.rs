@@ -338,7 +338,15 @@ impl RenderPipeline for DefaultRenderPipeline {
             };
         }
 
-        self.entry_after_cache_miss(index, target)
+        if let Some(error) = self.workers.get_failed(index) {
+            return PipelineEntry::Failed { error };
+        }
+
+        if self.workers.is_in_flight(index) {
+            return PipelineEntry::Rendering;
+        }
+
+        PipelineEntry::NotLoaded
     }
 
     fn drain_warnings(&self) -> Vec<(usize, WarningEvent)> {

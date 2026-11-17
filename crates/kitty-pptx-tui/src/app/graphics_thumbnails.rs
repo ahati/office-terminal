@@ -139,7 +139,11 @@ impl ThumbnailSyncer {
         for (slide, rect) in visible {
             let entry = match pipeline.entry_at(slide, canvas_target) {
                 PipelineEntry::Ready { bitmap, staged } => PipelineEntry::Ready { bitmap, staged },
-                _ => pipeline.entry(slide),
+                PipelineEntry::Failed { error } if slide == state.selected_sorter_index() => {
+                    state.note_render_failure(slide, error.to_string());
+                    continue;
+                }
+                _ => continue,
             };
 
             match entry {

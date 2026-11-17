@@ -345,3 +345,56 @@ fn test_sorter_44_slides_scrolling_and_navigation() {
         "slide 43 remains visible due to scroll hysteresis"
     );
 }
+
+#[test]
+fn test_reproduce_sorter_search_exit_trapped() {
+    let mut state = PresentationState::new(10, vec![]);
+    state.set_mode(AppMode::Reader);
+    assert_eq!(state.mode(), AppMode::Reader);
+
+    // 1. Enter slide sorter from Reader
+    state.open_sorter();
+    assert_eq!(state.mode(), AppMode::Sorter);
+    assert_eq!(state.selected_sorter_index(), 0);
+
+    // 2. Open fuzzy search modal ('/')
+    let action_slash = handle_key_event(make_key(KeyCode::Char('/')), &mut state);
+    assert_eq!(action_slash, AppAction::Redraw);
+    assert_eq!(state.mode(), AppMode::TocSearchModal);
+
+    // Move cursor down to slide 3 in search
+    for _ in 0..3 {
+        state.search_down();
+    }
+
+    // 3. Select a line in fuzzy search (Enter)
+    let action_enter = handle_key_event(make_key(KeyCode::Enter), &mut state);
+    assert_eq!(action_enter, AppAction::SlideChanged);
+    assert_eq!(state.mode(), AppMode::Sorter);
+    assert_eq!(state.selected_sorter_index(), 3);
+    assert_eq!(state.current_slide(), 3);
+
+    // 4. Return from Slide Sorter to main view via Enter
+    let action_sorter_enter = handle_key_event(make_key(KeyCode::Enter), &mut state);
+    assert_eq!(action_sorter_enter, AppAction::SlideChanged);
+    assert_eq!(
+        state.mode(),
+        AppMode::Reader,
+        "Should return to Reader (main view)"
+    );
+    assert_eq!(state.current_slide(), 3);
+
+    // 5. Test exiting via Esc, Tab, and 's' after opening search
+    for exit_key in [KeyCode::Esc, KeyCode::Tab, KeyCode::Char('s')] {
+        state.open_sorter();
+        assert_eq!(state.mode(), AppMode::Sorter);
+
+        let _ = handle_key_event(make_key(KeyCode::Char('/')), &mut state);
+        assert_eq!(state.mode(), AppMode::TocSearchModal);
+        let _ = handle_key_event(make_key(KeyCode::Esc), &mut state);
+        assert_eq!(state.mode(), AppMode::Sorter);
+
+        let _ = handle_key_event(make_key(exit_key), &mut state);
+        assert_eq!(state.mode(), AppMode::Reader);
+    }
+}
