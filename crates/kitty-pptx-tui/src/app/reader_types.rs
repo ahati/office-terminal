@@ -52,4 +52,5 @@ pub struct ReaderSlotPlacement {
     pub pixel_src: PixelRect,
     pub page_target: RenderTargetSpec,
     pub max_scroll_x: u32,
+    pub is_primary: bool,
 }

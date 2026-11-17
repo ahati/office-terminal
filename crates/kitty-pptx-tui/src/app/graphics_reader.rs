@@ -71,10 +71,17 @@ impl ReaderGraphicsSyncer {
             let prefetch_key = (center, prefetch_target);
             if self.last_prefetch != Some(prefetch_key) {
                 let cols = reader.effective_columns();
+                let page_bytes = (target_w as usize) * (target_h as usize) * 4;
+                let cache_budget_bytes = 512 * 1024 * 1024;
+                let max_cached_pages = (cache_budget_bytes / page_bytes.max(1)).clamp(4, 32);
+                let behind = (cols + 1).min(max_cached_pages / 4);
+                let visible_count = reader.visible_pages().len();
+                let max_ahead = max_cached_pages.saturating_sub(visible_count + behind).max(1);
+                let ahead = (cols * 2 + 1).min(max_ahead);
                 let plan = PrefetchPlan {
                     center,
-                    behind: cols + 1,
-                    ahead: cols * 2 + 1,
+                    behind,
+                    ahead,
                     stage: false,
                 };
                 pipeline.prefetch(&plan, &prefetch_target);

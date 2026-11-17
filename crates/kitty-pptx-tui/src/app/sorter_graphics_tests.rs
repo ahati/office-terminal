@@ -502,11 +502,9 @@ fn empty_deck_places_nothing() {
 
 #[test]
 fn sorter_caps_visible_cards_to_terminal_quota() {
-    use crate::app::graphics_thumbnails::max_sorter_cards_for_target;
+    use crate::app::graphics_thumbnails::max_sorter_cards_for_target_and_quota;
     let card_bytes = 480 * 360 * 4;
-    std::env::set_var("KITTY_PPTX_TERMINAL_QUOTA", format!("{}", card_bytes * 3));
     let target = RenderTargetSpec { width_px: 480, height_px: 360 };
-    let max_cards = max_sorter_cards_for_target(&target);
+    let max_cards = max_sorter_cards_for_target_and_quota(&target, Some(card_bytes * 3));
     assert_eq!(max_cards, 3, "Caps to exactly 3 cards under quota");
-    std::env::remove_var("KITTY_PPTX_TERMINAL_QUOTA");
 }

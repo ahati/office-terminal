@@ -70,6 +70,68 @@ fn resolve_array_dest(
     }
 }
 
+fn resolve_name_tree_node(
+    node: &Dict<'_>,
+    name: &[u8],
+    page_map: &HashMap<ObjectIdentifier, usize>,
+    xref: &XRef,
+    depth: usize,
+) -> Option<usize> {
+    if depth > 10 {
+        return None;
+    }
+
+    // Leaf node: /Names array
+    if let Some(names_arr) = node.get::<Array<'_>>(b"Names") {
+        let mut iter = names_arr.raw_iter();
+        while let Some(k) = iter.next() {
+            let is_match = match k {
+                MaybeRef::NotRef(Object::String(s)) => s.as_bytes() == name,
+                MaybeRef::NotRef(Object::Name(n)) => n.as_ref() == name,
+                _ => false,
+            };
+            if let Some(val) = iter.next() {
+                if is_match {
+                    match val {
+                        MaybeRef::Ref(r) => {
+                            if let Some(dest_arr) = xref.get::<Array<'_>>(r.into()) {
+                                return resolve_array_dest(&dest_arr, page_map);
+                            }
+                        }
+                        MaybeRef::NotRef(Object::Array(arr)) => {
+                            return resolve_array_dest(&arr, page_map);
+                        }
+                        MaybeRef::NotRef(Object::Dict(dict)) => {
+                            if let Some(arr) = dict.get::<Array<'_>>(b"D") {
+                                return resolve_array_dest(&arr, page_map);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    // Intermediate node: /Kids array
+    if let Some(kids_arr) = node.get::<Array<'_>>(b"Kids") {
+        for kid in kids_arr.raw_iter() {
+            let kid_dict = match kid {
+                MaybeRef::Ref(r) => xref.get::<Dict<'_>>(r.into()),
+                MaybeRef::NotRef(Object::Dict(d)) => Some(d),
+                _ => None,
+            };
+            if let Some(kd) = kid_dict {
+                if let Some(page) = resolve_name_tree_node(&kd, name, page_map, xref, depth + 1) {
+                    return Some(page);
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn resolve_named_dest(
     name: &[u8],
     page_map: &HashMap<ObjectIdentifier, usize>,
@@ -91,35 +153,8 @@ fn resolve_named_dest(
     // 2. Check root /Names /Dests name tree
     if let Some(names) = root.get::<Dict<'_>>(b"Names") {
         if let Some(dests) = names.get::<Dict<'_>>(b"Dests") {
-            if let Some(names_arr) = dests.get::<Array<'_>>(b"Names") {
-                let mut iter = names_arr.raw_iter();
-                while let Some(k) = iter.next() {
-                    let is_match = match k {
-                        MaybeRef::NotRef(Object::String(s)) => s.as_bytes() == name,
-                        MaybeRef::NotRef(Object::Name(n)) => n.as_ref() == name,
-                        _ => false,
-                    };
-                    if let Some(val) = iter.next() {
-                        if is_match {
-                            match val {
-                                MaybeRef::Ref(r) => {
-                                    if let Some(dest_arr) = xref.get::<Array<'_>>(r.into()) {
-                                        return resolve_array_dest(&dest_arr, page_map);
-                                    }
-                                }
-                                MaybeRef::NotRef(Object::Array(arr)) => {
-                                    return resolve_array_dest(&arr, page_map);
-                                }
-                                MaybeRef::NotRef(Object::Dict(dict)) => {
-                                    if let Some(arr) = dict.get::<Array<'_>>(b"D") {
-                                        return resolve_array_dest(&arr, page_map);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
+            if let Some(page) = resolve_name_tree_node(&dests, name, page_map, xref, 0) {
+                return Some(page);
             }
         }
     }

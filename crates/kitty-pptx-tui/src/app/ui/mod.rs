@@ -6,6 +6,7 @@ pub mod link_picker;
 pub mod normal;
 pub mod presenter;
 pub mod reader;
+pub mod reader_layout;
 pub mod search;
 pub mod sorter;
 pub mod warnings;

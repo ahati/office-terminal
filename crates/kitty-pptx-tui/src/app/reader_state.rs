@@ -283,6 +283,7 @@ impl ReaderState {
         };
         self.scroll_px = 0;
         self.set_row_scroll_x(0);
+        self.set_max_row_scroll_x(0);
     }
 
     pub fn toggle_horizontal(&mut self) {
@@ -293,17 +294,18 @@ impl ReaderState {
         };
         self.scroll_px = 0;
         self.set_row_scroll_x(0);
+        self.set_max_row_scroll_x(0);
     }
 
     pub fn toggle_cover_alone(&mut self) {
         self.cover_alone = !self.cover_alone;
         self.scroll_px = 0;
         self.set_row_scroll_x(0);
+        self.set_max_row_scroll_x(0);
     }
 
     pub fn next_row(&mut self) {
         self.scroll_px = 0;
-        self.set_row_scroll_x(0);
         if self.total_pages == 0 {
             return;
         }
@@ -327,7 +329,6 @@ impl ReaderState {
 
     pub fn prev_row(&mut self) {
         self.scroll_px = 0;
-        self.set_row_scroll_x(0);
         let step = self.effective_columns();
         match self.layout {
             ReaderLayout::Single => {
@@ -384,7 +385,14 @@ impl ReaderState {
 
     pub fn status_line(&self, filename: &str) -> String {
         let placements = self.placements();
-        let mut active_pages: Vec<usize> = placements.iter().map(|p| p.page).collect();
+        let primary_placements: Vec<&ReaderSlotPlacement> =
+            placements.iter().filter(|p| p.is_primary).collect();
+        let source_placements = if primary_placements.is_empty() {
+            placements.iter().collect::<Vec<_>>()
+        } else {
+            primary_placements
+        };
+        let mut active_pages: Vec<usize> = source_placements.iter().map(|p| p.page).collect();
         active_pages.sort_unstable();
         active_pages.dedup();
 

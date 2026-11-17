@@ -237,6 +237,16 @@ fn test_reader_arrow_keys_navigation() {
     let action = handle_key_event(make_key(KeyCode::Left), &mut state);
     assert_eq!(action, AppAction::Redraw);
     assert_eq!(state.reader_state().unwrap().row_scroll_x(), 0);
+
+    // At fit (no overflow), Right advances row and Left retreats row
+    state.reader_state_mut().unwrap().set_max_row_scroll_x(0);
+    let action = handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 4);
+
+    let action = handle_key_event(make_key(KeyCode::Left), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 2);
 }
 
 #[test]
@@ -260,4 +270,208 @@ fn test_reader_sorter_integration() {
     assert_eq!(state.current_slide(), 2);
     assert_eq!(state.reader_state().unwrap().anchor, 2);
     assert_eq!(state.reader_state().unwrap().visible_pages(), vec![2, 3]);
+}
+
+#[test]
+fn test_h_scroll_preserved_across_next_and_prev_row() {
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+
+    // Set max_row_scroll_x and scroll horizontally
+    state.reader_state_mut().unwrap().set_max_row_scroll_x(200);
+    state.reader_state_mut().unwrap().set_row_scroll_x(80);
+    assert_eq!(state.reader_state().unwrap().row_scroll_x(), 80);
+
+    // next_row() maintains horizontal scroll
+    state.reader_state_mut().unwrap().next_row();
+    assert_eq!(state.reader_state().unwrap().anchor, 2);
+    assert_eq!(
+        state.reader_state().unwrap().row_scroll_x(),
+        80,
+        "row_scroll_x must be preserved on next_row"
+    );
+
+    // prev_row() maintains horizontal scroll
+    state.reader_state_mut().unwrap().prev_row();
+    assert_eq!(state.reader_state().unwrap().anchor, 0);
+    assert_eq!(
+        state.reader_state().unwrap().row_scroll_x(),
+        80,
+        "row_scroll_x must be preserved on prev_row"
+    );
+
+    // KeyCode::PageDown maintains horizontal scroll
+    let action = handle_key_event(make_key(KeyCode::PageDown), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 2);
+    assert_eq!(
+        state.reader_state().unwrap().row_scroll_x(),
+        80,
+        "row_scroll_x must be preserved on PageDown"
+    );
+
+    // KeyCode::PageUp maintains horizontal scroll
+    let action = handle_key_event(make_key(KeyCode::PageUp), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.reader_state().unwrap().anchor, 0);
+    assert_eq!(
+        state.reader_state().unwrap().row_scroll_x(),
+        80,
+        "row_scroll_x must be preserved on PageUp"
+    );
+}
+
+#[test]
+fn test_status_line_uses_primary_placements_at_zoom_0_5() {
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    let backend = TestBackend::new(160, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+
+    // Zoom out to 0.5 so multiple rows are placed in the viewport
+    state.reader_state_mut().unwrap().adjust_zoom(0.5);
+
+    terminal
+        .draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let placements = state.reader_placements();
+    assert!(
+        placements.len() > 2,
+        "At zoom 0.5, multiple rows (primary + next) are placed in the viewport"
+    );
+
+    let status = state.reader_state().unwrap().status_line("test.pdf");
+    assert!(
+        status.contains("spread 1-2"),
+        "Status line must report primary spread 1-2, got: {}",
+        status
+    );
+    assert!(
+        !status.contains("spread 1-4"),
+        "Status line must NOT include preview rows in the current spread label"
+    );
+}
+
+#[test]
+fn test_horizontal_mode_h_and_l_slide_and_publish_columns() {
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    let backend = TestBackend::new(160, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    state.reader_state_mut().unwrap().toggle_horizontal();
+
+    terminal
+        .draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let placed_count = state.reader_placements().len();
+    assert!(placed_count >= 2);
+    assert_eq!(
+        state.reader_state().unwrap().num_columns(),
+        placed_count,
+        "Horizontal mode must publish num_columns matching placed panes"
+    );
+
+    // 'l' slides horizontally right
+    handle_key_event(make_key(KeyCode::Char('l')), &mut state);
+    assert!(
+        state.reader_state().unwrap().scroll_px > 0,
+        "'l' slides horizontal view forward"
+    );
+
+    // 'h' slides horizontally back left
+    handle_key_event(make_key(KeyCode::Char('h')), &mut state);
+    assert_eq!(
+        state.reader_state().unwrap().scroll_px,
+        0,
+        "'h' slides horizontal view back to origin"
+    );
+}
+
+#[test]
+fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    let backend = TestBackend::new(160, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+
+    // Zoom in 1.5x so rows overflow viewport width
+    state.reader_state_mut().unwrap().adjust_zoom(1.5);
+
+    // First draw to establish max_row_scroll_x
+    terminal
+        .draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    // Slide row horizontally
+    let max_x = state.reader_state().unwrap().max_row_scroll_x();
+    assert!(max_x > 0);
+    state.reader_state_mut().unwrap().set_row_scroll_x(max_x / 2);
+
+    // Simulate vertical column scroll (scroll_px scrolled 3/4 through row 0 so row 1 is visible)
+    let metrics = kitty_pptx_display::probe_cell_pixel_size();
+    let cell_w_px = metrics.width_px.max(4.0) as f32;
+    let cell_h_px = metrics.height_px.max(8.0) as f32;
+    let viewport_w_px = 160.0 * cell_w_px;
+    let viewport_h_px = 44.0 * cell_h_px;
+    let row_stride = state
+        .reader_state()
+        .unwrap()
+        .current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+    state.reader_state_mut().unwrap().scroll_px = (row_stride * 0.75).round() as i64;
+
+    terminal
+        .draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let placements = state.reader_placements();
+    let row_0: Vec<_> = placements.iter().filter(|p| p.is_primary).collect();
+    let row_1: Vec<_> = placements.iter().filter(|p| !p.is_primary).collect();
+
+    assert_eq!(row_0.len(), 2, "Row 0 has 2 spread pages");
+    assert_eq!(row_1.len(), 2, "Row 1 has 2 transition spread pages");
+
+    // Left panes (page 0 and page 2) must match horizontally
+    assert_eq!(
+        row_0[0].cell_rect.col, row_1[0].cell_rect.col,
+        "Left pane col must align exactly between row 0 and row 1"
+    );
+    assert_eq!(
+        row_0[0].pixel_src.x, row_1[0].pixel_src.x,
+        "Left pane pixel_src.x must match between row 0 and row 1"
+    );
+
+    // Right panes (page 1 and page 3) must match horizontally
+    assert_eq!(
+        row_0[1].cell_rect.col, row_1[1].cell_rect.col,
+        "Right pane col must align exactly between row 0 and row 1"
+    );
+    assert_eq!(
+        row_0[1].pixel_src.x, row_1[1].pixel_src.x,
+        "Right pane pixel_src.x must match between row 0 and row 1"
+    );
 }

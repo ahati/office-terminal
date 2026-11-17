@@ -323,18 +323,20 @@ Find/TOC/help overlays open **over** the reader exactly as over fullscreen (cent
 
 | Key | Fullscreen (today) | Reader (new) |
 | :--- | :--- | :--- |
-| `j` / `↓` | next slide | **scroll focused pane 1 row** (both panes if `sync`) |
-| `k` / `↑` | prev slide | **scroll −1 row** |
+| `j` / `↓` | next slide | **continuous column scroll** (1/8 row stride; next row enters smoothly) |
+| `k` / `↑` | prev slide | **scroll −1/8 row stride** |
 | `d` / `u` | — | scroll ±½ viewport |
-| `h` / `l` | — | **pan focused pane** horizontally (clamped; no-op when it fits) |
-| `Tab` / `Shift-Tab` | — | **cycle pane focus** (turns `sync` off) |
+| `←` / `→` | prev/next slide | **slide row horizontally** (when zoomed/overflow) / **prev, next row** (at fit) |
+| `h` / `l` | — | **pan horizontally** (Spread/Single) / **slide continuous** (Horizontal mode) |
+| `H` | — | **toggle Horizontal slide flow** ↔ Spread |
+| `Tab` / `Shift-Tab` / `w` / `\` | — | **cycle pane focus** |
 | `y` | — | re-enable spread-wide `sync` (scroll + zoom) |
-| `PgDn`/`PgUp`, `Space`, `Enter`, `n`, `p` | slide step | **row/page turn** (focus keeps its side) |
-| `g` / `G` | first/last slide | column start / end |
+| `PgDn`/`PgUp`, `Space`, `Enter`, `n`, `p` | slide step | **row/page turn** (focus keeps its side, h-scroll preserved) |
+| `g` / `G` | first/last slide | first / last page |
 | `N` + `Enter` | jump slide | jump to page `N` (its row, top) |
 | `f` | — | cycle fit of focused pane: width → page |
 | `+` / `−` | zoom ladder | zoom ladder, **focused pane** (both if `sync`) |
-| `=` | — | reset focused pane to fit + top |
+| `=` | — | reset focused pane to fit + top (resets h-scroll) |
 | `Z` | — | apply focused zoom to all pages (new default) |
 | `2` | — | toggle Spread ↔ Single |
 | `!` | — | toggle cover-alone (Spread) |
