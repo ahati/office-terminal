@@ -248,13 +248,22 @@ impl PresentationState {
         if self.mode() == AppMode::Sorter {
             self.exit_sorter(false);
         } else {
-            self.enter_overlay(AppMode::Sorter);
-            self.sorter.selected_index = self.current_slide();
+            self.open_sorter();
         }
     }
 
     pub fn open_sorter(&mut self) {
         if self.mode() != AppMode::Sorter {
+            if self.sorter_return_mode.is_none() {
+                let return_mode = if self.mode.is_base_mode() {
+                    self.mode
+                } else if self.previous_mode.is_base_mode() && self.previous_mode != AppMode::Sorter {
+                    self.previous_mode
+                } else {
+                    AppMode::Fullscreen
+                };
+                self.sorter_return_mode = Some(return_mode);
+            }
             self.enter_overlay(AppMode::Sorter);
             self.sorter.selected_index = self.current_slide();
         }
@@ -269,7 +278,15 @@ impl PresentationState {
             let clamped = self.sorter.selected_index.min(self.total_slides() - 1);
             slide_changed = self.set_current_slide(clamped);
         }
-        self.exit_overlay();
+        let return_mode = self.sorter_return_mode.take().unwrap_or_else(|| {
+            if self.previous_mode.is_base_mode() && self.previous_mode != AppMode::Sorter {
+                self.previous_mode
+            } else {
+                AppMode::Fullscreen
+            }
+        });
+        self.mode = return_mode;
+        self.previous_mode = return_mode;
         slide_changed
     }
 

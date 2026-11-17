@@ -80,6 +80,13 @@ impl GraphicsSyncer {
         }
         self.suppressed = false;
 
+        // When an overlay modal is active (search, help, find, etc.), underlying
+        // graphics stay resident and must not do expensive staging, downscaling,
+        // or transmission on the UI thread while the user interacts with the modal.
+        if state.mode().is_overlay() {
+            return Ok(());
+        }
+
         // Resolve the base view exactly like the renderer does, so an overlay
         // modal on top of the sorter does not tear the grid images down.
         if state.base_mode() == AppMode::Reader {

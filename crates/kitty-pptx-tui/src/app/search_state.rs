@@ -388,6 +388,7 @@ impl PresentationState {
         if apply_selection {
             if let Some(target) = self.search.selected_slide_index() {
                 slide_changed = self.set_current_slide(target);
+                self.sorter.selected_index = target;
             }
         }
         self.exit_overlay();
