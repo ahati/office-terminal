@@ -10,6 +10,7 @@ pub mod mode;
 pub mod nav_state;
 pub mod reader_events;
 pub mod reader_state;
+pub mod reader_types;
 pub mod search_state;
 #[cfg(test)]
 mod sorter_graphics_tests;

@@ -59,6 +59,7 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
 
     let cols = state.sorter_cols().max(1);
     let card_height = (grid_area.height / 3).clamp(5, 12);
+
     // Never plan more cards than the terminal image quota and image-id pool can keep resident; the
     // graphics syncer would otherwise leave the overflow blank.
     let canvas_target = kitty_pptx_core::RenderTargetSpec {
@@ -69,15 +70,18 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
     let capacity_rows = (max_cards / cols).max(1) as u16;
     let rows_visible = (grid_area.height / card_height).max(1).min(capacity_rows);
     let cursor = state.selected_sorter_index();
-    let cursor_row = (cursor / cols) as u16;
+    let cursor_row = cursor / cols;
 
-    let scroll_row = if cursor_row >= rows_visible {
-        cursor_row - rows_visible + 1
-    } else {
-        0
-    };
+    let mut scroll_row = state.sorter_scroll_row();
+    if cursor_row < scroll_row {
+        scroll_row = cursor_row;
+        state.set_sorter_scroll_row(scroll_row);
+    } else if cursor_row >= scroll_row + rows_visible as usize {
+        scroll_row = cursor_row.saturating_sub(rows_visible as usize - 1);
+        state.set_sorter_scroll_row(scroll_row);
+    }
 
-    let start_idx = (scroll_row as usize) * cols;
+    let start_idx = scroll_row * cols;
     let num_rows_to_render =
         rows_visible.min(total.saturating_sub(start_idx).div_ceil(cols) as u16);
 

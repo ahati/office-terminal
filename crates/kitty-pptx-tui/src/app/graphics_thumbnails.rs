@@ -151,7 +151,8 @@ impl ThumbnailSyncer {
                     }
                     stages_left -= 1;
 
-                    let card_bytes = (bitmap.width as usize) * (bitmap.height as usize) * 4;
+                    let downscaled = bitmap.downscale_to(480, 360);
+                    let card_bytes = (downscaled.width as usize) * (downscaled.height as usize) * 4;
 
                     // Enforce terminal quota by evicting oldest cards if needed
                     while self.total_staged_bytes + card_bytes > quota && !self.staging_order.is_empty() {
@@ -164,7 +165,7 @@ impl ThumbnailSyncer {
                     }
 
                     let id = self.thumbnail_id(slide);
-                    driver.stage(&bitmap, id)?;
+                    driver.stage(&downscaled, id)?;
                     driver.present(id, Placement::Cells(rect))?;
                     *epoch = epoch.saturating_add(1);
 

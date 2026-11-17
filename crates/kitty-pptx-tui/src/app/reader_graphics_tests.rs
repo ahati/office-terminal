@@ -265,10 +265,13 @@ fn test_fractional_column_scroll_goldens_issue_26() {
         // rows shrinks as pane top is clipped
         assert!(top_pane.cell_rect.rows <= prev_rows, "rows shrinks while clipped");
 
-        // Next row is partially visible below it
+        // Next row is partially visible below it with vertical gutter
         let next_row_placements: Vec<_> = placements.iter().filter(|p| p.page >= 2).collect();
         assert!(!next_row_placements.is_empty(), "Next row visible below clipped top row");
-        assert_eq!(next_row_placements[0].cell_rect.row, top_pane.cell_rect.rows);
+        assert_eq!(
+            next_row_placements[0].cell_rect.row,
+            top_pane.cell_rect.rows + crate::app::ui::reader::VERTICAL_GUTTER_ROWS
+        );
 
         prev_src_y = top_pane.pixel_src.y;
         prev_rows = top_pane.cell_rect.rows;
@@ -333,4 +336,82 @@ fn test_recording_driver_scroll_zero_re_render_issue_26() {
     // Zero stage calls for new bitmaps of existing visible panes on pure movement
     let re_stages_of_existing = log.lock().unwrap().staged.iter().filter(|&&id| id == 1 || id == 2).count();
     assert_eq!(re_stages_of_existing, 2, "Zero re-stages for initial pages during scroll");
+}
+
+#[test]
+fn test_dynamic_n_page_reflow_issue_29() {
+    let page_sizes = vec![(612.0, 792.0); 10];
+
+    // 1. Narrow terminal (80 cols) -> reflows to 1 page
+    let backend_narrow = TestBackend::new(80, 45);
+    let mut term_narrow = Terminal::new(backend_narrow).unwrap();
+    let mut state_narrow = PresentationState::new(10, vec![]);
+    state_narrow.enable_reader_mode(10, page_sizes.clone());
+
+    term_narrow
+        .draw(|f| {
+            render_reader(&state_narrow, f, Rect::new(0, 0, 80, 45));
+        })
+        .unwrap();
+
+    let p_narrow = state_narrow.reader_placements();
+    let primary_narrow: Vec<_> = p_narrow.iter().filter(|p| p.cell_rect.row == 0).collect();
+    assert_eq!(primary_narrow.len(), 1, "Narrow terminal reflows to 1 page in row 0");
+
+    // 2. Wide terminal (240 cols) -> fits 3 pages
+    let backend_wide = TestBackend::new(240, 45);
+    let mut term_wide = Terminal::new(backend_wide).unwrap();
+    let mut state_wide = PresentationState::new(10, vec![]);
+    state_wide.enable_reader_mode(10, page_sizes.clone());
+
+    term_wide
+        .draw(|f| {
+            render_reader(&state_wide, f, Rect::new(0, 0, 240, 45));
+        })
+        .unwrap();
+
+    let p_wide = state_wide.reader_placements();
+    let primary_wide: Vec<_> = p_wide.iter().filter(|p| p.cell_rect.row == 0).collect();
+    assert_eq!(primary_wide.len(), 3, "Wide terminal reflows to 3 pages in row 0");
+}
+
+#[test]
+fn test_horizontal_mode_sliding_issue_29() {
+    let backend = TestBackend::new(160, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let page_sizes = vec![(612.0, 792.0); 10];
+
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, page_sizes);
+    state.reader_state_mut().unwrap().toggle_horizontal();
+    assert_eq!(state.reader_state().unwrap().layout, ReaderLayout::Horizontal);
+
+    // Initial draw
+    terminal
+        .draw(|f| {
+            render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let p_init = state.reader_placements();
+    assert!(p_init.len() >= 2, "Multiple pages laid out horizontally");
+    assert_eq!(p_init[0].cell_rect.col, 0);
+    assert_eq!(p_init[0].pixel_src.x, 0);
+
+    // Smooth horizontal slide right
+    handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert!(state.reader_state().unwrap().scroll_px > 0, "Right arrow slides smoothly");
+
+    terminal
+        .draw(|f| {
+            render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let p_scrolled = state.reader_placements();
+    assert!(p_scrolled[0].pixel_src.x > 0, "Pixel src.x shifted right");
+
+    // Smooth horizontal slide left
+    handle_key_event(make_key(KeyCode::Left), &mut state);
+    assert_eq!(state.reader_state().unwrap().scroll_px, 0, "Left arrow slides back to origin");
 }

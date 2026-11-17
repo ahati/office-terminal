@@ -216,6 +216,16 @@ impl PresentationState {
         self.sorter.set_wrap(wrap);
     }
 
+    pub fn sorter_scroll_row(&self) -> usize {
+        self.sorter_scroll_row.lock().map(|r| *r).unwrap_or(0)
+    }
+
+    pub fn set_sorter_scroll_row(&self, row: usize) {
+        if let Ok(mut r) = self.sorter_scroll_row.lock() {
+            *r = row;
+        }
+    }
+
     pub fn toggle_sorter(&mut self) {
         if self.mode() == AppMode::Sorter {
             self.exit_sorter(false);
