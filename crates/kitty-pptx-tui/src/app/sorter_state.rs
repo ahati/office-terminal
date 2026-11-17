@@ -220,6 +220,24 @@ impl PresentationState {
         self.sorter_scroll_row.lock().map(|r| *r).unwrap_or(0)
     }
 
+    pub fn sorter_scroll_row_with_hysteresis(&self, cursor_row: usize, rows_visible: usize) -> usize {
+        if let Ok(mut r) = self.sorter_scroll_row.lock() {
+            let cur = *r;
+            if cursor_row < cur {
+                *r = cursor_row;
+                cursor_row
+            } else if cursor_row >= cur + rows_visible {
+                let next = cursor_row.saturating_sub(rows_visible.saturating_sub(1));
+                *r = next;
+                next
+            } else {
+                cur
+            }
+        } else {
+            0
+        }
+    }
+
     pub fn set_sorter_scroll_row(&self, row: usize) {
         if let Ok(mut r) = self.sorter_scroll_row.lock() {
             *r = row;

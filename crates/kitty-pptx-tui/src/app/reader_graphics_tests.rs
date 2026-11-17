@@ -415,3 +415,157 @@ fn test_horizontal_mode_sliding_issue_29() {
     handle_key_event(make_key(KeyCode::Left), &mut state);
     assert_eq!(state.reader_state().unwrap().scroll_px, 0, "Left arrow slides back to origin");
 }
+
+#[test]
+fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
+    let backend = TestBackend::new(160, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let page_sizes = vec![(612.0, 792.0); 10];
+
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, page_sizes);
+
+    // Initial draw in fit mode (zoom = 1.0)
+    terminal
+        .draw(|f| {
+            render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let p_fit = state.reader_placements();
+    assert_eq!(p_fit.len(), 2);
+    assert_eq!(p_fit[1].cell_rect.col, 70);
+
+    // Zoom in 1.5x so the row overflows viewport width
+    state.reader_state_mut().unwrap().adjust_zoom(1.5);
+    terminal
+        .draw(|f| {
+            render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let p_zoomed = state.reader_placements();
+    assert_eq!(p_zoomed.len(), 2);
+    let right_col_initial = p_zoomed[1].cell_rect.col;
+    assert_eq!(right_col_initial, 104);
+
+    // Press Right arrow key -> should slide row horizontally to reveal right page
+    handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert!(
+        state.reader_state().unwrap().row_scroll_x() > 0,
+        "Right arrow increases row_scroll_x when row overflows"
+    );
+
+    // Re-draw with updated row_scroll_x
+    terminal
+        .draw(|f| {
+            render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let p_slid = state.reader_placements();
+    assert!(
+        p_slid[1].cell_rect.col < right_col_initial,
+        "Right pane slid leftwards to become more visible"
+    );
+
+    // Press Left arrow key -> should slide back left towards origin
+    handle_key_event(make_key(KeyCode::Left), &mut state);
+    terminal
+        .draw(|f| {
+            render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let p_slid_back = state.reader_placements();
+    assert!(
+        p_slid_back[1].cell_rect.col > p_slid[1].cell_rect.col,
+        "Left arrow slides panes back rightwards"
+    );
+}
+
+#[test]
+fn test_dynamic_columns_and_row_advancement() {
+    let page_sizes = vec![(612.0, 792.0); 10];
+
+    // Wide terminal (240 cols) -> 3 columns
+    let backend_wide = TestBackend::new(240, 45);
+    let mut term_wide = Terminal::new(backend_wide).unwrap();
+    let mut state_wide = PresentationState::new(10, vec![]);
+    state_wide.enable_reader_mode(10, page_sizes.clone());
+
+    term_wide
+        .draw(|f| {
+            render_reader(&state_wide, f, Rect::new(0, 0, 240, 45));
+        })
+        .unwrap();
+
+    assert_eq!(state_wide.reader_num_columns(), 3);
+    assert_eq!(state_wide.reader_state().unwrap().num_columns(), 3);
+
+    // Advance row via PageDown
+    handle_key_event(make_key(KeyCode::PageDown), &mut state_wide);
+    assert_eq!(
+        state_wide.reader_state().unwrap().anchor,
+        3,
+        "Anchor advances by num_columns (3)"
+    );
+
+    // Narrow terminal (80 cols) -> 1 column
+    let backend_narrow = TestBackend::new(80, 45);
+    let mut term_narrow = Terminal::new(backend_narrow).unwrap();
+    let mut state_narrow = PresentationState::new(10, vec![]);
+    state_narrow.enable_reader_mode(10, page_sizes);
+
+    term_narrow
+        .draw(|f| {
+            render_reader(&state_narrow, f, Rect::new(0, 0, 80, 45));
+        })
+        .unwrap();
+
+    assert_eq!(state_narrow.reader_num_columns(), 1);
+    assert_eq!(state_narrow.reader_state().unwrap().num_columns(), 1);
+
+    // Advance row via PageDown
+    handle_key_event(make_key(KeyCode::PageDown), &mut state_narrow);
+    assert_eq!(
+        state_narrow.reader_state().unwrap().anchor,
+        1,
+        "Anchor advances by num_columns (1)"
+    );
+}
+
+#[test]
+fn test_horizontal_mode_zero_restaging_on_advance() {
+    let backend = TestBackend::new(160, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let page_sizes = vec![(612.0, 792.0); 10];
+
+    let mut state = PresentationState::new(10, vec![]);
+    state.enable_reader_mode(10, page_sizes);
+    state.reader_state_mut().unwrap().toggle_horizontal();
+
+    let (mut driver, log) = MockRecordingDriver::new();
+    let pipeline = MockPdfPipeline;
+    let mut syncer = GraphicsSyncer::new();
+    let canvas_target = RenderTargetSpec { width_px: 2560, height_px: 3312 };
+
+    // Initial draw and sync
+    terminal.draw(|f| render_reader(&state, f, Rect::new(0, 0, 160, 45))).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
+
+    let initial_staged = log.lock().unwrap().staged.clone();
+    assert!(!initial_staged.is_empty());
+
+    // Advance anchor by 1 page
+    handle_key_event(make_key(KeyCode::PageDown), &mut state);
+    terminal.draw(|f| render_reader(&state, f, Rect::new(0, 0, 160, 45))).unwrap();
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
+
+    let post_staged = log.lock().unwrap().staged.clone();
+    // Image IDs for pages that were already visible/staged should NOT appear a second time in staged list
+    for id in &initial_staged {
+        let count = post_staged.iter().filter(|x| *x == id).count();
+        assert_eq!(count, 1, "ImageId {} was not re-staged on page shift", id);
+    }
+}

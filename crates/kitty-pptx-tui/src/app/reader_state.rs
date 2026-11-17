@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 pub use crate::app::reader_types::*;
 
@@ -13,12 +15,14 @@ pub struct ReaderState {
     pub sync: bool,
     pub cover_alone: bool,
     pub scroll_px: i64,
-    pub num_columns: usize,
+    pub num_columns: Arc<AtomicUsize>,
     pub focused_slot: usize,
+    pub row_scroll_x: Arc<AtomicI64>,
+    pub max_row_scroll_x: Arc<AtomicI64>,
     views: HashMap<usize, PageView>,
     total_pages: usize,
     page_sizes: Vec<(f32, f32)>,
-    placements: Vec<ReaderSlotPlacement>,
+    placements: Arc<Mutex<Vec<ReaderSlotPlacement>>>,
 }
 
 impl ReaderState {
@@ -32,13 +36,23 @@ impl ReaderState {
             sync: true,
             cover_alone: false,
             scroll_px: 0,
-            num_columns: 2,
+            num_columns: Arc::new(AtomicUsize::new(2)),
             focused_slot: 0,
+            row_scroll_x: Arc::new(AtomicI64::new(0)),
+            max_row_scroll_x: Arc::new(AtomicI64::new(0)),
             views: HashMap::new(),
             total_pages,
             page_sizes,
-            placements: Vec::new(),
+            placements: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    pub fn with_shared_placements(
+        mut self,
+        placements: Arc<Mutex<Vec<ReaderSlotPlacement>>>,
+    ) -> Self {
+        self.placements = placements;
+        self
     }
 
     pub fn total_pages(&self) -> usize {
@@ -69,11 +83,41 @@ impl ReaderState {
         })
     }
 
+    pub fn set_num_columns(&self, cols: usize) {
+        self.num_columns.store(cols.max(1), Ordering::Relaxed);
+    }
+
+    pub fn num_columns(&self) -> usize {
+        self.num_columns.load(Ordering::Relaxed)
+    }
+
     pub fn effective_columns(&self) -> usize {
         match self.layout {
             ReaderLayout::Single => 1,
-            ReaderLayout::Spread => self.num_columns.max(1),
-            ReaderLayout::Horizontal => self.num_columns.max(1),
+            ReaderLayout::Spread => self.num_columns(),
+            ReaderLayout::Horizontal => self.num_columns(),
+        }
+    }
+
+    pub fn row_scroll_x(&self) -> i64 {
+        self.row_scroll_x.load(Ordering::Relaxed)
+    }
+
+    pub fn set_row_scroll_x(&self, val: i64) {
+        let max_x = self.max_row_scroll_x.load(Ordering::Relaxed);
+        let clamped = val.clamp(0, max_x.max(0));
+        self.row_scroll_x.store(clamped, Ordering::Relaxed);
+    }
+
+    pub fn max_row_scroll_x(&self) -> i64 {
+        self.max_row_scroll_x.load(Ordering::Relaxed)
+    }
+
+    pub fn set_max_row_scroll_x(&self, val: i64) {
+        self.max_row_scroll_x.store(val.max(0), Ordering::Relaxed);
+        let cur = self.row_scroll_x.load(Ordering::Relaxed);
+        if cur > val.max(0) {
+            self.row_scroll_x.store(val.max(0), Ordering::Relaxed);
         }
     }
 
@@ -145,167 +189,6 @@ impl ReaderState {
         }
     }
 
-    pub fn current_row_height_px(
-        &self,
-        viewport_w_px: f32,
-        viewport_h_px: f32,
-        cell_w_px: f32,
-    ) -> f32 {
-        let vis = self.visible_pages();
-        if vis.is_empty() {
-            return viewport_h_px;
-        }
-        let slot_w = self.slot_width(viewport_w_px, cell_w_px);
-        let mut max_h = 0.0f32;
-        for &page in &vis {
-            let (pt_w, pt_h) = self.page_size_pt(page);
-            let ar = (pt_w / pt_h).max(0.1);
-            let view = self.page_view(page);
-            let base_h = match view.fit {
-                ReaderFitMode::FitWidth => slot_w / ar,
-                ReaderFitMode::FitPage => viewport_h_px.min(slot_w / ar),
-            };
-            let h = base_h * view.zoom;
-            if h > max_h {
-                max_h = h;
-            }
-        }
-        max_h.max(10.0)
-    }
-
-    pub fn scroll_column(&mut self, delta_px: i64, row_h_px: f32) -> bool {
-        if self.total_pages == 0 || row_h_px <= 0.0 {
-            return false;
-        }
-        let prev_anchor = self.anchor;
-        let prev_scroll_px = self.scroll_px;
-
-        self.scroll_px += delta_px;
-        let step = self.effective_columns();
-
-        // If scrolled past bottom of current row, advance anchor
-        while self.scroll_px >= row_h_px as i64 {
-            let next_anchor = match self.layout {
-                ReaderLayout::Single => self.anchor + 1,
-                ReaderLayout::Spread => {
-                    if self.cover_alone && self.anchor == 0 {
-                        1
-                    } else {
-                        self.anchor + step
-                    }
-                }
-                ReaderLayout::Horizontal => self.anchor + 1,
-            };
-            if next_anchor < self.total_pages {
-                self.anchor = next_anchor;
-                self.scroll_px -= row_h_px as i64;
-            } else {
-                self.scroll_px = (row_h_px as i64).saturating_sub(1);
-                break;
-            }
-        }
-
-        // If scrolled past top of current row, retreat anchor
-        while self.scroll_px < 0 {
-            if self.anchor > 0 {
-                let prev = match self.layout {
-                    ReaderLayout::Single => self.anchor.saturating_sub(1),
-                    ReaderLayout::Spread => {
-                        if self.cover_alone && self.anchor <= step {
-                            0
-                        } else {
-                            self.anchor.saturating_sub(step)
-                        }
-                    }
-                    ReaderLayout::Horizontal => self.anchor.saturating_sub(1),
-                };
-                self.anchor = prev;
-                self.scroll_px += row_h_px as i64;
-            } else {
-                self.scroll_px = 0;
-                break;
-            }
-        }
-
-        self.anchor != prev_anchor || self.scroll_px != prev_scroll_px
-    }
-
-    pub fn scroll_horizontal_continuous(&mut self, delta_px: i64, page_w_px: f32) -> bool {
-        if self.total_pages == 0 || page_w_px <= 0.0 {
-            return false;
-        }
-        let prev_anchor = self.anchor;
-        let prev_scroll_px = self.scroll_px;
-
-        self.scroll_px += delta_px;
-
-        while self.scroll_px >= page_w_px as i64 {
-            if self.anchor + 1 < self.total_pages {
-                self.anchor += 1;
-                self.scroll_px -= page_w_px as i64;
-            } else {
-                self.scroll_px = (page_w_px as i64).saturating_sub(1);
-                break;
-            }
-        }
-
-        while self.scroll_px < 0 {
-            if self.anchor > 0 {
-                self.anchor -= 1;
-                self.scroll_px += page_w_px as i64;
-            } else {
-                self.scroll_px = 0;
-                break;
-            }
-        }
-
-        self.anchor != prev_anchor || self.scroll_px != prev_scroll_px
-    }
-
-    pub fn scroll_vertical(&mut self, delta_px: i32) -> bool {
-        self.scroll_vertical_bounded(delta_px, u32::MAX)
-    }
-
-    pub fn scroll_vertical_bounded(&mut self, delta_px: i32, max_scroll_y: u32) -> bool {
-        let targets = if self.sync {
-            self.visible_pages()
-        } else {
-            vec![self.focused_page()]
-        };
-
-        let mut moved = false;
-        for page in targets {
-            let view = self.page_view_mut(page);
-            if view.fit == ReaderFitMode::FitPage {
-                continue;
-            }
-            let prev = view.scroll_y;
-            let next_y = ((view.scroll_y as i32 + delta_px).max(0) as u32).min(max_scroll_y);
-            view.scroll_y = next_y;
-            if view.scroll_y != prev {
-                moved = true;
-            }
-        }
-        moved
-    }
-
-    pub fn scroll_horizontal(&mut self, delta_px: i32) -> bool {
-        self.scroll_horizontal_bounded(delta_px, u32::MAX)
-    }
-
-    pub fn scroll_horizontal_bounded(&mut self, delta_px: i32, max_scroll_x: u32) -> bool {
-        let page = self.focused_page();
-        let view = self.page_view_mut(page);
-        if view.fit == ReaderFitMode::FitPage || max_scroll_x == 0 {
-            view.scroll_x = 0;
-            return false;
-        }
-        let prev = view.scroll_x;
-        let next_x = ((view.scroll_x as i32 + delta_px).max(0) as u32).min(max_scroll_x);
-        view.scroll_x = next_x;
-        view.scroll_x != prev
-    }
-
     pub fn toggle_focus(&mut self) {
         let vis = self.visible_pages();
         if !vis.is_empty() {
@@ -359,6 +242,7 @@ impl ReaderState {
     pub fn reset_view(&mut self) {
         self.default_zoom = 1.0;
         self.scroll_px = 0;
+        self.set_row_scroll_x(0);
         if self.sync {
             for view in self.views.values_mut() {
                 view.zoom = 1.0;
@@ -398,6 +282,7 @@ impl ReaderState {
             ReaderLayout::Horizontal => ReaderLayout::Spread,
         };
         self.scroll_px = 0;
+        self.set_row_scroll_x(0);
     }
 
     pub fn toggle_horizontal(&mut self) {
@@ -407,15 +292,18 @@ impl ReaderState {
             ReaderLayout::Horizontal
         };
         self.scroll_px = 0;
+        self.set_row_scroll_x(0);
     }
 
     pub fn toggle_cover_alone(&mut self) {
         self.cover_alone = !self.cover_alone;
         self.scroll_px = 0;
+        self.set_row_scroll_x(0);
     }
 
     pub fn next_row(&mut self) {
         self.scroll_px = 0;
+        self.set_row_scroll_x(0);
         if self.total_pages == 0 {
             return;
         }
@@ -439,6 +327,7 @@ impl ReaderState {
 
     pub fn prev_row(&mut self) {
         self.scroll_px = 0;
+        self.set_row_scroll_x(0);
         let step = self.effective_columns();
         match self.layout {
             ReaderLayout::Single => {
@@ -459,6 +348,7 @@ impl ReaderState {
 
     pub fn jump_to_page(&mut self, page_0based: usize) {
         self.scroll_px = 0;
+        self.set_row_scroll_x(0);
         if self.total_pages == 0 {
             return;
         }
@@ -482,16 +372,19 @@ impl ReaderState {
         }
     }
 
-    pub fn placements(&self) -> &[ReaderSlotPlacement] {
-        &self.placements
+    pub fn placements(&self) -> Vec<ReaderSlotPlacement> {
+        self.placements.lock().map(|p| p.clone()).unwrap_or_default()
     }
 
     pub fn set_placements(&mut self, placements: Vec<ReaderSlotPlacement>) {
-        self.placements = placements;
+        if let Ok(mut lock) = self.placements.lock() {
+            *lock = placements;
+        }
     }
 
     pub fn status_line(&self, filename: &str) -> String {
-        let mut active_pages: Vec<usize> = self.placements.iter().map(|p| p.page).collect();
+        let placements = self.placements();
+        let mut active_pages: Vec<usize> = placements.iter().map(|p| p.page).collect();
         active_pages.sort_unstable();
         active_pages.dedup();
 
