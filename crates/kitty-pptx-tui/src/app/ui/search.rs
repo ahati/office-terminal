@@ -33,8 +33,12 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
         ])
         .split(horiz[1])[1];
 
-    // Clear background behind modal
+    // Clear and fill background behind modal so underlying graphics don't bleed through
     f.render_widget(Clear, modal_area);
+    f.render_widget(
+        Block::default().style(Style::default().bg(Color::Black)),
+        modal_area,
+    );
 
     let modal_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -80,6 +84,7 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
         .style(Style::default().bg(Color::Black).fg(Color::White));
 
     let inner_height = modal_chunks[1].height.saturating_sub(2) as usize;
+    let inner_width = modal_chunks[1].width.saturating_sub(2) as usize;
     let mut list_lines = Vec::new();
 
     if matched.is_empty() {
@@ -126,11 +131,29 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                     title_lower.contains(&q) || num_str.contains(&q)
                 };
 
-                let max_title_len = 40usize.saturating_sub(entry.level * 2).max(15);
+                let prefix = if is_selected {
+                    format!(" ▶ {}{}[{:>3}] ", indent, icon, entry.slide_number)
+                } else {
+                    format!("   {}{}[{:>3}] ", indent, icon, entry.slide_number)
+                };
+                let prefix_len = prefix.chars().count();
+
+                let notes_span_text = if !entry.notes.is_empty() {
+                    let budget = 20.min(inner_width.saturating_sub(prefix_len + 15));
+                    if budget >= 8 {
+                        Some(format!(" (Notes: {})", truncate_str(&entry.notes, budget.saturating_sub(9))))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let notes_len = notes_span_text.as_ref().map(|n| n.chars().count()).unwrap_or(0);
+                let max_title_len = inner_width.saturating_sub(prefix_len + notes_len + 1).max(10);
 
                 if is_selected {
                     spans.push(Span::styled(
-                        format!(" ▶ {}{}[{:>2}] ", indent, icon, entry.slide_number),
+                        prefix,
                         Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::styled(
@@ -138,15 +161,15 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                         Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
                     ));
 
-                    if !entry.notes.is_empty() {
+                    if let Some(notes_text) = notes_span_text {
                         spans.push(Span::styled(
-                            format!(" (Notes: {})", truncate_str(&entry.notes, 16)),
+                            notes_text,
                             Style::default().bg(Color::Cyan).fg(Color::DarkGray),
                         ));
                     }
                 } else if is_direct_match {
                     spans.push(Span::styled(
-                        format!("   {}{}[{:>2}] ", indent, icon, entry.slide_number),
+                        prefix,
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::styled(
@@ -154,16 +177,16 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                         Style::default().fg(Color::White),
                     ));
 
-                    if !entry.notes.is_empty() {
+                    if let Some(notes_text) = notes_span_text {
                         spans.push(Span::styled(
-                            format!(" (Notes: {})", truncate_str(&entry.notes, 16)),
+                            notes_text,
                             Style::default().fg(Color::DarkGray),
                         ));
                     }
                 } else {
                     // Ancestor context node shown dimmed
                     spans.push(Span::styled(
-                        format!("   {}{}[{:>2}] ", indent, icon, entry.slide_number),
+                        prefix,
                         Style::default().fg(Color::DarkGray),
                     ));
                     spans.push(Span::styled(
@@ -186,7 +209,11 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {
-    let clean = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let sanitized: String = s
+        .chars()
+        .filter(|&c| c != '\0' && c != '\u{FEFF}' && c != '\u{FFFD}' && (!c.is_control() || c == ' ' || c == '\t'))
+        .collect();
+    let clean = sanitized.split_whitespace().collect::<Vec<_>>().join(" ");
     if clean.chars().count() > max_len {
         let truncated: String = clean.chars().take(max_len.saturating_sub(3)).collect();
         format!("{}...", truncated)

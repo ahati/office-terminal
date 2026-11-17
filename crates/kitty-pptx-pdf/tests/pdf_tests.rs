@@ -136,3 +136,54 @@ fn test_minimal_pdf_engine_and_source() {
     assert_eq!(vector_slide.height_emu, h_emu);
     assert_eq!(vector_slide.commands.len(), 1); // 1 DrawBitmap command
 }
+
+#[test]
+fn test_opencv_toc() {
+    let path = "/workspace/Learning OpenCV 3 Computer Vision with Python.pdf";
+    if let Ok(data) = std::fs::read(path) {
+        let source = PdfPageSource::open(Arc::from(data.into_boxed_slice())).expect("open pdf");
+        let toc = source.toc();
+        assert_eq!(toc.len(), 171, "OpenCV PDF must have 171 TOC entries");
+        for entry in &toc {
+            assert!(
+                !entry.title.contains('\0') && !entry.title.contains('\u{FFFD}'),
+                "TOC title must not contain NUL or replacement chars: {:?}",
+                entry.title
+            );
+        }
+        assert_eq!(toc[7].title, "Preface");
+        assert_eq!(toc[8].title, "Chapter 1: Setting Up OpenCV");
+        assert_eq!(toc[9].title, "Choosing and using the right setup tools");
+    }
+}
+
+#[test]
+fn test_pdf_text_string_decoding() {
+    use kitty_pptx_pdf::text_encoding::decode_pdf_text_string;
+
+    // UTF-16BE with BOM
+    let utf16_be = [0xFE, 0xFF, 0x00, b'P', 0x00, b'r', 0x00, b'e', 0x00, b'f', 0x00, b'a', 0x00, b'c', 0x00, b'e'];
+    assert_eq!(decode_pdf_text_string(&utf16_be), "Preface");
+
+    // UTF-16LE with BOM
+    let utf16_le = [0xFF, 0xFE, b'H', 0x00, b'e', 0x00, b'l', 0x00, b'l', 0x00, b'o', 0x00];
+    assert_eq!(decode_pdf_text_string(&utf16_le), "Hello");
+
+    // UTF-8 with BOM
+    let utf8_bom = [0xEF, 0xBB, 0xBF, b'T', b'e', b's', b't'];
+    assert_eq!(decode_pdf_text_string(&utf8_bom), "Test");
+
+    // Raw ASCII
+    let ascii = b"Introduction to Computer Vision";
+    assert_eq!(decode_pdf_text_string(ascii), "Introduction to Computer Vision");
+
+    // PDFDocEncoding with special chars: 0x84 (em dash), 0x92 (trademark)
+    let pdfdoc = [b'C', b'o', b'm', b'p', b'a', b'n', b'y', 0x92, b' ', 0x84, b' ', b'2', b'0', b'2', b'6'];
+    assert_eq!(decode_pdf_text_string(&pdfdoc), "Company™ — 2026");
+
+    // Embedded control chars and NUL bytes stripped
+    let dirty = [b'A', 0x00, b'B', 0x07, b'C', b'\t', b'D'];
+    assert_eq!(decode_pdf_text_string(&dirty), "ABC D");
+}
+
+
