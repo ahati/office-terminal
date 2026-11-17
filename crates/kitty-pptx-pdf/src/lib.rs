@@ -9,6 +9,7 @@ pub mod links;
 pub mod raster_bridge;
 pub mod source;
 pub mod text;
+pub mod text_encoding;
 pub mod vector_bridge;
 
 use std::sync::Arc;

@@ -81,7 +81,7 @@ impl HayroEngine {
 
             let title = item
                 .get::<PdfString<'_>>(b"Title")
-                .map(|s| String::from_utf8_lossy(s.as_bytes()).into_owned())
+                .map(|s| crate::text_encoding::decode_pdf_text_string(s.as_bytes()))
                 .unwrap_or_else(|| format!("Section {}", out.len() + 1));
 
             let page_idx =

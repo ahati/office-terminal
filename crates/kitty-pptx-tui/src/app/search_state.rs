@@ -228,14 +228,22 @@ impl SearchState {
                     .get(idx + 1)
                     .map(|next| next.level > t.level)
                     .unwrap_or(false);
+                let clean_title = t.title
+                    .chars()
+                    .filter(|&c| c != '\0' && c != '\u{FEFF}' && c != '\u{FFFD}' && (!c.is_control() || c == ' ' || c == '\t'))
+                    .collect::<String>()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 let expanded = existing_expanded
-                    .get(&(t.page_index, t.title.clone()))
+                    .get(&(t.page_index, clean_title.clone()))
+                    .or_else(|| existing_expanded.get(&(t.page_index, t.title.clone())))
                     .copied()
                     .unwrap_or(true);
                 self.entries.push(SlideSearchEntry {
                     slide_index: t.page_index,
                     slide_number: t.page_index + 1,
-                    title: t.title.clone(),
+                    title: clean_title,
                     notes: String::new(),
                     level: t.level,
                     expanded,
