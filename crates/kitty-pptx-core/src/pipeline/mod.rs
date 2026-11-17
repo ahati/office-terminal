@@ -220,7 +220,17 @@ impl DefaultRenderPipeline {
 
     /// Shared tail of `entry`/`entry_at` once the target raster cache missed.
     fn entry_after_cache_miss(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
-        // 1. Synchronous fallback if enabled
+        // 1. Check for a latched background failure
+        if let Some(error) = self.workers.get_failed(index) {
+            return PipelineEntry::Failed { error };
+        }
+
+        // 2. Check if currently in-flight
+        if self.workers.is_in_flight(index) {
+            return PipelineEntry::Rendering;
+        }
+
+        // 3. Synchronous fallback if enabled and not already running in background
         if self.sync_fallback.load(Ordering::Acquire) {
             return match self.rasterize_now(index, target) {
                 Ok(bitmap) => PipelineEntry::Ready {
@@ -229,16 +239,6 @@ impl DefaultRenderPipeline {
                 },
                 Err(error) => PipelineEntry::Failed { error },
             };
-        }
-
-        // 2. Check for a latched background failure
-        if let Some(error) = self.workers.get_failed(index) {
-            return PipelineEntry::Failed { error };
-        }
-
-        // 3. Check if currently in-flight
-        if self.workers.is_in_flight(index) {
-            return PipelineEntry::Rendering;
         }
 
         // 4. Not yet loaded

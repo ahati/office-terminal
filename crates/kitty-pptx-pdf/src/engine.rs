@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use hayro::RenderCache;
 use hayro_syntax::object::String as PdfString;
-use hayro_syntax::object::{Dict, Number, ObjectIdentifier};
+use hayro_syntax::object::{Dict, ObjectIdentifier};
 use hayro_syntax::page::Rotation;
 use hayro_syntax::Pdf;
 use kitty_pptx_core::{RgbaSlide, SlideLink, TextLine, TocEntry, VectorSlide};
@@ -58,7 +58,14 @@ impl HayroEngine {
         &self.data
     }
 
-    fn traverse_outlines(&self, first_id: ObjectIdentifier, level: usize, out: &mut Vec<TocEntry>) {
+    fn traverse_outlines(
+        &self,
+        first_id: ObjectIdentifier,
+        level: usize,
+        page_map: &std::collections::HashMap<ObjectIdentifier, usize>,
+        root: &Dict<'_>,
+        out: &mut Vec<TocEntry>,
+    ) {
         let mut curr_id = Some(first_id);
         let mut visited = 0;
 
@@ -77,12 +84,8 @@ impl HayroEngine {
                 .map(|s| String::from_utf8_lossy(s.as_bytes()).into_owned())
                 .unwrap_or_else(|| format!("Section {}", out.len() + 1));
 
-            // Estimate destination page index (0-based)
-            let page_idx = if let Some(dest_num) = item.get::<Number>(b"Dest") {
-                dest_num.as_i64().max(0) as usize
-            } else {
-                0
-            };
+            let page_idx =
+                crate::dest::resolve_destination(&item, page_map, root, self.pdf.xref()).unwrap_or(0);
 
             out.push(TocEntry {
                 title,
@@ -92,7 +95,7 @@ impl HayroEngine {
 
             // Recurse into children
             if let Some(first_child) = item.get_ref(b"First") {
-                self.traverse_outlines(first_child.into(), level + 1, out);
+                self.traverse_outlines(first_child.into(), level + 1, page_map, root, out);
             }
 
             // Advance to next sibling
@@ -177,9 +180,16 @@ impl PdfEngine for HayroEngine {
             return entries;
         };
 
+        let mut page_map = std::collections::HashMap::new();
+        for (idx, page) in self.pdf.pages().iter().enumerate() {
+            if let Some(id) = page.raw().obj_id() {
+                page_map.insert(id, idx);
+            }
+        }
+
         if let Some(outlines) = root.get::<Dict<'_>>(b"Outlines") {
             if let Some(first_ref) = outlines.get_ref(b"First") {
-                self.traverse_outlines(first_ref.into(), 0, &mut entries);
+                self.traverse_outlines(first_ref.into(), 0, &page_map, &root, &mut entries);
             }
         }
 

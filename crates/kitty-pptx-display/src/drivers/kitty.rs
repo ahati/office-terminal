@@ -5,6 +5,23 @@ use kitty_pptx_core::{DisplayError, RgbaSlide};
 use crate::driver::*;
 use crate::tty::global_tty;
 
+/// Z-index that draws a placement under the terminal's cell-background layer.
+///
+/// Kitty stacks a negative-z image below text but above cell backgrounds for
+/// `INT32_MIN/2 <= z < 0`. `z=-1` therefore painted slides *over* the opaque
+/// fill of TUI overlays on Kitty and Ghostty: the overlay text stayed visible
+/// (glyphs sit above the image) but its background vanished. Values strictly
+/// below `INT32_MIN/2` are drawn under non-default cell backgrounds.
+///
+/// The Alacritty fork does not implement that threshold — it draws every
+/// negative z-index behind the combined cell pass — so this value keeps the
+/// same overlay behaviour on Kitty, Ghostty and the fork.
+pub const BEHIND_CELL_BACKGROUNDS_Z: i32 = i32::MIN / 2 - 1;
+
+// Kitty's below-background band starts at INT32_MIN/2; a placement at or above
+// it would cover overlay fills again.
+const _: () = assert!(BEHIND_CELL_BACKGROUNDS_Z < i32::MIN / 2);
+
 /// Driver for the Kitty Graphics Protocol.
 ///
 /// Images are transmitted as PNG (`f=100`) and presented with direct cursor
@@ -127,21 +144,25 @@ impl KittyDriver {
     pub fn present_sequences(id: ImageId, placement: Placement) -> Vec<String> {
         match placement {
             Placement::Cells(rect) => {
-                // z=-1 keeps the image behind text so TUI overlays (help modal,
-                // drawers) composite above it. Cells in the slide area carry the
-                // default background, letting the image show through.
+                // The image must sit below non-default cell backgrounds, not
+                // just below text: on Kitty and Ghostty `z=-1` is above the
+                // background layer, so an overlay's opaque fill disappears
+                // behind the slide and only its glyphs remain visible. Cells
+                // in the slide area carry the default background, letting the
+                // image show through.
                 vec![format!(
-                    "\x1b[{};{}H\x1b_Ga=p,i={},p=1,c={},r={},z=-1,q=2\x1b\\",
+                    "\x1b[{};{}H\x1b_Ga=p,i={},p=1,c={},r={},z={},q=2\x1b\\",
                     rect.row + 1,
                     rect.col + 1,
                     id.0,
                     rect.cols,
-                    rect.rows
+                    rect.rows,
+                    BEHIND_CELL_BACKGROUNDS_Z
                 )]
             }
             Placement::CellsSubrect { rect, src } => {
                 vec![format!(
-                    "\x1b[{};{}H\x1b_Ga=p,i={},p=1,x={},y={},w={},h={},c={},r={},z=-1,C=1,q=2\x1b\\",
+                    "\x1b[{};{}H\x1b_Ga=p,i={},p=1,x={},y={},w={},h={},c={},r={},z={},C=1,q=2\x1b\\",
                     rect.row + 1,
                     rect.col + 1,
                     id.0,
@@ -150,7 +171,8 @@ impl KittyDriver {
                     src.width,
                     src.height,
                     rect.cols,
-                    rect.rows
+                    rect.rows,
+                    BEHIND_CELL_BACKGROUNDS_Z
                 )]
             }
             Placement::ScrollbackBlock => {

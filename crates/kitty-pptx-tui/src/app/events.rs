@@ -185,6 +185,26 @@ fn handle_search_key(key: KeyEvent, state: &mut PresentationState) -> AppAction 
             state.search_down();
             AppAction::Redraw
         }
+        KeyCode::Left => {
+            if state.search_state().query().is_empty() {
+                state.search_collapse();
+            } else {
+                state.search_backspace();
+            }
+            AppAction::Redraw
+        }
+        KeyCode::Right => {
+            if state.search_state().query().is_empty() {
+                state.search_expand();
+            }
+            AppAction::Redraw
+        }
+        KeyCode::Char(' ') if state.search_state().query().is_empty() => {
+            if !state.search_expand() {
+                state.search_collapse();
+            }
+            AppAction::Redraw
+        }
         KeyCode::Backspace => {
             state.search_backspace();
             AppAction::Redraw

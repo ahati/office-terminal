@@ -64,6 +64,7 @@ impl PresentationState {
 
     /// Populate TOC search entries from table of contents.
     pub fn set_toc(&mut self, toc: &[kitty_pptx_core::TocEntry]) {
+        self.toc = toc.to_vec();
         let total = self.total_slides;
         self.search.sync_from_toc(toc, total);
     }

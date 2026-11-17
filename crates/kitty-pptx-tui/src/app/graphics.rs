@@ -1,10 +1,8 @@
-use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use kitty_pptx_core::{DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec};
+use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::{
-    CellRect, ImageId, Placement, TerminalGraphicsDriver, MAX_THUMBNAIL_IMAGES,
-    THUMBNAIL_IMAGE_ID_BASE,
+    CellRect, ImageId, Placement, TerminalGraphicsDriver,
 };
 
 use crate::app::mode::AppMode;
@@ -31,19 +29,6 @@ struct PlacedImage {
     epoch: u64,
 }
 
-/// A slide-sorter card currently staged on the terminal.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct ThumbSlot {
-    id: ImageId,
-    slide: usize,
-    rect: CellRect,
-}
-
-/// Upper bound on newly transmitted thumbnails per frame. Every `stage` encodes
-/// and writes a PNG, so filling a large grid in a single frame would stall the
-/// event loop; the remaining cards arrive over the next few frames.
-const MAX_THUMBNAIL_STAGES_PER_FRAME: usize = 4;
-
 /// Keeps terminal graphics in sync with the rects recorded by the last frame.
 ///
 /// The syncer stages the visible bitmap(s) on demand and places/repositions the
@@ -57,11 +42,7 @@ pub(crate) struct GraphicsSyncer {
     preview_staged: Option<StagedImage>,
     current_placed: Option<PlacedImage>,
     preview_placed: Option<PlacedImage>,
-    /// Visible sorter cards, keyed by slide index for stable id reuse.
-    thumbs: BTreeMap<usize, ThumbSlot>,
-    /// Visible page + target the last sorter prefetch was issued for. An
-    /// unchanged grid must not re-queue (and re-cancel) work every frame.
-    thumb_prefetch: Option<(usize, usize, RenderTargetSpec)>,
+    thumbnails: crate::app::graphics_thumbnails::ThumbnailSyncer,
     reader: crate::app::graphics_reader::ReaderGraphicsSyncer,
     suppressed: bool,
     epoch: u64,
@@ -180,129 +161,9 @@ impl GraphicsSyncer {
         driver: &mut dyn TerminalGraphicsDriver,
         canvas_target: &RenderTargetSpec,
     ) -> Result<(), DisplayError> {
-        // The sorter replaces the full-screen canvas: no slide image may stay
-        // on screen behind the grid.
         self.release_current(driver)?;
         self.release_preview(driver)?;
-
-        let mut visible = state.thumbnail_placement_rects();
-        visible.truncate(MAX_THUMBNAIL_IMAGES as usize);
-        let Some((first_slide, _)) = visible.first().copied() else {
-            return self.release_thumbnails(driver);
-        };
-
-        // Queue the visible page at the canvas target before staging. This is
-        // the same render the full-screen view would request, so scrolling the
-        // grid warms exactly the bitmaps the deck needs. Skip the call while the
-        // page and target are unchanged: `prefetch` walks and rebuilds the
-        // worker queue on every invocation.
-        let prefetch_key = (first_slide, visible.len(), *canvas_target);
-        if self.thumb_prefetch != Some(prefetch_key) {
-            let plan = PrefetchPlan {
-                center: first_slide,
-                behind: 0,
-                ahead: visible.len().saturating_sub(1),
-                stage: true,
-            };
-            pipeline.prefetch(&plan, canvas_target);
-            self.thumb_prefetch = Some(prefetch_key);
-        }
-
-        // Cards that scrolled out of view free their resident ids.
-        let keep: HashSet<usize> = visible.iter().map(|(slide, _)| *slide).collect();
-        self.release_thumbnails_except(&keep, driver)?;
-
-        let mut stages_left = MAX_THUMBNAIL_STAGES_PER_FRAME;
-        for (slide, rect) in visible {
-            let entry = match pipeline.entry_at(slide, canvas_target) {
-                PipelineEntry::Ready { bitmap, staged } => PipelineEntry::Ready { bitmap, staged },
-                _ => pipeline.entry(slide),
-            };
-            match entry {
-                PipelineEntry::Ready { bitmap, .. } => {
-                    state.clear_render_failure_for(slide);
-
-                    let staged = self.thumbs.get(&slide).map(|slot| (slot.id, slot.rect));
-                    match staged {
-                        // Already on screen at the right position.
-                        Some((_, prev_rect)) if prev_rect == rect => continue,
-                        // Same bitmap, new card geometry: move it, no re-transmit.
-                        Some((id, _)) => {
-                            driver.reposition(id, Placement::Cells(rect))?;
-                            if let Some(slot) = self.thumbs.get_mut(&slide) {
-                                slot.rect = rect;
-                            }
-                            continue;
-                        }
-                        None => {}
-                    }
-
-                    if stages_left == 0 {
-                        continue;
-                    }
-                    stages_left -= 1;
-
-                    let id = self.thumbnail_id(slide);
-                    driver.stage(&bitmap, id)?;
-                    driver.present(id, Placement::Cells(rect))?;
-                    self.epoch = self.epoch.saturating_add(1);
-                    self.thumbs.insert(
-                        slide,
-                        ThumbSlot {
-                            id,
-                            slide,
-                            rect,
-                        },
-                    );
-                }
-                // Only the card under the cursor is reported: a broken deck
-                // would otherwise file one drawer entry per visible card.
-                PipelineEntry::Failed { error } if slide == state.selected_sorter_index() => {
-                    state.note_render_failure(slide, error.to_string());
-                }
-                PipelineEntry::Failed { .. } => {}
-                // Rendering / NotLoaded: the card fills in on a later frame.
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Lowest free thumbnail id, stable for as long as the card stays visible.
-    ///
-    /// Re-assigning by grid position instead would re-transmit every card on
-    /// every scroll step.
-    fn thumbnail_id(&self, slide: usize) -> ImageId {
-        if let Some(slot) = self.thumbs.get(&slide) {
-            return slot.id;
-        }
-        let used: HashSet<u32> = self.thumbs.values().map(|slot| slot.id.0).collect();
-        let mut id = THUMBNAIL_IMAGE_ID_BASE;
-        while used.contains(&id) {
-            id += 1;
-        }
-        ImageId(id)
-    }
-
-    /// Releases every thumbnail whose slide is no longer visible.
-    fn release_thumbnails_except(
-        &mut self,
-        keep: &HashSet<usize>,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
-        let stale: Vec<usize> = self
-            .thumbs
-            .keys()
-            .copied()
-            .filter(|slide| !keep.contains(slide))
-            .collect();
-        for slide in stale {
-            if let Some(slot) = self.thumbs.remove(&slide) {
-                driver.release(slot.id)?;
-            }
-        }
-        Ok(())
+        self.thumbnails.sync_thumbnails(state, pipeline, driver, canvas_target, &mut self.epoch)
     }
 
     /// Releases all staged thumbnails (leaving the sorter).
@@ -310,16 +171,7 @@ impl GraphicsSyncer {
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        self.thumb_prefetch = None;
-        if self.thumbs.is_empty() {
-            return Ok(());
-        }
-        let ids: Vec<ImageId> = self.thumbs.values().map(|slot| slot.id).collect();
-        self.thumbs.clear();
-        for id in ids {
-            driver.release(id)?;
-        }
-        Ok(())
+        self.thumbnails.release_all(driver)
     }
 
     /// Stages `slide` under `id` when the slot does not already hold it.
@@ -478,7 +330,9 @@ impl GraphicsSyncer {
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        if self.current_placed.is_none() && self.preview_placed.is_none() && self.thumbs.is_empty()
+        if self.current_placed.is_none()
+            && self.preview_placed.is_none()
+            && self.thumbnails.thumbs.is_empty()
         {
             return Ok(());
         }

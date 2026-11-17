@@ -30,6 +30,18 @@ pub const THUMBNAIL_IMAGE_ID_BASE: u32 = PREVIEW_IMAGE_ID_BASE + PREVIEW_IMAGE_I
 /// at 1920x1080). Sixteen cards matches common 4x3/5x3 grids while keeping the
 /// grid inside the documented terminal-memory budget.
 pub const MAX_THUMBNAIL_IMAGES: u32 = 16;
+/// Default terminal graphics buffer memory quota (320 MB in standard Kitty).
+pub const DEFAULT_TERMINAL_IMAGE_QUOTA_BYTES: usize = 320 * 1024 * 1024;
+
+/// Returns the effective terminal graphics image quota in bytes,
+/// overridable via the `KITTY_PPTX_TERMINAL_QUOTA` environment variable.
+pub fn terminal_image_quota_bytes() -> usize {
+    std::env::var("KITTY_PPTX_TERMINAL_QUOTA")
+        .ok()
+        .and_then(|val| val.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_TERMINAL_IMAGE_QUOTA_BYTES)
+}
+
 /// Total number of resident image ids the interactive path can keep alive.
 pub const RESIDENT_IMAGE_IDS: u32 = THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES - 1;
 

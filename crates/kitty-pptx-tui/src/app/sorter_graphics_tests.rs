@@ -499,3 +499,14 @@ fn empty_deck_places_nothing() {
     assert!(log.presented.is_empty());
     assert_eq!(log.released_all, 0);
 }
+
+#[test]
+fn sorter_caps_visible_cards_to_terminal_quota() {
+    use crate::app::graphics_thumbnails::max_sorter_cards_for_target;
+    let card_bytes = 640 * 360 * 4;
+    std::env::set_var("KITTY_PPTX_TERMINAL_QUOTA", format!("{}", card_bytes * 3));
+    let target = RenderTargetSpec { width_px: 640, height_px: 360 };
+    let max_cards = max_sorter_cards_for_target(&target);
+    assert_eq!(max_cards, 3, "Caps to exactly 3 cards under quota");
+    std::env::remove_var("KITTY_PPTX_TERMINAL_QUOTA");
+}

@@ -1,5 +1,6 @@
 //! High-fidelity PDF document and slide deck input engine for kitty-pptx.
 
+pub mod dest;
 pub mod detect;
 pub mod engine;
 pub mod error;

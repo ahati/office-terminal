@@ -318,6 +318,74 @@ fn test_toc_search_fuzzy_filtering_and_jumping() {
 }
 
 #[test]
+fn test_toc_hierarchical_outline_tree_and_collapse() {
+    let mut state = PresentationState::new(10, vec![]);
+    let toc = vec![
+        kitty_pptx_core::TocEntry {
+            title: "Chapter 1: Intro".to_string(),
+            page_index: 0,
+            level: 0,
+        },
+        kitty_pptx_core::TocEntry {
+            title: "Section 1.1: Background".to_string(),
+            page_index: 1,
+            level: 1,
+        },
+        kitty_pptx_core::TocEntry {
+            title: "Subsection 1.1.1: Details".to_string(),
+            page_index: 2,
+            level: 2,
+        },
+        kitty_pptx_core::TocEntry {
+            title: "Section 1.2: Approach".to_string(),
+            page_index: 3,
+            level: 1,
+        },
+        kitty_pptx_core::TocEntry {
+            title: "Chapter 2: Results".to_string(),
+            page_index: 4,
+            level: 0,
+        },
+    ];
+    state.set_toc(&toc);
+
+    // Open outline search ('/')
+    handle_key_event(make_key(KeyCode::Char('/')), &mut state);
+    assert_eq!(state.mode(), AppMode::TocSearchModal);
+
+    // Initial: all 5 entries visible (root + children all expanded)
+    assert_eq!(state.search_state().matched_indices().len(), 5);
+
+    // Selected is index 0 ("Chapter 1: Intro"). Collapse with Left
+    handle_key_event(make_key(KeyCode::Left), &mut state);
+    // When Chapter 1 is collapsed, its children are hidden -> only Chapter 1 and Chapter 2 visible
+    assert_eq!(state.search_state().matched_indices().len(), 2);
+
+    // Expand with Right
+    handle_key_event(make_key(KeyCode::Right), &mut state);
+    assert_eq!(state.search_state().matched_indices().len(), 5);
+
+    // Toggle collapse with Space on empty query
+    handle_key_event(make_key(KeyCode::Char(' ')), &mut state);
+    assert_eq!(state.search_state().matched_indices().len(), 2);
+
+    // Toggle expand with Space
+    handle_key_event(make_key(KeyCode::Char(' ')), &mut state);
+    assert_eq!(state.search_state().matched_indices().len(), 5);
+
+    // Move down to Section 1.1 (index 1) and Subsection 1.1.1 (index 2)
+    handle_key_event(make_key(KeyCode::Down), &mut state);
+    handle_key_event(make_key(KeyCode::Down), &mut state);
+    assert_eq!(state.search_state().selected_slide_index(), Some(2));
+
+    // Jump with Enter navigates to page_index 2
+    let action = handle_key_event(make_key(KeyCode::Enter), &mut state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(state.current_slide(), 2);
+    assert_eq!(state.mode(), AppMode::Fullscreen);
+}
+
+#[test]
 fn test_ui_rendering_smoke_across_overlays() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("Terminal creates");
@@ -343,9 +411,10 @@ fn test_ui_rendering_smoke_across_overlays() {
     terminal.draw(|f| render_app(&state, f)).expect("Render search modal");
 }
 
-/// Regression test: overlays must be opaque edge-to-edge. With kitty z=-1
-/// slide images behind text, any popup cell left at the default background
-/// lets the slide bleed through and makes the text unreadable.
+/// Regression test: overlays must be opaque edge-to-edge. The slide image is
+/// placed below the terminal's cell-background layer, so any popup cell left
+/// at the default background lets the slide bleed through and makes the text
+/// unreadable.
 #[test]
 fn test_help_modal_opaque_edge_to_edge() {
     use ratatui::buffer::Buffer;
