@@ -5,11 +5,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::app::reader_state::{ReaderFitMode, ReaderLayout, ReaderSlotPlacement, Slot};
+use crate::app::reader_state::{ReaderFitMode, ReaderLayout, ReaderSlotPlacement};
 use crate::app::state::PresentationState;
 
 pub const MIN_PANE_COLS: u16 = 10;
 pub const GUTTER_COLS: u16 = 2;
+pub const VERTICAL_GUTTER_ROWS: u16 = 1;
 
 /// Computed spatial metrics and image rects for a single reader pane.
 struct PaneMetrics {
@@ -26,6 +27,64 @@ struct PaneLayoutContext<'a> {
     cell_w_px: f32,
     cell_h_px: f32,
     viewport_h_px: f32,
+}
+
+fn compute_horizontal_pane_metrics(
+    ctx: &PaneLayoutContext<'_>,
+    page: usize,
+    col_x: u16,
+    max_avail_cols: u16,
+    row_y: u16,
+    max_avail_rows: u16,
+    scroll_x_px: i64,
+) -> Option<PaneMetrics> {
+    let reader = ctx.state.reader_state()?;
+    let view = reader.page_view(page);
+    let (pt_w, pt_h) = reader.page_size_pt(page);
+    let ar = (pt_w / pt_h).max(0.1);
+
+    let pane_h_px = ctx.viewport_h_px * view.zoom;
+    let pane_w_px = pane_h_px * ar;
+
+    let full_rows = (pane_h_px / ctx.cell_h_px).round() as u16;
+    let rows = full_rows.clamp(1, max_avail_rows);
+
+    let visible_w_px = (pane_w_px - scroll_x_px.max(0) as f32).max(0.0);
+    let full_cols = (visible_w_px / ctx.cell_w_px).round() as u16;
+    let cols = full_cols.clamp(1, max_avail_cols);
+
+    let cell_rect = CellRect {
+        row: row_y,
+        col: col_x,
+        rows,
+        cols,
+    };
+
+    let target_w = 2560u32;
+    let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
+    let page_target = kitty_pptx_core::RenderTargetSpec {
+        width_px: target_w,
+        height_px: target_h,
+    };
+
+    let scale = target_w as f32 / pane_w_px.max(1.0);
+    let src_x = ((scroll_x_px.max(0) as f32 * scale).round() as u32).min(target_w);
+    let screen_w_px = (cell_rect.cols as f32) * ctx.cell_w_px;
+    let src_w = ((screen_w_px * scale).round() as u32).min(target_w.saturating_sub(src_x));
+
+    let pixel_src = PixelRect {
+        x: src_x,
+        y: 0,
+        width: src_w.max(1),
+        height: target_h,
+    };
+
+    Some(PaneMetrics {
+        cell_rect,
+        pixel_src,
+        page_target,
+        max_scroll_x: 0,
+    })
 }
 
 fn compute_pane_metrics(
@@ -108,31 +167,14 @@ fn compute_pane_metrics(
     })
 }
 
-fn select_image_id(page: usize, is_spread: bool, slot: Slot) -> ImageId {
-    if is_spread {
-        match slot {
-            Slot::Left => {
-                if (page / 2).is_multiple_of(2) {
-                    ImageId(1)
-                } else {
-                    ImageId(3)
-                }
-            }
-            Slot::Right => {
-                if (page / 2).is_multiple_of(2) {
-                    ImageId(2)
-                } else {
-                    ImageId(4)
-                }
-            }
-        }
+fn select_spread_image_id(page: usize, slot_idx: usize, num_cols: usize) -> ImageId {
+    let row_parity = (page / num_cols.max(1)).is_multiple_of(2);
+    let base_id = if row_parity {
+        slot_idx as u32 + 1
     } else {
-        if page.is_multiple_of(2) {
-            ImageId(1)
-        } else {
-            ImageId(3)
-        }
-    }
+        slot_idx as u32 + 1 + (num_cols as u32).max(1)
+    };
+    ImageId(base_id.clamp(1, 12))
 }
 
 /// Renders the document reader UI with focusable left-aligned panes (PRD 14a §6).
@@ -159,14 +201,103 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
     let gutter_cols = GUTTER_COLS;
     let gutter_px = (gutter_cols as f32) * cell_w_px;
 
-    let vis = reader.visible_pages();
-    let min_spread_cols = 2 * MIN_PANE_COLS + gutter_cols;
-    let is_spread = reader.layout == ReaderLayout::Spread
-        && reader.total_pages() > 1
-        && viewport_area.width >= min_spread_cols;
+    let ctx = PaneLayoutContext {
+        state,
+        fit_slot_w_px: viewport_w_px,
+        cell_w_px,
+        cell_h_px,
+        viewport_h_px,
+    };
 
-    let slot_w_px = if is_spread {
-        ((viewport_w_px - gutter_px) / 2.0).max(10.0)
+    let mut placements = Vec::new();
+
+    // ─── Horizontal Continuous Mode ──────────────────────────────────────────────
+    if reader.layout == ReaderLayout::Horizontal {
+        let mut col_x = viewport_area.x;
+        let mut p = reader.anchor;
+        let mut slot_idx = 0;
+
+        while p < reader.total_pages() && col_x < viewport_area.right() {
+            let avail_cols = viewport_area.right().saturating_sub(col_x);
+            if avail_cols < MIN_PANE_COLS && slot_idx > 0 {
+                break;
+            }
+            let scroll_x = if p == reader.anchor { reader.scroll_px } else { 0 };
+            if let Some(m) = compute_horizontal_pane_metrics(
+                &ctx,
+                p,
+                col_x,
+                avail_cols,
+                viewport_area.y,
+                viewport_area.height,
+                scroll_x,
+            ) {
+                let id = ImageId(((slot_idx as u32) % 12) + 1);
+                placements.push(ReaderSlotPlacement {
+                    page: p,
+                    id,
+                    cell_rect: m.cell_rect,
+                    pixel_src: m.pixel_src,
+                    page_target: m.page_target,
+                    max_scroll_x: m.max_scroll_x,
+                });
+
+                let is_focused = p == reader.focused_page();
+                let border_style = if is_focused {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let block = Block::default()
+                    .borders(if is_focused { Borders::BOTTOM } else { Borders::NONE })
+                    .border_style(border_style);
+                f.render_widget(
+                    block,
+                    Rect::new(m.cell_rect.col, m.cell_rect.row, m.cell_rect.cols, m.cell_rect.rows),
+                );
+
+                col_x = col_x.saturating_add(m.cell_rect.cols).saturating_add(gutter_cols);
+                slot_idx += 1;
+                p += 1;
+            } else {
+                break;
+            }
+        }
+
+        state.update_reader_placements(placements);
+
+        let status_text = reader.status_line(state.presentation_title().unwrap_or("document.pdf"));
+        let status_style = Style::default().fg(Color::White).bg(Color::DarkGray);
+        let status_paragraph = Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(status_text, status_style),
+        ]))
+        .style(status_style);
+        f.render_widget(status_paragraph, status_area);
+        return;
+    }
+
+    // ─── Vertical Reflow / Spread Mode ───────────────────────────────────────────
+    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
+    let ar = (pt_w / pt_h).max(0.1);
+    let page_w_px = viewport_h_px * ar;
+    let ideal_cols = ((page_w_px / cell_w_px).round() as u16).max(MIN_PANE_COLS);
+
+    let num_cols = match reader.layout {
+        ReaderLayout::Single => 1,
+        ReaderLayout::Spread => {
+            if reader.total_pages() <= 1 {
+                1
+            } else {
+                ((viewport_area.width + gutter_cols) / (ideal_cols + gutter_cols)).clamp(1, 6) as usize
+            }
+        }
+        ReaderLayout::Horizontal => 1,
+    };
+
+    let is_multi = num_cols > 1;
+    let slot_w_px = if is_multi {
+        ((viewport_w_px - ((num_cols - 1) as f32 * gutter_px)) / num_cols as f32).max(10.0)
     } else {
         viewport_w_px
     };
@@ -179,35 +310,50 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
         viewport_h_px,
     };
 
-    let mut placements = Vec::new();
+    let mut row_occupied_cells_h = 0u16;
 
     // ─── 1. Primary (Anchor) Row ─────────────────────────────────────────────────
-    if let Some(&left_page) = vis.first() {
-        let left_m = compute_pane_metrics(
+    let primary_pages: Vec<usize> = if reader.cover_alone && reader.anchor == 0 {
+        vec![0]
+    } else {
+        (0..num_cols)
+            .map(|i| reader.anchor + i)
+            .filter(|&p| p < reader.total_pages())
+            .collect()
+    };
+
+    let mut cur_col = viewport_area.x;
+    for (idx, &page) in primary_pages.iter().enumerate() {
+        if cur_col >= viewport_area.right() {
+            break;
+        }
+        let avail_cols = viewport_area.right().saturating_sub(cur_col);
+        if avail_cols < MIN_PANE_COLS && idx > 0 {
+            break;
+        }
+
+        if let Some(m) = compute_pane_metrics(
             &ctx,
-            left_page,
-            viewport_area.x,
-            viewport_area.width,
+            page,
+            cur_col,
+            avail_cols,
             viewport_area.y,
             viewport_area.height,
             reader.scroll_px,
-        );
-
-        if let Some(lm) = left_m {
-            let left_id = select_image_id(left_page, is_spread, Slot::Left);
-            let row_occupied_cells_h = lm.cell_rect.rows;
+        ) {
+            row_occupied_cells_h = row_occupied_cells_h.max(m.cell_rect.rows);
+            let id = select_spread_image_id(page, idx, num_cols);
 
             placements.push(ReaderSlotPlacement {
-                page: left_page,
-                id: left_id,
-                cell_rect: lm.cell_rect,
-                pixel_src: lm.pixel_src,
-                page_target: lm.page_target,
-                max_scroll_x: lm.max_scroll_x,
+                page,
+                id,
+                cell_rect: m.cell_rect,
+                pixel_src: m.pixel_src,
+                page_target: m.page_target,
+                max_scroll_x: m.max_scroll_x,
             });
 
-            // Focus and border indicator
-            let is_focused = reader.focus == Slot::Left;
+            let is_focused = page == reader.focused_page();
             let border_style = if is_focused {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
@@ -218,120 +364,61 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                 .border_style(border_style);
             f.render_widget(
                 block,
-                Rect::new(lm.cell_rect.col, lm.cell_rect.row, lm.cell_rect.cols, lm.cell_rect.rows),
+                Rect::new(m.cell_rect.col, m.cell_rect.row, m.cell_rect.cols, m.cell_rect.rows),
             );
 
-            // Partner pane in anchor row
-            if is_spread && vis.len() > 1 {
-                let right_page = vis[1];
-                let start_col = viewport_area.x + lm.cell_rect.cols + gutter_cols;
-                if start_col < viewport_area.right() {
-                    let avail_partner_cols = viewport_area.right().saturating_sub(start_col);
-                    if avail_partner_cols >= MIN_PANE_COLS {
-                        if let Some(rm) = compute_pane_metrics(
-                            &ctx,
-                            right_page,
-                            start_col,
-                            avail_partner_cols,
-                            viewport_area.y,
-                            viewport_area.height,
-                            reader.scroll_px,
-                        ) {
-                            let right_id = select_image_id(right_page, is_spread, Slot::Right);
-                            placements.push(ReaderSlotPlacement {
-                                page: right_page,
-                                id: right_id,
-                                cell_rect: rm.cell_rect,
-                                pixel_src: rm.pixel_src,
-                                page_target: rm.page_target,
-                                max_scroll_x: rm.max_scroll_x,
-                            });
+            cur_col = cur_col.saturating_add(m.cell_rect.cols).saturating_add(gutter_cols);
+        }
+    }
 
-                            let is_r_focused = reader.focus == Slot::Right;
-                            let r_border_style = if is_r_focused {
-                                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-                            } else {
-                                Style::default().fg(Color::DarkGray)
-                            };
-                            let r_block = Block::default()
-                                .borders(if is_r_focused { Borders::BOTTOM } else { Borders::NONE })
-                                .border_style(r_border_style);
-                            f.render_widget(
-                                r_block,
-                                Rect::new(rm.cell_rect.col, rm.cell_rect.row, rm.cell_rect.cols, rm.cell_rect.rows),
-                            );
-                        }
+    // ─── 2. Next Row (Continuous Scroll Transition with Vertical Gutter) ──────────
+    if row_occupied_cells_h > 0 {
+        let next_row_y = viewport_area.y + row_occupied_cells_h + VERTICAL_GUTTER_ROWS;
+        let avail_next_rows = (viewport_area.y + viewport_area.height).saturating_sub(next_row_y);
+
+        if avail_next_rows > 0 {
+            let next_anchor = if reader.cover_alone && reader.anchor == 0 {
+                1
+            } else {
+                reader.anchor + num_cols
+            };
+
+            if next_anchor < reader.total_pages() {
+                let next_pages: Vec<usize> = (0..num_cols)
+                    .map(|i| next_anchor + i)
+                    .filter(|&p| p < reader.total_pages())
+                    .collect();
+
+                let mut next_col = viewport_area.x;
+                for (idx, &np) in next_pages.iter().enumerate() {
+                    if next_col >= viewport_area.right() {
+                        break;
                     }
-                }
-            }
-
-            // ─── 2. Next Row (Continuous Scroll Transition) ──────────────────────────
-            let next_row_y = viewport_area.y + row_occupied_cells_h;
-            let avail_next_rows = (viewport_area.y + viewport_area.height).saturating_sub(next_row_y);
-
-            if avail_next_rows > 0 {
-                let next_anchor = match reader.layout {
-                    ReaderLayout::Single => reader.anchor + 1,
-                    ReaderLayout::Spread => {
-                        if reader.cover_alone && reader.anchor == 0 {
-                            1
-                        } else {
-                            reader.anchor + 2
-                        }
+                    let avail_cols = viewport_area.right().saturating_sub(next_col);
+                    if avail_cols < MIN_PANE_COLS && idx > 0 {
+                        break;
                     }
-                };
 
-                if next_anchor < reader.total_pages() {
-                    let next_left_m = compute_pane_metrics(
+                    if let Some(nm) = compute_pane_metrics(
                         &ctx,
-                        next_anchor,
-                        viewport_area.x,
-                        viewport_area.width,
+                        np,
+                        next_col,
+                        avail_cols,
                         next_row_y,
                         avail_next_rows,
                         0,
-                    );
-
-                    if let Some(nlm) = next_left_m {
-                        let n_left_id = select_image_id(next_anchor, is_spread, Slot::Left);
+                    ) {
+                        let id = select_spread_image_id(np, idx, num_cols);
                         placements.push(ReaderSlotPlacement {
-                            page: next_anchor,
-                            id: n_left_id,
-                            cell_rect: nlm.cell_rect,
-                            pixel_src: nlm.pixel_src,
-                            page_target: nlm.page_target,
-                            max_scroll_x: nlm.max_scroll_x,
+                            page: np,
+                            id,
+                            cell_rect: nm.cell_rect,
+                            pixel_src: nm.pixel_src,
+                            page_target: nm.page_target,
+                            max_scroll_x: nm.max_scroll_x,
                         });
 
-                        // Partner pane in next row
-                        if is_spread && next_anchor + 1 < reader.total_pages() {
-                            let next_right = next_anchor + 1;
-                            let n_start_col = viewport_area.x + nlm.cell_rect.cols + gutter_cols;
-                            if n_start_col < viewport_area.right() {
-                                let n_avail_cols = viewport_area.right().saturating_sub(n_start_col);
-                                if n_avail_cols >= MIN_PANE_COLS {
-                                    if let Some(nrm) = compute_pane_metrics(
-                                        &ctx,
-                                        next_right,
-                                        n_start_col,
-                                        n_avail_cols,
-                                        next_row_y,
-                                        avail_next_rows,
-                                        0,
-                                    ) {
-                                        let n_right_id = select_image_id(next_right, is_spread, Slot::Right);
-                                        placements.push(ReaderSlotPlacement {
-                                            page: next_right,
-                                            id: n_right_id,
-                                            cell_rect: nrm.cell_rect,
-                                            pixel_src: nrm.pixel_src,
-                                            page_target: nrm.page_target,
-                                            max_scroll_x: nrm.max_scroll_x,
-                                        });
-                                    }
-                                }
-                            }
-                        }
+                        next_col = next_col.saturating_add(nm.cell_rect.cols).saturating_add(gutter_cols);
                     }
                 }
             }

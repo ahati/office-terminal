@@ -8,6 +8,8 @@ use kitty_pptx_display::{CellRect, ImageId, PixelRect, Placement, TerminalGraphi
 
 use crate::app::state::PresentationState;
 
+pub const READER_SLOTS: usize = 12;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct ReaderStaged {
     id: ImageId,
@@ -28,8 +30,8 @@ struct ReaderPlaced {
 /// Graphics syncer state for document reader viewports.
 #[derive(Default)]
 pub(crate) struct ReaderGraphicsSyncer {
-    staged: [Option<ReaderStaged>; 4],
-    placed: [Option<ReaderPlaced>; 4],
+    staged: [Option<ReaderStaged>; READER_SLOTS],
+    placed: [Option<ReaderPlaced>; READER_SLOTS],
     last_prefetch: Option<(usize, RenderTargetSpec)>,
 }
 
@@ -38,7 +40,7 @@ impl ReaderGraphicsSyncer {
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        for slot in 0..4 {
+        for slot in 0..READER_SLOTS {
             if let Some(placed) = self.placed[slot].take() {
                 let _ = driver.release(placed.id);
             }
@@ -55,11 +57,35 @@ impl ReaderGraphicsSyncer {
         _canvas_target: &RenderTargetSpec,
         epoch: &mut u64,
     ) -> Result<(), DisplayError> {
+        // Trigger prefetching early so adjacent pages are warm in cache ahead of scrolling
+        if let Some(reader) = state.reader_state() {
+            let center = reader.focused_page();
+            let (pt_w, pt_h) = reader.page_size_pt(center);
+            let ar = (pt_w / pt_h).max(0.1);
+            let target_w = 2560u32;
+            let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
+            let prefetch_target = RenderTargetSpec {
+                width_px: target_w,
+                height_px: target_h,
+            };
+            let prefetch_key = (center, prefetch_target);
+            if self.last_prefetch != Some(prefetch_key) {
+                let plan = PrefetchPlan {
+                    center,
+                    behind: 4,
+                    ahead: 8,
+                    stage: false,
+                };
+                pipeline.prefetch(&plan, &prefetch_target);
+                self.last_prefetch = Some(prefetch_key);
+            }
+        }
+
         let placements = state.reader_placements();
-        let mut active_slots = [false; 4];
+        let mut active_slots = [false; READER_SLOTS];
 
         for placement in placements {
-            let slot_idx = (placement.id.0.saturating_sub(1) as usize).min(3);
+            let slot_idx = (placement.id.0.saturating_sub(1) as usize).min(READER_SLOTS - 1);
             active_slots[slot_idx] = true;
             let page = placement.page;
             let id = placement.id;
@@ -119,6 +145,10 @@ impl ReaderGraphicsSyncer {
                         }
                     }
                 }
+                PipelineEntry::Rendering => {
+                    // Page is currently rendering in background worker.
+                    // Keep existing placed bitmap (if any) to prevent flickering.
+                }
                 PipelineEntry::Failed { error } => {
                     state.note_render_failure(page, error.to_string());
                 }
@@ -133,30 +163,6 @@ impl ReaderGraphicsSyncer {
                     let _ = driver.release(placed.id);
                 }
                 self.staged[slot] = None;
-            }
-        }
-
-        // Trigger prefetching for focused page when center or target changes
-        if let Some(reader) = state.reader_state() {
-            let center = reader.focused_page();
-            let (pt_w, pt_h) = reader.page_size_pt(center);
-            let ar = (pt_w / pt_h).max(0.1);
-            let target_w = 2560u32;
-            let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
-            let prefetch_target = RenderTargetSpec {
-                width_px: target_w,
-                height_px: target_h,
-            };
-            let prefetch_key = (center, prefetch_target);
-            if self.last_prefetch != Some(prefetch_key) {
-                let plan = PrefetchPlan {
-                    center,
-                    behind: 2,
-                    ahead: 4,
-                    stage: false,
-                };
-                pipeline.prefetch(&plan, &prefetch_target);
-                self.last_prefetch = Some(prefetch_key);
             }
         }
 

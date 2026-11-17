@@ -1,58 +1,6 @@
 use std::collections::HashMap;
-use kitty_pptx_core::RenderTargetSpec;
-use kitty_pptx_display::{CellRect, ImageId, PixelRect};
 
-/// Layout model for displaying document pages in reader mode.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReaderLayout {
-    Single,
-    Spread,
-}
-
-/// Slot identifier in two-page spread layout.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Slot {
-    Left,
-    Right,
-}
-
-/// Scaling basis for document page fit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReaderFitMode {
-    FitWidth,
-    FitPage,
-}
-
-/// Per-page viewport view state and spatial offsets.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PageView {
-    pub fit: ReaderFitMode,
-    pub zoom: f32,
-    pub scroll_x: u32,
-    pub scroll_y: u32,
-}
-
-impl Default for PageView {
-    fn default() -> Self {
-        Self {
-            fit: ReaderFitMode::FitPage,
-            zoom: 1.0,
-            scroll_x: 0,
-            scroll_y: 0,
-        }
-    }
-}
-
-/// A staged placement for a visible reader pane.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReaderSlotPlacement {
-    pub page: usize,
-    pub id: ImageId,
-    pub cell_rect: CellRect,
-    pub pixel_src: PixelRect,
-    pub page_target: RenderTargetSpec,
-    pub max_scroll_x: u32,
-}
+pub use crate::app::reader_types::*;
 
 /// Full interactive state model for Reader mode (PRD 14a §4).
 #[derive(Clone, Debug)]
@@ -65,6 +13,8 @@ pub struct ReaderState {
     pub sync: bool,
     pub cover_alone: bool,
     pub scroll_px: i64,
+    pub num_columns: usize,
+    pub focused_slot: usize,
     views: HashMap<usize, PageView>,
     total_pages: usize,
     page_sizes: Vec<(f32, f32)>,
@@ -82,6 +32,8 @@ impl ReaderState {
             sync: true,
             cover_alone: false,
             scroll_px: 0,
+            num_columns: 2,
+            focused_slot: 0,
             views: HashMap::new(),
             total_pages,
             page_sizes,
@@ -117,6 +69,14 @@ impl ReaderState {
         })
     }
 
+    pub fn effective_columns(&self) -> usize {
+        match self.layout {
+            ReaderLayout::Single => 1,
+            ReaderLayout::Spread => self.num_columns.max(1),
+            ReaderLayout::Horizontal => self.num_columns.max(1),
+        }
+    }
+
     pub fn visible_pages(&self) -> Vec<usize> {
         if self.total_pages == 0 {
             return Vec::new();
@@ -124,12 +84,35 @@ impl ReaderState {
         match self.layout {
             ReaderLayout::Single => vec![self.anchor.min(self.total_pages - 1)],
             ReaderLayout::Spread => {
+                let cols = self.effective_columns();
                 if self.cover_alone && self.anchor == 0 {
                     vec![0]
-                } else if self.anchor + 1 < self.total_pages {
-                    vec![self.anchor, self.anchor + 1]
                 } else {
+                    let mut pages = Vec::with_capacity(cols);
+                    for i in 0..cols {
+                        if self.anchor + i < self.total_pages {
+                            pages.push(self.anchor + i);
+                        }
+                    }
+                    if pages.is_empty() {
+                        vec![self.anchor.min(self.total_pages - 1)]
+                    } else {
+                        pages
+                    }
+                }
+            }
+            ReaderLayout::Horizontal => {
+                let cols = self.effective_columns();
+                let mut pages = Vec::with_capacity(cols + 1);
+                for i in 0..=cols {
+                    if self.anchor + i < self.total_pages {
+                        pages.push(self.anchor + i);
+                    }
+                }
+                if pages.is_empty() {
                     vec![self.anchor.min(self.total_pages - 1)]
+                } else {
+                    pages
                 }
             }
         }
@@ -140,24 +123,23 @@ impl ReaderState {
         if vis.is_empty() {
             return 0;
         }
-        match self.focus {
-            Slot::Left => vis[0],
-            Slot::Right => *vis.get(1).unwrap_or(&vis[0]),
+        if self.focused_slot < vis.len() {
+            vis[self.focused_slot]
+        } else {
+            match self.focus {
+                Slot::Left => vis[0],
+                Slot::Right => *vis.get(1).unwrap_or(&vis[0]),
+            }
         }
     }
 
     pub fn slot_width(&self, viewport_w_px: f32, cell_w_px: f32) -> f32 {
         let gutter_cols = 2u16;
-        let min_pane_cols = 10u16;
-        let min_spread_cols = 2 * min_pane_cols + gutter_cols;
-        let viewport_cols = (viewport_w_px / cell_w_px).round() as u16;
         let gutter_px = (gutter_cols as f32) * cell_w_px;
-        let vis = self.visible_pages();
-        let is_spread = self.layout == ReaderLayout::Spread
-            && vis.len() > 1
-            && viewport_cols >= min_spread_cols;
-        if is_spread {
-            ((viewport_w_px - gutter_px) / 2.0).max(10.0)
+        let cols = self.effective_columns();
+        if cols > 1 {
+            let total_gutters = (cols - 1) as f32 * gutter_px;
+            ((viewport_w_px - total_gutters) / cols as f32).max(10.0)
         } else {
             viewport_w_px
         }
@@ -199,6 +181,7 @@ impl ReaderState {
         let prev_scroll_px = self.scroll_px;
 
         self.scroll_px += delta_px;
+        let step = self.effective_columns();
 
         // If scrolled past bottom of current row, advance anchor
         while self.scroll_px >= row_h_px as i64 {
@@ -208,9 +191,10 @@ impl ReaderState {
                     if self.cover_alone && self.anchor == 0 {
                         1
                     } else {
-                        self.anchor + 2
+                        self.anchor + step
                     }
                 }
+                ReaderLayout::Horizontal => self.anchor + 1,
             };
             if next_anchor < self.total_pages {
                 self.anchor = next_anchor;
@@ -227,15 +211,48 @@ impl ReaderState {
                 let prev = match self.layout {
                     ReaderLayout::Single => self.anchor.saturating_sub(1),
                     ReaderLayout::Spread => {
-                        if self.cover_alone && self.anchor <= 2 {
+                        if self.cover_alone && self.anchor <= step {
                             0
                         } else {
-                            self.anchor.saturating_sub(2)
+                            self.anchor.saturating_sub(step)
                         }
                     }
+                    ReaderLayout::Horizontal => self.anchor.saturating_sub(1),
                 };
                 self.anchor = prev;
                 self.scroll_px += row_h_px as i64;
+            } else {
+                self.scroll_px = 0;
+                break;
+            }
+        }
+
+        self.anchor != prev_anchor || self.scroll_px != prev_scroll_px
+    }
+
+    pub fn scroll_horizontal_continuous(&mut self, delta_px: i64, page_w_px: f32) -> bool {
+        if self.total_pages == 0 || page_w_px <= 0.0 {
+            return false;
+        }
+        let prev_anchor = self.anchor;
+        let prev_scroll_px = self.scroll_px;
+
+        self.scroll_px += delta_px;
+
+        while self.scroll_px >= page_w_px as i64 {
+            if self.anchor + 1 < self.total_pages {
+                self.anchor += 1;
+                self.scroll_px -= page_w_px as i64;
+            } else {
+                self.scroll_px = (page_w_px as i64).saturating_sub(1);
+                break;
+            }
+        }
+
+        while self.scroll_px < 0 {
+            if self.anchor > 0 {
+                self.anchor -= 1;
+                self.scroll_px += page_w_px as i64;
             } else {
                 self.scroll_px = 0;
                 break;
@@ -290,10 +307,15 @@ impl ReaderState {
     }
 
     pub fn toggle_focus(&mut self) {
-        self.focus = match self.focus {
-            Slot::Left => Slot::Right,
-            Slot::Right => Slot::Left,
-        };
+        let vis = self.visible_pages();
+        if !vis.is_empty() {
+            self.focused_slot = (self.focused_slot + 1) % vis.len();
+            self.focus = if self.focused_slot.is_multiple_of(2) {
+                Slot::Left
+            } else {
+                Slot::Right
+            };
+        }
     }
 
     pub fn set_sync(&mut self, sync: bool) {
@@ -373,6 +395,16 @@ impl ReaderState {
         self.layout = match self.layout {
             ReaderLayout::Single => ReaderLayout::Spread,
             ReaderLayout::Spread => ReaderLayout::Single,
+            ReaderLayout::Horizontal => ReaderLayout::Spread,
+        };
+        self.scroll_px = 0;
+    }
+
+    pub fn toggle_horizontal(&mut self) {
+        self.layout = if self.layout == ReaderLayout::Horizontal {
+            ReaderLayout::Spread
+        } else {
+            ReaderLayout::Horizontal
         };
         self.scroll_px = 0;
     }
@@ -387,6 +419,7 @@ impl ReaderState {
         if self.total_pages == 0 {
             return;
         }
+        let step = self.effective_columns();
         match self.layout {
             ReaderLayout::Single => {
                 self.anchor = (self.anchor + 1).min(self.total_pages - 1);
@@ -395,24 +428,31 @@ impl ReaderState {
                 if self.cover_alone && self.anchor == 0 {
                     self.anchor = 1.min(self.total_pages - 1);
                 } else {
-                    self.anchor = (self.anchor + 2).min(self.total_pages.saturating_sub(1));
+                    self.anchor = (self.anchor + step).min(self.total_pages.saturating_sub(1));
                 }
+            }
+            ReaderLayout::Horizontal => {
+                self.anchor = (self.anchor + 1).min(self.total_pages - 1);
             }
         }
     }
 
     pub fn prev_row(&mut self) {
         self.scroll_px = 0;
+        let step = self.effective_columns();
         match self.layout {
             ReaderLayout::Single => {
                 self.anchor = self.anchor.saturating_sub(1);
             }
             ReaderLayout::Spread => {
-                if self.cover_alone && self.anchor <= 2 {
+                if self.cover_alone && self.anchor <= step {
                     self.anchor = 0;
                 } else {
-                    self.anchor = self.anchor.saturating_sub(2);
+                    self.anchor = self.anchor.saturating_sub(step);
                 }
+            }
+            ReaderLayout::Horizontal => {
+                self.anchor = self.anchor.saturating_sub(1);
             }
         }
     }
@@ -434,9 +474,11 @@ impl ReaderState {
                 self.anchor = clamped;
                 self.focus = Slot::Left;
             }
+            self.focused_slot = clamped.saturating_sub(self.anchor);
         } else {
             self.anchor = clamped;
             self.focus = Slot::Left;
+            self.focused_slot = 0;
         }
     }
 

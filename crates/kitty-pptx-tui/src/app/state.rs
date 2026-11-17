@@ -59,6 +59,7 @@ pub struct PresentationState {
     pub(crate) thumbnail_placement_rects: Arc<Mutex<Vec<(usize, CellRect)>>>,
     /// Placements of visible document pages in reader mode.
     pub(crate) reader_placements: Arc<Mutex<Vec<crate::app::reader_state::ReaderSlotPlacement>>>,
+    pub(crate) sorter_scroll_row: Arc<Mutex<usize>>,
 
     // Reader state & doc title
     pub(crate) reader_state: Option<crate::app::reader_state::ReaderState>,
@@ -108,6 +109,7 @@ impl PresentationState {
             preview_placement_rect: Arc::new(Mutex::new(None)),
             thumbnail_placement_rects: Arc::new(Mutex::new(Vec::new())),
             reader_placements: Arc::new(Mutex::new(Vec::new())),
+            sorter_scroll_row: Arc::new(Mutex::new(0)),
             reader_state: None,
             deck_title: None,
             toc: Vec::new(),

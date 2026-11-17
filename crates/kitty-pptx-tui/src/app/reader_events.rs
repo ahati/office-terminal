@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use crate::app::events::AppAction;
+use crate::app::reader_state::ReaderLayout;
 use crate::app::state::PresentationState;
 
 /// Handles keyboard events when the base mode is [`AppMode::Reader`] (PRD 14a §10).
@@ -100,9 +101,17 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
 
             let mut moved = false;
             if let Some(reader) = state.reader_state_mut() {
-                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
-                let step = ((row_h / 8.0).round() as i64).max(1);
-                moved = reader.scroll_column(step, row_h);
+                if reader.layout == ReaderLayout::Horizontal {
+                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
+                    let ar = (pt_w / pt_h).max(0.1);
+                    let page_w_px = (viewport_h_px * ar).max(50.0);
+                    let step = ((page_w_px / 8.0).round() as i64).max(24);
+                    moved = reader.scroll_horizontal_continuous(step, page_w_px);
+                } else {
+                    let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                    let step = ((row_h / 8.0).round() as i64).max(1);
+                    moved = reader.scroll_column(step, row_h);
+                }
             }
             if moved {
                 if let Some(reader) = state.reader_state() {
@@ -124,9 +133,17 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
 
             let mut moved = false;
             if let Some(reader) = state.reader_state_mut() {
-                let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
-                let step = ((row_h / 8.0).round() as i64).max(1);
-                moved = reader.scroll_column(-step, row_h);
+                if reader.layout == ReaderLayout::Horizontal {
+                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
+                    let ar = (pt_w / pt_h).max(0.1);
+                    let page_w_px = (viewport_h_px * ar).max(50.0);
+                    let step = ((page_w_px / 8.0).round() as i64).max(24);
+                    moved = reader.scroll_horizontal_continuous(-step, page_w_px);
+                } else {
+                    let row_h = reader.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+                    let step = ((row_h / 8.0).round() as i64).max(1);
+                    moved = reader.scroll_column(-step, row_h);
+                }
             }
             if moved {
                 if let Some(reader) = state.reader_state() {
@@ -252,6 +269,12 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
         KeyCode::Char('2') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.toggle_layout();
+            }
+            AppAction::Redraw
+        }
+        KeyCode::Char('H') => {
+            if let Some(reader) = state.reader_state_mut() {
+                reader.toggle_horizontal();
             }
             AppAction::Redraw
         }
