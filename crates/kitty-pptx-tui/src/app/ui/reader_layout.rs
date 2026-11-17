@@ -175,12 +175,16 @@ pub fn compute_pane_metrics_cropped(
     })
 }
 
-pub fn select_spread_image_id(page: usize, slot_idx: usize, num_cols: usize) -> ImageId {
-    let row_parity = (page / num_cols.max(1)).is_multiple_of(2);
-    let base_id = if row_parity {
+pub fn select_row_image_id(is_even_row: bool, slot_idx: usize, num_cols: usize) -> ImageId {
+    let base_id = if is_even_row {
         slot_idx as u32 + 1
     } else {
         slot_idx as u32 + 1 + (num_cols as u32).max(1)
     };
     ImageId(base_id.clamp(1, 12))
+}
+
+pub fn select_spread_image_id(page: usize, slot_idx: usize, num_cols: usize) -> ImageId {
+    let row_parity = (page / num_cols.max(1)).is_multiple_of(2);
+    select_row_image_id(row_parity, slot_idx, num_cols)
 }

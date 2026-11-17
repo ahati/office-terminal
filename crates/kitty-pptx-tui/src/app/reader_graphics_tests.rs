@@ -278,7 +278,7 @@ fn test_fractional_column_scroll_goldens_issue_26() {
     }
 
     // At step 8 (row_h), advance to next row
-    let advanced = state.reader_state_mut().unwrap().scroll_column((row_h / 8.0).round() as i64, row_h);
+    let advanced = state.reader_state_mut().unwrap().scroll_column((row_h / 8.0).round() as i64, row_h, row_h);
     assert!(advanced);
     assert_eq!(state.reader_state().unwrap().anchor, 2);
     assert_eq!(state.reader_state().unwrap().scroll_px, 0);

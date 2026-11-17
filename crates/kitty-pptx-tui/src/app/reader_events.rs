@@ -15,18 +15,13 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
 
         // Column scroll (vertical continuous flow)
         KeyCode::Char('j') => {
-            let (cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_w_px = (cols as f32) * cell_w_px;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-
+            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
             let mut anchor_changed = false;
             if let Some(reader) = state.reader_state_mut() {
-                let row_stride = reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+                let base_h = reader.current_row_height_px(vw, vh, cw);
+                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
                 let step = ((row_stride / 8.0).round() as i64).max(24);
-                let (ch, _) = reader.scroll_column_detailed(step, row_stride);
+                let (ch, _) = reader.scroll_column_detailed(step, row_stride, base_h);
                 anchor_changed = ch;
             }
             if anchor_changed {
@@ -39,18 +34,13 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             }
         }
         KeyCode::Char('k') => {
-            let (cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_w_px = (cols as f32) * cell_w_px;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-
+            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
             let mut anchor_changed = false;
             if let Some(reader) = state.reader_state_mut() {
-                let row_stride = reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+                let base_h = reader.current_row_height_px(vw, vh, cw);
+                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
                 let step = ((row_stride / 8.0).round() as i64).max(24);
-                let (ch, _) = reader.scroll_column_detailed(-step, row_stride);
+                let (ch, _) = reader.scroll_column_detailed(-step, row_stride, base_h);
                 anchor_changed = ch;
             }
             if anchor_changed {
@@ -63,19 +53,14 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             }
         }
         KeyCode::Down => {
-            let (cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_w_px = (cols as f32) * cell_w_px;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-
+            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
             let mut advanced = false;
             let mut anchor_changed = false;
             if let Some(reader) = state.reader_state_mut() {
-                let row_stride = reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+                let base_h = reader.current_row_height_px(vw, vh, cw);
+                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
                 let step = ((row_stride / 8.0).round() as i64).max(1);
-                let (ch, moved) = reader.scroll_column_detailed(step, row_stride);
+                let (ch, moved) = reader.scroll_column_detailed(step, row_stride, base_h);
                 anchor_changed = ch;
                 advanced = moved;
             }
@@ -91,19 +76,14 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             }
         }
         KeyCode::Up => {
-            let (cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_w_px = (cols as f32) * cell_w_px;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-
+            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
             let mut retreated = false;
             let mut anchor_changed = false;
             if let Some(reader) = state.reader_state_mut() {
-                let row_stride = reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+                let base_h = reader.current_row_height_px(vw, vh, cw);
+                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
                 let step = ((row_stride / 8.0).round() as i64).max(1);
-                let (ch, moved) = reader.scroll_column_detailed(-step, row_stride);
+                let (ch, moved) = reader.scroll_column_detailed(-step, row_stride, base_h);
                 anchor_changed = ch;
                 retreated = moved;
             }
@@ -235,32 +215,22 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             action
         }
         KeyCode::Char('d') => {
-            let (cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_w_px = (cols as f32) * cell_w_px;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-
+            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
             if let Some(reader) = state.reader_state_mut() {
-                let row_stride = reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
-                let step = ((viewport_h_px / 2.0).round() as i64).max(1);
-                reader.scroll_column(step, row_stride);
+                let base_h = reader.current_row_height_px(vw, vh, cw);
+                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
+                let step = ((vh / 2.0).round() as i64).max(1);
+                reader.scroll_column(step, row_stride, base_h);
             }
             AppAction::Redraw
         }
         KeyCode::Char('u') => {
-            let (cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_w_px = (cols as f32) * cell_w_px;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-
+            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
             if let Some(reader) = state.reader_state_mut() {
-                let row_stride = reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
-                let step = ((viewport_h_px / 2.0).round() as i64).max(1);
-                reader.scroll_column(-step, row_stride);
+                let base_h = reader.current_row_height_px(vw, vh, cw);
+                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
+                let step = ((vh / 2.0).round() as i64).max(1);
+                reader.scroll_column(-step, row_stride, base_h);
             }
             AppAction::Redraw
         }
@@ -504,3 +474,14 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
         _ => AppAction::None,
     }
 }
+
+fn reader_viewport_metrics(state: &PresentationState) -> (f32, f32, f32, f32) {
+    let (cols, rows) = state.layout_size();
+    let metrics = kitty_pptx_display::probe_cell_pixel_size();
+    let cell_w_px = metrics.width_px.max(4.0) as f32;
+    let cell_h_px = metrics.height_px.max(8.0) as f32;
+    let viewport_w_px = (cols as f32) * cell_w_px;
+    let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+    (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px)
+}
+

@@ -475,3 +475,56 @@ fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
         "Right pane pixel_src.x must match between row 0 and row 1"
     );
 }
+
+#[test]
+fn test_reproduce_zoomed_v_scroll_blank_screen_in_gutter() {
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    let backend = TestBackend::new(160, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let mut state = PresentationState::new(10, vec![]);
+    // OpenCV-like aspect ratio (~0.7727)
+    state.enable_reader_mode(10, vec![(460.0, 595.0); 10]);
+
+    // Zoom in ~133%
+    state.reader_state_mut().unwrap().adjust_zoom(1.33);
+
+    let metrics = kitty_pptx_display::probe_cell_pixel_size();
+    let cell_w_px = metrics.width_px.max(4.0) as f32;
+    let cell_h_px = metrics.height_px.max(8.0) as f32;
+    let viewport_w_px = 160.0 * cell_w_px;
+    let viewport_h_px = 44.0 * cell_h_px;
+
+    let base_h = state
+        .reader_state()
+        .unwrap()
+        .current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
+    let row_stride = state
+        .reader_state()
+        .unwrap()
+        .current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+
+    // Set scroll_px to just past Row 0 height, but still within row_stride (inside vertical gutter)
+    let gutter_scroll = (base_h as i64 + 1).min(row_stride as i64 - 1);
+    state.reader_state_mut().unwrap().scroll_px = gutter_scroll;
+
+    terminal
+        .draw(|f| {
+            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
+        })
+        .unwrap();
+
+    let placements = state.reader_placements();
+    // DEFECT REPRODUCTION:
+    // Placements should NEVER be empty while navigating valid pages!
+    // But currently, Row 0 is 0 rows and Row 1 is skipped because row_occupied_cells_h == 0,
+    // resulting in placements.is_empty() == true (dark blank screen)!
+    assert!(
+        !placements.is_empty(),
+        "Placements must not be empty when scrolled into gutter! Current count: 0 (DARK SCREEN DEFECT)"
+    );
+}
+

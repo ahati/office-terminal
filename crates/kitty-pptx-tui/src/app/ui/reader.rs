@@ -7,8 +7,9 @@ use ratatui::Frame;
 
 pub use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
 pub use crate::app::ui::reader_layout::{
-    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, select_spread_image_id,
-    PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
+    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, select_row_image_id,
+    select_spread_image_id, PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS,
+    MIN_PANE_COLS,
 };
 use crate::app::reader_types::{ReaderFitMode, ReaderLayout, ReaderSlotPlacement};
 use crate::app::state::PresentationState;
@@ -187,6 +188,17 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
     let max_row_scroll_x = (total_row_w_px - viewport_w_px).max(0.0).round() as i64;
     reader.set_max_row_scroll_x(max_row_scroll_x);
 
+    let row_idx = if reader.cover_alone {
+        if reader.anchor == 0 {
+            0
+        } else {
+            (reader.anchor - 1) / num_cols + 1
+        }
+    } else {
+        reader.anchor / num_cols
+    };
+    let row_0_is_even = row_idx.is_multiple_of(2);
+
     let row_scroll_x = reader.row_scroll_x();
     let mut cur_row_px = -(row_scroll_x as f32);
 
@@ -233,7 +245,7 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
             },
         ) {
             row_occupied_cells_h = row_occupied_cells_h.max(m.cell_rect.rows);
-            let id = select_spread_image_id(page, idx, num_cols);
+            let id = select_row_image_id(row_0_is_even, idx, num_cols);
 
             placements.push(ReaderSlotPlacement {
                 page,
@@ -262,88 +274,104 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
     }
 
     // ─── 2. Next Row (Continuous Scroll Transition with Vertical Gutter) ──────────
-    if row_occupied_cells_h > 0 {
-        let next_row_y = viewport_area.y + row_occupied_cells_h + VERTICAL_GUTTER_ROWS;
-        let avail_next_rows = (viewport_area.y + viewport_area.height).saturating_sub(next_row_y);
+    let next_anchor = if reader.cover_alone && reader.anchor == 0 {
+        1
+    } else {
+        reader.anchor + num_cols
+    };
+
+    if next_anchor < reader.total_pages() {
+        let (next_row_y, avail_next_rows, next_row_scroll_px) = if row_occupied_cells_h > 0 {
+            let next_y = viewport_area.y + row_occupied_cells_h + VERTICAL_GUTTER_ROWS;
+            let avail = (viewport_area.y + viewport_area.height).saturating_sub(next_y);
+            (next_y, avail, 0i64)
+        } else {
+            let row_0_stride_px =
+                reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+            let y1_px = row_0_stride_px - reader.scroll_px as f32;
+            let offset_rows = (y1_px / cell_h_px).round() as i16;
+            if offset_rows > 0 {
+                let next_y = viewport_area.y + offset_rows as u16;
+                let avail = (viewport_area.y + viewport_area.height).saturating_sub(next_y);
+                (next_y, avail, 0i64)
+            } else {
+                let scroll = (-y1_px).max(0.0).round() as i64;
+                (viewport_area.y, viewport_area.height, scroll)
+            }
+        };
 
         if avail_next_rows > 0 {
-            let next_anchor = if reader.cover_alone && reader.anchor == 0 {
-                1
-            } else {
-                reader.anchor + num_cols
-            };
+            let next_pages: Vec<usize> = (0..num_cols)
+                .map(|i| next_anchor + i)
+                .filter(|&p| p < reader.total_pages())
+                .collect();
 
-            if next_anchor < reader.total_pages() {
-                let next_pages: Vec<usize> = (0..num_cols)
-                    .map(|i| next_anchor + i)
-                    .filter(|&p| p < reader.total_pages())
-                    .collect();
+            let row_1_is_even = !row_0_is_even;
+            let mut cur_next_row_px = -(row_scroll_x as f32);
 
-                let mut cur_next_row_px = -(row_scroll_x as f32);
-                for (idx, &np) in next_pages.iter().enumerate() {
-                    let (pt_w, pt_h) = reader.page_size_pt(np);
-                    let ar = (pt_w / pt_h).max(0.1);
-                    let view = reader.page_view(np);
-                    let (base_w_px, _) = match view.fit {
-                        ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
-                        ReaderFitMode::FitPage => {
-                            let h = viewport_h_px.min(slot_w_px / ar);
-                            (h * ar, h)
-                        }
-                    };
-                    let pane_w_px = base_w_px * view.zoom;
-
-                    let page_start_px = cur_next_row_px;
-                    let page_end_px = page_start_px + pane_w_px;
-                    cur_next_row_px = page_end_px + gutter_px;
-
-                    if page_end_px <= 0.0 || page_start_px >= viewport_w_px {
-                        continue;
+            for (idx, &np) in next_pages.iter().enumerate() {
+                let (pt_w, pt_h) = reader.page_size_pt(np);
+                let ar = (pt_w / pt_h).max(0.1);
+                let view = reader.page_view(np);
+                let (base_w_px, _) = match view.fit {
+                    ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
+                    ReaderFitMode::FitPage => {
+                        let h = viewport_h_px.min(slot_w_px / ar);
+                        (h * ar, h)
                     }
+                };
+                let pane_w_px = base_w_px * view.zoom;
 
-                    let vis_start_px = page_start_px.max(0.0);
-                    let vis_end_px = page_end_px.min(viewport_w_px);
-                    let col_x = viewport_area.x + (vis_start_px / cell_w_px).round() as u16;
-                    let cols = ((vis_end_px - vis_start_px) / cell_w_px).round() as u16;
-                    if cols == 0 {
-                        continue;
-                    }
+                let page_start_px = cur_next_row_px;
+                let page_end_px = page_start_px + pane_w_px;
+                cur_next_row_px = page_end_px + gutter_px;
 
-                    let avail_cols = viewport_area.right().saturating_sub(col_x).min(cols);
-                    if avail_cols == 0 {
-                        continue;
-                    }
+                if page_end_px <= 0.0 || page_start_px >= viewport_w_px {
+                    continue;
+                }
 
-                    let crop_left_px = (vis_start_px - page_start_px).max(0.0);
-                    let crop_w_px = vis_end_px - vis_start_px;
+                let vis_start_px = page_start_px.max(0.0);
+                let vis_end_px = page_end_px.min(viewport_w_px);
+                let col_x = viewport_area.x + (vis_start_px / cell_w_px).round() as u16;
+                let cols = ((vis_end_px - vis_start_px) / cell_w_px).round() as u16;
+                if cols == 0 {
+                    continue;
+                }
 
-                    if let Some(nm) = compute_pane_metrics_cropped(
-                        &ctx,
-                        np,
-                        PaneCellArea {
-                            col_x,
-                            cols: avail_cols,
-                            row_y: next_row_y,
-                            max_avail_rows: avail_next_rows,
-                        },
-                        0,
-                        PaneCropSpan {
-                            crop_left_px,
-                            crop_w_px,
-                            pane_w_px,
-                        },
-                    ) {
-                        let id = select_spread_image_id(np, idx, num_cols);
-                        placements.push(ReaderSlotPlacement {
-                            page: np,
-                            id,
-                            cell_rect: nm.cell_rect,
-                            pixel_src: nm.pixel_src,
-                            page_target: nm.page_target,
-                            max_scroll_x: nm.max_scroll_x,
-                            is_primary: false,
-                        });
-                    }
+                let avail_cols = viewport_area.right().saturating_sub(col_x).min(cols);
+                if avail_cols == 0 {
+                    continue;
+                }
+
+                let crop_left_px = (vis_start_px - page_start_px).max(0.0);
+                let crop_w_px = vis_end_px - vis_start_px;
+
+                if let Some(nm) = compute_pane_metrics_cropped(
+                    &ctx,
+                    np,
+                    PaneCellArea {
+                        col_x,
+                        cols: avail_cols,
+                        row_y: next_row_y,
+                        max_avail_rows: avail_next_rows,
+                    },
+                    next_row_scroll_px,
+                    PaneCropSpan {
+                        crop_left_px,
+                        crop_w_px,
+                        pane_w_px,
+                    },
+                ) {
+                    let id = select_row_image_id(row_1_is_even, idx, num_cols);
+                    placements.push(ReaderSlotPlacement {
+                        page: np,
+                        id,
+                        cell_rect: nm.cell_rect,
+                        pixel_src: nm.pixel_src,
+                        page_target: nm.page_target,
+                        max_scroll_x: nm.max_scroll_x,
+                        is_primary: false,
+                    });
                 }
             }
         }

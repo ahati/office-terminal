@@ -51,14 +51,19 @@ impl ReaderState {
 
     /// Vertical column continuous scroll with anchor advance on row boundary.
     /// Returns `true` if position or anchor moved.
-    pub fn scroll_column(&mut self, delta_px: i64, row_h_px: f32) -> bool {
-        let (anchor_changed, moved) = self.scroll_column_detailed(delta_px, row_h_px);
+    pub fn scroll_column(&mut self, delta_px: i64, row_stride_px: f32, base_h_px: f32) -> bool {
+        let (anchor_changed, moved) = self.scroll_column_detailed(delta_px, row_stride_px, base_h_px);
         anchor_changed || moved
     }
 
     /// Detailed vertical scroll returning `(anchor_changed, offset_moved)`.
-    pub fn scroll_column_detailed(&mut self, delta_px: i64, row_h_px: f32) -> (bool, bool) {
-        if self.total_pages() == 0 || row_h_px <= 0.0 {
+    pub fn scroll_column_detailed(
+        &mut self,
+        delta_px: i64,
+        row_stride_px: f32,
+        base_h_px: f32,
+    ) -> (bool, bool) {
+        if self.total_pages() == 0 || row_stride_px <= 0.0 {
             return (false, false);
         }
         let prev_anchor = self.anchor;
@@ -68,7 +73,7 @@ impl ReaderState {
         let step = self.effective_columns();
 
         // Advance anchor when scrolled past bottom of current row
-        while self.scroll_px >= row_h_px as i64 {
+        while self.scroll_px >= row_stride_px as i64 {
             let next_anchor = match self.layout {
                 ReaderLayout::Single => self.anchor + 1,
                 ReaderLayout::Spread => {
@@ -82,11 +87,28 @@ impl ReaderState {
             };
             if next_anchor < self.total_pages() {
                 self.anchor = next_anchor;
-                self.scroll_px -= row_h_px as i64;
+                self.scroll_px -= row_stride_px as i64;
             } else {
-                self.scroll_px = (row_h_px as i64).saturating_sub(1);
+                self.scroll_px = (base_h_px as i64).saturating_sub(1);
                 break;
             }
+        }
+
+        // Clamp at document end so Row 0 remains visible on the last row
+        let has_next = match self.layout {
+            ReaderLayout::Single => self.anchor + 1 < self.total_pages(),
+            ReaderLayout::Spread => {
+                let next = if self.cover_alone && self.anchor == 0 {
+                    1
+                } else {
+                    self.anchor + step
+                };
+                next < self.total_pages()
+            }
+            ReaderLayout::Horizontal => self.anchor + 1 < self.total_pages(),
+        };
+        if !has_next && self.scroll_px >= base_h_px as i64 {
+            self.scroll_px = (base_h_px as i64).saturating_sub(1);
         }
 
         // Retreat anchor when scrolled past top of current row
@@ -104,7 +126,7 @@ impl ReaderState {
                     ReaderLayout::Horizontal => self.anchor.saturating_sub(1),
                 };
                 self.anchor = prev;
-                self.scroll_px += row_h_px as i64;
+                self.scroll_px += row_stride_px as i64;
             } else {
                 self.scroll_px = 0;
                 break;
