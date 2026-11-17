@@ -6,8 +6,8 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 /// Render a centered help popup modal displaying all keybindings.
 pub fn render_help_modal(f: &mut Frame, area: Rect) {
-    let popup_width = 70.min(area.width.saturating_sub(4));
-    let popup_height = 27.min(area.height.saturating_sub(2));
+    let popup_width = 72.min(area.width.saturating_sub(4));
+    let popup_height = 34.min(area.height.saturating_sub(2));
 
     let horiz = Layout::default()
         .direction(Direction::Horizontal)
@@ -45,7 +45,8 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
     let key_style = Style::default().fg(Color::Green).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::White);
     // Base style for every cell the paragraph covers: an opaque background so
-    // the z=-1 slide image behind the text never bleeds through the overlay.
+    // the slide image, placed below the terminal's cell-background layer,
+    // never bleeds through the overlay.
     // Span styles patch on top (fg-only spans keep this bg).
     let body_style = Style::default().bg(Color::Black);
 
@@ -110,6 +111,32 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  b / w                          ", key_style),
             Span::styled(": Blank Screen (Black / White)", desc_style),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled("Reader Mode (PDF / Documents):", header_style)]),
+        Line::from(vec![
+            Span::styled("  Left, Right                    ", key_style),
+            Span::styled(": Slide row (zoomed) / Prev, Next page", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Down, Up, j, k                 ", key_style),
+            Span::styled(": Continuous column scroll", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  h, l                           ", key_style),
+            Span::styled(": Horizontal pan", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  2, H, !                        ", key_style),
+            Span::styled(": Toggle Spread / Horizontal / Cover", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  f, +, -, =                     ", key_style),
+            Span::styled(": Fit mode / Zoom in, out, reset", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Tab, w, \\                     ", key_style),
+            Span::styled(": Cycle spread slot focus", desc_style),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled("Help & Exit:", header_style)]),

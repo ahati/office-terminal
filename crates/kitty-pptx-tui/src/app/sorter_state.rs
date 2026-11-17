@@ -216,17 +216,54 @@ impl PresentationState {
         self.sorter.set_wrap(wrap);
     }
 
+    pub fn sorter_scroll_row(&self) -> usize {
+        self.sorter_scroll_row.lock().map(|r| *r).unwrap_or(0)
+    }
+
+    pub fn sorter_scroll_row_with_hysteresis(&self, cursor_row: usize, rows_visible: usize) -> usize {
+        if let Ok(mut r) = self.sorter_scroll_row.lock() {
+            let cur = *r;
+            if cursor_row < cur {
+                *r = cursor_row;
+                cursor_row
+            } else if cursor_row >= cur + rows_visible {
+                let next = cursor_row.saturating_sub(rows_visible.saturating_sub(1));
+                *r = next;
+                next
+            } else {
+                cur
+            }
+        } else {
+            0
+        }
+    }
+
+    pub fn set_sorter_scroll_row(&self, row: usize) {
+        if let Ok(mut r) = self.sorter_scroll_row.lock() {
+            *r = row;
+        }
+    }
+
     pub fn toggle_sorter(&mut self) {
         if self.mode() == AppMode::Sorter {
             self.exit_sorter(false);
         } else {
-            self.enter_overlay(AppMode::Sorter);
-            self.sorter.selected_index = self.current_slide();
+            self.open_sorter();
         }
     }
 
     pub fn open_sorter(&mut self) {
         if self.mode() != AppMode::Sorter {
+            if self.sorter_return_mode.is_none() {
+                let return_mode = if self.mode.is_base_mode() {
+                    self.mode
+                } else if self.previous_mode.is_base_mode() && self.previous_mode != AppMode::Sorter {
+                    self.previous_mode
+                } else {
+                    AppMode::Fullscreen
+                };
+                self.sorter_return_mode = Some(return_mode);
+            }
             self.enter_overlay(AppMode::Sorter);
             self.sorter.selected_index = self.current_slide();
         }
@@ -241,7 +278,15 @@ impl PresentationState {
             let clamped = self.sorter.selected_index.min(self.total_slides() - 1);
             slide_changed = self.set_current_slide(clamped);
         }
-        self.exit_overlay();
+        let return_mode = self.sorter_return_mode.take().unwrap_or_else(|| {
+            if self.previous_mode.is_base_mode() && self.previous_mode != AppMode::Sorter {
+                self.previous_mode
+            } else {
+                AppMode::Fullscreen
+            }
+        });
+        self.mode = return_mode;
+        self.previous_mode = return_mode;
         slide_changed
     }
 

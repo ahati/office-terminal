@@ -2,13 +2,16 @@ use pptx_model::Slide;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
 
-/// Extracted search metadata for a single presentation slide.
+/// Extracted search metadata for a single presentation slide or outline node.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SlideSearchEntry {
     pub slide_index: usize,
     pub slide_number: usize,
     pub title: String,
     pub notes: String,
+    pub level: usize,
+    pub expanded: bool,
+    pub has_children: bool,
 }
 
 /// Interactive state and fuzzy search indexing for the Table of Contents modal.
@@ -44,13 +47,56 @@ impl SearchState {
         &self.entries
     }
 
+    pub fn entry(&self, entry_idx: usize) -> Option<&SlideSearchEntry> {
+        self.entries.get(entry_idx)
+    }
+
     pub fn entry_by_slide_index(&self, slide_idx: usize) -> Option<&SlideSearchEntry> {
-        self.entries.get(slide_idx)
+        self.entries.iter().find(|e| e.slide_index == slide_idx)
     }
 
     /// Return the currently highlighted slide index (0-based) from matched search results.
     pub fn selected_slide_index(&self) -> Option<usize> {
-        self.matched_indices.get(self.selected_cursor).copied()
+        self.matched_indices
+            .get(self.selected_cursor)
+            .and_then(|&entry_idx| self.entries.get(entry_idx).map(|e| e.slide_index))
+    }
+
+    pub fn expand_selected(&mut self) -> bool {
+        if let Some(&entry_idx) = self.matched_indices.get(self.selected_cursor) {
+            if let Some(entry) = self.entries.get_mut(entry_idx) {
+                if entry.has_children && !entry.expanded {
+                    entry.expanded = true;
+                    self.recompute_matches();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn collapse_selected(&mut self) -> bool {
+        if let Some(&entry_idx) = self.matched_indices.get(self.selected_cursor) {
+            if let Some(entry) = self.entries.get_mut(entry_idx) {
+                if entry.has_children && entry.expanded {
+                    entry.expanded = false;
+                    self.recompute_matches();
+                    return true;
+                }
+            }
+            let cur_level = self.entries.get(entry_idx).map(|e| e.level).unwrap_or(0);
+            if cur_level > 0 {
+                for i in (0..entry_idx).rev() {
+                    if self.entries[i].level < cur_level {
+                        if let Some(pos) = self.matched_indices.iter().position(|&idx| idx == i) {
+                            self.selected_cursor = pos;
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Set the cursor to a specific match index, clamping to valid range.
@@ -139,7 +185,71 @@ impl SearchState {
                 slide_number,
                 title,
                 notes: note_text,
+                level: 0,
+                expanded: true,
+                has_children: false,
             });
+        }
+        self.recompute_matches();
+    }
+
+    /// Populate TOC entries from document outlines / bookmarks.
+    pub fn sync_from_toc(&mut self, toc: &[kitty_pptx_core::TocEntry], total_pages: usize) {
+        let existing_expanded: std::collections::HashMap<(usize, String), bool> = self
+            .entries
+            .iter()
+            .map(|e| ((e.slide_index, e.title.clone()), e.expanded))
+            .collect();
+
+        self.hidden.clear();
+        self.skip_hidden = false;
+        self.entries.clear();
+
+        if toc.is_empty() {
+            for i in 0..total_pages {
+                let title = format!("Page {}", i + 1);
+                let expanded = existing_expanded
+                    .get(&(i, title.clone()))
+                    .copied()
+                    .unwrap_or(true);
+                self.entries.push(SlideSearchEntry {
+                    slide_index: i,
+                    slide_number: i + 1,
+                    title,
+                    notes: String::new(),
+                    level: 0,
+                    expanded,
+                    has_children: false,
+                });
+            }
+        } else {
+            for (idx, t) in toc.iter().enumerate() {
+                let has_children = toc
+                    .get(idx + 1)
+                    .map(|next| next.level > t.level)
+                    .unwrap_or(false);
+                let clean_title = t.title
+                    .chars()
+                    .filter(|&c| c != '\0' && c != '\u{FEFF}' && c != '\u{FFFD}' && (!c.is_control() || c == ' ' || c == '\t'))
+                    .collect::<String>()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let expanded = existing_expanded
+                    .get(&(t.page_index, clean_title.clone()))
+                    .or_else(|| existing_expanded.get(&(t.page_index, t.title.clone())))
+                    .copied()
+                    .unwrap_or(true);
+                self.entries.push(SlideSearchEntry {
+                    slide_index: t.page_index,
+                    slide_number: t.page_index + 1,
+                    title: clean_title,
+                    notes: String::new(),
+                    level: t.level,
+                    expanded,
+                    has_children,
+                });
+            }
         }
         self.recompute_matches();
     }
@@ -148,27 +258,73 @@ impl SearchState {
     pub fn recompute_matches(&mut self) {
         let q = self.query.trim().to_lowercase();
         if q.is_empty() {
+            let mut visible_flags = vec![true; self.entries.len()];
+            let mut ancestor_stack: Vec<(usize, bool)> = Vec::new();
+            for (idx, entry) in self.entries.iter().enumerate() {
+                while let Some(&(lvl, _)) = ancestor_stack.last() {
+                    if lvl >= entry.level {
+                        ancestor_stack.pop();
+                    } else {
+                        break;
+                    }
+                }
+                let all_ancestors_expanded = ancestor_stack.iter().all(|&(_, exp)| exp);
+                visible_flags[idx] = all_ancestors_expanded;
+                if entry.has_children {
+                    ancestor_stack.push((entry.level, entry.expanded));
+                }
+            }
+
             self.matched_indices = (0..self.entries.len())
-                .filter(|&index| !self.is_excluded(index))
+                .filter(|&index| visible_flags[index] && !self.is_excluded(self.entries[index].slide_index))
                 .collect();
             return;
         }
 
-        let mut scored_matches: Vec<(usize, u32)> = Vec::new();
+        let has_hierarchy = self.entries.iter().any(|e| e.level > 0);
+        if !has_hierarchy {
+            let mut scored: Vec<(usize, u32)> = Vec::new();
+            for (idx, entry) in self.entries.iter().enumerate() {
+                if self.is_excluded(entry.slide_index) {
+                    continue;
+                }
+                let score = calculate_match_score(&q, entry);
+                if score > 0 {
+                    scored.push((idx, score));
+                }
+            }
+            scored.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            self.matched_indices = scored.into_iter().map(|(idx, _)| idx).collect();
+            return;
+        }
 
-        for entry in &self.entries {
+        // When searching a hierarchical tree, find direct matches and their ancestors
+        let mut matched_set = std::collections::HashSet::new();
+        for (idx, entry) in self.entries.iter().enumerate() {
             if self.is_excluded(entry.slide_index) {
                 continue;
             }
             let score = calculate_match_score(&q, entry);
             if score > 0 {
-                scored_matches.push((entry.slide_index, score));
+                matched_set.insert(idx);
+
+                // Add ancestors for context
+                let mut cur_level = entry.level;
+                for parent_idx in (0..idx).rev() {
+                    if self.entries[parent_idx].level < cur_level {
+                        matched_set.insert(parent_idx);
+                        cur_level = self.entries[parent_idx].level;
+                        if cur_level == 0 {
+                            break;
+                        }
+                    }
+                }
             }
         }
 
-        // Sort descending by score; on tie, preserve ascending slide index
-        scored_matches.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        self.matched_indices = scored_matches.into_iter().map(|(idx, _)| idx).collect();
+        self.matched_indices = (0..self.entries.len())
+            .filter(|idx| matched_set.contains(idx))
+            .collect();
     }
 
     /// Whether the hidden-slide policy excludes this slide from matches.
@@ -206,8 +362,22 @@ impl PresentationState {
     pub fn open_search(&mut self) {
         self.sync_search_entries();
         self.search.clear_query();
-        self.search.set_selected_cursor(self.current_slide());
+        if let Some(pos) = self.search.matched_indices().iter().position(|&idx| {
+            self.search.entry(idx).map(|e| e.slide_index == self.current_slide()).unwrap_or(false)
+        }) {
+            self.search.set_selected_cursor(pos);
+        } else {
+            self.search.set_selected_cursor(0);
+        }
         self.enter_overlay(AppMode::TocSearchModal);
+    }
+
+    pub fn search_expand(&mut self) -> bool {
+        self.search.expand_selected()
+    }
+
+    pub fn search_collapse(&mut self) -> bool {
+        self.search.collapse_selected()
     }
 
     pub fn exit_search(&mut self, apply_selection: bool) -> bool {
@@ -218,6 +388,7 @@ impl PresentationState {
         if apply_selection {
             if let Some(target) = self.search.selected_slide_index() {
                 slide_changed = self.set_current_slide(target);
+                self.sorter.selected_index = target;
             }
         }
         self.exit_overlay();

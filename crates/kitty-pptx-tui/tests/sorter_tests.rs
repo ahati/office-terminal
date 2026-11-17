@@ -288,3 +288,113 @@ fn test_sorter_cards_reserve_a_thumbnail_canvas() {
         );
     }
 }
+
+/// Tests that a 44-slide presentation (such as Qualcomm AI vision deck) can be
+/// smoothly navigated and scrolled in sorter mode without being constrained to 16 cards.
+#[test]
+fn test_sorter_44_slides_scrolling_and_navigation() {
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let mut state = PresentationState::new(44, vec![]);
+    state.set_mode(AppMode::Sorter);
+    state.set_sorter_cols(4);
+
+    // Initial view: starts at top row
+    state.clear_placement_rects();
+    terminal
+        .draw(|f| {
+            render_sorter(&state, f, f.area());
+        })
+        .unwrap();
+
+    let initial_cards = state.thumbnail_placement_rects();
+    assert_eq!(initial_cards[0].0, 0, "first visible card is slide 0");
+
+    // Navigate to slide 43 (last slide of 44 slides, row 10)
+    state.set_selected_sorter_index(43);
+    state.clear_placement_rects();
+    terminal
+        .draw(|f| {
+            render_sorter(&state, f, f.area());
+        })
+        .unwrap();
+
+    let end_cards = state.thumbnail_placement_rects();
+    assert!(
+        end_cards.iter().any(|(s, _)| *s == 43),
+        "last slide 43 is visible when navigated to end"
+    );
+
+    // Cursor moves up to slide 39 (row 9): hysteresis keeps slide 43 visible in the bottom row
+    state.set_selected_sorter_index(39);
+    state.clear_placement_rects();
+    terminal
+        .draw(|f| {
+            render_sorter(&state, f, f.area());
+        })
+        .unwrap();
+
+    let prev_cards = state.thumbnail_placement_rects();
+    assert!(
+        prev_cards.iter().any(|(s, _)| *s == 39),
+        "slide 39 is visible"
+    );
+    assert!(
+        prev_cards.iter().any(|(s, _)| *s == 43),
+        "slide 43 remains visible due to scroll hysteresis"
+    );
+}
+
+#[test]
+fn test_reproduce_sorter_search_exit_trapped() {
+    let mut state = PresentationState::new(10, vec![]);
+    state.set_mode(AppMode::Reader);
+    assert_eq!(state.mode(), AppMode::Reader);
+
+    // 1. Enter slide sorter from Reader
+    state.open_sorter();
+    assert_eq!(state.mode(), AppMode::Sorter);
+    assert_eq!(state.selected_sorter_index(), 0);
+
+    // 2. Open fuzzy search modal ('/')
+    let action_slash = handle_key_event(make_key(KeyCode::Char('/')), &mut state);
+    assert_eq!(action_slash, AppAction::Redraw);
+    assert_eq!(state.mode(), AppMode::TocSearchModal);
+
+    // Move cursor down to slide 3 in search
+    for _ in 0..3 {
+        state.search_down();
+    }
+
+    // 3. Select a line in fuzzy search (Enter)
+    let action_enter = handle_key_event(make_key(KeyCode::Enter), &mut state);
+    assert_eq!(action_enter, AppAction::SlideChanged);
+    assert_eq!(state.mode(), AppMode::Sorter);
+    assert_eq!(state.selected_sorter_index(), 3);
+    assert_eq!(state.current_slide(), 3);
+
+    // 4. Return from Slide Sorter to main view via Enter
+    let action_sorter_enter = handle_key_event(make_key(KeyCode::Enter), &mut state);
+    assert_eq!(action_sorter_enter, AppAction::SlideChanged);
+    assert_eq!(
+        state.mode(),
+        AppMode::Reader,
+        "Should return to Reader (main view)"
+    );
+    assert_eq!(state.current_slide(), 3);
+
+    // 5. Test exiting via Esc, Tab, and 's' after opening search
+    for exit_key in [KeyCode::Esc, KeyCode::Tab, KeyCode::Char('s')] {
+        state.open_sorter();
+        assert_eq!(state.mode(), AppMode::Sorter);
+
+        let _ = handle_key_event(make_key(KeyCode::Char('/')), &mut state);
+        assert_eq!(state.mode(), AppMode::TocSearchModal);
+        let _ = handle_key_event(make_key(KeyCode::Esc), &mut state);
+        assert_eq!(state.mode(), AppMode::Sorter);
+
+        let _ = handle_key_event(make_key(exit_key), &mut state);
+        assert_eq!(state.mode(), AppMode::Reader);
+    }
+}

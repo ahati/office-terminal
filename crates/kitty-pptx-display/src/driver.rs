@@ -25,11 +25,22 @@ pub const PREVIEW_IMAGE_ID_SLOTS: u32 = 8;
 pub const THUMBNAIL_IMAGE_ID_BASE: u32 = PREVIEW_IMAGE_ID_BASE + PREVIEW_IMAGE_ID_SLOTS;
 /// Maximum number of sorter thumbnails that may be resident at the same time.
 ///
-/// Cards reuse the canvas raster, so a resident card costs as much as a slide
-/// at the terminal's canvas target (roughly 1.4 MB at an 800x450 canvas, ~8 MB
-/// at 1920x1080). Sixteen cards matches common 4x3/5x3 grids while keeping the
-/// grid inside the documented terminal-memory budget.
-pub const MAX_THUMBNAIL_IMAGES: u32 = 16;
+/// Cards downscale the canvas raster to thumbnail dimensions (~480x360),
+/// reducing memory to ~500 KB per card. Sixty-four cards comfortably fits
+/// large decks within the terminal image quota without premature eviction.
+pub const MAX_THUMBNAIL_IMAGES: u32 = 64;
+/// Default terminal graphics buffer memory quota (320 MB in standard Kitty).
+pub const DEFAULT_TERMINAL_IMAGE_QUOTA_BYTES: usize = 320 * 1024 * 1024;
+
+/// Returns the effective terminal graphics image quota in bytes,
+/// overridable via the `KITTY_PPTX_TERMINAL_QUOTA` environment variable.
+pub fn terminal_image_quota_bytes() -> usize {
+    std::env::var("KITTY_PPTX_TERMINAL_QUOTA")
+        .ok()
+        .and_then(|val| val.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_TERMINAL_IMAGE_QUOTA_BYTES)
+}
+
 /// Total number of resident image ids the interactive path can keep alive.
 pub const RESIDENT_IMAGE_IDS: u32 = THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES - 1;
 
@@ -128,9 +139,18 @@ pub fn map_slide_links_to_cells(
     mapped
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PixelRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Placement {
     Cells(CellRect),
+    CellsSubrect { rect: CellRect, src: PixelRect },
     ScrollbackBlock,
 }
 

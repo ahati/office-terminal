@@ -26,6 +26,8 @@ Welcome to the design documentation and Product Requirements Documents (PRDs) fo
 13. **[12-render-parity-with-reference.md](./12-render-parity-with-reference.md)** — Render parity analysis against the reference browser renderer (measured baselines, drift sources, ported test strategy).
 14. **[13-metafile-pictures-and-vector-playback.md](./13-metafile-pictures-and-vector-playback.md)** — Metafile Pictures: EMF / WMF / EMF+ vector playback through the vendored `metafile-rs` engine, `DrawBitmap` display-list extension, coordinate mapping, diagnostics and rollout milestones.
 15. **[13a-metafile-fidelity-and-validation.md](./13a-metafile-fidelity-and-validation.md)** — Metafile fidelity matrix, diagnostics taxonomy, golden corpus specification, differential oracle strategy and NFR budgets.
+16. **[14-pdf-input-support.md](./14-pdf-input-support.md)** — PDF Input Support: Slide Decks & Documents (`%PDF-` magic dispatch, `PageSource` deck contract, pure-Rust `hayro` engine with phased raster → vector bridges, CLI/export/dump parity, PDF fidelity policy, resource limits, milestones).
+17. **[14a-pdf-reader-ui-designs.md](./14a-pdf-reader-ui-designs.md)** — PDF Reader UI Designs (slide-vs-document mode detection from page geometry, focusable/zoomable/scrollable page panes, left-aligned side-by-side spread with right-pane clipping, fit modes over Kitty source-rect placements, reader keymap, windowed graphics-syncer slots & prefetch, wireframes, NFRs).
 
 ---
 
@@ -93,4 +95,4 @@ A two-stage pipeline: **DrawingML $\to$ Resolution-Independent Vector Display Li
 5. **M4 — Presenter TUI**: Layouts, modal state machine, speaker notes, stopwatch, sorter grid with thumbnail target; prefetch pipeline meeting $< 16\text{ ms}$ flip latency.
 6. **M5 — Kitty Capability Gate**: Startup probe with no fallback; unsupported terminals fail with `NoCapableTerminal`.
 7. **M6 — Quality Regime Complete**: Fidelity corpus scoring with DSSIM, fuzz integration, automated NFR measurement harnesses, live-terminal verification matrix.
-8. **Post-v1 Tracks**: Full interactive chart rendering; OMML equation layout; native PDF vector export backend (`pdf-writer`). (Shape effects & 3D engine specified in [PRD 08](./08-shape-effects-and-3d-engine.md)).
+8. **Post-v1 Tracks**: Full interactive chart rendering; OMML equation layout; native PDF vector export backend (`pdf-writer`); PDF input support for slide decks and documents ([PRD 14](./14-pdf-input-support.md) + [PRD 14a](./14a-pdf-reader-ui-designs.md)). (Shape effects & 3D engine specified in [PRD 08](./08-shape-effects-and-3d-engine.md)).

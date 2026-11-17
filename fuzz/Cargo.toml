@@ -13,6 +13,13 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 kitty-pptx-core = { path = "../crates/kitty-pptx-core" }
 
+[patch.crates-io]
+metafile-core = { path = "../crates/metafile-core" }
+metafile-dib = { path = "../crates/metafile-dib" }
+metafile-emf = { path = "../crates/metafile-emf" }
+metafile-emfplus = { path = "../crates/metafile-emfplus" }
+metafile-wmf = { path = "../crates/metafile-wmf" }
+
 [[bin]]
 name = "fuzz_metafile"
 path = "fuzz_targets/fuzz_metafile.rs"

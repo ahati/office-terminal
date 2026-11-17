@@ -18,6 +18,14 @@ pub struct Cli {
     pub presenter: bool,
 
     #[arg(
+        long = "mode",
+        value_enum,
+        default_value = "auto",
+        help = "Display mode for PDF/presentations: auto|slides|reader"
+    )]
+    pub mode: DeckModeArg,
+
+    #[arg(
         long = "generate-completions",
         value_name = "SHELL",
         help = "Generate shell completions script directly to stdout (bash, zsh, fish, elvish, powershell)"
@@ -231,4 +239,12 @@ pub fn parse_slide_range(input: &str, total: usize) -> Result<Vec<usize>, String
     indices.sort_unstable();
     indices.dedup();
     Ok(indices)
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DeckModeArg {
+    #[default]
+    Auto,
+    Slides,
+    Reader,
 }
