@@ -1,4 +1,4 @@
-use kitty_pptx_display::{probe_cell_pixel_size, CellRect, ImageId, PixelRect};
+use kitty_pptx_display::{probe_cell_pixel_size, ImageId};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -6,235 +6,16 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 pub use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
+pub use crate::app::ui::reader_layout::{
+    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, select_spread_image_id,
+    PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
+};
 use crate::app::reader_types::{ReaderFitMode, ReaderLayout, ReaderSlotPlacement};
 use crate::app::state::PresentationState;
 
-pub const MIN_PANE_COLS: u16 = 10;
-pub const GUTTER_COLS: u16 = 2;
-
-/// Computed spatial metrics and image rects for a single reader pane.
-struct PaneMetrics {
-    cell_rect: CellRect,
-    pixel_src: PixelRect,
-    page_target: kitty_pptx_core::RenderTargetSpec,
-    max_scroll_x: u32,
-}
-
-/// Context for computing layout of individual reader panes.
-struct PaneLayoutContext<'a> {
-    state: &'a PresentationState,
-    fit_slot_w_px: f32,
-    cell_w_px: f32,
-    cell_h_px: f32,
-    viewport_h_px: f32,
-}
-
-fn compute_horizontal_pane_metrics(
-    ctx: &PaneLayoutContext<'_>,
-    page: usize,
-    col_x: u16,
-    max_avail_cols: u16,
-    row_y: u16,
-    max_avail_rows: u16,
-    scroll_x_px: i64,
-) -> Option<PaneMetrics> {
-    let reader = ctx.state.reader_state()?;
-    let view = reader.page_view(page);
-    let (pt_w, pt_h) = reader.page_size_pt(page);
-    let ar = (pt_w / pt_h).max(0.1);
-
-    let pane_h_px = ctx.viewport_h_px * view.zoom;
-    let pane_w_px = pane_h_px * ar;
-
-    let full_rows = (pane_h_px / ctx.cell_h_px).round() as u16;
-    let rows = full_rows.clamp(1, max_avail_rows);
-
-    let visible_w_px = (pane_w_px - scroll_x_px.max(0) as f32).max(0.0);
-    let full_cols = (visible_w_px / ctx.cell_w_px).round() as u16;
-    let cols = full_cols.clamp(1, max_avail_cols);
-
-    let cell_rect = CellRect {
-        row: row_y,
-        col: col_x,
-        rows,
-        cols,
-    };
-
-    let target_w = 2560u32;
-    let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
-    let page_target = kitty_pptx_core::RenderTargetSpec {
-        width_px: target_w,
-        height_px: target_h,
-    };
-
-    let scale = target_w as f32 / pane_w_px.max(1.0);
-    let src_x = ((scroll_x_px.max(0) as f32 * scale).round() as u32).min(target_w);
-    let screen_w_px = (cell_rect.cols as f32) * ctx.cell_w_px;
-    let src_w = ((screen_w_px * scale).round() as u32).min(target_w.saturating_sub(src_x));
-
-    if cell_rect.cols == 0 || cell_rect.rows == 0 || src_w == 0 || target_h == 0 {
-        return None;
-    }
-
-    let pixel_src = PixelRect {
-        x: src_x,
-        y: 0,
-        width: src_w.max(1),
-        height: target_h,
-    };
-
-    Some(PaneMetrics {
-        cell_rect,
-        pixel_src,
-        page_target,
-        max_scroll_x: 0,
-    })
-}
-
-#[derive(Clone, Copy, Debug)]
-struct PaneCellArea {
-    col_x: u16,
-    cols: u16,
-    row_y: u16,
-    max_avail_rows: u16,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct PaneCropSpan {
-    crop_left_px: f32,
-    crop_w_px: f32,
-    pane_w_px: f32,
-}
-
-fn compute_pane_metrics_cropped(
-    ctx: &PaneLayoutContext<'_>,
-    page: usize,
-    area: PaneCellArea,
-    scroll_px: i64,
-    crop: PaneCropSpan,
-) -> Option<PaneMetrics> {
-    let reader = ctx.state.reader_state()?;
-    let view = reader.page_view(page);
-    let (pt_w, pt_h) = reader.page_size_pt(page);
-    let ar = (pt_w / pt_h).max(0.1);
-
-    let (_base_w_px, base_h_px) = match view.fit {
-        ReaderFitMode::FitWidth => (ctx.fit_slot_w_px, ctx.fit_slot_w_px / ar),
-        ReaderFitMode::FitPage => {
-            let h = ctx.viewport_h_px.min(ctx.fit_slot_w_px / ar);
-            let w = h * ar;
-            (w, h)
-        }
-    };
-    let pane_h_px = base_h_px * view.zoom;
-
-    let visible_h_px = (pane_h_px - scroll_px as f32).max(0.0);
-    let full_rows = (visible_h_px / ctx.cell_h_px).round() as u16;
-    let rows = full_rows.clamp(1, area.max_avail_rows);
-
-    let cell_rect = CellRect {
-        row: area.row_y,
-        col: area.col_x,
-        rows,
-        cols: area.cols,
-    };
-
-    let target_w = 2560u32;
-    let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
-    let page_target = kitty_pptx_core::RenderTargetSpec {
-        width_px: target_w,
-        height_px: target_h,
-    };
-
-    let scale = target_w as f32 / crop.pane_w_px.max(1.0);
-    let screen_w_px = (cell_rect.cols as f32) * ctx.cell_w_px;
-    let max_scroll_x = (crop.pane_w_px - screen_w_px).max(0.0) as u32;
-
-    let src_x = (((crop.crop_left_px + view.scroll_x as f32) * scale).round() as u32).min(target_w);
-    let src_w = ((crop.crop_w_px * scale).round() as u32).min(target_w.saturating_sub(src_x));
-
-    let total_scroll_y = (scroll_px as f32 + view.scroll_y as f32).max(0.0);
-    let src_y = ((total_scroll_y * scale).round() as u32).min(target_h);
-    let screen_h_px = (cell_rect.rows as f32) * ctx.cell_h_px;
-    let src_h = ((screen_h_px * scale).round() as u32).min(target_h.saturating_sub(src_y));
-
-    if cell_rect.cols == 0 || cell_rect.rows == 0 || src_w == 0 || src_h == 0 {
-        return None;
-    }
-
-    let pixel_src = PixelRect {
-        x: src_x,
-        y: src_y,
-        width: src_w.max(1),
-        height: src_h.max(1),
-    };
-
-    Some(PaneMetrics {
-        cell_rect,
-        pixel_src,
-        page_target,
-        max_scroll_x,
-    })
-}
-
-fn compute_pane_metrics(
-    ctx: &PaneLayoutContext<'_>,
-    page: usize,
-    col_x: u16,
-    max_avail_cols: u16,
-    row_y: u16,
-    max_avail_rows: u16,
-    scroll_px: i64,
-) -> Option<PaneMetrics> {
-    let reader = ctx.state.reader_state()?;
-    let view = reader.page_view(page);
-    let (pt_w, pt_h) = reader.page_size_pt(page);
-    let ar = (pt_w / pt_h).max(0.1);
-
-    let (base_w_px, _) = match view.fit {
-        ReaderFitMode::FitWidth => (ctx.fit_slot_w_px, ctx.fit_slot_w_px / ar),
-        ReaderFitMode::FitPage => {
-            let h = ctx.viewport_h_px.min(ctx.fit_slot_w_px / ar);
-            let w = h * ar;
-            (w, h)
-        }
-    };
-    let pane_w_px = base_w_px * view.zoom;
-
-    let full_cols = (pane_w_px / ctx.cell_w_px).round() as u16;
-    let cols = full_cols.clamp(1, max_avail_cols);
-
-    compute_pane_metrics_cropped(
-        ctx,
-        page,
-        PaneCellArea {
-            col_x,
-            cols,
-            row_y,
-            max_avail_rows,
-        },
-        scroll_px,
-        PaneCropSpan {
-            crop_left_px: 0.0,
-            crop_w_px: pane_w_px,
-            pane_w_px,
-        },
-    )
-}
-
-fn select_spread_image_id(page: usize, slot_idx: usize, num_cols: usize) -> ImageId {
-    let row_parity = (page / num_cols.max(1)).is_multiple_of(2);
-    let base_id = if row_parity {
-        slot_idx as u32 + 1
-    } else {
-        slot_idx as u32 + 1 + (num_cols as u32).max(1)
-    };
-    ImageId(base_id.clamp(1, 12))
-}
-
-/// Renders the document reader UI with focusable left-aligned panes (PRD 14a §6).
-pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
-    if area.width < 4 || area.height < 2 {
+/// Renders the current reader viewport (Single, Spread, or Horizontal mode).
+pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
+    if area.width < MIN_PANE_COLS || area.height < 3 {
         return;
     }
 
@@ -295,6 +76,7 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                     pixel_src: m.pixel_src,
                     page_target: m.page_target,
                     max_scroll_x: m.max_scroll_x,
+                    is_primary: true,
                 });
 
                 let is_focused = p == reader.focused_page();
@@ -318,6 +100,9 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
             }
         }
 
+        let placed_cols = placements.len().max(1);
+        state.set_reader_num_columns(placed_cols);
+        reader.set_num_columns(placed_cols);
         state.update_reader_placements(placements);
 
         let status_text = reader.status_line(state.presentation_title().unwrap_or("document.pdf"));
@@ -457,6 +242,7 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                 pixel_src: m.pixel_src,
                 page_target: m.page_target,
                 max_scroll_x: m.max_scroll_x,
+                is_primary: true,
             });
 
             let is_focused = page == reader.focused_page();
@@ -493,24 +279,59 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                     .filter(|&p| p < reader.total_pages())
                     .collect();
 
-                let mut next_col = viewport_area.x;
+                let mut cur_next_row_px = -(row_scroll_x as f32);
                 for (idx, &np) in next_pages.iter().enumerate() {
-                    if next_col >= viewport_area.right() {
-                        break;
-                    }
-                    let avail_cols = viewport_area.right().saturating_sub(next_col);
-                    if avail_cols < MIN_PANE_COLS && idx > 0 {
-                        break;
+                    let (pt_w, pt_h) = reader.page_size_pt(np);
+                    let ar = (pt_w / pt_h).max(0.1);
+                    let view = reader.page_view(np);
+                    let (base_w_px, _) = match view.fit {
+                        ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
+                        ReaderFitMode::FitPage => {
+                            let h = viewport_h_px.min(slot_w_px / ar);
+                            (h * ar, h)
+                        }
+                    };
+                    let pane_w_px = base_w_px * view.zoom;
+
+                    let page_start_px = cur_next_row_px;
+                    let page_end_px = page_start_px + pane_w_px;
+                    cur_next_row_px = page_end_px + gutter_px;
+
+                    if page_end_px <= 0.0 || page_start_px >= viewport_w_px {
+                        continue;
                     }
 
-                    if let Some(nm) = compute_pane_metrics(
+                    let vis_start_px = page_start_px.max(0.0);
+                    let vis_end_px = page_end_px.min(viewport_w_px);
+                    let col_x = viewport_area.x + (vis_start_px / cell_w_px).round() as u16;
+                    let cols = ((vis_end_px - vis_start_px) / cell_w_px).round() as u16;
+                    if cols == 0 {
+                        continue;
+                    }
+
+                    let avail_cols = viewport_area.right().saturating_sub(col_x).min(cols);
+                    if avail_cols == 0 {
+                        continue;
+                    }
+
+                    let crop_left_px = (vis_start_px - page_start_px).max(0.0);
+                    let crop_w_px = vis_end_px - vis_start_px;
+
+                    if let Some(nm) = compute_pane_metrics_cropped(
                         &ctx,
                         np,
-                        next_col,
-                        avail_cols,
-                        next_row_y,
-                        avail_next_rows,
+                        PaneCellArea {
+                            col_x,
+                            cols: avail_cols,
+                            row_y: next_row_y,
+                            max_avail_rows: avail_next_rows,
+                        },
                         0,
+                        PaneCropSpan {
+                            crop_left_px,
+                            crop_w_px,
+                            pane_w_px,
+                        },
                     ) {
                         let id = select_spread_image_id(np, idx, num_cols);
                         placements.push(ReaderSlotPlacement {
@@ -520,9 +341,8 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame, area: Rect) {
                             pixel_src: nm.pixel_src,
                             page_target: nm.page_target,
                             max_scroll_x: nm.max_scroll_x,
+                            is_primary: false,
                         });
-
-                        next_col = next_col.saturating_add(nm.cell_rect.cols).saturating_add(gutter_cols);
                     }
                 }
             }

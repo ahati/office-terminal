@@ -19,15 +19,18 @@ pub const MAX_THUMBNAIL_STAGES_PER_FRAME: usize = 4;
 /// Cards are downscaled to thumbnail dimensions (~480x360), so per-card memory
 /// is computed against the downscaled bounds to avoid prematurely capping
 /// portrait or high-resolution canvas targets.
-pub fn max_sorter_cards_for_target(target: &RenderTargetSpec) -> usize {
+pub fn max_sorter_cards_for_target_and_quota(target: &RenderTargetSpec, quota: Option<usize>) -> usize {
     let w = (target.width_px as usize).min(480);
     let h = (target.height_px as usize).min(360);
     let per_card = (w * h * 4).max(1);
-    let quota = terminal_image_quota_bytes();
-    quota
-        .checked_div(per_card)
+    let q = quota.unwrap_or_else(terminal_image_quota_bytes);
+    q.checked_div(per_card)
         .map(|c| c.clamp(1, MAX_THUMBNAIL_IMAGES as usize))
         .unwrap_or(MAX_THUMBNAIL_IMAGES as usize)
+}
+
+pub fn max_sorter_cards_for_target(target: &RenderTargetSpec) -> usize {
+    max_sorter_cards_for_target_and_quota(target, None)
 }
 
 /// A slide-sorter card currently staged on the terminal.

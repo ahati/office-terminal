@@ -195,19 +195,30 @@ impl SearchState {
 
     /// Populate TOC entries from document outlines / bookmarks.
     pub fn sync_from_toc(&mut self, toc: &[kitty_pptx_core::TocEntry], total_pages: usize) {
+        let existing_expanded: std::collections::HashMap<(usize, String), bool> = self
+            .entries
+            .iter()
+            .map(|e| ((e.slide_index, e.title.clone()), e.expanded))
+            .collect();
+
         self.hidden.clear();
         self.skip_hidden = false;
         self.entries.clear();
 
         if toc.is_empty() {
             for i in 0..total_pages {
+                let title = format!("Page {}", i + 1);
+                let expanded = existing_expanded
+                    .get(&(i, title.clone()))
+                    .copied()
+                    .unwrap_or(true);
                 self.entries.push(SlideSearchEntry {
                     slide_index: i,
                     slide_number: i + 1,
-                    title: format!("Page {}", i + 1),
+                    title,
                     notes: String::new(),
                     level: 0,
-                    expanded: true,
+                    expanded,
                     has_children: false,
                 });
             }
@@ -217,13 +228,17 @@ impl SearchState {
                     .get(idx + 1)
                     .map(|next| next.level > t.level)
                     .unwrap_or(false);
+                let expanded = existing_expanded
+                    .get(&(t.page_index, t.title.clone()))
+                    .copied()
+                    .unwrap_or(true);
                 self.entries.push(SlideSearchEntry {
                     slide_index: t.page_index,
                     slide_number: t.page_index + 1,
                     title: t.title.clone(),
                     notes: String::new(),
                     level: t.level,
-                    expanded: true,
+                    expanded,
                     has_children,
                 });
             }

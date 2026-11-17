@@ -163,9 +163,9 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
                                 action = AppAction::None;
                             }
                         } else {
-                            reader.toggle_focus();
+                            reader.next_row();
                             slide_to_set = Some(reader.focused_page());
-                            action = AppAction::Redraw;
+                            action = AppAction::SlideChanged;
                         }
                     }
                 }
@@ -221,9 +221,9 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
                                 action = AppAction::None;
                             }
                         } else {
-                            reader.toggle_focus();
+                            reader.prev_row();
                             slide_to_set = Some(reader.focused_page());
-                            action = AppAction::Redraw;
+                            action = AppAction::SlideChanged;
                         }
                     }
                 }
@@ -267,40 +267,86 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
 
         // Horizontal pan (clamped to overflow)
         KeyCode::Char('h') => {
+            let (_cols, rows) = state.layout_size();
+            let mut slide_to_set = None;
+            let mut action = AppAction::Redraw;
             if let Some(reader) = state.reader_state_mut() {
-                let max_row_x = reader.max_row_scroll_x();
-                if max_row_x > 0 {
-                    reader.scroll_row_horizontal(-24);
+                if reader.layout == ReaderLayout::Horizontal {
+                    let metrics = kitty_pptx_display::probe_cell_pixel_size();
+                    let cell_h_px = metrics.height_px.max(8.0) as f32;
+                    let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
+                    let ar = (pt_w / pt_h).max(0.1);
+                    let page_w_px = (viewport_h_px * ar).max(50.0);
+                    let step = ((page_w_px / 8.0).round() as i64).max(24);
+                    let (anchor_changed, moved) = reader.scroll_horizontal_continuous(-step, page_w_px);
+                    if anchor_changed {
+                        slide_to_set = Some(reader.focused_page());
+                        action = AppAction::SlideChanged;
+                    } else if !moved {
+                        action = AppAction::None;
+                    }
                 } else {
-                    let page = reader.focused_page();
-                    let max_x = reader
-                        .placements()
-                        .iter()
-                        .find(|p| p.page == page)
-                        .map(|p| p.max_scroll_x)
-                        .unwrap_or(0);
-                    reader.scroll_horizontal_bounded(-24, max_x);
+                    let max_row_x = reader.max_row_scroll_x();
+                    if max_row_x > 0 {
+                        reader.scroll_row_horizontal(-24);
+                    } else {
+                        let page = reader.focused_page();
+                        let max_x = reader
+                            .placements()
+                            .iter()
+                            .find(|p| p.page == page)
+                            .map(|p| p.max_scroll_x)
+                            .unwrap_or(0);
+                        reader.scroll_horizontal_bounded(-24, max_x);
+                    }
                 }
             }
-            AppAction::Redraw
+            if let Some(slide) = slide_to_set {
+                state.set_current_slide(slide);
+            }
+            action
         }
         KeyCode::Char('l') => {
+            let (_cols, rows) = state.layout_size();
+            let mut slide_to_set = None;
+            let mut action = AppAction::Redraw;
             if let Some(reader) = state.reader_state_mut() {
-                let max_row_x = reader.max_row_scroll_x();
-                if max_row_x > 0 {
-                    reader.scroll_row_horizontal(24);
+                if reader.layout == ReaderLayout::Horizontal {
+                    let metrics = kitty_pptx_display::probe_cell_pixel_size();
+                    let cell_h_px = metrics.height_px.max(8.0) as f32;
+                    let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
+                    let ar = (pt_w / pt_h).max(0.1);
+                    let page_w_px = (viewport_h_px * ar).max(50.0);
+                    let step = ((page_w_px / 8.0).round() as i64).max(24);
+                    let (anchor_changed, moved) = reader.scroll_horizontal_continuous(step, page_w_px);
+                    if anchor_changed {
+                        slide_to_set = Some(reader.focused_page());
+                        action = AppAction::SlideChanged;
+                    } else if !moved {
+                        action = AppAction::None;
+                    }
                 } else {
-                    let page = reader.focused_page();
-                    let max_x = reader
-                        .placements()
-                        .iter()
-                        .find(|p| p.page == page)
-                        .map(|p| p.max_scroll_x)
-                        .unwrap_or(0);
-                    reader.scroll_horizontal_bounded(24, max_x);
+                    let max_row_x = reader.max_row_scroll_x();
+                    if max_row_x > 0 {
+                        reader.scroll_row_horizontal(24);
+                    } else {
+                        let page = reader.focused_page();
+                        let max_x = reader
+                            .placements()
+                            .iter()
+                            .find(|p| p.page == page)
+                            .map(|p| p.max_scroll_x)
+                            .unwrap_or(0);
+                        reader.scroll_horizontal_bounded(24, max_x);
+                    }
                 }
             }
-            AppAction::Redraw
+            if let Some(slide) = slide_to_set {
+                state.set_current_slide(slide);
+            }
+            action
         }
 
         // Focus & Sync
