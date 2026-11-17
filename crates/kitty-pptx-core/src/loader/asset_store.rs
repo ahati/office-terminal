@@ -36,6 +36,20 @@ pub trait AssetStore: Send + Sync {
     fn stats(&self) -> AssetStoreStats;
 }
 
+/// Empty asset store returning NotFound for all lookups.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EmptyAssetStore;
+
+impl AssetStore for EmptyAssetStore {
+    fn get(&self, rel_id: &str, _hint: SizeHint) -> Result<DecodedImage, AssetError> {
+        Err(AssetError::NotFound(rel_id.to_string()))
+    }
+
+    fn stats(&self) -> AssetStoreStats {
+        AssetStoreStats::default()
+    }
+}
+
 struct CacheEntry {
     image: DecodedImage,
     access_counter: u64,

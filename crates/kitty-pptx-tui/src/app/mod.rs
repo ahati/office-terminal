@@ -1,19 +1,28 @@
 pub mod events;
 mod find_state;
 mod graphics;
+pub(crate) mod graphics_reader;
 #[cfg(test)]
 mod graphics_tests;
 pub mod link_state;
 pub mod media;
 pub mod mode;
 pub mod nav_state;
+pub mod reader_events;
+pub mod reader_scroll;
+pub mod reader_state;
+pub mod reader_types;
 pub mod search_state;
 #[cfg(test)]
 mod sorter_graphics_tests;
+#[cfg(test)]
+mod reader_graphics_tests;
 pub mod sorter_state;
 pub mod state;
 mod state_notices;
+mod state_reader;
 mod state_timing;
+pub(crate) mod graphics_thumbnails;
 mod terminal_guard;
 pub mod ui;
 pub mod warnings_state;
@@ -102,6 +111,31 @@ impl PresentationApp {
         self
     }
 
+    /// Configure reader mode with total page count and page dimensions in points.
+    pub fn with_reader_mode(
+        mut self,
+        enabled: bool,
+        total_pages: usize,
+        page_sizes: Vec<(f32, f32)>,
+    ) -> Self {
+        if enabled {
+            self.state.enable_reader_mode(total_pages, page_sizes);
+        }
+        self
+    }
+
+    /// Set presentation or document title.
+    pub fn with_deck_title(mut self, title: impl Into<String>) -> Self {
+        self.state.set_deck_title(title);
+        self
+    }
+
+    /// Attach a document table of contents for fuzzy search.
+    pub fn with_toc(mut self, toc: Vec<kitty_pptx_core::TocEntry>) -> Self {
+        self.state.set_toc(&toc);
+        self
+    }
+
     pub fn state(&self) -> &PresentationState {
         &self.state
     }
@@ -129,6 +163,11 @@ impl PresentationApp {
     /// Triggers background prefetching and staging around the current slide.
     pub fn trigger_prefetch(&self) {
         if self.state.total_slides() == 0 {
+            return;
+        }
+        if self.state.base_mode() == AppMode::Reader {
+            // Reader prefetching is coordinated exclusively by ReaderSyncer
+            // against the exact page aspect ratio and placement targets.
             return;
         }
         let plan = PrefetchPlan {
@@ -245,16 +284,32 @@ impl PresentationApp {
 
     /// Base target for the terminal grid, multiplied by the latched zoom.
     fn recompute_target(&mut self, cols: u16, rows: u16) {
-        // Approximate pixel target based on terminal dimensions (typical cell is ~10x20 px).
-        // The slide aspect ratio is authoritative: fit the slide inside the terminal
-        // pixel budget so resizing never stretches it.
+        if self.state.reader_state().is_some() {
+            let (slide_width, slide_height) = self.state.slide_dimensions();
+            let slide_aspect = (slide_width as f64 / slide_height.max(1) as f64).max(0.1);
+            let target_w = 2560u32;
+            let target_h = ((target_w as f64 / slide_aspect).round() as u32).clamp(1024, 8192);
+            self.current_target = RenderTargetSpec {
+                width_px: target_w,
+                height_px: target_h,
+            };
+            return;
+        }
+
+        // Pixel target based on live terminal dimensions and slide aspect ratio.
         let (slide_width, slide_height) = self.state.slide_dimensions();
-        let slide_aspect = slide_width as f64 / slide_height as f64;
-        let max_width = (cols as u32 * 10).max(640);
-        let max_height = (rows as u32 * 20).max(360);
+        let slide_aspect = slide_width as f64 / slide_height.max(1) as f64;
+        let metrics = kitty_pptx_display::probe_cell_pixel_size();
+        let cell_w = metrics.width_px.max(8.0);
+        let cell_h = metrics.height_px.max(16.0);
+        let screen_w = (cols as f64 * cell_w * 2.0).round() as u32;
+        let screen_h = (rows as f64 * cell_h * 2.0).round() as u32;
+        let max_width = screen_w.clamp(1920, 3840);
+        let max_height = screen_h.clamp(1080, 2160);
+
         let base_width = max_width
             .min((max_height as f64 * slide_aspect).round() as u32)
-            .max(1);
+            .max(640);
         let scale = self.state.scale().max(0.01);
         let width_px = ((base_width as f32 * scale).round() as u32).max(1);
         let height_px = ((width_px as f64 / slide_aspect).round().max(1.0)) as u32;
@@ -325,18 +380,26 @@ impl PresentationApp {
             // failed placement must not terminate the presentation.
             let _ = self.sync_graphics();
 
-            if event::poll(Duration::from_millis(50))? {
-                match event::read()? {
-                    Event::Key(key) => {
-                        self.handle_key(key);
+            if event::poll(Duration::from_millis(16))? {
+                let mut ev_opt = Some(event::read()?);
+                while let Some(e) = ev_opt {
+                    match e {
+                        Event::Key(key) => {
+                            self.handle_key(key);
+                        }
+                        Event::Resize(cols, rows) => {
+                            self.handle_resize(cols, rows);
+                        }
+                        Event::Mouse(mouse) => {
+                            self.handle_mouse(mouse);
+                        }
+                        _ => {}
                     }
-                    Event::Resize(cols, rows) => {
-                        self.handle_resize(cols, rows);
+                    if event::poll(Duration::from_millis(0))? {
+                        ev_opt = Some(event::read()?);
+                    } else {
+                        ev_opt = None;
                     }
-                    Event::Mouse(mouse) => {
-                        self.handle_mouse(mouse);
-                    }
-                    _ => {}
                 }
             }
         }

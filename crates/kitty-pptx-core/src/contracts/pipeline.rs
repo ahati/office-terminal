@@ -10,6 +10,35 @@ pub struct RgbaSlide {
     pub pixels: Arc<[u8]>, // len == (width * height * 4) as usize
 }
 
+impl RgbaSlide {
+    pub fn downscale_to(&self, max_width: u32, max_height: u32) -> RgbaSlide {
+        if self.width <= max_width && self.height <= max_height {
+            return self.clone();
+        }
+        let scale_w = max_width as f64 / self.width.max(1) as f64;
+        let scale_h = max_height as f64 / self.height.max(1) as f64;
+        let scale = scale_w.min(scale_h);
+        let target_w = ((self.width as f64 * scale).round() as u32).max(1);
+        let target_h = ((self.height as f64 * scale).round() as u32).max(1);
+
+        let src_img = match image::RgbaImage::from_raw(self.width, self.height, self.pixels.to_vec()) {
+            Some(img) => img,
+            None => return self.clone(),
+        };
+        let resized = image::imageops::resize(
+            &src_img,
+            target_w,
+            target_h,
+            image::imageops::FilterType::Triangle,
+        );
+        RgbaSlide {
+            width: target_w,
+            height: target_h,
+            pixels: Arc::from(resized.into_raw().into_boxed_slice()),
+        }
+    }
+}
+
 /// RenderTargetSpec is an opaque target resolution produced by display negotiation or CLI export.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct RenderTargetSpec {

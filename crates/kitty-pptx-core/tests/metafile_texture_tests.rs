@@ -1,5 +1,7 @@
 //! Tests for EMF+ texture brush vector playback and rendering (Issue #12).
 
+#![cfg(feature = "metafile")]
+
 use kitty_pptx_core::contracts::{
     AffineTransform, FillRule, PathSegment, RenderTargetSpec, VectorPaint, VectorPath, VectorSlide,
     VectorTextureFill,

@@ -1,6 +1,5 @@
 use crate::cli::FitMode;
 use crate::commands::source_from_path;
-use kitty_pptx_core::metafile::expand_metafiles;
 use kitty_pptx_core::*;
 use kitty_pptx_display::*;
 use std::io::IsTerminal;
@@ -26,7 +25,7 @@ pub fn run_view(
     }
 
     let source = source_from_path(file);
-    let (presentation, asset_store) = match loader.load(source) {
+    let deck = match loader.load_deck(source) {
         Ok(res) => res,
         Err(e) => {
             eprintln!("Error loading deck: {}", e);
@@ -34,9 +33,16 @@ pub fn run_view(
         }
     };
 
-    let total = presentation.slides.len();
+    let page_source: Arc<dyn PageSource> = match deck {
+        DeckSource::Pptx(presentation, asset_store) => {
+            Arc::new(PptxPageSource::new(Arc::new(presentation), asset_store, compiler.clone()))
+        }
+        DeckSource::Pdf(pdf_source) => pdf_source,
+    };
+
+    let total = page_source.len();
     if total == 0 {
-        eprintln!("Presentation has no slides");
+        eprintln!("Presentation has no slides/pages");
         return ExitCode::from(1);
     }
 
@@ -58,20 +64,18 @@ pub fn run_view(
         }
     };
 
-    let target = fit_render_target(presentation.slide_width, presentation.slide_height, fit);
-
     let (tx, compile_rx) = crossbeam_channel::unbounded();
+    let default_store = EmptyAssetStore;
+
     for &idx in &slide_indices {
         if all {
             println!("--- Slide {} / {} ---", idx + 1, total);
         }
-        let mut vector_slide = match compiler.compile_in_deck(
-            &presentation.slides[idx],
-            &presentation.slides,
-            presentation.slide_width,
-            presentation.slide_height,
-            &tx,
-        ) {
+
+        let (w_emu, h_emu) = page_source.page_size_emu(idx);
+        let target = fit_render_target(w_emu, h_emu, fit);
+
+        let mut vector_slide = match page_source.compile_page(idx, &tx) {
             Ok(vs) => vs,
             Err(e) => {
                 eprintln!("Compile error on slide {}: {}", idx + 1, e);
@@ -79,22 +83,20 @@ pub fn run_view(
             }
         };
 
-        // Compile-stage diagnostics were previously dropped here; drain them
-        // like the render pipeline and export path.
         for warning in compile_rx.try_iter() {
             eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
         }
 
-        // The scrollback view must expand metafile markers before rasterizing;
-        // otherwise it shows the defensive placeholder while `export` plays the
-        // same picture (PRD 13 §10.1).
+        let asset_store = page_source.asset_store();
+        let store = asset_store.as_deref().unwrap_or(&default_store);
+
         let (warning_tx, warning_rx) = crossbeam_channel::unbounded();
-        expand_metafiles(&mut vector_slide, asset_store.as_ref(), &warning_tx);
+        kitty_pptx_core::metafile::expand_metafiles(&mut vector_slide, store, &warning_tx);
         for warning in warning_rx.try_iter() {
             eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
         }
 
-        let rgba = match rasterizer.rasterize(&vector_slide, &target, asset_store.as_ref()) {
+        let rgba = match rasterizer.rasterize(&vector_slide, &target, store) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("Rasterize error on slide {}: {}", idx + 1, e);
@@ -114,6 +116,7 @@ pub fn run_view(
 
     ExitCode::SUCCESS
 }
+
 fn fit_render_target(slide_width: i64, slide_height: i64, fit: FitMode) -> RenderTargetSpec {
     const MAX_WIDTH: u32 = 1920;
     const MAX_HEIGHT: u32 = 1080;

@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
-use kitty_pptx_core::{DefaultPresentationLoader, PresentationLoader};
+use kitty_pptx_core::{DeckSource, DefaultPresentationLoader, PresentationLoader};
 use crate::commands::source_from_path;
 
 pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
     let source = source_from_path(file.clone());
-    let (presentation, asset_store) = match loader.load(source) {
+    let deck = match loader.load_deck(source) {
         Ok(res) => res,
         Err(e) => {
             eprintln!("Error loading deck: {}", e);
@@ -20,43 +20,63 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
     };
     println!("File:           {}", file_str);
 
-    let total = presentation.slides.len();
-    let hidden = presentation.slides.iter().filter(|s| s.hidden).count();
-    if hidden > 0 {
-        println!("Slides:         {} slides ({} hidden)", total, hidden);
-    } else {
-        println!("Slides:         {} slides", total);
-    }
+    match deck {
+        DeckSource::Pptx(presentation, asset_store) => {
+            let total = presentation.slides.len();
+            let hidden = presentation.slides.iter().filter(|s| s.hidden).count();
+            if hidden > 0 {
+                println!("Slides:         {} slides ({} hidden)", total, hidden);
+            } else {
+                println!("Slides:         {} slides", total);
+            }
 
-    let w_emu = presentation.slide_width;
-    let h_emu = presentation.slide_height;
-    println!("Dimensions:     {} x {} EMU", w_emu, h_emu);
+            let w_emu = presentation.slide_width;
+            let h_emu = presentation.slide_height;
+            println!("Dimensions:     {} x {} EMU", w_emu, h_emu);
 
-    let w_px = (w_emu as f64 / 9525.0).round() as u64;
-    let h_px = (h_emu as f64 / 9525.0).round() as u64;
-    let ratio_str = format_aspect_ratio(w_emu, h_emu);
-    println!("Aspect Ratio:   {} ({} x {} px at 96 DPI base)", ratio_str, w_px, h_px);
+            let w_px = (w_emu as f64 / 9525.0).round() as u64;
+            let h_px = (h_emu as f64 / 9525.0).round() as u64;
+            let ratio_str = format_aspect_ratio(w_emu, h_emu);
+            println!("Aspect Ratio:   {} ({} x {} px at 96 DPI base)", ratio_str, w_px, h_px);
 
-    let theme_str = match (&presentation.major_font, &presentation.minor_font) {
-        (Some(maj), Some(min)) => format!("Office Theme ({}, {})", maj, min),
-        (Some(maj), None) => format!("Office Theme ({})", maj),
-        (None, Some(min)) => format!("Office Theme ({})", min),
-        (None, None) => "Office Theme".to_string(),
-    };
-    println!("Themes:         {}", theme_str);
+            let theme_str = match (&presentation.major_font, &presentation.minor_font) {
+                (Some(maj), Some(min)) => format!("Office Theme ({}, {})", maj, min),
+                (Some(maj), None) => format!("Office Theme ({})", maj),
+                (None, Some(min)) => format!("Office Theme ({})", min),
+                (None, None) => "Office Theme".to_string(),
+            };
+            println!("Themes:         {}", theme_str);
 
-    let mut slide_media_count = 0;
-    for s in &presentation.slides {
-        for el in &s.elements {
-            if matches!(el, pptx_model::SlideElement::Picture(_) | pptx_model::SlideElement::Media(_)) {
-                slide_media_count += 1;
+            let mut slide_media_count = 0;
+            for s in &presentation.slides {
+                for el in &s.elements {
+                    if matches!(el, pptx_model::SlideElement::Picture(_) | pptx_model::SlideElement::Media(_)) {
+                        slide_media_count += 1;
+                    }
+                }
+            }
+            let stats = asset_store.stats();
+            let count = if stats.cached_entries > 0 { stats.cached_entries } else { slide_media_count };
+            let mb = stats.cached_bytes as f64 / (1024.0 * 1024.0);
+            println!("Media Assets:   {} images ({:.1} MB)", count, mb);
+        }
+        DeckSource::Pdf(pdf_source) => {
+            let total = pdf_source.len();
+            println!("Pages:          {} pages", total);
+            if total > 0 {
+                let (w_emu, h_emu) = pdf_source.page_size_emu(0);
+                let pt_w = w_emu as f64 / 12700.0;
+                let pt_h = h_emu as f64 / 12700.0;
+                println!("Dimensions:     {:.1} x {:.1} pt ({:.0} x {:.0} mm)", pt_w, pt_h, pt_w * 25.4 / 72.0, pt_h * 25.4 / 72.0);
+                let ratio_str = format_aspect_ratio(w_emu, h_emu);
+                println!("Aspect Ratio:   {}", ratio_str);
+            }
+            let toc = pdf_source.toc();
+            if !toc.is_empty() {
+                println!("Bookmarks:      {} TOC entries", toc.len());
             }
         }
     }
-    let stats = asset_store.stats();
-    let count = if stats.cached_entries > 0 { stats.cached_entries } else { slide_media_count };
-    let mb = stats.cached_bytes as f64 / (1024.0 * 1024.0);
-    println!("Media Assets:   {} images ({:.1} MB)", count, mb);
 
     ExitCode::SUCCESS
 }

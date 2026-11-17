@@ -11,6 +11,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 fn main() -> ExitCode {
+    kitty_pptx_pdf::register();
     let args = Cli::parse();
 
     if let Some(shell) = args.generate_completions {
@@ -94,6 +95,7 @@ fn main() -> ExitCode {
             args.file,
             args.slide,
             args.presenter,
+            args.mode,
             &loader,
             compiler,
             rasterizer,

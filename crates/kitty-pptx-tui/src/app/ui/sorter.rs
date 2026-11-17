@@ -6,7 +6,6 @@ use ratatui::Frame;
 
 use crate::app::state::PresentationState;
 use crate::widget::SlideWidget;
-use kitty_pptx_display::MAX_THUMBNAIL_IMAGES;
 
 /// Render the interactive thumbnail slide sorter grid.
 pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -60,20 +59,29 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
 
     let cols = state.sorter_cols().max(1);
     let card_height = (grid_area.height / 3).clamp(5, 12);
-    // Never plan more cards than the image-id pool can keep resident; the
+
+    // Never plan more cards than the terminal image quota and image-id pool can keep resident; the
     // graphics syncer would otherwise leave the overflow blank.
-    let capacity_rows = (MAX_THUMBNAIL_IMAGES as usize / cols).max(1) as u16;
+    let (w_emu, h_emu) = state.slide_dimensions();
+    let ar = if h_emu > 0 { w_emu as f32 / h_emu as f32 } else { 16.0 / 9.0 };
+    let (target_w, target_h) = if ar >= 1.0 {
+        (2560u32, ((2560.0 / ar).round() as u32).clamp(1024, 8192))
+    } else {
+        (((2560.0 * ar).round() as u32).clamp(1024, 8192), 2560u32)
+    };
+    let canvas_target = kitty_pptx_core::RenderTargetSpec {
+        width_px: target_w,
+        height_px: target_h,
+    };
+    let max_cards = crate::app::graphics_thumbnails::max_sorter_cards_for_target(&canvas_target);
+    let capacity_rows = (max_cards / cols).max(1) as u16;
     let rows_visible = (grid_area.height / card_height).max(1).min(capacity_rows);
     let cursor = state.selected_sorter_index();
-    let cursor_row = (cursor / cols) as u16;
+    let cursor_row = cursor / cols;
 
-    let scroll_row = if cursor_row >= rows_visible {
-        cursor_row - rows_visible + 1
-    } else {
-        0
-    };
+    let scroll_row = state.sorter_scroll_row_with_hysteresis(cursor_row, rows_visible as usize);
 
-    let start_idx = (scroll_row as usize) * cols;
+    let start_idx = scroll_row * cols;
     let num_rows_to_render =
         rows_visible.min(total.saturating_sub(start_idx).div_ceil(cols) as u16);
 

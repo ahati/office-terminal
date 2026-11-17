@@ -66,9 +66,65 @@ fn test_kitty_present_sequence_uses_direct_placement() {
     assert_eq!(sequences.len(), 1);
     assert_eq!(
         sequences[0],
-        "\x1b[3;4H\x1b_Ga=p,i=7,p=1,c=5,r=4,z=-1,q=2\x1b\\"
+        "\x1b[3;4H\x1b_Ga=p,i=7,p=1,c=5,r=4,z=-1073741825,q=2\x1b\\"
     );
     assert!(!sequences[0].contains('\u{10EEEE}'));
+}
+
+#[test]
+fn test_kitty_present_z_sits_below_cell_backgrounds() {
+    // Kitty and Ghostty draw `INT32_MIN/2 <= z < 0` above non-default cell
+    // backgrounds. Overlay fills must stay opaque, so the slide has to go
+    // strictly below that band; the Alacritty fork treats every negative z
+    // the same way, so one value covers both layer models.
+    let rect = CellRect {
+        row: 2,
+        col: 3,
+        rows: 4,
+        cols: 5,
+    };
+    let sequences = KittyDriver::present_sequences(ImageId(7), Placement::Cells(rect));
+    let z = sequences[0]
+        .split("z=")
+        .nth(1)
+        .and_then(|rest| rest.split(',').next())
+        .and_then(|raw| raw.parse::<i32>().ok())
+        .expect("present sequence must carry a z-index");
+    assert_eq!(z, BEHIND_CELL_BACKGROUNDS_Z);
+    assert!(
+        z < i32::MIN / 2,
+        "slide placements must sit under the cell-background layer (z={z})"
+    );
+}
+
+#[test]
+fn test_kitty_present_sequence_subrect() {
+    let rect = CellRect {
+        row: 2,
+        col: 3,
+        rows: 4,
+        cols: 5,
+    };
+    let src = PixelRect {
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 200,
+    };
+    let sequences = KittyDriver::present_sequences(ImageId(7), Placement::CellsSubrect { rect, src });
+    assert_eq!(sequences.len(), 1);
+    assert_eq!(
+        sequences[0],
+        format!("\x1b[3;4H\x1b_Ga=p,i=7,p=1,x=10,y=20,w=100,h=200,c=5,r=4,z={BEHIND_CELL_BACKGROUNDS_Z},C=1,q=2\x1b\\")
+    );
+}
+
+#[test]
+fn test_cell_pixel_metrics() {
+    let default_metric = CellPixelSize::default();
+    assert_eq!(default_metric.width_px, 10.0);
+    assert_eq!(default_metric.height_px, 20.0);
+    assert_eq!(default_metric.aspect_ratio(), 0.5);
 }
 
 #[test]

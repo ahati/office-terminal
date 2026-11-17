@@ -82,3 +82,17 @@ fn test_config_resolvers_use_documented_defaults() {
     assert_eq!(parse_svg_text_mode("text"), SvgTextMode::SelectableText);
     assert_eq!(parse_svg_text_mode("paths"), SvgTextMode::VectorGlyphs);
 }
+
+#[test]
+fn test_cli_mode_flags() {
+    let args_default = Cli::try_parse_from(["kitty-pptx", "test.pdf"]).expect("parse failed");
+    assert_eq!(args_default.mode, kitty_pptx_cli::cli::DeckModeArg::Auto);
+
+    let args_reader =
+        Cli::try_parse_from(["kitty-pptx", "test.pdf", "--mode", "reader"]).expect("parse failed");
+    assert_eq!(args_reader.mode, kitty_pptx_cli::cli::DeckModeArg::Reader);
+
+    let args_slides =
+        Cli::try_parse_from(["kitty-pptx", "test.pdf", "--mode", "slides"]).expect("parse failed");
+    assert_eq!(args_slides.mode, kitty_pptx_cli::cli::DeckModeArg::Slides);
+}

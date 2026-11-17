@@ -126,6 +126,7 @@ impl<'a> Grid<'a> {
                 });
                 // A spanning cell owns every slot it covers, so interior-edge
                 // neighbour lookups resolve back to this anchor job.
+                #[allow(clippy::needless_range_loop)]
                 for rj in ri..=last_ri {
                     for cj in ci..(ci + span).min(num_cols) {
                         grid.occupancy[rj][cj] = idx;

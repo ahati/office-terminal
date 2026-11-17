@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::compiler::SlideCompiler;
 use crate::contracts::{
-    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
-    VectorSlide, WarningEvent,
+    InvalidateCause, PageSource, PipelineEntry, PptxPageSource, PrefetchPlan, RenderPipeline,
+    RenderTargetSpec, RgbaSlide, VectorSlide, WarningEvent,
 };
 use crate::error::RenderError;
 use crate::loader::AssetStore;
@@ -22,10 +22,9 @@ use crate::rasterizer::SlideRasterizer;
 /// Default implementation of the `RenderPipeline` trait providing background
 /// priority prefetching, cooperative cancellation, two-tier caching, and synchronous fallback.
 pub struct DefaultRenderPipeline {
-    compiler: Arc<dyn SlideCompiler>,
+    source: Arc<dyn PageSource>,
     rasterizer: Arc<dyn SlideRasterizer>,
-    presentation: Arc<pptx_model::Presentation>,
-    asset_store: Arc<dyn AssetStore>,
+    asset_store: Option<Arc<dyn AssetStore>>,
     generation: AtomicU64,
     cache: PipelineCache,
     workers: Arc<WorkerPool>,
@@ -36,6 +35,48 @@ pub struct DefaultRenderPipeline {
 }
 
 impl DefaultRenderPipeline {
+    /// Create a new render pipeline wrapping a [`PageSource`].
+    pub fn from_page_source(
+        source: Arc<dyn PageSource>,
+        rasterizer: Arc<dyn SlideRasterizer>,
+    ) -> Self {
+        Self::from_page_source_with_workers(source, rasterizer, 2)
+    }
+
+    /// Create a new render pipeline wrapping a [`PageSource`] with a custom worker count.
+    pub fn from_page_source_with_workers(
+        source: Arc<dyn PageSource>,
+        rasterizer: Arc<dyn SlideRasterizer>,
+        worker_threads: usize,
+    ) -> Self {
+        let cache = PipelineCache::new();
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let asset_store = source.asset_store();
+        let workers = Arc::new(WorkerPool::with_source_and_warnings(
+            worker_threads,
+            Arc::clone(&source),
+            asset_store.clone(),
+            Arc::clone(&rasterizer),
+            cache.clone(),
+            Arc::clone(&warnings),
+        ));
+
+        Self {
+            source,
+            rasterizer,
+            asset_store,
+            generation: AtomicU64::new(0),
+            cache,
+            workers,
+            last_target: Mutex::new(RenderTargetSpec {
+                width_px: 1920,
+                height_px: 1080,
+            }),
+            sync_fallback: AtomicBool::new(false),
+            warnings,
+        }
+    }
+
     /// Create a new render pipeline with default 2 background worker threads.
     pub fn new(
         presentation: Arc<pptx_model::Presentation>,
@@ -54,33 +95,12 @@ impl DefaultRenderPipeline {
         rasterizer: Arc<dyn SlideRasterizer>,
         worker_threads: usize,
     ) -> Self {
-        let cache = PipelineCache::new();
-        let warnings = Arc::new(Mutex::new(Vec::new()));
-        let workers = Arc::new(WorkerPool::with_warnings(
-            worker_threads,
-            Arc::clone(&presentation),
-            Arc::clone(&asset_store),
-            Arc::clone(&compiler),
-            Arc::clone(&rasterizer),
-            cache.clone(),
-            Arc::clone(&warnings),
-        ));
-
-        Self {
-            compiler,
-            rasterizer,
+        let source = Arc::new(PptxPageSource::new(
             presentation,
-            asset_store,
-            generation: AtomicU64::new(0),
-            cache,
-            workers,
-            last_target: Mutex::new(RenderTargetSpec {
-                width_px: 1920,
-                height_px: 1080,
-            }),
-            sync_fallback: AtomicBool::new(false),
-            warnings,
-        }
+            Arc::clone(&asset_store),
+            compiler,
+        ));
+        Self::from_page_source_with_workers(source, rasterizer, worker_threads)
     }
 
     /// Builder option to enable/disable synchronous fallback on `entry()` misses.
@@ -129,11 +149,11 @@ impl DefaultRenderPipeline {
         index: usize,
         target: &RenderTargetSpec,
     ) -> Result<RgbaSlide, RenderError> {
-        if index >= self.presentation.slides.len() {
+        if index >= self.source.len() {
             return Err(RenderError::CompilationFailed(format!(
                 "slide index {} out of bounds (total slides: {})",
                 index,
-                self.presentation.slides.len()
+                self.source.len()
             )));
         }
 
@@ -147,34 +167,25 @@ impl DefaultRenderPipeline {
             v
         } else {
             let (tx, rx) = crossbeam_channel::unbounded();
-            let slide = &self.presentation.slides[index];
-            let mut v = match self.compiler.compile_in_deck(
-                slide,
-                &self.presentation.slides,
-                self.presentation.slide_width,
-                self.presentation.slide_height,
-                &tx,
-            ) {
+            let v = match self.source.compile_page(index, &tx) {
                 Ok(scene) => scene,
                 Err(error) => {
                     self.flush_warnings(index, &rx);
                     return Err(error);
                 }
             };
-            // Metafile markers are expanded where the AssetStore is available
-            // (PRD 13 §10.1).
-            crate::metafile::expand_metafiles(&mut v, self.asset_store.as_ref(), &tx);
-            // Publish warnings before the cache entry so a consumer that sees
-            // the cached scene can also drain them.
             self.flush_warnings(index, &rx);
             self.cache.put_vector(index, v.clone());
             v
         };
 
         // Tier 2: Target rasterization
-        let bmp = self
-            .rasterizer
-            .rasterize(&vector_slide, target, self.asset_store.as_ref())?;
+        let empty_store = crate::loader::asset_store::EmptyAssetStore;
+        let store: &dyn AssetStore = match &self.asset_store {
+            Some(s) => s.as_ref(),
+            None => &empty_store,
+        };
+        let bmp = self.rasterizer.rasterize(&vector_slide, target, store)?;
         self.cache.put_raster(index, *target, bmp.clone());
         Ok(bmp)
     }
@@ -209,7 +220,17 @@ impl DefaultRenderPipeline {
 
     /// Shared tail of `entry`/`entry_at` once the target raster cache missed.
     fn entry_after_cache_miss(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
-        // 1. Synchronous fallback if enabled
+        // 1. Check for a latched background failure
+        if let Some(error) = self.workers.get_failed(index) {
+            return PipelineEntry::Failed { error };
+        }
+
+        // 2. Check if currently in-flight
+        if self.workers.is_in_flight(index) {
+            return PipelineEntry::Rendering;
+        }
+
+        // 3. Synchronous fallback if enabled and not already running in background
         if self.sync_fallback.load(Ordering::Acquire) {
             return match self.rasterize_now(index, target) {
                 Ok(bitmap) => PipelineEntry::Ready {
@@ -218,16 +239,6 @@ impl DefaultRenderPipeline {
                 },
                 Err(error) => PipelineEntry::Failed { error },
             };
-        }
-
-        // 2. Check for a latched background failure
-        if let Some(error) = self.workers.get_failed(index) {
-            return PipelineEntry::Failed { error };
-        }
-
-        // 3. Check if currently in-flight
-        if self.workers.is_in_flight(index) {
-            return PipelineEntry::Rendering;
         }
 
         // 4. Not yet loaded
@@ -241,7 +252,7 @@ impl RenderPipeline for DefaultRenderPipeline {
             *t = *target;
         }
 
-        let total_slides = self.presentation.slides.len();
+        let total_slides = self.source.len();
         if total_slides == 0 {
             return;
         }
@@ -327,7 +338,15 @@ impl RenderPipeline for DefaultRenderPipeline {
             };
         }
 
-        self.entry_after_cache_miss(index, target)
+        if let Some(error) = self.workers.get_failed(index) {
+            return PipelineEntry::Failed { error };
+        }
+
+        if self.workers.is_in_flight(index) {
+            return PipelineEntry::Rendering;
+        }
+
+        PipelineEntry::NotLoaded
     }
 
     fn drain_warnings(&self) -> Vec<(usize, WarningEvent)> {

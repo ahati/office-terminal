@@ -9,6 +9,8 @@ pub enum AppMode {
     HelpModal,
     /// Thumbnail slide sorter grid mode.
     Sorter,
+    /// Continuous document reader mode with focusable panes (PRD 14a).
+    Reader,
     /// Reviewer comments drawer for current slide.
     CommentsDrawer,
     /// Bottom drawer listing fidelity warnings.
