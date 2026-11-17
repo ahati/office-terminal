@@ -146,9 +146,19 @@ pub fn compute_pane_metrics_cropped(
 
     let scale = target_w as f32 / crop.pane_w_px.max(1.0);
     let screen_w_px = (cell_rect.cols as f32) * ctx.cell_w_px;
-    let max_scroll_x = (crop.pane_w_px - screen_w_px).max(0.0) as u32;
+    let overflow_x = crop.pane_w_px - screen_w_px;
+    let max_scroll_x = if view.zoom > 1.0 && overflow_x >= ctx.cell_w_px {
+        overflow_x.round() as u32
+    } else {
+        0
+    };
 
-    let src_x = (((crop.crop_left_px + view.scroll_x as f32) * scale).round() as u32).min(target_w);
+    let scroll_x = if max_scroll_x > 0 {
+        (view.scroll_x as f32).min(max_scroll_x as f32)
+    } else {
+        0.0
+    };
+    let src_x = (((crop.crop_left_px + scroll_x) * scale).round() as u32).min(target_w);
     let src_w = ((crop.crop_w_px * scale).round() as u32).min(target_w.saturating_sub(src_x));
 
     let total_scroll_y = (scroll_px as f32 + view.scroll_y as f32).max(0.0);
