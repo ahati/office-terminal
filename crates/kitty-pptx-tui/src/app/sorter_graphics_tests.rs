@@ -4,6 +4,7 @@
 //! slide pair, so these tests cover staging/placement/release across grid
 //! scrolls, resizes, overlays and blanking.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kitty_pptx_core::{
@@ -18,18 +19,21 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
 use crate::app::graphics::GraphicsSyncer;
+use crate::app::graphics_thumbnails::max_sorter_cards_for_target_and_quota;
 use crate::app::mode::{AppMode, BlankMode};
 use crate::app::state::PresentationState;
 use crate::app::ui::render_app;
 
-/// Target the full-screen canvas renders at; sorter cards reuse these rasters.
-const CANVAS: RenderTargetSpec = RenderTargetSpec {
+/// Target the full-screen canvas renders at. Sorter cards deliberately do NOT
+/// resolve against this target: they render at the dedicated aspect-derived
+/// sorter target (1280 px wide) instead.
+pub(crate) const CANVAS: RenderTargetSpec = RenderTargetSpec {
     width_px: 640,
     height_px: 360,
 };
 
-const WIDE: (u16, u16) = (100, 30);
-const SHORT: (u16, u16) = (100, 20);
+pub(crate) const WIDE: (u16, u16) = (100, 30);
+pub(crate) const SHORT: (u16, u16) = (100, 20);
 
 fn card_bitmap() -> RgbaSlide {
     RgbaSlide {
@@ -40,21 +44,45 @@ fn card_bitmap() -> RgbaSlide {
 }
 
 /// Pipeline that serves card-sized rasters and records the requested targets.
-struct GridPipeline {
+pub(crate) struct GridPipeline {
     slides: usize,
-    ready: bool,
+    /// When false, `entry_at` reports `NotLoaded`: the raster is neither
+    /// cached nor scheduled (simulates budget eviction or cancellation).
+    ready: AtomicBool,
     targets: Mutex<Vec<RenderTargetSpec>>,
     prefetched: Mutex<Vec<(usize, RenderTargetSpec)>>,
 }
 
 impl GridPipeline {
-    fn new(slides: usize) -> Self {
+    pub(crate) fn new(slides: usize) -> Self {
         Self {
             slides,
-            ready: true,
+            ready: AtomicBool::new(true),
             targets: Mutex::new(Vec::new()),
             prefetched: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Simulates the rasters vanishing from the pipeline cache.
+    pub(crate) fn set_ready(&self, ready: bool) {
+        self.ready.store(ready, Ordering::SeqCst);
+    }
+
+    pub(crate) fn prefetch_count(&self) -> usize {
+        self.prefetched.lock().map(|p| p.len()).unwrap_or(0)
+    }
+
+    /// Recorded `entry_at` targets, in call order.
+    pub(crate) fn requested_targets(&self) -> Vec<RenderTargetSpec> {
+        self.targets.lock().map(|t| t.clone()).unwrap_or_default()
+    }
+
+    /// Recorded `(slide, target)` prefetch pairs, in call order.
+    pub(crate) fn prefetch_log(&self) -> Vec<(usize, RenderTargetSpec)> {
+        self.prefetched
+            .lock()
+            .map(|p| p.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -68,7 +96,7 @@ impl RenderPipeline for GridPipeline {
     }
 
     fn entry(&self, index: usize) -> PipelineEntry {
-        if self.ready && index < self.slides {
+        if self.ready.load(Ordering::SeqCst) && index < self.slides {
             PipelineEntry::Ready {
                 bitmap: card_bitmap(),
                 staged: false,
@@ -82,13 +110,13 @@ impl RenderPipeline for GridPipeline {
         if let Ok(mut targets) = self.targets.lock() {
             targets.push(*target);
         }
-        if self.ready && index < self.slides {
+        if self.ready.load(Ordering::SeqCst) && index < self.slides {
             PipelineEntry::Ready {
                 bitmap: card_bitmap(),
                 staged: false,
             }
         } else {
-            PipelineEntry::Rendering
+            PipelineEntry::NotLoaded
         }
     }
 
@@ -96,20 +124,20 @@ impl RenderPipeline for GridPipeline {
 }
 
 #[derive(Default, Debug)]
-struct DriverLog {
-    staged: Vec<u32>,
-    presented: Vec<(u32, CellRect)>,
-    repositioned: Vec<(u32, CellRect)>,
-    released: Vec<u32>,
-    released_all: usize,
+pub(crate) struct DriverLog {
+    pub(crate) staged: Vec<u32>,
+    pub(crate) presented: Vec<(u32, CellRect)>,
+    pub(crate) repositioned: Vec<(u32, CellRect)>,
+    pub(crate) released: Vec<u32>,
+    pub(crate) released_all: usize,
 }
 
-struct RecordingDriver {
+pub(crate) struct RecordingDriver {
     log: Arc<Mutex<DriverLog>>,
 }
 
 impl RecordingDriver {
-    fn new() -> (Self, Arc<Mutex<DriverLog>>) {
+    pub(crate) fn new() -> (Self, Arc<Mutex<DriverLog>>) {
         let log = Arc::new(Mutex::new(DriverLog::default()));
         (
             Self {
@@ -161,21 +189,24 @@ impl TerminalGraphicsDriver for RecordingDriver {
 }
 
 /// Draws one sorter frame at the given terminal size, clearing stale rects.
-fn draw_sorter(state: &PresentationState, (width, height): (u16, u16)) -> Vec<(usize, CellRect)> {
+pub(crate) fn draw_sorter(
+    state: &PresentationState,
+    (width, height): (u16, u16),
+) -> Vec<(usize, CellRect)> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     state.clear_placement_rects();
     terminal.draw(|f| render_app(state, f)).unwrap();
     state.thumbnail_placement_rects()
 }
 
-fn sorter_state(slides: usize) -> PresentationState {
+pub(crate) fn sorter_state(slides: usize) -> PresentationState {
     let mut state = PresentationState::new(slides, vec![]);
     state.set_mode(AppMode::Sorter);
     state
 }
 
 /// Synchronizes repeatedly until the per-frame staging throttle has drained.
-fn sync_until_settled(
+pub(crate) fn sync_until_settled(
     syncer: &mut GraphicsSyncer,
     state: &mut PresentationState,
     pipeline: &GridPipeline,
@@ -259,7 +290,9 @@ fn sorter_does_not_retransmit_an_unchanged_grid() {
     };
 
     for _ in 0..3 {
-        syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+        syncer
+            .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+            .unwrap();
     }
 
     let after = log.lock().unwrap();
@@ -294,7 +327,9 @@ fn sorter_releases_cards_that_scroll_out_of_view() {
         "scrolling replaced the whole page"
     );
 
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
 
     let log = log.lock().unwrap();
     let released: Vec<u32> = log.released.clone();
@@ -333,7 +368,9 @@ fn leaving_the_sorter_releases_thumbnails_and_restores_the_slide() {
     state.clear_placement_rects();
     let mut terminal = Terminal::new(TestBackend::new(WIDE.0, WIDE.1)).unwrap();
     terminal.draw(|f| render_app(&state, f)).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
 
     let log = log.lock().unwrap();
     for id in &thumb_ids {
@@ -352,41 +389,6 @@ fn leaving_the_sorter_releases_thumbnails_and_restores_the_slide() {
             .iter()
             .any(|(id, _)| *id == state.current_image_id().0),
         "the restored slide is placed"
-    );
-}
-
-#[test]
-fn sorter_reuses_the_canvas_raster() {
-    let pipeline = GridPipeline::new(6);
-    let (mut driver, log) = RecordingDriver::new();
-    let mut syncer = GraphicsSyncer::new();
-    let mut state = sorter_state(6);
-
-    let cards = draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
-
-    // Cards are looked up at the canvas target, not at a card-sized target: a
-    // thumbnail is the same bitmap the full-screen view shows, scaled by the
-    // terminal (small targets inflate text past the rasterizer's 6 px floor).
-    let targets = pipeline.targets.lock().unwrap().clone();
-    assert!(!targets.is_empty(), "cards resolve an explicit target");
-    assert!(
-        targets.iter().all(|target| *target == CANVAS),
-        "every card reuses the canvas raster: {targets:?}"
-    );
-
-    // The visible page is prefetched at that same target, so the grid warms
-    // exactly the bitmaps the deck itself needs.
-    let prefetched = pipeline.prefetched.lock().unwrap().clone();
-    for (slide, _) in &cards {
-        assert!(
-            prefetched.contains(&(*slide, CANVAS)),
-            "visible slide {slide} is prefetched at the canvas target: {prefetched:?}"
-        );
-    }
-    assert!(
-        log.lock().unwrap().staged.len() <= 4,
-        "staging is throttled"
     );
 }
 
@@ -414,7 +416,9 @@ fn sorter_keeps_thumbnails_under_an_overlay_modal() {
     state.enter_overlay(AppMode::HelpModal);
     assert_eq!(state.base_mode(), AppMode::Sorter);
     draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.released.len(), released, "an overlay is not a teardown");
@@ -439,8 +443,12 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
     );
 
     state.toggle_blank(BlankMode::Black);
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
     assert_eq!(
         log.lock().unwrap().released_all,
         1,
@@ -449,7 +457,9 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
 
     state.unblank();
     draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
     assert!(
         log.lock().unwrap().staged.len() > cards.len(),
         "cards are re-staged after the blank screen"
@@ -470,7 +480,9 @@ fn resizing_cards_repositions_instead_of_retransmitting() {
     // Taller terminal: same column count and aspect, so the card target (and
     // therefore the bitmap) is unchanged while the rows move.
     draw_sorter(&state, (100, 40));
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
 
     let log = log.lock().unwrap();
     assert!(
@@ -492,7 +504,9 @@ fn empty_deck_places_nothing() {
     let mut state = sorter_state(0);
 
     draw_sorter(&state, WIDE);
-    syncer.sync(&mut state, &pipeline, &mut driver, &CANVAS).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .unwrap();
 
     let log = log.lock().unwrap();
     assert!(log.staged.is_empty());
@@ -502,9 +516,11 @@ fn empty_deck_places_nothing() {
 
 #[test]
 fn sorter_caps_visible_cards_to_terminal_quota() {
-    use crate::app::graphics_thumbnails::max_sorter_cards_for_target_and_quota;
     let card_bytes = 480 * 360 * 4;
-    let target = RenderTargetSpec { width_px: 480, height_px: 360 };
+    let target = RenderTargetSpec {
+        width_px: 480,
+        height_px: 360,
+    };
     let max_cards = max_sorter_cards_for_target_and_quota(&target, Some(card_bytes * 3));
     assert_eq!(max_cards, 3, "Caps to exactly 3 cards under quota");
 }

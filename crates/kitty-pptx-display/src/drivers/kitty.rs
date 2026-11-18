@@ -127,14 +127,24 @@ impl KittyDriver {
         Ok(png_bytes)
     }
 
+    /// Transmits one bitmap as a single coalesced write.
+    ///
+    /// Kitty requires the base64 payload to be split into ≤4 KB chunks with
+    /// `m=0`/`m=1` framing, but the framing lives in the escape sequences, not
+    /// in individual `write(2)` calls. Concatenating every chunk into one blob
+    /// keeps the protocol framing intact while replacing dozens of
+    /// write+flush syscalls per image with exactly one (PRD 03a §6: pty writes
+    /// block on the terminal reader, so syscall count is latency).
     fn transmit(&self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError> {
         let tty = global_tty();
         let png = Self::encode_png(bmp)?;
         let b64 = BASE64.encode(&png);
-        for seq in Self::format_transmission_chunks(id, bmp.width, bmp.height, &b64) {
-            tty.write_seq(&seq).map_err(DisplayError::Io)?;
+        let chunks = Self::format_transmission_chunks(id, bmp.width, bmp.height, &b64);
+        let mut blob = String::with_capacity(b64.len() + chunks.len() * 64);
+        for seq in chunks {
+            blob.push_str(&seq);
         }
-        Ok(())
+        tty.write_seq(&blob).map_err(DisplayError::Io)
     }
 
     /// Escape sequences that present `id` for the given [`Placement`].
