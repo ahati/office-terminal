@@ -1,9 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
-use kitty_pptx_display::{
-    CellRect, ImageId, Placement, TerminalGraphicsDriver,
-};
+use kitty_pptx_display::{CellRect, ImageId, Placement, TerminalGraphicsDriver};
 
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
@@ -53,9 +51,18 @@ impl GraphicsSyncer {
         Self::default()
     }
 
-    /// Forgets all staging/placement bookkeeping (e.g. after a resize).
+    /// Forgets all staging/placement bookkeeping (e.g. after a teardown).
     pub(crate) fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// Forgets staging/placement bookkeeping after a resize but keeps the
+    /// sorter's downscaled-card cache: the sorter target is aspect-derived, so
+    /// a resize never invalidates the cached cards.
+    pub(crate) fn reset_preserving_thumbnail_cache(&mut self) {
+        let cache = std::mem::take(&mut self.thumbnails.downscale_cache);
+        *self = Self::default();
+        self.thumbnails.downscale_cache = cache;
     }
 
     /// Synchronizes staged images and placements with the current frame.
@@ -93,12 +100,14 @@ impl GraphicsSyncer {
             self.release_thumbnails(driver)?;
             self.release_current(driver)?;
             self.release_preview(driver)?;
-            return self.reader.sync(state, pipeline, driver, canvas_target, &mut self.epoch);
+            return self
+                .reader
+                .sync(state, pipeline, driver, canvas_target, &mut self.epoch);
         }
 
         self.reader.release_all(driver)?;
         if state.base_mode() == AppMode::Sorter {
-            return self.sync_thumbnails(state, pipeline, driver, canvas_target);
+            return self.sync_thumbnails(state, pipeline, driver);
         }
 
         self.release_thumbnails(driver)?;
@@ -153,11 +162,13 @@ impl GraphicsSyncer {
 
     /// Syncs the slide-sorter grid: one bitmap per visible card.
     ///
-    /// Cards reuse the canvas raster and let the terminal scale it into the
-    /// card cells, so a thumbnail is pixel-identical to the full-screen slide.
-    /// Rendering cards at their own small target is not an option: the text
-    /// rasterizer floors font size at 6 px, which inflates every run relative
-    /// to the compiled line boxes and makes thumbnails look unwrapped.
+    /// Cards render at a dedicated aspect-derived sorter target (see
+    /// [`crate::app::graphics_thumbnails::thumbnail_target_for_aspect`]) —
+    /// not the canvas raster. 1280 px keeps text runs above the rasterizer's
+    /// 6 px font floor while cutting rasterization cost ~5x; PDF pages even
+    /// gain sharpness because their 2560 px canonical source is finally
+    /// downsampled instead of upsampled past. The dedicated target is also
+    /// resize- and zoom-invariant, so sorter rasters survive layout changes.
     ///
     /// Only visible cards are staged; cards that scroll out are released so the
     /// resident-id pool stays bounded.
@@ -166,19 +177,21 @@ impl GraphicsSyncer {
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
-        canvas_target: &RenderTargetSpec,
     ) -> Result<(), DisplayError> {
         self.release_current(driver)?;
         self.release_preview(driver)?;
-        self.thumbnails.sync_thumbnails(state, pipeline, driver, canvas_target, &mut self.epoch)
+        self.thumbnails
+            .sync_thumbnails(state, pipeline, driver, &mut self.epoch)
     }
 
-    /// Releases all staged thumbnails (leaving the sorter).
+    /// Releases all staged thumbnails (leaving the sorter). The downscaled-card
+    /// cache is kept: the deck is unchanged, so re-entering the sorter restages
+    /// from cache instead of re-rendering every visible slide.
     fn release_thumbnails(
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        self.thumbnails.release_all(driver)
+        self.thumbnails.release_all_keep_cache(driver)
     }
 
     /// Stages `slide` under `id` when the slot does not already hold it.

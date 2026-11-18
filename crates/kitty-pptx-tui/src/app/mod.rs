@@ -4,25 +4,27 @@ mod graphics;
 pub(crate) mod graphics_reader;
 #[cfg(test)]
 mod graphics_tests;
+pub(crate) mod graphics_thumbnails;
 pub mod link_state;
 pub mod media;
 pub mod mode;
 pub mod nav_state;
 pub mod reader_events;
+#[cfg(test)]
+mod reader_graphics_tests;
 pub mod reader_scroll;
 pub mod reader_state;
 pub mod reader_types;
 pub mod search_state;
 #[cfg(test)]
 mod sorter_graphics_tests;
-#[cfg(test)]
-mod reader_graphics_tests;
 pub mod sorter_state;
+#[cfg(test)]
+mod sorter_thumbnail_recovery_tests;
 pub mod state;
 mod state_notices;
 mod state_reader;
 mod state_timing;
-pub(crate) mod graphics_thumbnails;
 mod terminal_guard;
 pub mod ui;
 pub mod warnings_state;
@@ -334,9 +336,11 @@ impl PresentationApp {
     /// Forgetting the bookkeeping alone is not enough: sorter thumbnails are
     /// re-allocated from a free-list, so a card that moves to a lower image id
     /// would otherwise leave its old placement behind at the previous geometry.
+    /// The sorter's downscaled-card cache survives the reset: its target is
+    /// aspect-derived, so a resize never invalidates the cached cards.
     fn restage_graphics(&mut self) {
         let _ = self.driver.release_all();
-        self.graphics.reset();
+        self.graphics.reset_preserving_thumbnail_cache();
     }
 
     /// Stages and places terminal graphics for the frame that was just drawn.
