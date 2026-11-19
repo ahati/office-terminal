@@ -6,6 +6,7 @@ use pptx_model::Slide;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
+use kitty_pptx_tui::app::bindings::FrameBindings;
 use kitty_pptx_tui::app::events::{handle_key_event, AppAction};
 use kitty_pptx_tui::app::link_state::handle_mouse_event;
 use kitty_pptx_tui::app::mode::AppMode;
@@ -183,15 +184,19 @@ fn mouse_click_hits_link_and_miss_advances_slide() {
     let mut state = state_with_external_link();
     state.set_layout_dimensions(80, 24);
 
-    // Draw one frame so the slide widget records the rect it actually drew
-    // (fullscreen minus the status row); hit-testing targets that rect.
+    // Draw one frame so the render pass records the rect it actually drew
+    // (fullscreen minus the status row) and publishes it; hit-testing
+    // targets that rect.
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("terminal");
+    let mut bindings = FrameBindings::default();
     terminal
-        .draw(|frame| render_app(&state, frame))
+        .draw(|frame| render_app(&state, frame, &mut bindings))
         .expect("render frame");
-    let (placed, _) = state.placement_rects();
-    let placed = placed.expect("frame must record the slide placement rect");
+    state.publish_frame_bindings(bindings);
+    let placed = state
+        .current_placement_rect()
+        .expect("frame must record the slide placement rect");
     assert_eq!((placed.col, placed.row, placed.cols, placed.rows), (0, 0, 80, 23));
 
     // The link is full-bleed: the center of the drawn slide rect must hit it.
@@ -208,8 +213,9 @@ fn mouse_click_hits_link_and_miss_advances_slide() {
     miss_state.set_layout_dimensions(80, 24);
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("terminal");
+    let mut bindings = FrameBindings::default();
     terminal
-        .draw(|frame| render_app(&miss_state, frame))
+        .draw(|frame| render_app(&miss_state, frame, &mut bindings))
         .expect("render frame");
     let action = handle_mouse_event(click(79, 23), &mut miss_state);
     assert_eq!(action, AppAction::SlideChanged);
@@ -237,8 +243,9 @@ fn link_picker_modal_renders_in_smoke_test() {
     let mut terminal = Terminal::new(backend).expect("terminal");
     let mut state = state_with_external_link();
     state.open_link_picker();
+    let mut bindings = FrameBindings::default();
     terminal
-        .draw(|frame| render_app(&state, frame))
+        .draw(|frame| render_app(&state, frame, &mut bindings))
         .expect("render link picker");
     assert_eq!(state.mode(), AppMode::LinkPickerModal);
 }

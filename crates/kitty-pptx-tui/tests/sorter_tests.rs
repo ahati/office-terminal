@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use kitty_pptx_tui::app::bindings::FrameBindings;
 use kitty_pptx_tui::app::events::{handle_key_event, AppAction};
 use kitty_pptx_tui::app::state::{AppMode, PresentationState, PresenterMode};
 use kitty_pptx_tui::app::ui::sorter::render_sorter;
@@ -216,9 +217,10 @@ fn test_sorter_ui_rendering_smoke() {
     state.set_mode(AppMode::Sorter);
     state.set_selected_sorter_index(3);
 
+    let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| {
-            render_sorter(&state, f, f.area());
+            render_sorter(&state, f, f.area(), &mut bindings);
         })
         .unwrap();
 
@@ -257,13 +259,14 @@ fn test_sorter_cards_reserve_a_thumbnail_canvas() {
     let mut state = PresentationState::new(12, vec![]);
     state.set_mode(AppMode::Sorter);
 
+    let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| {
-            render_sorter(&state, f, f.area());
+            render_sorter(&state, f, f.area(), &mut bindings);
         })
         .unwrap();
 
-    let cards = state.thumbnail_placement_rects();
+    let cards = bindings.thumbnails.clone();
     assert_eq!(
         cards.len(),
         12,
@@ -301,26 +304,26 @@ fn test_sorter_44_slides_scrolling_and_navigation() {
     state.set_sorter_cols(4);
 
     // Initial view: starts at top row
-    state.clear_placement_rects();
+    let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| {
-            render_sorter(&state, f, f.area());
+            render_sorter(&state, f, f.area(), &mut bindings);
         })
         .unwrap();
 
-    let initial_cards = state.thumbnail_placement_rects();
+    let initial_cards = bindings.thumbnails.clone();
     assert_eq!(initial_cards[0].0, 0, "first visible card is slide 0");
 
     // Navigate to slide 43 (last slide of 44 slides, row 10)
     state.set_selected_sorter_index(43);
-    state.clear_placement_rects();
+    let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| {
-            render_sorter(&state, f, f.area());
+            render_sorter(&state, f, f.area(), &mut bindings);
         })
         .unwrap();
 
-    let end_cards = state.thumbnail_placement_rects();
+    let end_cards = bindings.thumbnails.clone();
     assert!(
         end_cards.iter().any(|(s, _)| *s == 43),
         "last slide 43 is visible when navigated to end"
@@ -328,14 +331,14 @@ fn test_sorter_44_slides_scrolling_and_navigation() {
 
     // Cursor moves up to slide 39 (row 9): hysteresis keeps slide 43 visible in the bottom row
     state.set_selected_sorter_index(39);
-    state.clear_placement_rects();
+    let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| {
-            render_sorter(&state, f, f.area());
+            render_sorter(&state, f, f.area(), &mut bindings);
         })
         .unwrap();
 
-    let prev_cards = state.thumbnail_placement_rects();
+    let prev_cards = bindings.thumbnails.clone();
     assert!(
         prev_cards.iter().any(|(s, _)| *s == 39),
         "slide 39 is visible"

@@ -4,11 +4,17 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use ratatui::Frame;
 
+use crate::app::bindings::FrameBindings;
 use crate::app::state::PresentationState;
 use crate::widget::SlideWidget;
 
 /// Render the interactive thumbnail slide sorter grid.
-pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
+pub fn render_sorter(
+    state: &PresentationState,
+    f: &mut Frame,
+    area: Rect,
+    bindings: &mut FrameBindings,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -151,8 +157,10 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
             f.render_widget(block, card_rect);
 
             if inner.width > 0 && inner.height > 0 {
-                let card = SlideWidget::thumbnail(idx, state.thumbnail_placement_sink())
-                    .with_aspect_ratio(state.aspect_ratio());
+                // Record the card's fitted rect (image ids are owned by the
+                // graphics syncer; it stages and releases them per card).
+                bindings.record_thumbnail(idx, inner, state.aspect_ratio());
+                let card = SlideWidget::default().with_aspect_ratio(state.aspect_ratio());
                 f.render_widget(card, inner);
             }
         }

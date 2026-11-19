@@ -9,6 +9,7 @@ pub use crate::app::ui::reader_layout::{
     compute_horizontal_pane_metrics, compute_pane_metrics_cropped, PaneCellArea, PaneCropSpan,
     PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
 };
+use crate::app::bindings::FrameBindings;
 use crate::app::reader_state::ReaderState;
 use crate::app::reader_types::{
     page_image_id, reader_viewport_metrics, ReaderLayout, ReaderSlotPlacement,
@@ -16,7 +17,15 @@ use crate::app::reader_types::{
 use crate::app::state::PresentationState;
 
 /// Renders the current reader viewport (Single, Spread, or Horizontal mode).
-pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
+///
+/// The exact pane geometry this frame places is recorded into `bindings`
+/// instead of being written back into state during the draw.
+pub fn render_reader(
+    state: &PresentationState,
+    f: &mut Frame<'_>,
+    area: Rect,
+    bindings: &mut FrameBindings,
+) {
     if area.width < MIN_PANE_COLS || area.height < 3 {
         return;
     }
@@ -109,11 +118,14 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
         }
 
         let placed_cols = placements.len().max(1);
-        state.set_reader_num_columns(placed_cols);
-        reader.set_num_columns(placed_cols);
-        state.update_reader_placements(placements);
+        bindings.reader_columns = placed_cols;
+        bindings.reader = placements;
 
-        let status_text = reader.status_line(state.presentation_title().unwrap_or("document.pdf"));
+        let status_text = reader.status_line(
+            state.presentation_title().unwrap_or("document.pdf"),
+            &bindings.reader,
+            bindings.reader_columns,
+        );
         let status_style = Style::default().fg(Color::White).bg(Color::DarkGray);
         let status_paragraph = Paragraph::new(Line::from(vec![
             Span::raw(" "),
@@ -142,9 +154,8 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
         ReaderLayout::Horizontal => 1,
     };
 
-    // Publish computed column count to state (P0-2)
-    state.set_reader_num_columns(num_cols);
-    reader.set_num_columns(num_cols);
+    // Record the computed column count for this frame (P0-2).
+    bindings.reader_columns = num_cols;
 
     let is_multi = num_cols > 1;
     let slot_w_px = if is_multi {
@@ -260,10 +271,14 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
         }
     }
 
-    state.update_reader_placements(placements);
+    bindings.reader = placements;
 
     // ─── Status Line ─────────────────────────────────────────────────────────────
-    let status_text = reader.status_line(state.presentation_title().unwrap_or("document.pdf"));
+    let status_text = reader.status_line(
+        state.presentation_title().unwrap_or("document.pdf"),
+        &bindings.reader,
+        bindings.reader_columns,
+    );
     let status_style = Style::default().fg(Color::White).bg(Color::DarkGray);
     let status_paragraph = Paragraph::new(Line::from(vec![
         Span::raw(" "),

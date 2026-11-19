@@ -12,6 +12,7 @@ use kitty_pptx_display::{
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
+use crate::app::bindings::FrameBindings;
 use crate::app::graphics::GraphicsSyncer;
 use crate::app::mode::{AppMode, BlankMode};
 use crate::app::state::PresentationState;
@@ -117,11 +118,16 @@ impl TerminalGraphicsDriver for MockDriver {
     }
 }
 
-fn draw_frame(state: &PresentationState) {
-    let backend = TestBackend::new(80, 24);
+/// Draws one 80x24 frame at the given size and returns the bindings the
+/// render pass produced (the run loop would sync and publish them).
+fn draw_frame(state: &PresentationState, width: u16, height: u16) -> FrameBindings {
+    let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
-    state.clear_placement_rects();
-    terminal.draw(|f| render_app(state, f)).unwrap();
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(state, f, &mut bindings))
+        .unwrap();
+    bindings
 }
 
 #[test]
@@ -131,10 +137,12 @@ fn test_direct_positioning_stages_and_presents_once() {
     let mut state = PresentationState::new(3, vec![]);
     let mut syncer = GraphicsSyncer::new();
 
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
-    let expected = state.placement_rects().0.expect("slide rect recorded");
+    let expected = bindings.current.expect("slide rect recorded");
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged, vec![1]);
@@ -142,7 +150,9 @@ fn test_direct_positioning_stages_and_presents_once() {
     }
 
     // An unchanged frame must not re-stage or re-place the image.
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged.len(), 1);
@@ -152,8 +162,10 @@ fn test_direct_positioning_stages_and_presents_once() {
 
     // Slide change: the old id is released and the new one placed.
     state.next_slide();
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged, vec![1, 2]);
@@ -170,15 +182,16 @@ fn test_rect_change_uses_reposition() {
     let mut state = PresentationState::new(2, vec![]);
     let mut syncer = GraphicsSyncer::new();
 
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
     // Simulate a resize: new rect for the same slide/id.
-    let backend = TestBackend::new(60, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
-    state.clear_placement_rects();
-    terminal.draw(|f| render_app(&state, f)).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 60, 20);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.presented.len(), 1);
@@ -194,9 +207,11 @@ fn test_presenter_mode_places_preview() {
     state.set_mode(AppMode::PresenterConsole);
     let mut syncer = GraphicsSyncer::new();
 
-    draw_frame(&state);
-    let (current, preview) = state.placement_rects();
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    let (current, preview) = (bindings.current, bindings.preview);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.staged, vec![1, 10]);
@@ -213,14 +228,18 @@ fn test_presenter_navigation_keeps_current_image() {
     state.set_mode(AppMode::PresenterConsole);
     let mut syncer = GraphicsSyncer::new();
 
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
     // Slide 1 was the preview (id 10) and becomes the current slide (id 2).
     // Releasing the old preview must not release the new current image.
     state.next_slide();
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
     let log = log.lock().unwrap();
     assert!(
@@ -244,12 +263,16 @@ fn test_missing_rect_releases_previous_image() {
     let mut state = PresentationState::new(2, vec![]);
     let mut syncer = GraphicsSyncer::new();
 
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
-    // No slide widget drawn this frame (e.g. sorter).
-    state.clear_placement_rects();
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    // No slide widget drawn this frame (e.g. sorter): empty bindings.
+    let empty = FrameBindings::default();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &empty)
+        .unwrap();
 
     let log = log.lock().unwrap();
     assert_eq!(log.released, vec![1]);
@@ -262,17 +285,26 @@ fn test_blank_screen_suppresses_graphics_once_then_resumes() {
     let mut state = PresentationState::new(2, vec![]);
     let mut syncer = GraphicsSyncer::new();
 
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
     state.toggle_blank(BlankMode::Black);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let blank = FrameBindings::default();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &blank)
+        .unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &blank)
+        .unwrap();
     assert_eq!(log.lock().unwrap().released_all, 1);
 
     state.unblank();
-    draw_frame(&state);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
     let log = log.lock().unwrap();
     assert_eq!(log.staged.len(), 2);
     assert_eq!(log.presented.len(), 2);
@@ -320,8 +352,10 @@ fn a_failed_render_is_surfaced_in_state_and_not_staged() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = PresentationState::new(2, vec![]);
 
-    draw_frame(&state);
-    syncer.sync(&mut state, &FailingPipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &FailingPipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
 
     assert!(
         log.lock().unwrap().staged.is_empty(),
@@ -340,7 +374,9 @@ fn a_failed_render_is_surfaced_in_state_and_not_staged() {
 
     // Idempotent per (slide, message): syncing every frame must not spam.
     for _ in 0..3 {
-        syncer.sync(&mut state, &FailingPipeline, &mut driver, &canvas()).unwrap();
+        syncer
+            .sync(&mut state, &FailingPipeline, &mut driver, &canvas(), &bindings)
+            .unwrap();
     }
     assert_eq!(state.warnings.len(), 1, "no duplicate warning entries");
 }
@@ -353,12 +389,16 @@ fn a_recovered_render_clears_the_failure_record() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = PresentationState::new(2, vec![]);
 
-    draw_frame(&state);
-    syncer.sync(&mut state, &FailingPipeline, &mut driver, &canvas()).unwrap();
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &FailingPipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
     assert!(state.render_failure().is_some());
 
     let pipeline = MockPipeline { slides: 2 };
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas()).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
     assert!(
         state.render_failure().is_none(),
         "a successful stage clears the failure"
@@ -374,8 +414,10 @@ fn a_failed_render_draws_a_note_on_the_canvas() {
 
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
-    state.clear_placement_rects();
-    terminal.draw(|f| render_app(&state, f)).unwrap();
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(&state, f, &mut bindings))
+        .unwrap();
 
     let text: String = terminal
         .backend()
@@ -398,7 +440,10 @@ fn a_failed_render_draws_a_note_on_the_canvas() {
     other.note_render_failure(1, "unrelated slide".to_string());
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|f| render_app(&other, f)).unwrap();
+    let mut other_bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(&other, f, &mut other_bindings))
+        .unwrap();
     let text: String = terminal
         .backend()
         .buffer()

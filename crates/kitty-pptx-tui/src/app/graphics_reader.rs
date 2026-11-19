@@ -9,6 +9,8 @@ use kitty_pptx_display::{
     READER_IMAGE_ID_SLOTS,
 };
 
+use crate::app::bindings::FrameBindings;
+use crate::app::reader_state::ReaderSlotPlacement;
 use crate::app::state::PresentationState;
 
 /// Number of resident reader image ids (mirrors the display-layer pool).
@@ -66,8 +68,9 @@ impl ReaderGraphicsSyncer {
         driver: &mut dyn TerminalGraphicsDriver,
         _canvas_target: &RenderTargetSpec,
         epoch: &mut u64,
+        bindings: &FrameBindings,
     ) -> Result<(), DisplayError> {
-        let placements = state.reader_placements();
+        let placements: &[ReaderSlotPlacement] = bindings.reader.as_slice();
 
         // Per-page prefetch targets (P1-1): every visible pane stages at its
         // own aspect-correct target — mixed-size documents included — and the
@@ -76,12 +79,20 @@ impl ReaderGraphicsSyncer {
         if let Some(reader) = state.reader_state() {
             let center = reader.focused_page();
             let mut targets: Vec<(usize, RenderTargetSpec)> = Vec::new();
-            for placement in &placements {
+            for placement in placements {
                 if !targets.iter().any(|&(page, _)| page == placement.page) {
                     targets.push((placement.page, placement.page_target));
                 }
             }
-            let cols = reader.num_columns().max(1);
+            // Column count of the drawn frame; fall back to the published
+            // mirror when this frame laid out no reader panes (e.g. a
+            // viewport too small for a pane).
+            let cols = if bindings.reader_columns > 0 {
+                bindings.reader_columns
+            } else {
+                state.reader_num_columns()
+            }
+            .max(1);
             let next_anchor = if reader.cover_alone && reader.anchor == 0 {
                 1
             } else {

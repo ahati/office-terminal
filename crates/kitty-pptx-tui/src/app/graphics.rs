@@ -1,8 +1,7 @@
-use std::sync::{Arc, Mutex};
-
 use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::{CellRect, ImageId, Placement, TerminalGraphicsDriver};
 
+use crate::app::bindings::FrameBindings;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
 
@@ -27,13 +26,13 @@ struct PlacedImage {
     epoch: u64,
 }
 
-/// Keeps terminal graphics in sync with the rects recorded by the last frame.
+/// Keeps terminal graphics in sync with the geometry the last frame drew.
 ///
-/// The syncer stages the visible bitmap(s) on demand and places/repositions the
-/// image only when the slide or its screen rect changed, so the render loop
-/// never spams the terminal with duplicate image commands. Exactly one view
-/// owns the screen at a time: the full-screen current slide (optionally with a
-/// presenter preview) or the slide-sorter thumbnail grid.
+/// The syncer stages the visible bitmap(s) on demand and places/repositions
+/// the image only when the slide or its screen rect changed, so the render
+/// loop never spams the terminal with duplicate image commands. Exactly one
+/// view owns the screen at a time: the full-screen current slide (optionally
+/// with a presenter preview) or the slide-sorter thumbnail grid.
 #[derive(Default)]
 pub(crate) struct GraphicsSyncer {
     current_staged: Option<StagedImage>,
@@ -69,15 +68,17 @@ impl GraphicsSyncer {
     /// A failed background render is recorded on the state (canvas note +
     /// warning entry) instead of silently leaving the slide blank.
     ///
-    /// `canvas_target` is the resolution the full-screen view is rendered at:
-    /// the sorter shares those bitmaps and lets the terminal scale them into
-    /// the cards, so both views show the exact same pixels.
+    /// `bindings` carries the geometry the just-drawn frame produced;
+    /// `canvas_target` is the resolution the full-screen view is rendered
+    /// at: the sorter shares those bitmaps and lets the terminal scale them
+    /// into the cards, so both views show the exact same pixels.
     pub(crate) fn sync(
         &mut self,
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
         canvas_target: &RenderTargetSpec,
+        bindings: &FrameBindings,
     ) -> Result<(), DisplayError> {
         if state.total_slides() == 0 {
             return self.clear_everything(driver);
@@ -102,16 +103,16 @@ impl GraphicsSyncer {
             self.release_preview(driver)?;
             return self
                 .reader
-                .sync(state, pipeline, driver, canvas_target, &mut self.epoch);
+                .sync(state, pipeline, driver, canvas_target, &mut self.epoch, bindings);
         }
 
         self.reader.release_all(driver)?;
         if state.base_mode() == AppMode::Sorter {
-            return self.sync_thumbnails(state, pipeline, driver);
+            return self.sync_thumbnails(state, pipeline, driver, bindings);
         }
 
         self.release_thumbnails(driver)?;
-        self.sync_slide(state, pipeline, driver)
+        self.sync_slide(state, pipeline, driver, bindings)
     }
 
     /// Syncs the full-screen slide and the presenter next-slide preview.
@@ -120,8 +121,10 @@ impl GraphicsSyncer {
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
+        bindings: &FrameBindings,
     ) -> Result<(), DisplayError> {
-        let (current_rect, preview_rect) = state.placement_rects();
+        let current_rect = bindings.current;
+        let preview_rect = bindings.preview;
 
         match current_rect {
             Some(rect) => {
@@ -177,11 +180,12 @@ impl GraphicsSyncer {
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
+        bindings: &FrameBindings,
     ) -> Result<(), DisplayError> {
         self.release_current(driver)?;
         self.release_preview(driver)?;
         self.thumbnails
-            .sync_thumbnails(state, pipeline, driver, &mut self.epoch)
+            .sync_thumbnails(state, pipeline, driver, &mut self.epoch, &bindings.thumbnails)
     }
 
     /// Releases all staged thumbnails (leaving the sorter). The downscaled-card
@@ -370,63 +374,5 @@ impl GraphicsSyncer {
         self.reset();
         self.suppressed = true;
         Ok(())
-    }
-}
-
-/// Terminal-graphics placement state accessors.
-impl PresentationState {
-    // ─── Terminal graphics placement ───────────────────────────────
-
-    /// Shared sink where the current slide view records its screen rect.
-    pub fn placement_sink(&self) -> Arc<Mutex<Option<CellRect>>> {
-        Arc::clone(&self.placement_rect)
-    }
-
-    /// Shared sink where the presenter next-slide preview records its rect.
-    pub fn preview_placement_sink(&self) -> Arc<Mutex<Option<CellRect>>> {
-        Arc::clone(&self.preview_placement_rect)
-    }
-
-    /// Shared sink where the sorter grid records one rect per visible card.
-    pub fn thumbnail_placement_sink(&self) -> crate::widget::RectListSink {
-        Arc::clone(&self.thumbnail_placement_rects)
-    }
-
-    /// `(slide, rect)` pairs recorded by the last sorter frame.
-    pub fn thumbnail_placement_rects(&self) -> Vec<(usize, CellRect)> {
-        self.thumbnail_placement_rects
-            .lock()
-            .map(|rects| rects.clone())
-            .unwrap_or_default()
-    }
-
-    /// Current `(slide, preview)` placement rects recorded by the last frame.
-    pub fn placement_rects(&self) -> (Option<CellRect>, Option<CellRect>) {
-        (
-            read_placement(&self.placement_rect),
-            read_placement(&self.preview_placement_rect),
-        )
-    }
-
-    /// Clears recorded rects before a new frame is drawn.
-    pub fn clear_placement_rects(&self) {
-        clear_placement(&self.placement_rect);
-        clear_placement(&self.preview_placement_rect);
-        if let Ok(mut rects) = self.thumbnail_placement_rects.lock() {
-            rects.clear();
-        }
-        self.clear_reader_placements();
-    }
-}
-
-/// Reads a placement sink, tolerating a poisoned mutex.
-fn read_placement(sink: &Arc<Mutex<Option<CellRect>>>) -> Option<CellRect> {
-    sink.lock().ok().and_then(|guard| *guard)
-}
-
-/// Resets a placement sink, tolerating a poisoned mutex.
-fn clear_placement(sink: &Arc<Mutex<Option<CellRect>>>) {
-    if let Ok(mut guard) = sink.lock() {
-        *guard = None;
     }
 }

@@ -11,16 +11,16 @@ pub mod search;
 pub mod sorter;
 pub mod warnings;
 
+use crate::app::bindings::FrameBindings;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
 use crate::widget::SlideWidget;
-use kitty_pptx_display::{CellRect, ImageId, PlacementMode};
+use kitty_pptx_display::{ImageId, PlacementMode};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use std::sync::{Arc, Mutex};
 
 pub use blank::render_blank_screen;
 pub use comments::render_comments_drawer;
@@ -35,23 +35,21 @@ pub use sorter::render_sorter;
 pub use warnings::render_warning_drawer;
 
 /// Builds the widget for the main slide canvas, honoring the desired render mode.
+///
+/// The fitted rect the widget computes is recorded by the caller into the
+/// frame's [`FrameBindings`] before rendering.
 pub(crate) fn current_slide_widget(state: &PresentationState) -> SlideWidget {
-    slide_widget(state, state.current_image_id(), state.placement_sink())
+    slide_widget(state, state.current_image_id())
 }
 
 /// Builds the widget for the presenter next-slide preview.
 pub(crate) fn preview_slide_widget(state: &PresentationState, image_id: ImageId) -> SlideWidget {
-    slide_widget(state, image_id, state.preview_placement_sink())
+    slide_widget(state, image_id)
 }
 
-fn slide_widget(
-    state: &PresentationState,
-    image_id: ImageId,
-    sink: Arc<Mutex<Option<CellRect>>>,
-) -> SlideWidget {
+fn slide_widget(state: &PresentationState, image_id: ImageId) -> SlideWidget {
     SlideWidget::new(image_id, PlacementMode::Interactive)
         .with_aspect_ratio(state.aspect_ratio())
-        .with_direct_sink(sink)
 }
 
 /// Draws the degraded-render note over a slide canvas whose background render
@@ -89,7 +87,11 @@ pub(crate) fn render_render_failure_note(state: &PresentationState, f: &mut Fram
 }
 
 /// Render the presentation UI based on the current state.
-pub fn render_app(state: &PresentationState, f: &mut Frame) {
+///
+/// `bindings` collects the geometry this frame draws (slide rects, sorter
+/// cards, reader panes) for the graphics syncer; overlay views render on top
+/// of the base view and never touch it.
+pub fn render_app(state: &PresentationState, f: &mut Frame, bindings: &mut FrameBindings) {
     let area = f.area();
 
     // Blank screen overrides normal display
@@ -102,11 +104,11 @@ pub fn render_app(state: &PresentationState, f: &mut Frame) {
     let base_mode = state.base_mode();
 
     match base_mode {
-        AppMode::Fullscreen => render_normal(state, f, area),
-        AppMode::PresenterConsole => render_presenter(state, f, area),
-        AppMode::Sorter => render_sorter(state, f, area),
-        AppMode::Reader => render_reader(state, f, area),
-        _ => render_normal(state, f, area),
+        AppMode::Fullscreen => render_normal(state, f, area, bindings),
+        AppMode::PresenterConsole => render_presenter(state, f, area, bindings),
+        AppMode::Sorter => render_sorter(state, f, area, bindings),
+        AppMode::Reader => render_reader(state, f, area, bindings),
+        _ => render_normal(state, f, area, bindings),
     }
 
     // Render active overlay on top of base views

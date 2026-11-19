@@ -2,11 +2,13 @@ use crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
     MouseEventKind,
 };
+use kitty_pptx_tui::app::bindings::FrameBindings;
 use kitty_pptx_tui::app::events::{handle_key_event, AppAction};
 use kitty_pptx_tui::app::mode::AppMode;
 use kitty_pptx_tui::app::reader_events::handle_reader_mouse;
 use kitty_pptx_tui::app::reader_state::{ReaderFitMode, ReaderLayout, ReaderState, Slot};
 use kitty_pptx_tui::app::state::PresentationState;
+use kitty_pptx_tui::app::ui::render_reader;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
@@ -27,11 +29,11 @@ fn reader_state(pages: usize) -> PresentationState {
     state
 }
 
-/// Draws one reader frame at `w`×`h`.
-fn draw_reader(state: &PresentationState, terminal: &mut Terminal<TestBackend>, w: u16, h: u16) {
-    terminal
-        .draw(|f| kitty_pptx_tui::app::ui::render_reader(state, f, Rect::new(0, 0, w, h)))
-        .unwrap();
+/// Draws one reader frame at `w`×`h` and publishes the bindings like the run loop.
+fn draw_reader(state: &mut PresentationState, terminal: &mut Terminal<TestBackend>, w: u16, h: u16) {
+    let mut bindings = FrameBindings::default();
+    terminal.draw(|f| render_reader(state, f, Rect::new(0, 0, w, h), &mut bindings)).unwrap();
+    state.publish_frame_bindings(bindings);
 }
 
 #[test]
@@ -167,7 +169,7 @@ fn test_reader_status_line_format() {
     let mut reader = ReaderState::new(10, page_sizes);
     reader.next_row(); // spread [2, 3] -> 1-based "spread 3-4"
 
-    let status = reader.status_line("report.pdf");
+    let status = reader.status_line("report.pdf", &[], 2);
     assert!(status.contains("report.pdf"));
     assert!(status.contains("spread 3-4/10"));
     assert!(status.contains("fit:page 100%"));
@@ -346,15 +348,16 @@ fn test_status_line_uses_primary_placements_at_zoom_0_5() {
     // Zoom out to 0.5 so multiple rows are placed in the viewport
     state.reader_state_mut().unwrap().adjust_zoom(0.5);
 
-    draw_reader(&state, &mut terminal, 160, 45);
+    draw_reader(&mut state, &mut terminal, 160, 45);
 
-    let placements = state.reader_placements();
+    let placements = state.reader_placements_last();
     assert!(
         placements.len() > 2,
         "At zoom 0.5, multiple rows (primary + next) are placed in the viewport"
     );
 
-    let status = state.reader_state().unwrap().status_line("test.pdf");
+    let reader = state.reader_state().unwrap();
+    let status = reader.status_line("test.pdf", placements, state.reader_num_columns());
     assert!(
         status.contains("spread 1-2"),
         "Status line must report primary spread 1-2, got: {}",
@@ -372,9 +375,9 @@ fn test_horizontal_mode_h_and_l_slide_and_publish_columns() {
     let mut state = reader_state(10);
     state.reader_state_mut().unwrap().toggle_horizontal();
 
-    draw_reader(&state, &mut terminal, 160, 45);
+    draw_reader(&mut state, &mut terminal, 160, 45);
 
-    let placed_count = state.reader_placements().len();
+    let placed_count = state.reader_placements_last().len();
     assert!(placed_count >= 2);
     assert_eq!(
         state.reader_state().unwrap().num_columns(),
@@ -407,7 +410,7 @@ fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
     state.reader_state_mut().unwrap().adjust_zoom(1.5);
 
     // First draw to establish max_row_scroll_x
-    draw_reader(&state, &mut terminal, 160, 45);
+    draw_reader(&mut state, &mut terminal, 160, 45);
 
     // Slide row horizontally
     let max_x = state.reader_state().unwrap().max_row_scroll_x();
@@ -429,9 +432,9 @@ fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
     // target before asserting geometry at the requested offset.
     while state.reader_state().unwrap().advance_display() {}
 
-    draw_reader(&state, &mut terminal, 160, 45);
+    draw_reader(&mut state, &mut terminal, 160, 45);
 
-    let placements = state.reader_placements();
+    let placements = state.reader_placements_last();
     let row_0: Vec<_> = placements.iter().filter(|p| p.is_primary).collect();
     let row_1: Vec<_> = placements.iter().filter(|p| !p.is_primary).collect();
 
@@ -491,9 +494,9 @@ fn test_reproduce_zoomed_v_scroll_blank_screen_in_gutter() {
     // deep-gutter offset is actually exercised.
     while state.reader_state().unwrap().advance_display() {}
 
-    draw_reader(&state, &mut terminal, 160, 45);
+    draw_reader(&mut state, &mut terminal, 160, 45);
 
-    let placements = state.reader_placements();
+    let placements = state.reader_placements_last();
     // DEFECT REPRODUCTION:
     // Placements should NEVER be empty while navigating valid pages!
     // Row 0 would be 0 rows and Row 1 would be skipped because
@@ -513,14 +516,14 @@ fn test_reproduce_horizontal_arrow_right_page_shift() {
         state.update_layout_dimensions(w, h);
         state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
 
-        draw_reader(&state, &mut terminal, w, h);
+        draw_reader(&mut state, &mut terminal, w, h);
 
-        let p0 = state.reader_placements();
+        let p0 = state.reader_placements_last();
         let max_row_x = state.reader_state().unwrap().max_row_scroll_x();
 
         // Verify unzoomed pages at fit have zero horizontal scroll noise
         assert_eq!(max_row_x, 0, "max_row_scroll_x must be 0 at fit");
-        for p in &p0 {
+        for p in p0 {
             assert_eq!(p.max_scroll_x, 0, "max_scroll_x must be 0 at fit");
             assert_eq!(p.pixel_src.x, 0, "pixel_src.x must be 0 at fit");
         }
@@ -530,8 +533,8 @@ fn test_reproduce_horizontal_arrow_right_page_shift() {
         assert_eq!(action, AppAction::SlideChanged);
         assert_eq!(state.reader_state().unwrap().anchor, 2);
 
-        draw_reader(&state, &mut terminal, w, h);
-        let p1 = state.reader_placements();
+        draw_reader(&mut state, &mut terminal, w, h);
+        let p1 = state.reader_placements_last();
         assert_eq!(p1[0].page, 2);
         assert_eq!(p1[0].pixel_src.x, 0);
 
@@ -540,8 +543,8 @@ fn test_reproduce_horizontal_arrow_right_page_shift() {
         assert_eq!(action_l, AppAction::SlideChanged);
         assert_eq!(state.reader_state().unwrap().anchor, 0);
 
-        draw_reader(&state, &mut terminal, w, h);
-        let p2 = state.reader_placements();
+        draw_reader(&mut state, &mut terminal, w, h);
+        let p2 = state.reader_placements_last();
         assert_eq!(p2[0].page, 0);
         assert_eq!(p2[0].pixel_src.x, 0);
     }

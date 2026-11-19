@@ -260,19 +260,18 @@ impl PresentationState {
 
     /// Map a terminal cell to slide EMU coordinates and hit-test active links.
     ///
-    /// Hit-testing uses the slide rect the renderer actually drew, recorded
-    /// per frame by [`SlideWidget`](crate::widget::SlideWidget) into the
-    /// placement sink. That rect already encodes the fitted sub-area of the
-    /// active view (fullscreen minus the status row, or the presenter-mode
-    /// slide pane) and the terminal's true cell aspect, so the click maps onto
-    /// the slide without any geometry recomputation. Before the first frame is
-    /// drawn no rect exists and clicks fall through to plain slide advance.
+    /// Hit-testing uses the slide rect the renderer actually drew, published
+    /// per frame from the render pass's `FrameBindings`. That rect already
+    /// encodes the fitted sub-area of the active view (fullscreen minus the
+    /// status row, or the presenter-mode slide pane) and the terminal's true
+    /// cell aspect, so the click maps onto the slide without any geometry
+    /// recomputation. Before the first frame is drawn no rect exists and
+    /// clicks fall through to plain slide advance.
     pub fn link_at_cell(&self, col: u16, row: u16) -> Option<SlideLink> {
         if self.slide_width_emu <= 0 || self.slide_height_emu <= 0 {
             return None;
         }
-        let (placed, _preview) = self.placement_rects();
-        let placed = placed?;
+        let placed = self.current_placement?;
         if placed.cols == 0
             || placed.rows == 0
             || col < placed.col
@@ -350,6 +349,7 @@ fn action_for_dispatch(dispatch: LinkDispatch) -> AppAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::bindings::FrameBindings;
     use kitty_pptx_core::RectF32;
     use kitty_pptx_display::CellRect;
 
@@ -361,13 +361,17 @@ mod tests {
         )
     }
 
-    /// State whose recorded placement rect is a presenter-style sub-rect of
-    /// the layout grid, carrying one link on the right half of the slide.
+    /// State whose last drawn frame placed the slide at `placement` (a
+    /// presenter-style sub-rect of the layout grid), carrying one link on the
+    /// right half of the slide.
     fn state_with_right_half_link(placement: CellRect) -> PresentationState {
         let mut state = PresentationState::new(2, vec![]);
         state.set_slide_dimensions(12_192_000, 6_858_000);
         state.set_layout_dimensions(100, 30);
-        state.placement_sink().lock().unwrap().replace(placement);
+        state.publish_frame_bindings(FrameBindings {
+            current: Some(placement),
+            ..FrameBindings::default()
+        });
         // Right half of a 16:9 slide: x in [6_096_000, 12_192_000] EMU.
         state.slide_links = vec![vec![SlideLink::new(
             HyperlinkTarget::ExternalUri("https://example.com".to_string()),
@@ -431,7 +435,7 @@ mod tests {
 
     #[test]
     fn clicks_before_the_first_frame_do_not_hit() {
-        // No frame drawn yet: no recorded rect, so nothing can hit and a
+        // No frame drawn yet: no published rect, so nothing can hit and a
         // click falls through to slide advance (safe default).
         let mut state = state_with_right_half_link(CellRect {
             row: 3,
@@ -439,7 +443,7 @@ mod tests {
             rows: 17,
             cols: 50,
         });
-        state.placement_sink().lock().unwrap().take();
+        state.publish_frame_bindings(FrameBindings::default());
         assert!(state.link_at_cell(45, 11).is_none());
         assert_eq!(
             state.handle_mouse_click(45, 11),

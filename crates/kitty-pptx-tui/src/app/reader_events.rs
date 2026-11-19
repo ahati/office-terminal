@@ -264,11 +264,36 @@ fn half_page_scroll(state: &mut PresentationState, dir: i64) -> AppAction {
     AppAction::Redraw
 }
 
+/// `max_scroll_x` recorded for `page` by the last drawn frame (0 when the
+/// page was not placed).
+fn page_pan_max(state: &PresentationState, page: usize) -> u32 {
+    state
+        .reader_placements_last()
+        .iter()
+        .find(|p| p.page == page)
+        .map(|p| p.max_scroll_x)
+        .unwrap_or(0)
+}
+
 /// Arrow-key horizontal step: slides the horizontal strip, pans the zoomed
 /// row/page, and advances the row when nothing overflows.
 fn step_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
     state.clear_digits();
     let (_, viewport_h_px, cell_w_px, _) = reader_viewport_metrics(state);
+
+    // Pan bound of the focused page from the last drawn frame, resolved
+    // before the mutable reader borrow (only zoomed pages have overflow).
+    let focused_pan_max = match state.reader_state() {
+        Some(reader) => {
+            let page = reader.focused_page();
+            if reader.page_view(page).zoom > 1.0 {
+                page_pan_max(state, page)
+            } else {
+                0
+            }
+        }
+        None => 0,
+    };
 
     let mut slide_to_set = None;
     let mut action = AppAction::Redraw;
@@ -298,18 +323,7 @@ fn step_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
                     action = AppAction::None;
                 }
             } else {
-                let page = reader.focused_page();
-                let is_zoomed = reader.page_view(page).zoom > 1.0;
-                let max_x = if is_zoomed {
-                    reader
-                        .placements()
-                        .iter()
-                        .find(|p| p.page == page)
-                        .map(|p| p.max_scroll_x)
-                        .unwrap_or(0)
-                } else {
-                    0
-                };
+                let max_x = focused_pan_max;
                 if max_x > 0 {
                     if reader.scroll_horizontal_bounded(dir as i32 * 24, max_x) {
                         action = AppAction::Redraw;
@@ -341,6 +355,13 @@ fn step_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
 fn pan_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
     let (_, viewport_h_px, _, _) = reader_viewport_metrics(state);
 
+    // Pan bound of the focused page from the last drawn frame, resolved
+    // before the mutable reader borrow.
+    let focused_pan_max = state
+        .reader_state()
+        .map(|reader| page_pan_max(state, reader.focused_page()))
+        .unwrap_or(0);
+
     let mut slide_to_set = None;
     let mut action = AppAction::Redraw;
 
@@ -362,13 +383,7 @@ fn pan_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
             if max_row_x > 0 {
                 reader.scroll_row_horizontal(dir * 24);
             } else {
-                let page = reader.focused_page();
-                let max_x = reader
-                    .placements()
-                    .iter()
-                    .find(|p| p.page == page)
-                    .map(|p| p.max_scroll_x)
-                    .unwrap_or(0);
+                let max_x = focused_pan_max;
                 reader.scroll_horizontal_bounded(dir as i32 * 24, max_x);
             }
         }
