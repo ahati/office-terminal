@@ -1,4 +1,5 @@
 pub mod bindings;
+mod deck_state;
 pub mod events;
 mod find_state;
 mod graphics;
@@ -11,7 +12,9 @@ pub mod link_state;
 mod loop_wake;
 pub mod media;
 pub mod mode;
+mod mode_stack;
 pub mod nav_state;
+mod reader;
 pub mod reader_events;
 #[cfg(test)]
 mod reader_graphics_tests;
@@ -29,6 +32,7 @@ mod state_bindings;
 mod state_notices;
 mod state_reader;
 mod state_timing;
+mod session_state;
 mod terminal_guard;
 pub mod ui;
 pub mod warnings_state;

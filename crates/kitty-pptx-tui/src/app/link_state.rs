@@ -154,10 +154,7 @@ impl PresentationState {
     }
 
     pub fn current_slide_links(&self) -> &[SlideLink] {
-        self.slide_links
-            .get(self.current_slide())
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        self.deck.slide_links_for(self.current_slide())
     }
 
     pub fn current_slide_link_count(&self) -> usize {
@@ -268,7 +265,7 @@ impl PresentationState {
     /// recomputation. Before the first frame is drawn no rect exists and
     /// clicks fall through to plain slide advance.
     pub fn link_at_cell(&self, col: u16, row: u16) -> Option<SlideLink> {
-        if self.slide_width_emu <= 0 || self.slide_height_emu <= 0 {
+        if self.deck.slide_width_emu <= 0 || self.deck.slide_height_emu <= 0 {
             return None;
         }
         let placed = self.current_placement?;
@@ -283,8 +280,8 @@ impl PresentationState {
         }
         let x_ratio = (col - placed.col) as f32 / placed.cols as f32;
         let y_ratio = (row - placed.row) as f32 / placed.rows as f32;
-        let x_emu = x_ratio.clamp(0.0, 1.0) * self.slide_width_emu as f32;
-        let y_emu = y_ratio.clamp(0.0, 1.0) * self.slide_height_emu as f32;
+        let x_emu = x_ratio.clamp(0.0, 1.0) * self.deck.slide_width_emu as f32;
+        let y_emu = y_ratio.clamp(0.0, 1.0) * self.deck.slide_height_emu as f32;
         self.current_slide_link_index()
             .hit_test(x_emu, y_emu)
             .cloned()
@@ -373,7 +370,7 @@ mod tests {
             ..FrameBindings::default()
         });
         // Right half of a 16:9 slide: x in [6_096_000, 12_192_000] EMU.
-        state.slide_links = vec![vec![SlideLink::new(
+        state.deck.slide_links = vec![vec![SlideLink::new(
             HyperlinkTarget::ExternalUri("https://example.com".to_string()),
             RectF32::new(6_096_000.0, 0.0, 6_096_000.0, 6_858_000.0),
             None,

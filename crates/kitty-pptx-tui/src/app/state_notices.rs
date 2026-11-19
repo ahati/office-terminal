@@ -16,22 +16,22 @@ pub(crate) const TOAST_TTL: Duration = Duration::from_secs(5);
 
 impl PresentationState {
     pub fn set_toast(&mut self, msg: impl Into<String>) {
-        self.toast_message = Some(msg.into());
-        self.toast_time = Some(Instant::now());
+        self.session.toast_message = Some(msg.into());
+        self.session.toast_time = Some(Instant::now());
     }
 
     pub fn toast(&self) -> Option<&str> {
-        if let Some(time) = self.toast_time {
+        if let Some(time) = self.session.toast_time {
             if time.elapsed() < TOAST_TTL {
-                return self.toast_message.as_deref();
+                return self.session.toast_message.as_deref();
             }
         }
         None
     }
 
     pub fn clear_toast(&mut self) {
-        self.toast_message = None;
-        self.toast_time = None;
+        self.session.toast_message = None;
+        self.session.toast_time = None;
     }
 
     /// Records a failed background render for `slide` and files one

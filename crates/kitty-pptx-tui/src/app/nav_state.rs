@@ -1,4 +1,6 @@
-//! Viewer navigation policy: hidden-slide mode plus the zoom-factor contract.
+//! Viewer navigation policy: hidden-slide mode, the zoom-factor contract,
+//! the slide-jump entry points (digit buffer, first/last/jump) and the
+//! terminal-grid setter consumed by mouse hit-testing.
 //!
 //! Kept separate from `PresentationState` so the pure index arithmetic and the
 //! scale latch are testable without a deck, and so the state struct stays a
@@ -285,9 +287,102 @@ impl PresentationState {
         }
     }
 
+    // ─── Hidden-slide policy (ref hidden.ts, viewer.ts:437-582) ─────────
+
+    pub fn hidden_slide_mode(&self) -> HiddenSlideMode {
+        self.nav.hidden_mode()
+    }
+
+    /// Switch the hidden-slide mode. Returns whether the current slide moved.
+    /// Entering or leaving `skip` clears the active search match (`find` may
+    /// only match shown slides in `skip` mode). ref viewer.ts:545-575
+    pub fn set_hidden_slide_mode(&mut self, mode: HiddenSlideMode) -> bool {
+        let previous = self.nav.hidden_mode();
+        if !self.nav.set_hidden_mode(mode) {
+            return false;
+        }
+        if previous.is_skip() || mode.is_skip() {
+            self.sync_search_entries();
+            self.search.clear_matches();
+            self.sync_find_index();
+        }
+        let target = if self.total_slides == 0 {
+            0
+        } else {
+            self.nav.resolve(self.current_slide.min(self.total_slides - 1))
+        };
+        self.navigate_to(target)
+    }
+
+    /// `<p:sld show="0">` for an absolute slide index.
+    pub fn is_slide_hidden(&self, index: usize) -> bool {
+        self.nav.is_hidden(index)
+    }
+
+    /// Shown slides only; the absolute slide count is unchanged.
+    // ref viewer.ts:577-582
+    pub fn visible_slide_count(&self) -> usize {
+        self.nav.visible_count()
+    }
+
+    // ─── Slide-jump entry points ────────────────────────────────────────
+
+    /// Jump to the first slide (slide 0, or the first shown slide under `skip`).
+    pub fn first_slide(&mut self) -> bool {
+        self.set_current_slide(0)
+    }
+
+    /// Jump to the last slide (or the nearest shown slide under `skip`).
+    pub fn last_slide(&mut self) -> bool {
+        if self.total_slides == 0 {
+            return false;
+        }
+        self.set_current_slide(self.total_slides - 1)
+    }
+
+    /// Jump to a 1-based slide index.
+    pub fn jump_to_slide(&mut self, slide_1based: usize) -> bool {
+        if self.total_slides == 0 {
+            return false;
+        }
+        self.set_current_slide(slide_1based.saturating_sub(1))
+    }
+
+    /// Push a digit for slide jumping.
+    pub fn push_digit(&mut self, ch: char) {
+        if ch.is_ascii_digit() && self.digit_buffer.len() < 5 {
+            self.digit_buffer.push(ch);
+        }
+    }
+
+    /// Commit accumulated digits into slide jump.
+    pub fn commit_digits(&mut self) -> bool {
+        if self.digit_buffer.is_empty() {
+            return false;
+        }
+        let parsed = self.digit_buffer.parse::<usize>().ok();
+        self.digit_buffer.clear();
+        if let Some(target_1based) = parsed {
+            self.jump_to_slide(target_1based)
+        } else {
+            false
+        }
+    }
+
+    /// Clear accumulated digit buffer.
+    pub fn clear_digits(&mut self) {
+        self.digit_buffer.clear();
+    }
+
     /// Last terminal grid recorded by the layout pass.
     pub fn layout_size(&self) -> (u16, u16) {
         (self.layout_cols, self.layout_rows)
+    }
+
+    /// Record the latest terminal cell grid for mouse hit-testing.
+    pub fn set_layout_dimensions(&mut self, cols: u16, rows: u16) {
+        self.layout_cols = cols;
+        self.layout_rows = rows;
     }
 
     /// Navigation policy for zoom/step callers (events, app).
