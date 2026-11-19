@@ -5,14 +5,10 @@ use kitty_pptx_core::{
     sanitize_hyperlink_url, HyperlinkTarget, SecurityError, SlideAction, SlideLink,
     SlideLinkIndex,
 };
-use ratatui::layout::Rect;
 
 use crate::app::events::AppAction;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
-use crate::widget::layout::{
-    compute_slide_rect, DEFAULT_CELL_ASPECT_RATIO,
-};
 
 /// Error produced while dispatching an external hyperlink.
 #[derive(Debug, thiserror::Error)]
@@ -263,27 +259,31 @@ impl PresentationState {
     }
 
     /// Map a terminal cell to slide EMU coordinates and hit-test active links.
+    ///
+    /// Hit-testing uses the slide rect the renderer actually drew, recorded
+    /// per frame by [`SlideWidget`](crate::widget::SlideWidget) into the
+    /// placement sink. That rect already encodes the fitted sub-area of the
+    /// active view (fullscreen minus the status row, or the presenter-mode
+    /// slide pane) and the terminal's true cell aspect, so the click maps onto
+    /// the slide without any geometry recomputation. Before the first frame is
+    /// drawn no rect exists and clicks fall through to plain slide advance.
     pub fn link_at_cell(&self, col: u16, row: u16) -> Option<SlideLink> {
-        if self.slide_width_emu <= 0
-            || self.slide_height_emu <= 0
-            || self.layout_cols == 0
-            || self.layout_rows == 0
+        if self.slide_width_emu <= 0 || self.slide_height_emu <= 0 {
+            return None;
+        }
+        let (placed, _preview) = self.placement_rects();
+        let placed = placed?;
+        if placed.cols == 0
+            || placed.rows == 0
+            || col < placed.col
+            || row < placed.row
+            || col >= placed.col.saturating_add(placed.cols)
+            || row >= placed.row.saturating_add(placed.rows)
         {
             return None;
         }
-        let area = Rect::new(0, 0, self.layout_cols, self.layout_rows);
-        let fitted = compute_slide_rect(area, self.aspect_ratio(), DEFAULT_CELL_ASPECT_RATIO);
-        if fitted.width == 0
-            || fitted.height == 0
-            || col < fitted.x
-            || row < fitted.y
-            || col >= fitted.x.saturating_add(fitted.width)
-            || row >= fitted.y.saturating_add(fitted.height)
-        {
-            return None;
-        }
-        let x_ratio = (col - fitted.x) as f32 / fitted.width as f32;
-        let y_ratio = (row - fitted.y) as f32 / fitted.height as f32;
+        let x_ratio = (col - placed.col) as f32 / placed.cols as f32;
+        let y_ratio = (row - placed.row) as f32 / placed.rows as f32;
         let x_emu = x_ratio.clamp(0.0, 1.0) * self.slide_width_emu as f32;
         let y_emu = y_ratio.clamp(0.0, 1.0) * self.slide_height_emu as f32;
         self.current_slide_link_index()
@@ -351,6 +351,7 @@ fn action_for_dispatch(dispatch: LinkDispatch) -> AppAction {
 mod tests {
     use super::*;
     use kitty_pptx_core::RectF32;
+    use kitty_pptx_display::CellRect;
 
     fn external(url: &str, x: f32) -> SlideLink {
         SlideLink::new(
@@ -358,6 +359,92 @@ mod tests {
             RectF32::new(x, 0.0, 100.0, 100.0),
             None,
         )
+    }
+
+    /// State whose recorded placement rect is a presenter-style sub-rect of
+    /// the layout grid, carrying one link on the right half of the slide.
+    fn state_with_right_half_link(placement: CellRect) -> PresentationState {
+        let mut state = PresentationState::new(2, vec![]);
+        state.set_slide_dimensions(12_192_000, 6_858_000);
+        state.set_layout_dimensions(100, 30);
+        state.placement_sink().lock().unwrap().replace(placement);
+        // Right half of a 16:9 slide: x in [6_096_000, 12_192_000] EMU.
+        state.slide_links = vec![vec![SlideLink::new(
+            HyperlinkTarget::ExternalUri("https://example.com".to_string()),
+            RectF32::new(6_096_000.0, 0.0, 6_096_000.0, 6_858_000.0),
+            None,
+        )]];
+        state
+    }
+
+    #[test]
+    fn link_hits_use_the_recorded_placement_rect() {
+        // Presenter-mode pane: cols 5..55 of a 100-col layout (the renderer
+        // fits the slide into a sub-rect, not the full grid).
+        let state = state_with_right_half_link(CellRect {
+            row: 3,
+            col: 5,
+            rows: 17,
+            cols: 50,
+        });
+
+        // Clicking the right half of the recorded rect maps onto the link's
+        // half of the slide.
+        let hit = state
+            .link_at_cell(45, 11)
+            .expect("right half of the recorded rect must hit the link");
+        assert_eq!(
+            hit.target,
+            HyperlinkTarget::ExternalUri("https://example.com".to_string())
+        );
+
+        // The left half of the recorded rect misses the right-half link.
+        assert!(state.link_at_cell(6, 11).is_none());
+    }
+
+    #[test]
+    fn clicks_outside_the_recorded_rect_never_hit_even_in_layout_bounds() {
+        // Col 60 and row 25 lie inside the old full-grid fitted area (a
+        // 100x30 grid letterboxes 16:9 into cols 0..100, rows 1..29) but
+        // outside the recorded pane rect (cols 5..55, rows 3..20): the old
+        // recomputed geometry hit the link from there; the recorded rect
+        // correctly refuses.
+        let state = state_with_right_half_link(CellRect {
+            row: 3,
+            col: 5,
+            rows: 17,
+            cols: 50,
+        });
+        assert!(state.link_at_cell(60, 11).is_none(), "right of the pane");
+        assert!(state.link_at_cell(45, 25).is_none(), "below the pane");
+        assert!(state.link_at_cell(0, 0).is_none(), "above-left of the pane");
+
+        // handle_mouse_click routes through the same rect: an outside click
+        // falls through to slide advance.
+        let mut state = state;
+        assert_eq!(
+            state.handle_mouse_click(60, 11),
+            LinkDispatch::Navigate { changed: true }
+        );
+        assert_eq!(state.current_slide(), 1);
+    }
+
+    #[test]
+    fn clicks_before_the_first_frame_do_not_hit() {
+        // No frame drawn yet: no recorded rect, so nothing can hit and a
+        // click falls through to slide advance (safe default).
+        let mut state = state_with_right_half_link(CellRect {
+            row: 3,
+            col: 5,
+            rows: 17,
+            cols: 50,
+        });
+        state.placement_sink().lock().unwrap().take();
+        assert!(state.link_at_cell(45, 11).is_none());
+        assert_eq!(
+            state.handle_mouse_click(45, 11),
+            LinkDispatch::Navigate { changed: true }
+        );
     }
 
     #[test]
