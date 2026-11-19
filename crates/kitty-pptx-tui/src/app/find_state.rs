@@ -111,7 +111,7 @@ impl PresentationState {
             .map(|index| self.nav.is_hidden(index))
             .collect();
         self.find
-            .sync(&self.slides, &hidden, self.nav.hidden_mode().is_skip());
+            .sync(self.deck.slides(), &hidden, self.nav.hidden_mode().is_skip());
     }
 
     pub fn open_find(&mut self) {
