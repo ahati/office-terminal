@@ -325,6 +325,13 @@ fn handle_presentation_key(key: KeyEvent, state: &mut PresentationState) -> AppA
         return AppAction::Redraw;
     }
 
+    // While the slide view is zoomed, the arrow keys pan it. Navigation
+    // stays available on Space/Enter/PageUp/PageDown/n/k/Backspace, so a
+    // zoomed presenter never loses slide turning.
+    if let Some(action) = zoom_pan_key(state, key) {
+        return action;
+    }
+
     match key.code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => AppAction::Quit,
@@ -352,8 +359,9 @@ fn handle_presentation_key(key: KeyEvent, state: &mut PresentationState) -> AppA
             AppAction::Redraw
         }
 
-        // Zoom steppers (`+`/`=` and `-`/`_`).
-        KeyCode::Char('+') | KeyCode::Char('=') => {
+        // Zoom steppers: `+` in, `-` out, `=` reset (matching reader mode,
+        // where `=` re-fits the page).
+        KeyCode::Char('+') => {
             state.clear_digits();
             if state.nav_mut().zoom_in() {
                 AppAction::ScaleChanged
@@ -364,6 +372,21 @@ fn handle_presentation_key(key: KeyEvent, state: &mut PresentationState) -> AppA
         KeyCode::Char('-') | KeyCode::Char('_') => {
             state.clear_digits();
             if state.nav_mut().zoom_out() {
+                // Stepping back to (or below) the plain fit re-centers the
+                // view; a remembered pan would be meaningless there.
+                if !state.is_zoomed() {
+                    state.reset_zoom_pan();
+                }
+                AppAction::ScaleChanged
+            } else {
+                AppAction::Redraw
+            }
+        }
+        KeyCode::Char('=') => {
+            state.clear_digits();
+            let changed = state.set_scale(1.0);
+            state.reset_zoom_pan();
+            if changed {
                 AppAction::ScaleChanged
             } else {
                 AppAction::Redraw
@@ -489,6 +512,36 @@ fn handle_presentation_key(key: KeyEvent, state: &mut PresentationState) -> AppA
 
         _ => AppAction::None,
     }
+}
+
+/// Arrow-key pan while the slide view is zoomed; `None` passes the key
+/// through to navigation.
+///
+/// Pan steps are an eighth of the grid — the same fraction the reader's
+/// continuous scroll uses — floored at 2 cols / 1 row so every press moves a
+/// visible distance on small terminals. The clamp comes from the overflow the
+/// last drawn frame published, so pan can never outrun the geometry: at the
+/// bound the key reports `None` exactly like clamped navigation does.
+fn zoom_pan_key(state: &mut PresentationState, key: KeyEvent) -> Option<AppAction> {
+    if !state.is_zoomed() {
+        return None;
+    }
+    let (cols, rows) = state.layout_size();
+    let step_cols = (f32::from(cols) / 8.0).max(2.0);
+    let step_rows = (f32::from(rows) / 8.0).max(1.0);
+    let (dx, dy) = match key.code {
+        KeyCode::Right => (step_cols, 0.0),
+        KeyCode::Left => (-step_cols, 0.0),
+        KeyCode::Down => (0.0, step_rows),
+        KeyCode::Up => (0.0, -step_rows),
+        _ => return None,
+    };
+    state.clear_digits();
+    Some(if state.pan_zoom(dx, dy) {
+        AppAction::Redraw
+    } else {
+        AppAction::None
+    })
 }
 
 /// Handle a terminal resize event.

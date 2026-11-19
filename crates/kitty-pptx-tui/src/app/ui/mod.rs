@@ -40,6 +40,11 @@ pub use warnings::render_warning_drawer;
 /// frame's [`FrameBindings`] before rendering.
 pub(crate) fn current_slide_widget(state: &PresentationState) -> SlideWidget {
     slide_widget(state, state.current_image_id())
+        // Zoom is a view concern: the current slide carries the session's
+        // zoom factor and pan; the next-slide preview below stays at the
+        // plain fit.
+        .with_zoom(state.scale())
+        .with_pan(state.zoom_pan())
 }
 
 /// Builds the widget for the presenter next-slide preview.

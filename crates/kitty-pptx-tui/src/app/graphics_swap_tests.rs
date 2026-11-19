@@ -227,7 +227,7 @@ impl TerminalGraphicsDriver for LoggingDriver {
 
 fn canvas_bindings() -> FrameBindings {
     let mut bindings = FrameBindings::default();
-    bindings.record_current(Rect::new(0, 0, 80, 24), ASPECT);
+    bindings.record_current(Rect::new(0, 0, 80, 24), ASPECT, 1.0, (0.0, 0.0));
     bindings
 }
 

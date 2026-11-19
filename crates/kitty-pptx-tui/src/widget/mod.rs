@@ -1,5 +1,6 @@
 pub mod canvas;
 pub mod layout;
+pub mod zoom_fit;
 
 use kitty_pptx_display::{ImageId, PlacementMode};
 use ratatui::buffer::Buffer;
@@ -12,13 +13,16 @@ pub use layout::{
     cell_rect_to_rect, compute_slide_rect, rect_to_cell_rect, ASPECT_16_9, ASPECT_4_3,
     DEFAULT_CELL_ASPECT_RATIO,
 };
+pub use zoom_fit::{compute_zoomed_slide_fit, NormalizedCrop, ZoomFit};
 
 /// A Ratatui widget that displays a slide within a given `Rect` while preserving aspect ratio.
 ///
 /// The widget is pure: it only reserves the canvas (letterbox clear + direct
-/// canvas emit). The fitted cell rectangle it computes is recorded by the
-/// calling view into [`crate::app::bindings::FrameBindings`], and the Kitty
-/// driver places the actual image after the frame.
+/// canvas emit) for the zoom-aware fit — the same geometry
+/// [`zoom_fit::compute_zoomed_slide_fit`] produces, so the widget's cells and
+/// the recorded placement can never disagree. The placement is recorded by
+/// the calling view into [`crate::app::bindings::FrameBindings`], and the
+/// Kitty driver places the actual image after the frame.
 #[derive(Clone)]
 pub struct SlideWidget {
     pub image_id: ImageId,
@@ -26,6 +30,10 @@ pub struct SlideWidget {
     pub aspect_ratio: f32,
     pub cell_aspect_ratio: f32,
     pub letterbox_bg: Color,
+    /// View zoom factor (1.0 = the plain letterbox fit).
+    pub zoom: f32,
+    /// Signed cell-space pan from the centered position (cols, rows).
+    pub pan: (f32, f32),
 }
 
 impl Default for SlideWidget {
@@ -36,6 +44,8 @@ impl Default for SlideWidget {
             aspect_ratio: ASPECT_16_9,
             cell_aspect_ratio: DEFAULT_CELL_ASPECT_RATIO,
             letterbox_bg: Color::Black,
+            zoom: 1.0,
+            pan: (0.0, 0.0),
         }
     }
 }
@@ -63,6 +73,20 @@ impl SlideWidget {
         self.letterbox_bg = color;
         self
     }
+
+    /// View zoom factor applied to the fitted rect. Only the current-slide
+    /// widget sets this; the presenter's next-slide preview keeps the plain
+    /// fit so the console shows the next slide unzoomed.
+    pub fn with_zoom(mut self, zoom: f32) -> Self {
+        self.zoom = zoom;
+        self
+    }
+
+    /// Signed cell-space pan from the centered position (cols, rows).
+    pub fn with_pan(mut self, pan: (f32, f32)) -> Self {
+        self.pan = pan;
+        self
+    }
 }
 
 impl Widget for SlideWidget {
@@ -77,9 +101,16 @@ impl Widget for &SlideWidget {
             return;
         }
 
-        let fitted = compute_slide_rect(area, self.aspect_ratio, self.cell_aspect_ratio);
-        clear_letterbox(buf, area, fitted, self.letterbox_bg);
-        emit_direct_canvas(buf, fitted, Color::Reset);
+        let fitted = compute_zoomed_slide_fit(
+            area,
+            self.aspect_ratio,
+            self.cell_aspect_ratio,
+            self.zoom,
+            self.pan.0,
+            self.pan.1,
+        );
+        clear_letterbox(buf, area, fitted.rect, self.letterbox_bg);
+        emit_direct_canvas(buf, fitted.rect, Color::Reset);
     }
 }
 

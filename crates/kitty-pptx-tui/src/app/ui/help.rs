@@ -60,6 +60,10 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
             Span::styled("  Backspace, Left, Up, PgUp, k, P", key_style),
             Span::styled(": Previous slide", desc_style),
         ]),
+        Line::from(vec![
+            Span::styled("  +, -, = (arrows pan zoomed)   ", key_style),
+            Span::styled(": Zoom in / out / reset view", desc_style),
+        ]),
         Line::from(""),
         Line::from(vec![Span::styled("Jump to Slide:", header_style)]),
         Line::from(vec![

@@ -1,10 +1,10 @@
 use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::{
-    CellRect, ImageId, Placement, TerminalGraphicsDriver, CURRENT_IMAGE_ID_BASE,
+    ImageId, Placement, TerminalGraphicsDriver, CURRENT_IMAGE_ID_BASE,
     CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE, PREVIEW_IMAGE_ID_SLOTS,
 };
 
-use crate::app::bindings::FrameBindings;
+use crate::app::bindings::{FrameBindings, SlidePlacement};
 use crate::app::graphics_reader::ReaderGraphicsSyncer;
 use crate::app::graphics_slots::{PlacedKey, PlacedRecord, SlotBitmap, SlotEpochs, SlotState};
 use crate::app::graphics_thumbnails::ThumbnailSyncer;
@@ -157,12 +157,12 @@ impl GraphicsSyncer {
         canvas_target: &RenderTargetSpec,
         bindings: &FrameBindings,
     ) -> Result<bool, DisplayError> {
-        let current_rect = bindings.current;
-        let preview_rect = bindings.preview;
+        let current = bindings.current;
+        let preview = bindings.preview;
         let mut pending = false;
 
-        match current_rect {
-            Some(rect) => {
+        match current {
+            Some(placement) => {
                 let slide = state.current_slide();
                 match self.ensure_staged(
                     slide,
@@ -175,7 +175,7 @@ impl GraphicsSyncer {
                 )? {
                     StageLookup::Ready(id) => {
                         state.clear_render_failure_for(slide);
-                        self.place_slot(SlideSlot::Current, id, rect, driver)?;
+                        self.place_slot(SlideSlot::Current, id, &placement, driver)?;
                     }
                     // First bitmap still in flight and nothing to keep on
                     // screen: hold whatever the previous view left up.
@@ -187,12 +187,8 @@ impl GraphicsSyncer {
         }
 
         let preview = if state.mode() == AppMode::PresenterConsole {
-            match (
-                state.next_slide_index(),
-                state.next_image_id(),
-                preview_rect,
-            ) {
-                (Some(slide), Some(id), Some(rect)) => Some((slide, id, rect)),
+            match (state.next_slide_index(), state.next_image_id(), preview) {
+                (Some(slide), Some(id), Some(placement)) => Some((slide, id, placement)),
                 _ => None,
             }
         } else {
@@ -200,7 +196,7 @@ impl GraphicsSyncer {
         };
 
         match preview {
-            Some((slide, id, rect)) => {
+            Some((slide, id, placement)) => {
                 if let StageLookup::Ready(id) = self.ensure_staged(
                     slide,
                     id,
@@ -210,7 +206,7 @@ impl GraphicsSyncer {
                     state,
                     canvas_target,
                 )? {
-                    self.place_slot(SlideSlot::Preview, id, rect, driver)?;
+                    self.place_slot(SlideSlot::Preview, id, &placement, driver)?;
                 }
             }
             None => self.release_slot(SlideSlot::Preview, driver)?,
@@ -365,33 +361,59 @@ impl GraphicsSyncer {
         ImageId(base + (offset + 1) % slots.max(1))
     }
 
-    /// Places (or repositions) one full-screen slot's image at `rect`.
+    /// Places (or repositions) one slide slot's image for `placement`.
+    ///
+    /// Zoomed placements carry a crop window: the staged raster's visible
+    /// region goes to the cells as a `CellsSubrect` placement (the same
+    /// mechanism the reader panes use), computed against the staged bitmap's
+    /// own dimensions so it can never reference pixels outside the raster.
     ///
     /// Same id: re-place for the new geometry — kitty replaces the placement
-    /// of that (image id, placement id) pair without flicker. Different id:
-    /// present the incoming bitmap first and release the outgoing one
-    /// afterwards, so the slot never holds an empty screen between the two.
+    /// of that (image id, placement id) pair without flicker, which is what
+    /// makes zoom a pure placement change. Different id: present the
+    /// incoming bitmap first and release the outgoing one afterwards, so
+    /// the slot never holds an empty screen between the two.
     fn place_slot(
         &mut self,
         slot_key: SlideSlot,
         id: ImageId,
-        rect: CellRect,
+        placement: &SlidePlacement,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        let key = PlacedKey::Cells(rect);
+        let key = match placement.crop {
+            None => PlacedKey::Cells(placement.rect),
+            Some(crop) => {
+                // The staged bitmap's dimensions define the raster the crop
+                // indexes into; a placement only happens with a stage.
+                let (width, height) = self
+                    .slot(slot_key)
+                    .staged()
+                    .map(|staged| (staged.width, staged.height))
+                    .unwrap_or((1, 1));
+                PlacedKey::Subrect {
+                    rect: placement.rect,
+                    src: crop.to_pixel_rect(width, height),
+                }
+            }
+        };
         if !self.slot(slot_key).needs_place(id, key, true) {
             return Ok(());
         }
 
+        let driver_placement = match key {
+            PlacedKey::Cells(rect) => Placement::Cells(rect),
+            PlacedKey::Subrect { rect, src } => Placement::CellsSubrect { rect, src },
+        };
+
         match self.slot_mut(slot_key).take_placed() {
             Some(previous) if previous.id == id => {
-                driver.reposition(id, Placement::Cells(rect))?;
+                driver.reposition(id, driver_placement)?;
             }
             Some(previous) => {
-                driver.present(id, Placement::Cells(rect))?;
+                driver.present(id, driver_placement)?;
                 self.drop_placed(slot_key, previous, driver)?;
             }
-            None => driver.present(id, Placement::Cells(rect))?,
+            None => driver.present(id, driver_placement)?,
         }
         self.record_placement(slot_key, id, key);
         Ok(())

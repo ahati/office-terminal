@@ -34,7 +34,12 @@ pub fn render_presenter(
     let inner_slide_area = slide_block.inner(current_slide_area);
     f.render_widget(slide_block, current_slide_area);
 
-    bindings.record_current(inner_slide_area, state.aspect_ratio());
+    bindings.record_current(
+        inner_slide_area,
+        state.aspect_ratio(),
+        state.scale(),
+        state.zoom_pan(),
+    );
     let slide_widget = current_slide_widget(state);
     f.render_widget(slide_widget, inner_slide_area);
     render_render_failure_note(state, f, inner_slide_area);

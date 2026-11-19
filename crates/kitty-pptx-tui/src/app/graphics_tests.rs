@@ -20,7 +20,7 @@ use crate::app::ui::render_app;
 use crate::app::PresentationApp;
 
 /// Canvas target the syncer resolves current/preview/sorter rasters against.
-fn canvas() -> RenderTargetSpec {
+pub(super) fn canvas() -> RenderTargetSpec {
     RenderTargetSpec {
         width_px: 640,
         height_px: 360,
@@ -35,8 +35,8 @@ fn test_bitmap(width: u32, height: u32) -> RgbaSlide {
     }
 }
 
-struct MockPipeline {
-    slides: usize,
+pub(super) struct MockPipeline {
+    pub(super) slides: usize,
 }
 
 impl RenderPipeline for MockPipeline {
@@ -54,21 +54,34 @@ impl RenderPipeline for MockPipeline {
 }
 
 #[derive(Default, Debug)]
-struct DriverLog {
-    staged: Vec<u32>,
+pub(super) struct DriverLog {
+    pub(super) staged: Vec<u32>,
     presented: Vec<(u32, CellRect)>,
     repositioned: Vec<(u32, CellRect)>,
-    released: Vec<u32>,
+    /// Full placement forms (whole-canvas vs zoomed crop), in emission
+    /// order: presents and same-id repositions alike — both are terminal
+    /// placements, and zoom/pan is precisely the reposition path.
+    pub(super) presented_forms: Vec<(u32, Placement)>,
+    pub(super) released: Vec<u32>,
     released_all: usize,
     prebuilt: Vec<(u32, u32, u32)>,
 }
 
-struct MockDriver {
+/// Cell rect of either placement form (whole-canvas or zoomed crop).
+pub(super) fn placement_rect(p: &Placement) -> Option<CellRect> {
+    match p {
+        Placement::Cells(rect) => Some(*rect),
+        Placement::CellsSubrect { rect, .. } => Some(*rect),
+        Placement::ScrollbackBlock => None,
+    }
+}
+
+pub(super) struct MockDriver {
     log: Arc<Mutex<DriverLog>>,
 }
 
 impl MockDriver {
-    fn new() -> (Self, Arc<Mutex<DriverLog>>) {
+    pub(super) fn new() -> (Self, Arc<Mutex<DriverLog>>) {
         let log = Arc::new(Mutex::new(DriverLog::default()));
         (
             Self {
@@ -108,13 +121,15 @@ impl TerminalGraphicsDriver for MockDriver {
         Ok(())
     }
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {
-        if let Placement::Cells(rect) = p {
+        self.log.lock().unwrap().presented_forms.push((id.0, p.clone()));
+        if let Some(rect) = placement_rect(&p) {
             self.log.lock().unwrap().presented.push((id.0, rect));
         }
         Ok(())
     }
     fn reposition(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {
-        if let Placement::Cells(rect) = p {
+        self.log.lock().unwrap().presented_forms.push((id.0, p.clone()));
+        if let Some(rect) = placement_rect(&p) {
             self.log.lock().unwrap().repositioned.push((id.0, rect));
         }
         Ok(())
@@ -153,7 +168,10 @@ fn test_direct_positioning_stages_and_presents_once() {
         .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
         .unwrap();
 
-    let expected = bindings.current.expect("slide rect recorded");
+    let expected = bindings
+        .current
+        .expect("slide placement recorded")
+        .rect;
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged, vec![1]);
@@ -227,8 +245,8 @@ fn test_presenter_mode_places_preview() {
     let log = log.lock().unwrap();
     assert_eq!(log.staged, vec![1, 10]);
     assert_eq!(log.presented.len(), 2);
-    assert_eq!(log.presented[0], (1, current.expect("current rect")));
-    assert_eq!(log.presented[1], (10, preview.expect("preview rect")));
+    assert_eq!(log.presented[0], (1, current.expect("current placement").rect));
+    assert_eq!(log.presented[1], (10, preview.expect("preview placement").rect));
 }
 
 #[test]
