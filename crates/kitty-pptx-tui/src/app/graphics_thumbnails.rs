@@ -9,6 +9,7 @@ use kitty_pptx_display::{
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
+use crate::app::graphics_slots::{PlacedKey, SlotBitmap, SlotEpochs, SlotState};
 use crate::app::state::PresentationState;
 
 /// Upper bound on newly transmitted thumbnails per frame.
@@ -86,12 +87,14 @@ pub fn max_sorter_cards_for_target(target: &RenderTargetSpec) -> usize {
     max_sorter_cards_for_target_and_quota(target, None)
 }
 
-/// A slide-sorter card currently staged on the terminal.
+/// A sorter card slot: engine bookkeeping (staged identity plus the
+/// on-screen placement, including the terminal id) next to the policy field
+/// the quota accountant needs. Staging order lives on the syncer because
+/// eviction is global; a resident card always carries a placement
+/// ([`ThumbnailSyncer::stage_card`] records stage + present together).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ThumbSlot {
-    pub id: ImageId,
-    pub slide: usize,
-    pub rect: CellRect,
+    pub state: SlotState,
     pub bytes: usize,
 }
 
@@ -117,6 +120,24 @@ pub struct ThumbnailSyncer {
 }
 
 impl ThumbnailSyncer {
+    /// Terminal ids of the cards currently resident on screen.
+    fn resident_ids(&self) -> Vec<ImageId> {
+        self.thumbs
+            .values()
+            .filter_map(|slot| slot.state.placed_id())
+            .collect()
+    }
+
+    /// Drops every staged card's bookkeeping (slot map, staging order,
+    /// quota bytes) and returns the terminal ids to release.
+    fn take_resident_ids(&mut self) -> Vec<ImageId> {
+        let ids = self.resident_ids();
+        self.thumbs.clear();
+        self.staging_order.clear();
+        self.total_staged_bytes = 0;
+        ids
+    }
+
     /// Releases every staged card and drops the downscale cache (teardown:
     /// blank screen, empty deck).
     pub fn release_all(
@@ -128,11 +149,7 @@ impl ThumbnailSyncer {
         if self.thumbs.is_empty() {
             return Ok(());
         }
-        let ids: Vec<ImageId> = self.thumbs.values().map(|slot| slot.id).collect();
-        self.thumbs.clear();
-        self.staging_order.clear();
-        self.total_staged_bytes = 0;
-        for id in ids {
+        for id in self.take_resident_ids() {
             driver.release(id)?;
         }
         Ok(())
@@ -149,11 +166,7 @@ impl ThumbnailSyncer {
         if self.thumbs.is_empty() {
             return Ok(());
         }
-        let ids: Vec<ImageId> = self.thumbs.values().map(|slot| slot.id).collect();
-        self.thumbs.clear();
-        self.staging_order.clear();
-        self.total_staged_bytes = 0;
-        for id in ids {
+        for id in self.take_resident_ids() {
             driver.release(id)?;
         }
         Ok(())
@@ -174,17 +187,19 @@ impl ThumbnailSyncer {
             if let Some(slot) = self.thumbs.remove(&slide) {
                 self.total_staged_bytes = self.total_staged_bytes.saturating_sub(slot.bytes);
                 self.staging_order.retain(|&s| s != slide);
-                driver.release(slot.id)?;
+                if let Some(id) = slot.state.placed_id() {
+                    driver.release(id)?;
+                }
             }
         }
         Ok(())
     }
 
     pub fn thumbnail_id(&self, slide: usize) -> ImageId {
-        if let Some(slot) = self.thumbs.get(&slide) {
-            return slot.id;
+        if let Some(id) = self.thumbs.get(&slide).and_then(|slot| slot.state.placed_id()) {
+            return id;
         }
-        let used: HashSet<u32> = self.thumbs.values().map(|slot| slot.id.0).collect();
+        let used: HashSet<u32> = self.resident_ids().into_iter().map(|ImageId(id)| id).collect();
         let mut id = THUMBNAIL_IMAGE_ID_BASE;
         while used.contains(&id) {
             id += 1;
@@ -228,7 +243,7 @@ impl ThumbnailSyncer {
         rect: CellRect,
         quota: usize,
         driver: &mut dyn TerminalGraphicsDriver,
-        epoch: &mut u64,
+        epochs: &mut SlotEpochs,
     ) -> Result<(), DisplayError> {
         let card_bytes = (downscaled.width as usize) * (downscaled.height as usize) * 4;
 
@@ -238,7 +253,9 @@ impl ThumbnailSyncer {
                 if let Some(old_slot) = self.thumbs.remove(&oldest_slide) {
                     self.total_staged_bytes =
                         self.total_staged_bytes.saturating_sub(old_slot.bytes);
-                    let _ = driver.release(old_slot.id);
+                    if let Some(id) = old_slot.state.placed_id() {
+                        let _ = driver.release(id);
+                    }
                 }
             }
         }
@@ -246,17 +263,16 @@ impl ThumbnailSyncer {
         let id = self.thumbnail_id(slide);
         driver.stage(downscaled, id)?;
         driver.present(id, Placement::Cells(rect))?;
-        *epoch = epoch.saturating_add(1);
+        let epoch = epochs.bump();
 
-        self.thumbs.insert(
-            slide,
-            ThumbSlot {
-                id,
-                slide,
-                rect,
-                bytes: card_bytes,
-            },
+        let mut state = SlotState::default();
+        state.record_staged(
+            SlotBitmap { id, page: slide, width: downscaled.width, height: downscaled.height },
+            epoch,
         );
+        state.record_placed(id, PlacedKey::Cells(rect), epoch);
+
+        self.thumbs.insert(slide, ThumbSlot { state, bytes: card_bytes });
         self.staging_order.push_back(slide);
         self.total_staged_bytes += card_bytes;
         Ok(())
@@ -267,7 +283,7 @@ impl ThumbnailSyncer {
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
-        epoch: &mut u64,
+        epochs: &mut SlotEpochs,
         visible_cards: &[(usize, CellRect)],
     ) -> Result<(), DisplayError> {
         // Aspect-derived sorter target: render-invariant across resizes and
@@ -328,17 +344,22 @@ impl ThumbnailSyncer {
             };
 
             // A staged card only ever moves: reposition for the new rect
-            // without retransmitting its pixels.
-            match self.thumbs.get(&slide).map(|slot| (slot.id, slot.rect)) {
-                Some((_, prev_rect)) if prev_rect == rect => continue,
-                Some((id, _)) => {
-                    driver.reposition(id, Placement::Cells(rect))?;
-                    if let Some(slot) = self.thumbs.get_mut(&slide) {
-                        slot.rect = rect;
-                    }
+            // without retransmitting its pixels. A content change at the
+            // same rect is deliberately skipped — sorter targets are
+            // aspect-derived, so content changes imply a DeckReload (which
+            // resets the grid) — hence the disabled epoch compare.
+            let key = PlacedKey::Cells(rect);
+            if let Some(thumb) = self.thumbs.get_mut(&slide) {
+                let Some(id) = thumb.state.placed_id() else {
+                    continue;
+                };
+                if !thumb.state.needs_place(id, key, false) {
                     continue;
                 }
-                None => {}
+                driver.reposition(id, Placement::Cells(rect))?;
+                let placed_epoch = thumb.state.staged_epoch();
+                thumb.state.record_placed(id, key, placed_epoch);
+                continue;
             }
 
             let Some(source) = source else { continue };
@@ -353,7 +374,7 @@ impl ThumbnailSyncer {
                 CardSource::Raster(bitmap) => self.card_bitmap(slide, &bitmap, &thumb_target),
             };
 
-            self.stage_card(slide, &downscaled, rect, quota, driver, epoch)?;
+            self.stage_card(slide, &downscaled, rect, quota, driver, epochs)?;
         }
 
         // Self-healing: re-issue the idempotent window prefetch while any

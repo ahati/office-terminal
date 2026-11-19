@@ -3,6 +3,7 @@ pub mod events;
 mod find_state;
 mod graphics;
 pub(crate) mod graphics_reader;
+pub(crate) mod graphics_slots;
 #[cfg(test)]
 mod graphics_tests;
 pub(crate) mod graphics_thumbnails;
