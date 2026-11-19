@@ -1,5 +1,7 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
+
 use crate::app::events::AppAction;
+use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
 use crate::app::reader_state::ReaderLayout;
 use crate::app::state::PresentationState;
 
@@ -13,321 +15,25 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => AppAction::Quit,
 
-        // Column scroll (vertical continuous flow)
-        KeyCode::Char('j') => {
-            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
-            let mut anchor_changed = false;
-            if let Some(reader) = state.reader_state_mut() {
-                let base_h = reader.current_row_height_px(vw, vh, cw);
-                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
-                let step = ((row_stride / 8.0).round() as i64).max(24);
-                let (ch, _) = reader.scroll_column_detailed(step, row_stride, base_h);
-                anchor_changed = ch;
-            }
-            if anchor_changed {
-                if let Some(reader) = state.reader_state() {
-                    state.set_current_slide(reader.focused_page());
-                }
-                AppAction::SlideChanged
-            } else {
-                AppAction::Redraw
-            }
-        }
-        KeyCode::Char('k') => {
-            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
-            let mut anchor_changed = false;
-            if let Some(reader) = state.reader_state_mut() {
-                let base_h = reader.current_row_height_px(vw, vh, cw);
-                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
-                let step = ((row_stride / 8.0).round() as i64).max(24);
-                let (ch, _) = reader.scroll_column_detailed(-step, row_stride, base_h);
-                anchor_changed = ch;
-            }
-            if anchor_changed {
-                if let Some(reader) = state.reader_state() {
-                    state.set_current_slide(reader.focused_page());
-                }
-                AppAction::SlideChanged
-            } else {
-                AppAction::Redraw
-            }
-        }
-        KeyCode::Down => {
-            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
-            let mut advanced = false;
-            let mut anchor_changed = false;
-            if let Some(reader) = state.reader_state_mut() {
-                let base_h = reader.current_row_height_px(vw, vh, cw);
-                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
-                let step = ((row_stride / 8.0).round() as i64).max(1);
-                let (ch, moved) = reader.scroll_column_detailed(step, row_stride, base_h);
-                anchor_changed = ch;
-                advanced = moved;
-            }
-            if anchor_changed {
-                if let Some(reader) = state.reader_state() {
-                    state.set_current_slide(reader.focused_page());
-                }
-                AppAction::SlideChanged
-            } else if advanced {
-                AppAction::Redraw
-            } else {
-                AppAction::None
-            }
-        }
-        KeyCode::Up => {
-            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
-            let mut retreated = false;
-            let mut anchor_changed = false;
-            if let Some(reader) = state.reader_state_mut() {
-                let base_h = reader.current_row_height_px(vw, vh, cw);
-                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
-                let step = ((row_stride / 8.0).round() as i64).max(1);
-                let (ch, moved) = reader.scroll_column_detailed(-step, row_stride, base_h);
-                anchor_changed = ch;
-                retreated = moved;
-            }
-            if anchor_changed {
-                if let Some(reader) = state.reader_state() {
-                    state.set_current_slide(reader.focused_page());
-                }
-                AppAction::SlideChanged
-            } else if retreated {
-                AppAction::Redraw
-            } else {
-                AppAction::None
-            }
-        }
-        KeyCode::Right => {
-            state.clear_digits();
-            let (_cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
+        // Column scroll (vertical continuous flow). j/k report `Redraw`
+        // even when clamped (vim feedback); arrows report `None` when
+        // nothing moved.
+        KeyCode::Char('j') => scroll_vertical(state, column_step(state, 1), AppAction::Redraw),
+        KeyCode::Char('k') => scroll_vertical(state, column_step(state, -1), AppAction::Redraw),
+        KeyCode::Down => scroll_vertical(state, column_step(state, 1), AppAction::None),
+        KeyCode::Up => scroll_vertical(state, column_step(state, -1), AppAction::None),
 
-            let mut slide_to_set = None;
-            let mut action = AppAction::Redraw;
+        // Horizontal navigation: arrows may advance rows, h/l only pan.
+        KeyCode::Right => step_horizontal(state, 1),
+        KeyCode::Left => step_horizontal(state, -1),
 
-            if let Some(reader) = state.reader_state_mut() {
-                if reader.layout == ReaderLayout::Horizontal {
-                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
-                    let ar = (pt_w / pt_h).max(0.1);
-                    let page_w_px = (viewport_h_px * ar).max(50.0);
-                    let step = ((page_w_px / 8.0).round() as i64).max(24);
-                    let (anchor_changed, moved) = reader.scroll_horizontal_continuous(step, page_w_px);
-                    if anchor_changed {
-                        slide_to_set = Some(reader.focused_page());
-                        action = AppAction::SlideChanged;
-                    } else if moved {
-                        action = AppAction::Redraw;
-                    } else {
-                        action = AppAction::None;
-                    }
-                } else {
-                    let max_row_x = reader.max_row_scroll_x();
-                    if max_row_x > 0 {
-                        let step = ((cell_w_px * 3.0).round() as i64).max(24);
-                        if reader.scroll_row_horizontal(step) {
-                            action = AppAction::Redraw;
-                        } else {
-                            action = AppAction::None;
-                        }
-                    } else {
-                        let page = reader.focused_page();
-                        let is_zoomed = reader.page_view(page).zoom > 1.0;
-                        let max_x = if is_zoomed {
-                            reader.placements().iter().find(|p| p.page == page).map(|p| p.max_scroll_x).unwrap_or(0)
-                        } else {
-                            0
-                        };
-                        if max_x > 0 {
-                            if reader.scroll_horizontal_bounded(24, max_x) {
-                                action = AppAction::Redraw;
-                            } else {
-                                action = AppAction::None;
-                            }
-                        } else {
-                            reader.next_row();
-                            slide_to_set = Some(reader.focused_page());
-                            action = AppAction::SlideChanged;
-                        }
-                    }
-                }
-            }
-
-            if let Some(slide) = slide_to_set {
-                state.set_current_slide(slide);
-            }
-            action
-        }
-        KeyCode::Left => {
-            state.clear_digits();
-            let (_cols, rows) = state.layout_size();
-            let metrics = kitty_pptx_display::probe_cell_pixel_size();
-            let cell_w_px = metrics.width_px.max(4.0) as f32;
-            let cell_h_px = metrics.height_px.max(8.0) as f32;
-            let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-
-            let mut slide_to_set = None;
-            let mut action = AppAction::Redraw;
-
-            if let Some(reader) = state.reader_state_mut() {
-                if reader.layout == ReaderLayout::Horizontal {
-                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
-                    let ar = (pt_w / pt_h).max(0.1);
-                    let page_w_px = (viewport_h_px * ar).max(50.0);
-                    let step = ((page_w_px / 8.0).round() as i64).max(24);
-                    let (anchor_changed, moved) = reader.scroll_horizontal_continuous(-step, page_w_px);
-                    if anchor_changed {
-                        slide_to_set = Some(reader.focused_page());
-                        action = AppAction::SlideChanged;
-                    } else if moved {
-                        action = AppAction::Redraw;
-                    } else {
-                        action = AppAction::None;
-                    }
-                } else {
-                    let max_row_x = reader.max_row_scroll_x();
-                    if max_row_x > 0 {
-                        let step = ((cell_w_px * 3.0).round() as i64).max(24);
-                        if reader.scroll_row_horizontal(-step) {
-                            action = AppAction::Redraw;
-                        } else {
-                            action = AppAction::None;
-                        }
-                    } else {
-                        let page = reader.focused_page();
-                        let is_zoomed = reader.page_view(page).zoom > 1.0;
-                        let max_x = if is_zoomed {
-                            reader.placements().iter().find(|p| p.page == page).map(|p| p.max_scroll_x).unwrap_or(0)
-                        } else {
-                            0
-                        };
-                        if max_x > 0 {
-                            if reader.scroll_horizontal_bounded(-24, max_x) {
-                                action = AppAction::Redraw;
-                            } else {
-                                action = AppAction::None;
-                            }
-                        } else {
-                            reader.prev_row();
-                            slide_to_set = Some(reader.focused_page());
-                            action = AppAction::SlideChanged;
-                        }
-                    }
-                }
-            }
-
-            if let Some(slide) = slide_to_set {
-                state.set_current_slide(slide);
-            }
-            action
-        }
-        KeyCode::Char('d') => {
-            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
-            if let Some(reader) = state.reader_state_mut() {
-                let base_h = reader.current_row_height_px(vw, vh, cw);
-                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
-                let step = ((vh / 2.0).round() as i64).max(1);
-                reader.scroll_column(step, row_stride, base_h);
-            }
-            AppAction::Redraw
-        }
-        KeyCode::Char('u') => {
-            let (vw, vh, cw, ch) = reader_viewport_metrics(state);
-            if let Some(reader) = state.reader_state_mut() {
-                let base_h = reader.current_row_height_px(vw, vh, cw);
-                let row_stride = reader.current_row_stride_px(vw, vh, cw, ch);
-                let step = ((vh / 2.0).round() as i64).max(1);
-                reader.scroll_column(-step, row_stride, base_h);
-            }
-            AppAction::Redraw
-        }
+        // Half-viewport column jumps
+        KeyCode::Char('d') => half_page_scroll(state, 1),
+        KeyCode::Char('u') => half_page_scroll(state, -1),
 
         // Horizontal pan (clamped to overflow)
-        KeyCode::Char('h') => {
-            let (_cols, rows) = state.layout_size();
-            let mut slide_to_set = None;
-            let mut action = AppAction::Redraw;
-            if let Some(reader) = state.reader_state_mut() {
-                if reader.layout == ReaderLayout::Horizontal {
-                    let metrics = kitty_pptx_display::probe_cell_pixel_size();
-                    let cell_h_px = metrics.height_px.max(8.0) as f32;
-                    let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
-                    let ar = (pt_w / pt_h).max(0.1);
-                    let page_w_px = (viewport_h_px * ar).max(50.0);
-                    let step = ((page_w_px / 8.0).round() as i64).max(24);
-                    let (anchor_changed, moved) = reader.scroll_horizontal_continuous(-step, page_w_px);
-                    if anchor_changed {
-                        slide_to_set = Some(reader.focused_page());
-                        action = AppAction::SlideChanged;
-                    } else if !moved {
-                        action = AppAction::None;
-                    }
-                } else {
-                    let max_row_x = reader.max_row_scroll_x();
-                    if max_row_x > 0 {
-                        reader.scroll_row_horizontal(-24);
-                    } else {
-                        let page = reader.focused_page();
-                        let max_x = reader
-                            .placements()
-                            .iter()
-                            .find(|p| p.page == page)
-                            .map(|p| p.max_scroll_x)
-                            .unwrap_or(0);
-                        reader.scroll_horizontal_bounded(-24, max_x);
-                    }
-                }
-            }
-            if let Some(slide) = slide_to_set {
-                state.set_current_slide(slide);
-            }
-            action
-        }
-        KeyCode::Char('l') => {
-            let (_cols, rows) = state.layout_size();
-            let mut slide_to_set = None;
-            let mut action = AppAction::Redraw;
-            if let Some(reader) = state.reader_state_mut() {
-                if reader.layout == ReaderLayout::Horizontal {
-                    let metrics = kitty_pptx_display::probe_cell_pixel_size();
-                    let cell_h_px = metrics.height_px.max(8.0) as f32;
-                    let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-                    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
-                    let ar = (pt_w / pt_h).max(0.1);
-                    let page_w_px = (viewport_h_px * ar).max(50.0);
-                    let step = ((page_w_px / 8.0).round() as i64).max(24);
-                    let (anchor_changed, moved) = reader.scroll_horizontal_continuous(step, page_w_px);
-                    if anchor_changed {
-                        slide_to_set = Some(reader.focused_page());
-                        action = AppAction::SlideChanged;
-                    } else if !moved {
-                        action = AppAction::None;
-                    }
-                } else {
-                    let max_row_x = reader.max_row_scroll_x();
-                    if max_row_x > 0 {
-                        reader.scroll_row_horizontal(24);
-                    } else {
-                        let page = reader.focused_page();
-                        let max_x = reader
-                            .placements()
-                            .iter()
-                            .find(|p| p.page == page)
-                            .map(|p| p.max_scroll_x)
-                            .unwrap_or(0);
-                        reader.scroll_horizontal_bounded(24, max_x);
-                    }
-                }
-            }
-            if let Some(slide) = slide_to_set {
-                state.set_current_slide(slide);
-            }
-            action
-        }
+        KeyCode::Char('h') => pan_horizontal(state, -1),
+        KeyCode::Char('l') => pan_horizontal(state, 1),
 
         // Focus & Sync
         KeyCode::BackTab | KeyCode::Char('w') | KeyCode::Char('\\') => {
@@ -485,13 +191,198 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
     }
 }
 
-fn reader_viewport_metrics(state: &PresentationState) -> (f32, f32, f32, f32) {
-    let (cols, rows) = state.layout_size();
-    let metrics = kitty_pptx_display::probe_cell_pixel_size();
-    let cell_w_px = metrics.width_px.max(4.0) as f32;
-    let cell_h_px = metrics.height_px.max(8.0) as f32;
-    let viewport_w_px = (cols as f32) * cell_w_px;
-    let viewport_h_px = (rows.saturating_sub(1) as f32) * cell_h_px;
-    (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px)
+/// Handles mouse events when the base mode is [`AppMode::Reader`].
+///
+/// Wheel notches scroll the column through the same path as the j/k keys
+/// (three cell heights per notch, direction-correct); every other kind is
+/// ignored and keeps the default hyperlink hit-testing route. Overlay modals
+/// keep the wheel inert, mirroring how key routing defers to overlays first.
+pub fn handle_reader_mouse(mouse: MouseEvent, state: &mut PresentationState) -> AppAction {
+    if state.reader_state().is_none() || state.mode().is_overlay() || state.is_blank() {
+        return AppAction::None;
+    }
+    let dir = match mouse.kind {
+        MouseEventKind::ScrollDown => 1,
+        MouseEventKind::ScrollUp => -1,
+        _ => return AppAction::None,
+    };
+    let (_, _, _, cell_h_px) = reader_viewport_metrics(state);
+    let notch = ((cell_h_px * 3.0).round() as i64).max(1);
+    scroll_vertical(state, dir * notch, AppAction::None)
 }
 
+/// Signed scroll step shared by the j/k and Up/Down keys: one eighth of the
+/// current row stride (min 24 px) in `dir`'s direction.
+fn column_step(state: &PresentationState, dir: i64) -> i64 {
+    let Some(reader) = state.reader_state() else {
+        return 0;
+    };
+    let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(state);
+    let slot_w_px = reader.slot_width(viewport_w_px, cell_w_px);
+    dir * reader.scroll_step_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px)
+}
+
+/// Shared vertical column scroll (j/k, Up/Down, mouse wheel).
+///
+/// Returns `SlideChanged` when the anchor advanced, `Redraw` when the
+/// offset moved, and `idle` when the column is clamped at a document
+/// boundary and nothing moved.
+fn scroll_vertical(state: &mut PresentationState, delta_px: i64, idle: AppAction) -> AppAction {
+    let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(state);
+    let mut anchor_changed = false;
+    let mut moved = false;
+    if let Some(reader) = state.reader_state_mut() {
+        let slot_w_px = reader.slot_width(viewport_w_px, cell_w_px);
+        let row_stride = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
+        let base_h = row_stride - (VERTICAL_GUTTER_ROWS as f32) * cell_h_px;
+        let (ach, mv) = reader.scroll_column_detailed(delta_px, row_stride, base_h);
+        anchor_changed = ach;
+        moved = mv;
+    }
+    if anchor_changed {
+        if let Some(reader) = state.reader_state() {
+            state.set_current_slide(reader.focused_page());
+        }
+        AppAction::SlideChanged
+    } else if moved {
+        AppAction::Redraw
+    } else {
+        idle
+    }
+}
+
+/// Half-viewport column jump shared by `d` (down) and `u` (up).
+fn half_page_scroll(state: &mut PresentationState, dir: i64) -> AppAction {
+    let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(state);
+    if let Some(reader) = state.reader_state_mut() {
+        let slot_w_px = reader.slot_width(viewport_w_px, cell_w_px);
+        let row_stride = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
+        let base_h = row_stride - (VERTICAL_GUTTER_ROWS as f32) * cell_h_px;
+        let step = ((viewport_h_px / 2.0).round() as i64).max(1);
+        reader.scroll_column(dir * step, row_stride, base_h);
+    }
+    AppAction::Redraw
+}
+
+/// Arrow-key horizontal step: slides the horizontal strip, pans the zoomed
+/// row/page, and advances the row when nothing overflows.
+fn step_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
+    state.clear_digits();
+    let (_, viewport_h_px, cell_w_px, _) = reader_viewport_metrics(state);
+
+    let mut slide_to_set = None;
+    let mut action = AppAction::Redraw;
+
+    if let Some(reader) = state.reader_state_mut() {
+        if reader.layout == ReaderLayout::Horizontal {
+            let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
+            let ar = (pt_w / pt_h).max(0.1);
+            let page_w_px = (viewport_h_px * ar).max(50.0);
+            let step = ((page_w_px / 8.0).round() as i64).max(24);
+            let (anchor_changed, moved) = reader.scroll_horizontal_continuous(dir * step, page_w_px);
+            if anchor_changed {
+                slide_to_set = Some(reader.focused_page());
+                action = AppAction::SlideChanged;
+            } else if moved {
+                action = AppAction::Redraw;
+            } else {
+                action = AppAction::None;
+            }
+        } else {
+            let max_row_x = reader.max_row_scroll_x();
+            if max_row_x > 0 {
+                let step = ((cell_w_px * 3.0).round() as i64).max(24);
+                if reader.scroll_row_horizontal(dir * step) {
+                    action = AppAction::Redraw;
+                } else {
+                    action = AppAction::None;
+                }
+            } else {
+                let page = reader.focused_page();
+                let is_zoomed = reader.page_view(page).zoom > 1.0;
+                let max_x = if is_zoomed {
+                    reader
+                        .placements()
+                        .iter()
+                        .find(|p| p.page == page)
+                        .map(|p| p.max_scroll_x)
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+                if max_x > 0 {
+                    if reader.scroll_horizontal_bounded(dir as i32 * 24, max_x) {
+                        action = AppAction::Redraw;
+                    } else {
+                        action = AppAction::None;
+                    }
+                } else {
+                    if dir > 0 {
+                        reader.next_row();
+                    } else {
+                        reader.prev_row();
+                    }
+                    slide_to_set = Some(reader.focused_page());
+                    action = AppAction::SlideChanged;
+                }
+            }
+        }
+    }
+
+    if let Some(slide) = slide_to_set {
+        state.set_current_slide(slide);
+    }
+    action
+}
+
+/// Vim h/l pan: clamped horizontal pan that never advances rows and keeps
+/// reporting `Redraw` (only a horizontal strip that cannot move reports
+/// `None`).
+fn pan_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
+    let (_, viewport_h_px, _, _) = reader_viewport_metrics(state);
+
+    let mut slide_to_set = None;
+    let mut action = AppAction::Redraw;
+
+    if let Some(reader) = state.reader_state_mut() {
+        if reader.layout == ReaderLayout::Horizontal {
+            let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
+            let ar = (pt_w / pt_h).max(0.1);
+            let page_w_px = (viewport_h_px * ar).max(50.0);
+            let step = ((page_w_px / 8.0).round() as i64).max(24);
+            let (anchor_changed, moved) = reader.scroll_horizontal_continuous(dir * step, page_w_px);
+            if anchor_changed {
+                slide_to_set = Some(reader.focused_page());
+                action = AppAction::SlideChanged;
+            } else if !moved {
+                action = AppAction::None;
+            }
+        } else {
+            let max_row_x = reader.max_row_scroll_x();
+            if max_row_x > 0 {
+                reader.scroll_row_horizontal(dir * 24);
+            } else {
+                let page = reader.focused_page();
+                let max_x = reader
+                    .placements()
+                    .iter()
+                    .find(|p| p.page == page)
+                    .map(|p| p.max_scroll_x)
+                    .unwrap_or(0);
+                reader.scroll_horizontal_bounded(dir as i32 * 24, max_x);
+            }
+        }
+    }
+
+    if let Some(slide) = slide_to_set {
+        state.set_current_slide(slide);
+    }
+    action
+}
+
+/// Reader viewport metrics for the current terminal grid (cached cell probe
+/// and canonical floors; see `reader_types::reader_viewport_metrics`).
+fn reader_viewport_metrics(state: &PresentationState) -> (f32, f32, f32, f32) {
+    let (cols, rows) = state.layout_size();
+    crate::app::reader_types::reader_viewport_metrics(cols, rows)
+}

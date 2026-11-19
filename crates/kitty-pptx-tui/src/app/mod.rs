@@ -29,7 +29,7 @@ mod terminal_guard;
 pub mod ui;
 pub mod warnings_state;
 
-use crossterm::event::{self, Event, KeyEvent, MouseEvent};
+use crossterm::event::{self, Event, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::sync::Arc;
@@ -204,7 +204,18 @@ impl PresentationApp {
     /// Process a mouse event and perform the resulting action.
     pub fn handle_mouse(&mut self, mouse: MouseEvent) -> AppAction {
         let leaving_sorter = self.state.base_mode() == AppMode::Sorter;
-        let action = handle_mouse_event(mouse, &mut self.state);
+        // Reader panes scroll on wheel notches before the default handler,
+        // which only routes left-click link hit-testing.
+        let action = if self.state.base_mode() == AppMode::Reader
+            && matches!(
+                mouse.kind,
+                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+            )
+        {
+            reader_events::handle_reader_mouse(mouse, &mut self.state)
+        } else {
+            handle_mouse_event(mouse, &mut self.state)
+        };
         self.prefetch_after_leaving_sorter(leaving_sorter);
         self.apply_action(&action);
         action
@@ -334,6 +345,9 @@ impl PresentationApp {
 
     /// Handle terminal window resize cleanly, adjusting target resolution and re-staging.
     pub fn handle_resize(&mut self, cols: u16, rows: u16) {
+        // Cell pixel metrics changed with the grid: drop the cached probe so
+        // reader layout math re-measures on the next frame.
+        kitty_pptx_display::invalidate_cell_metrics();
         self.recompute_target(cols, rows);
         self.state.update_layout_dimensions(cols, rows);
         self.pipeline.invalidate(InvalidateCause::Resize);
@@ -398,6 +412,7 @@ impl PresentationApp {
             // Drain background render-completion events (one per worker
             // raster). A worker finished publishing fresh results; the next
             // loop iteration re-syncs placements without blocking here.
+            // NOTE(loop-agent): keep ticking while reader.is_animating()
             if let Some(rx) = self.render_events.as_ref() {
                 while rx.try_recv().is_ok() {}
             }

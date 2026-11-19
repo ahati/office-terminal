@@ -21,14 +21,8 @@ impl ReaderState {
         let slot_w = self.slot_width(viewport_w_px, cell_w_px);
         let mut max_h = 0.0f32;
         for &page in &vis {
-            let (pt_w, pt_h) = self.page_size_pt(page);
-            let ar = (pt_w / pt_h).max(0.1);
-            let view = self.page_view(page);
-            let base_h = match view.fit {
-                ReaderFitMode::FitWidth => slot_w / ar,
-                ReaderFitMode::FitPage => viewport_h_px.min(slot_w / ar),
-            };
-            let h = base_h * view.zoom;
+            let (_, base_h) = self.pane_fit(page, viewport_h_px, slot_w);
+            let h = base_h * self.page_view(page).zoom;
             if h > max_h {
                 max_h = h;
             }
@@ -44,9 +38,8 @@ impl ReaderState {
         cell_w_px: f32,
         cell_h_px: f32,
     ) -> f32 {
-        let base_h = self.current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
-        let gutter_h = (VERTICAL_GUTTER_ROWS as f32) * cell_h_px;
-        base_h + gutter_h
+        let slot_w = self.slot_width(viewport_w_px, cell_w_px);
+        self.row_stride_px(viewport_h_px, slot_w, cell_w_px, cell_h_px)
     }
 
     /// Vertical column continuous scroll with anchor advance on row boundary.
@@ -72,7 +65,11 @@ impl ReaderState {
         self.scroll_px += delta_px;
         let step = self.effective_columns();
 
-        // Advance anchor when scrolled past bottom of current row
+        // Advance anchor when scrolled past bottom of current row. The
+        // displayed scroll wraps by the same stride so the on-screen content
+        // position stays continuous across the anchor transition (the
+        // smoothed value otherwise lags one stride behind and the view would
+        // flash backward a full row).
         while self.scroll_px >= row_stride_px as i64 {
             let next_anchor = match self.layout {
                 ReaderLayout::Single => self.anchor + 1,
@@ -88,6 +85,7 @@ impl ReaderState {
             if next_anchor < self.total_pages() {
                 self.anchor = next_anchor;
                 self.scroll_px -= row_stride_px as i64;
+                self.shift_displayed_scroll_px(-row_stride_px);
             } else {
                 self.scroll_px = (base_h_px as i64).saturating_sub(1);
                 break;
@@ -111,7 +109,8 @@ impl ReaderState {
             self.scroll_px = (base_h_px as i64).saturating_sub(1);
         }
 
-        // Retreat anchor when scrolled past top of current row
+        // Retreat anchor when scrolled past top of current row (same
+        // stride lockstep as the advance wrap above).
         while self.scroll_px < 0 {
             if self.anchor > 0 {
                 let prev = match self.layout {
@@ -127,6 +126,7 @@ impl ReaderState {
                 };
                 self.anchor = prev;
                 self.scroll_px += row_stride_px as i64;
+                self.shift_displayed_scroll_px(row_stride_px);
             } else {
                 self.scroll_px = 0;
                 break;
@@ -149,10 +149,13 @@ impl ReaderState {
 
         self.scroll_px += delta_px;
 
+        // Anchor wraps shift the displayed scroll by the same page width so
+        // the slide stays continuous across page boundaries.
         while self.scroll_px >= page_w_px as i64 {
             if self.anchor + 1 < self.total_pages() {
                 self.anchor += 1;
                 self.scroll_px -= page_w_px as i64;
+                self.shift_displayed_scroll_px(-page_w_px);
             } else {
                 self.scroll_px = (page_w_px as i64).saturating_sub(1);
                 break;
@@ -163,6 +166,7 @@ impl ReaderState {
             if self.anchor > 0 {
                 self.anchor -= 1;
                 self.scroll_px += page_w_px as i64;
+                self.shift_displayed_scroll_px(page_w_px);
             } else {
                 self.scroll_px = 0;
                 break;

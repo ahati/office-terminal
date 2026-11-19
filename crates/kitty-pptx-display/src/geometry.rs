@@ -1,4 +1,5 @@
 use crate::driver::CellRect;
+use std::sync::{OnceLock, RwLock};
 
 /// Default terminal character cell aspect ratio (width / height).
 /// Monospace fonts in terminal emulators are conventionally roughly twice as tall as they are wide (1:2 ratio, 0.5).
@@ -41,6 +42,39 @@ pub fn probe_cell_pixel_size() -> CellPixelSize {
         }
     }
     CellPixelSize::default()
+}
+
+/// Cache for [`cell_pixel_size_cached`] (cleared by [`invalidate_cell_metrics`]).
+static CELL_METRICS: OnceLock<RwLock<Option<CellPixelSize>>> = OnceLock::new();
+
+/// Cached [`probe_cell_pixel_size`] result for per-frame UI layout math.
+///
+/// Probing issues a `TIOCGWINSZ` ioctl on every call; reader-mode layout and
+/// scroll calculations ask for cell metrics on every frame and every key
+/// press, so the probed value is cached and only re-measured after a resize
+/// event calls [`invalidate_cell_metrics`].
+pub fn cell_pixel_size_cached() -> CellPixelSize {
+    let lock = CELL_METRICS.get_or_init(|| RwLock::new(None));
+    if let Ok(cached) = lock.read() {
+        if let Some(size) = *cached {
+            return size;
+        }
+    }
+    let probed = probe_cell_pixel_size();
+    if let Ok(mut guard) = lock.write() {
+        *guard = Some(probed);
+    }
+    probed
+}
+
+/// Drops the cached cell metrics so the next [`cell_pixel_size_cached`] call
+/// re-probes the terminal (call on resize events).
+pub fn invalidate_cell_metrics() {
+    if let Some(lock) = CELL_METRICS.get() {
+        if let Ok(mut guard) = lock.write() {
+            *guard = None;
+        }
+    }
 }
 
 /// Probes the terminal for live cell aspect ratio (width / height).
