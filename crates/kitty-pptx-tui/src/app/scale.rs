@@ -73,17 +73,15 @@ impl PresentationApp {
 
     /// Base target for the terminal grid, multiplied by the latched zoom.
     pub(crate) fn recompute_target(&mut self, cols: u16, rows: u16) {
-        // Reader pages render at a canonical 2560-px width: panes stage
+        // Reader pages render at the device-pixel class of the pane showing
+        // them (see `ReaderState::page_render_target`): panes then stage
         // sub-rectangles of that bitmap instead of re-rendering per viewport.
-        if self.state.reader_state().is_some() {
-            let (slide_width, slide_height) = self.state.slide_dimensions();
-            let slide_aspect = (slide_width as f64 / slide_height.max(1) as f64).max(0.1);
-            let target_w = 2560u32;
-            let target_h = ((target_w as f64 / slide_aspect).round() as u32).clamp(1024, 8192);
-            self.current_target = kitty_pptx_core::RenderTargetSpec {
-                width_px: target_w,
-                height_px: target_h,
-            };
+        if let Some(reader) = self.state.reader_state() {
+            let (viewport_w_px, viewport_h_px, cell_w_px, _) =
+                crate::app::reader_types::reader_viewport_metrics(cols, rows);
+            let page = self.state.current_slide();
+            let pane_w = reader.pane_width_px(page, viewport_w_px, viewport_h_px, cell_w_px);
+            self.current_target = reader.page_render_target(page, pane_w);
             return;
         }
 

@@ -100,16 +100,60 @@ impl ReaderState {
         }
     }
 
-    /// Canonical raster target for `page`: 2560 px wide, aspect-true height
-    /// clamped to the rasterizer's supported range.
+    /// Raster-width classes for reader pages (device-pixel aware).
     ///
-    /// Shared by the pane layout and the prefetch planner so staged rasters
-    /// always match placement lookups, including mixed-size documents.
-    pub fn page_render_target(&self, page: usize) -> RenderTargetSpec {
+    /// A page raster only has to out-resolve the pane that shows it, so the
+    /// target snaps the pane's zoomed device width (× [`READER_TARGET_QUALITY`])
+    /// up this ladder. Coarse classes keep resize jitter from re-rendering.
+    /// The 1280 px floor keeps 12 pt text at ~25 px — comfortably above the
+    /// rasterizer's 6 px font floor — and 3840 px covers full-screen panes on
+    /// 4K-retina terminals.
+    pub const READER_TARGET_CLASSES: &[u32] = &[1280, 1920, 2560, 3840];
+
+    /// Supersampling factor over the pane's device width before class
+    /// snapping: enough headroom for kitty's downscale to stay crisp without
+    /// paying for the old fixed 2560 px on small panes.
+    pub const READER_TARGET_QUALITY: f32 = 1.5;
+
+    /// Zoomed pane width in device pixels for `page` under the current
+    /// layout — the input basis for [`ReaderState::page_render_target`].
+    pub fn pane_width_px(
+        &self,
+        page: usize,
+        viewport_w_px: f32,
+        viewport_h_px: f32,
+        cell_w_px: f32,
+    ) -> f32 {
+        let slot_w = self.slot_width(viewport_w_px, cell_w_px);
+        let (base_w, _) = self.pane_fit(page, viewport_h_px, slot_w);
+        base_w * self.page_view(page).zoom
+    }
+
+    /// Raster target for `page`, sized to the pane it is shown in.
+    ///
+    /// `pane_w_px` is the pane's zoomed device-pixel width (from the pane
+    /// layout, or [`ReaderState::pane_width_px`] on the event side); the
+    /// target snaps it up the [`Self::READER_TARGET_CLASSES`] ladder, so a
+    /// 600 px pane renders at 1280 px instead of the old fixed 2560 px —
+    /// ~4× faster rasterization and ~4× less wire payload per page, which is
+    /// what kept boundary transmits landing mid-glide (the page-transition
+    /// flicker). Shared by the pane layout and the prefetch planner so staged
+    /// rasters always match placement lookups, including mixed-size
+    /// documents.
+    pub fn page_render_target(&self, page: usize, pane_w_px: f32) -> RenderTargetSpec {
         let (pt_w, pt_h) = self.page_size_pt(page);
         let ar = (pt_w / pt_h).max(0.1);
-        let width_px = 2560u32;
-        let height_px = ((width_px as f32 / ar).round() as u32).clamp(1024, 8192);
+        let wanted = (pane_w_px.max(1.0) * Self::READER_TARGET_QUALITY).round() as u32;
+        let width_px = Self::READER_TARGET_CLASSES
+            .iter()
+            .copied()
+            .find(|&class| class >= wanted)
+            .unwrap_or(Self::READER_TARGET_CLASSES[Self::READER_TARGET_CLASSES.len() - 1]);
+        // Aspect-true height in the rasterizer's supported range; the lower
+        // bound keeps the original 2560→1024 ratio (2:5) at every class so
+        // wide pages never distort.
+        let height_px = ((width_px as f32 / ar).round() as u32)
+            .clamp((width_px * 2 / 5).max(1), 8192);
         RenderTargetSpec {
             width_px,
             height_px,

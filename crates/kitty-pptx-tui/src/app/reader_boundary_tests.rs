@@ -152,3 +152,24 @@ fn a_multi_row_lag_backs_up_repeatedly() {
     let post_geom = pane_geometry(&mut post);
     assert_eq!(pre_geom, post_geom, "a double wrap stays continuous too");
 }
+
+#[test]
+fn page_targets_snap_to_device_pixel_classes() {
+    let mut state = reader_state(10);
+    let reader = state.reader_state_mut().unwrap();
+
+    // A small pane (600 device px) renders at the 1280 class — ~4x fewer
+    // pixels than the old fixed 2560 — instead of paying full price.
+    let small = reader.page_render_target(0, 600.0);
+    assert_eq!(small.width_px, 1280);
+    assert_eq!(small.height_px, 1656, "aspect-true height for letter pages");
+
+    // Zoomed / large panes step up the ladder; beyond the top they cap.
+    assert_eq!(reader.page_render_target(0, 1100.0).width_px, 1920);
+    assert_eq!(reader.page_render_target(0, 1600.0).width_px, 2560);
+    assert_eq!(reader.page_render_target(0, 4000.0).width_px, 3840);
+
+    // Degenerate panes still produce a sane target.
+    let fallback = reader.page_render_target(0, 0.0);
+    assert_eq!(fallback.width_px, 1280);
+}

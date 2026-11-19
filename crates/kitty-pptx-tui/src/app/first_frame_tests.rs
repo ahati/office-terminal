@@ -221,13 +221,15 @@ fn reader_deck_paints_first_frame_at_the_reader_target() {
     let renders = render_log(&pipeline);
     assert_eq!(renders.len(), 1, "reader decks get the same first paint");
     assert_eq!(renders[0].0, 0, "current_slide mirrors the focused page");
-    assert_eq!(renders[0].1.width_px, 2560, "the fixed 2560-px-wide reader target");
+    // 80x24 grid -> ~390-613 px pane -> the 1280 px raster class, not the old
+    // fixed 2560 px: the first paint must match the class the pane layout
+    // will look up or the entry misses and re-renders.
+    let reader = app.state().reader_state().expect("reader state enabled");
+    let (vw, vh, cw, _) = crate::app::reader_types::reader_viewport_metrics(80, 24);
+    let expected = reader.page_render_target(0, reader.pane_width_px(0, vw, vh, cw));
+    assert_eq!(expected.width_px, 1280, "a small pane snaps to the smallest class");
     assert_eq!(
-        renders[0].1,
-        app.state()
-            .reader_state()
-            .expect("reader state enabled")
-            .page_render_target(0),
+        renders[0].1, expected,
         "uniform deck: the painted target is exactly the reader pane target"
     );
 }
