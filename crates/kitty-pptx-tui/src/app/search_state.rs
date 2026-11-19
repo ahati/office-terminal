@@ -8,6 +8,8 @@ pub struct SlideSearchEntry {
     pub slide_index: usize,
     pub slide_number: usize,
     pub title: String,
+    /// Hierarchical outline number (`2.1`); empty for flat decks and page rows.
+    pub number: String,
     pub notes: String,
     pub level: usize,
     pub expanded: bool,
@@ -112,14 +114,41 @@ impl SearchState {
     pub fn push_char(&mut self, ch: char) {
         self.query.push(ch);
         self.recompute_matches();
-        self.selected_cursor = 0;
+        self.select_best_direct_match();
     }
 
     /// Delete the last character in the search query and recompute filtered matches.
     pub fn backspace(&mut self) {
         if self.query.pop().is_some() {
             self.recompute_matches();
+            self.select_best_direct_match();
+        }
+    }
+
+    /// Park the cursor on the best-scoring direct hit for the active query.
+    ///
+    /// Hierarchical outlines list ancestors ahead of their matching children
+    /// (`recompute_matches`), so without this the cursor would sit on a dimmed
+    /// context row and `Enter` would jump to the ancestor's page.
+    fn select_best_direct_match(&mut self) {
+        let query = self.query.trim().to_lowercase();
+        if query.is_empty() {
             self.selected_cursor = 0;
+            return;
+        }
+        let best = self
+            .matched_indices
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, &entry_idx)| {
+                let entry = self.entries.get(entry_idx)?;
+                let score = calculate_match_score(&query, entry);
+                (score > 0).then_some((pos, score))
+            })
+            .max_by_key(|&(pos, score)| (score, std::cmp::Reverse(pos)))
+            .map(|(pos, _)| pos);
+        if let Some(pos) = best {
+            self.selected_cursor = pos;
         }
     }
 
@@ -184,6 +213,7 @@ impl SearchState {
                 slide_index: i,
                 slide_number,
                 title,
+                number: String::new(),
                 notes: note_text,
                 level: 0,
                 expanded: true,
@@ -216,6 +246,7 @@ impl SearchState {
                     slide_index: i,
                     slide_number: i + 1,
                     title,
+                    number: String::new(),
                     notes: String::new(),
                     level: 0,
                     expanded,
@@ -223,11 +254,10 @@ impl SearchState {
                 });
             }
         } else {
+            let (numbers, depths) = outline_numbers(toc);
             for (idx, t) in toc.iter().enumerate() {
-                let has_children = toc
-                    .get(idx + 1)
-                    .map(|next| next.level > t.level)
-                    .unwrap_or(false);
+                let level = depths[idx];
+                let has_children = depths.get(idx + 1).is_some_and(|&next| next > level);
                 let clean_title = t.title
                     .chars()
                     .filter(|&c| c != '\0' && c != '\u{FEFF}' && c != '\u{FFFD}' && (!c.is_control() || c == ' ' || c == '\t'))
@@ -244,8 +274,9 @@ impl SearchState {
                     slide_index: t.page_index,
                     slide_number: t.page_index + 1,
                     title: clean_title,
+                    number: numbers[idx].clone(),
                     notes: String::new(),
-                    level: t.level,
+                    level,
                     expanded,
                     has_children,
                 });
@@ -412,6 +443,19 @@ impl PresentationState {
     }
 }
 
+/// Tree numbers for an outline, or empty numbers when the TOC is flat.
+///
+/// Flat TOCs (every PPTX deck, `PptxPageSource::toc`) already show their slide
+/// number, so numbering them `1..N` would only duplicate it.
+fn outline_numbers(toc: &[kitty_pptx_core::TocEntry]) -> (Vec<String>, Vec<usize>) {
+    if toc.iter().any(|entry| entry.level > 0) {
+        let levels: Vec<usize> = toc.iter().map(|entry| entry.level).collect();
+        crate::app::toc_numbering::tree_numbers(&levels)
+    } else {
+        (vec![String::new(); toc.len()], vec![0; toc.len()])
+    }
+}
+
 /// Calculate relevance score for matching query against slide number, title, and notes.
 fn calculate_match_score(query: &str, entry: &SlideSearchEntry) -> u32 {
     let num_str = entry.slide_number.to_string();
@@ -420,6 +464,17 @@ fn calculate_match_score(query: &str, entry: &SlideSearchEntry) -> u32 {
     }
     if num_str.starts_with(query) {
         return 800;
+    }
+
+    // Outline numbers rank just below an exact page match, so `2.1` selects the
+    // section instead of a page that merely starts with `2`.
+    if !entry.number.is_empty() {
+        if entry.number == query {
+            return 950;
+        }
+        if entry.number.starts_with(query) {
+            return 850;
+        }
     }
 
     let title_lower = entry.title.to_lowercase();
