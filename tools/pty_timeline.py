@@ -63,7 +63,14 @@ KEYS = {
     "enter": b"\r",
     "right": b"\x1b[C",
     "left": b"\x1b[D",
+    "up": b"\x1b[A",
+    "down": b"\x1b[B",
     "esc": b"\x1b",
+    "w": b"w",
+    "j": b"j",
+    "k": b"k",
+    "d": b"d",
+    "u": b"u",
     "q": b"q",
 }
 
@@ -94,16 +101,17 @@ class Reader:
         while True:
             m = COMMAND.search(self.buf, self.scanned)
             if not m:
-                # A command straddles the read boundary: keep the offset at
-                # the last emitted sequence so it matches once it completes.
                 break
             self.scanned = m.end()
             self.emit(m.group(0))
-        # Drop everything already consumed so the buffer stays small (a
-        # multi-megabyte image chunk would otherwise be re-copied per read).
-        if self.scanned > 1 << 16:
-            self.buf = self.buf[self.scanned:]
-            self.scanned = 0
+        # Compact on every feed: image payloads arrive as `\x1b_Gm=1;...`
+        # continuation chunks that match no command, so an uncompacted buffer
+        # grows by megabytes and every search re-scans it (O(n^2)). Only an
+        # unscanned tail can still start a command, and a command header is
+        # tiny — keep at most 4 KiB of it.
+        tail = self.buf[self.scanned:]
+        self.buf = tail[-4096:]
+        self.scanned = 0
 
     def emit(self, seq):
         stamp = time.time()
@@ -155,10 +163,15 @@ def main():
 
     read_for(fd, INITIAL_WAIT, reader)
     out.append((time.time(), "=== first key ==="))
-    for key in keys.split(","):
+    print(f"[{INITIAL_WAIT:.1f}s] initial drained: {reader.total_bytes/1e6:.1f} MB, {len(out)} events", flush=True)
+    # Each entry is `key` or `key@ms` (send, then drain for `ms` instead of
+    # KEY_WAIT — use a small ms to simulate continuous scrolling).
+    for entry in keys.split(","):
+        key, _, wait = entry.partition("@")
         os.write(fd, KEYS[key])
-        read_for(fd, KEY_WAIT, reader)
+        read_for(fd, float(wait) / 1000.0 if wait else KEY_WAIT, reader)
         out.append((time.time(), f"--- sent {key} ---"))
+        print(f"[+] sent {key} (total {reader.total_bytes/1e6:.1f} MB, {len(out)} events)", flush=True)
 
     read_for(fd, FINAL_WAIT, reader)
     try:

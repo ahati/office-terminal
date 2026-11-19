@@ -348,3 +348,45 @@ fn test_map_slide_links_to_cells_and_sanitize() {
         }
     );
 }
+
+/// Transmission payloads must actually deflate: the pty write is the
+/// bottleneck, so a near-raw PNG stalls the UI thread for the whole drain
+/// whenever a page scrolls into view (the reader's boundary flicker).
+/// `Fast` + `NoFilter` encoded a text-page raster at ~44 % of its raw size
+/// (~34 MB for a 2560×3312 reader page → ~45 MB of base64 on the wire);
+/// the current settings must stay an order of magnitude below that.
+#[test]
+fn test_transmit_payload_deflates_text_pages() {
+    // Text-page-ish raster: white with dark "glyph" bars.
+    let (w, h) = (640u32, 830u32);
+    let mut pixels = vec![255u8; (w * h * 4) as usize];
+    for row in 0..h {
+        if row % 9 < 3 {
+            for col in 0..w {
+                if col % 7 < 2 {
+                    let i = ((row * w + col) * 4) as usize;
+                    pixels[i] = 30;
+                    pixels[i + 1] = 30;
+                    pixels[i + 2] = 30;
+                }
+            }
+        }
+    }
+    let page = RgbaSlide {
+        width: w,
+        height: h,
+        pixels: Arc::from(pixels.into_boxed_slice()),
+    };
+    let raw = page.pixels.len();
+    let payload = encode_transmit_payload(&page).expect("payload encodes");
+
+    // Base64 inflates by 4/3; even so the wire form must stay tiny against
+    // the raw raster. Fast+NoFilter landed at ~59 % (44 % PNG + base64).
+    assert!(
+        payload.base64_len < raw / 10,
+        "transmit payload {}/{} bytes ({:.1} % of raw) is not deflating",
+        payload.base64_len,
+        raw,
+        payload.base64_len as f32 / raw as f32 * 100.0
+    );
+}

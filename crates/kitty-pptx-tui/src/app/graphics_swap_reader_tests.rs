@@ -187,3 +187,65 @@ fn a_rendering_page_releases_whatever_the_pane_still_displays() {
         log.calls
     );
 }
+
+#[test]
+fn a_page_released_while_rendering_restages_when_it_returns() {
+    // P1-2 releases the bitmap a pane displays while the next page renders.
+    // The released image is gone from the terminal, so its staged record
+    // must go too: scrolling back to that page used to find the stale record
+    // and place the deleted image — a permanently blank pane.
+    let pipeline = ScriptedPipeline::ready(&[(5, CARD_RASTER), (17, CARD_RASTER)]);
+    let (mut driver, log) = LoggingDriver::new();
+    let mut syncer = GraphicsSyncer::new();
+    let mut state = reader_state(30);
+
+    // The pane shows page 5 (staged + placed under its stable id).
+    let first = single_pane(5);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &first)
+        .unwrap();
+    let id = page_image_id(5).0;
+    assert_eq!(
+        log.lock().unwrap().count_prefix(&format!("stage id={id} ")),
+        1,
+        "page 5 transmits once"
+    );
+
+    // The pane moves to a colliding page that is still rendering: the
+    // displayed bitmap is released so stale content is not shown (P1-2).
+    pipeline.set_rendering(17);
+    let second = single_pane(17);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &second)
+        .unwrap();
+    assert!(
+        log.lock().unwrap().position(&format!("release id={id}")).is_some(),
+        "P1-2 released the displayed bitmap"
+    );
+
+    // Scrolling back to page 5 must transmit it again: the released image no
+    // longer exists on the terminal, so placing its id alone would blank the
+    // pane.
+    let third = single_pane(5);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &third)
+        .unwrap();
+    let log = log.lock().unwrap();
+    assert_eq!(
+        log.count_prefix(&format!("stage id={id} ")),
+        2,
+        "page 5 re-transmits after its release: {:?}",
+        log.calls
+    );
+    let restage = log
+        .calls
+        .iter()
+        .rposition(|call| call.starts_with(&format!("stage id={id} ")))
+        .expect("the re-transmit is logged");
+    let replace = log
+        .calls
+        .iter()
+        .rposition(|call| call.starts_with(&format!("present id={id}")))
+        .expect("the pane is placed");
+    assert!(restage < replace, "stage precedes place: {:?}", log.calls);
+}
