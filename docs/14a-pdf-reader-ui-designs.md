@@ -146,7 +146,7 @@ pub struct ReaderState {
 
 ### 4.1 Focus
 
-- Exactly one visible pane is **focused**. The status bar shows it (`focus:L`), and the focused pane carries a distinct bottom border segment (existing bordered-widget vocabulary) so focus is visible without the status line.
+- Exactly one visible pane is **focused**. The status bar shows it (`focus:L`), and the focused pane carries a Cyan underline marker in the first free row **below** it — the gutter between layout bands — so focus is visible without the status line. The marker never paints over page content (it originally drew as `Borders::BOTTOM` on the pane's own rect, a line that rode up through the content while scrolling), and it is suppressed when no free row exists (the pane fills the viewport, or another pane owns the row).
 - `Tab` / `Shift-Tab` cycles focus between visible panes. **Focusing a pane turns `sync` off** — subsequent `j/k`, `h/l`, zoom and fit operations act on the focused pane only. `y` re-enables spread-wide synchronization.
 - On page turn, focus **stays on the same slot side** (reading a book, you keep your eye on the same side); the focused page's `PageView` is restored from the LRU (fresh pages start at top, default fit).
 
