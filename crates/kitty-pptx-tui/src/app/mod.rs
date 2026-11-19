@@ -14,6 +14,9 @@ mod graphics_swap_reader_tests;
 mod graphics_swap_tests;
 #[cfg(test)]
 mod graphics_tests;
+#[cfg(test)]
+#[path = "graphics_zoom_tests.rs"]
+mod graphics_zoom_tests;
 pub(crate) mod graphics_thumbnails;
 pub mod link_state;
 mod loop_wake;
@@ -33,6 +36,9 @@ mod reader_boundary_tests;
 mod reader_focus_marker_tests;
 pub mod reader_types;
 mod scale;
+#[cfg(test)]
+#[path = "scale_tests.rs"]
+mod scale_tests;
 pub mod search_state;
 #[cfg(test)]
 mod sorter_graphics_tests;
@@ -53,6 +59,7 @@ pub(crate) mod toc_numbering;
 mod toc_numbering_tests;
 pub mod ui;
 pub mod warnings_state;
+mod zoom_pan;
 
 use crossterm::event::{self, Event, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::backend::CrosstermBackend;

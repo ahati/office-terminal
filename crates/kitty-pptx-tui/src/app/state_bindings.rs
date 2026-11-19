@@ -9,7 +9,7 @@
 
 use kitty_pptx_display::CellRect;
 
-use crate::app::bindings::FrameBindings;
+use crate::app::bindings::{FrameBindings, SlidePlacement};
 use crate::app::state::PresentationState;
 
 impl PresentationState {
@@ -34,14 +34,20 @@ impl PresentationState {
         }
     }
 
+    /// Zoom-aware placement of the full-screen current slide in the last
+    /// drawn frame (rect plus the visible crop window when zoomed).
+    pub fn current_placement(&self) -> Option<SlidePlacement> {
+        self.current_placement
+    }
+
     /// Fitted rect of the full-screen current slide in the last drawn frame.
     pub fn current_placement_rect(&self) -> Option<CellRect> {
-        self.current_placement
+        self.current_placement.map(|placement| placement.rect)
     }
 
     /// Fitted rect of the presenter next-slide preview in the last drawn frame.
     pub fn preview_placement_rect(&self) -> Option<CellRect> {
-        self.preview_placement
+        self.preview_placement.map(|placement| placement.rect)
     }
 
     /// `(slide, rect)` pairs the last drawn sorter frame recorded.
