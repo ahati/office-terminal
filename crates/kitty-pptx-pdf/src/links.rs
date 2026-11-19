@@ -2,7 +2,7 @@ use hayro_syntax::object::dict::keys::ANNOTS;
 use hayro_syntax::object::String as PdfString;
 use hayro_syntax::object::{Array, Dict, Name, Rect};
 use hayro_syntax::page::Page;
-use kitty_pptx_core::{HyperlinkTarget, RectF32, SlideLink};
+use kitty_pptx_core::{HyperlinkTarget, RectF32, SlideLink, EMU_PER_PT};
 
 /// Extracts hyperlink annotations from a PDF page.
 pub fn extract_page_links(page: &Page<'_>) -> Vec<SlideLink> {
@@ -28,10 +28,10 @@ pub fn extract_page_links(page: &Page<'_>) -> Vec<SlideLink> {
         };
 
         // Transform y-up PDF user points to y-down top-left EMU
-        let x_emu = (rect.x0 * 12_700.0).max(0.0) as f32;
-        let y_emu = ((h_pt as f64 - rect.y1) * 12_700.0).max(0.0) as f32;
-        let w_emu = ((rect.x1 - rect.x0).abs() * 12_700.0).max(0.0) as f32;
-        let h_emu = ((rect.y1 - rect.y0).abs() * 12_700.0).max(0.0) as f32;
+        let x_emu = (rect.x0 * f64::from(EMU_PER_PT)).max(0.0) as f32;
+        let y_emu = ((h_pt as f64 - rect.y1) * f64::from(EMU_PER_PT)).max(0.0) as f32;
+        let w_emu = ((rect.x1 - rect.x0).abs() * f64::from(EMU_PER_PT)).max(0.0) as f32;
+        let h_emu = ((rect.y1 - rect.y0).abs() * f64::from(EMU_PER_PT)).max(0.0) as f32;
 
         if w_emu <= 0.0 || h_emu <= 0.0 {
             continue;

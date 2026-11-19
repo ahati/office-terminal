@@ -7,27 +7,22 @@
 //! from the same glyph data: the first glyph gives the run pen x and the
 //! baseline y, and every further glyph keeps its own placed position.
 
-use std::cell::RefCell;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use fontdb::{Database, Family, Query, Stretch, Style, Weight};
+use fontdb::{Family, Query, Stretch, Style, Weight};
 use rustybuzz::ttf_parser::{Face, GlyphId, OutlineBuilder};
 
 use super::path::format_transform_attr;
 use crate::contracts::{
     AffineTransform, DecorationLine, DecorationStyle, PositionedGlyphRun, RunWarp, SvgTextMode,
+    EMU_PER_PT,
 };
 use crate::compiler::text_warp::{warp_glyph_transform, warp_point};
-
-thread_local! {
-    static FONT_DB: RefCell<Database> = RefCell::new({
-        let mut db = Database::new();
-        db.load_system_fonts();
-        crate::text::fonts::install_into_db(&mut db);
-        db
-    });
-}
+// The glyph runs were shaped by the crate's ONE shared per-thread font runtime
+// (`crate::text::fonts`), so the outline painter resolves faces through the
+// same shared raw database instead of scanning the system again.
+use crate::text::fonts::with_face_db;
 
 struct SvgGlyphBuilder {
     d: String,
@@ -236,7 +231,7 @@ fn format_text_length_attr(run: &PositionedGlyphRun) -> String {
         return String::new();
     }
     // 1/1000 em keeps advance-rounding noise out of the markup.
-    let tolerance = (run.font_size_pt * 12700.0 * 1e-3).max(0.5);
+    let tolerance = (run.font_size_pt * EMU_PER_PT * 1e-3).max(0.5);
     if (measured - natural).abs() <= tolerance {
         return String::new();
     }
@@ -254,7 +249,7 @@ fn format_run_attrs(run: &PositionedGlyphRun) -> String {
         &mut attrs,
         r#" font-family="{}" font-size="{:.1}" fill="rgb({},{},{})" fill-opacity="{:.2}""#,
         xml_escape(&run.font_family),
-        run.font_size_pt * 12700.0,
+        run.font_size_pt * EMU_PER_PT,
         r,
         g,
         b,
@@ -338,7 +333,7 @@ static TEXT_REFL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 fn run_bounds(run: &PositionedGlyphRun) -> (f32, f32, f32, f32) {
     let (x, baseline_y) = run_origin(run);
     let (width, _) = run_advances(run);
-    let font_size_emu = (run.font_size_pt * 12700.0).max(1.0);
+    let font_size_emu = (run.font_size_pt * EMU_PER_PT).max(1.0);
     let ascent_emu = font_size_emu * 0.85;
     let descent_emu = font_size_emu * 0.35;
     (
@@ -442,9 +437,7 @@ fn serialize_vector_glyphs(
 ) -> bool {
     let mut any_rendered = false;
 
-    FONT_DB.with(|db_cell| {
-        let db = db_cell.borrow();
-
+    with_face_db(|db| {
         for run in runs {
             if run.text.is_empty() {
                 continue;
@@ -469,7 +462,7 @@ fn serialize_vector_glyphs(
 
             let [r, g, b, a] = run.color;
             let opacity = a as f32 / 255.0;
-            let font_size_emu = run.font_size_pt * 12700.0;
+            let font_size_emu = run.font_size_pt * EMU_PER_PT;
             // Same origin/baseline the `<text>` mode uses, so both modes land
             // the run in the same place (`run_origin`).
             let (origin_x, baseline_y) = run_origin(run);

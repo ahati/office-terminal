@@ -9,7 +9,7 @@ use hayro_syntax::page::Page;
 use kitty_pptx_core::{
     AffineTransform, CompoundLine, FillRule, LineCap, LineJoin, PathSegment, ShapeEffects,
     SlideLink, VectorBackground, VectorCommand, VectorPaint, VectorPath, VectorSlide,
-    VectorStroke,
+    VectorStroke, EMU_PER_PT,
 };
 
 use crate::error::PdfError;
@@ -39,32 +39,32 @@ impl VectorCommandRecorder {
             match el {
                 PathEl::MoveTo(p) => {
                     segments.push(PathSegment::MoveTo {
-                        x: (p.x * 12_700.0) as f32,
-                        y: (p.y * 12_700.0) as f32,
+                        x: (p.x * f64::from(EMU_PER_PT)) as f32,
+                        y: (p.y * f64::from(EMU_PER_PT)) as f32,
                     });
                 }
                 PathEl::LineTo(p) => {
                     segments.push(PathSegment::LineTo {
-                        x: (p.x * 12_700.0) as f32,
-                        y: (p.y * 12_700.0) as f32,
+                        x: (p.x * f64::from(EMU_PER_PT)) as f32,
+                        y: (p.y * f64::from(EMU_PER_PT)) as f32,
                     });
                 }
                 PathEl::QuadTo(p1, p2) => {
                     segments.push(PathSegment::QuadTo {
-                        x1: (p1.x * 12_700.0) as f32,
-                        y1: (p1.y * 12_700.0) as f32,
-                        x: (p2.x * 12_700.0) as f32,
-                        y: (p2.y * 12_700.0) as f32,
+                        x1: (p1.x * f64::from(EMU_PER_PT)) as f32,
+                        y1: (p1.y * f64::from(EMU_PER_PT)) as f32,
+                        x: (p2.x * f64::from(EMU_PER_PT)) as f32,
+                        y: (p2.y * f64::from(EMU_PER_PT)) as f32,
                     });
                 }
                 PathEl::CurveTo(p1, p2, p3) => {
                     segments.push(PathSegment::CubicTo {
-                        x1: (p1.x * 12_700.0) as f32,
-                        y1: (p1.y * 12_700.0) as f32,
-                        x2: (p2.x * 12_700.0) as f32,
-                        y2: (p2.y * 12_700.0) as f32,
-                        x: (p3.x * 12_700.0) as f32,
-                        y: (p3.y * 12_700.0) as f32,
+                        x1: (p1.x * f64::from(EMU_PER_PT)) as f32,
+                        y1: (p1.y * f64::from(EMU_PER_PT)) as f32,
+                        x2: (p2.x * f64::from(EMU_PER_PT)) as f32,
+                        y2: (p2.y * f64::from(EMU_PER_PT)) as f32,
+                        x: (p3.x * f64::from(EMU_PER_PT)) as f32,
+                        y: (p3.y * f64::from(EMU_PER_PT)) as f32,
                     });
                 }
                 PathEl::ClosePath => {
@@ -97,7 +97,7 @@ impl<'a> Device<'a> for VectorCommandRecorder {
                     hayro_interpret::Paint::Color(c) => c.to_rgba().to_rgba8(),
                     _ => [0, 0, 0, 255],
                 };
-                let stroke_width_emu = (stroke_props.line_width * 12_700.0).max(1.0) as i64;
+                let stroke_width_emu = (stroke_props.line_width * EMU_PER_PT).max(1.0) as i64;
                 let stroke = VectorStroke {
                     color,
                     width_emu: stroke_width_emu,
@@ -117,7 +117,7 @@ impl<'a> Device<'a> for VectorCommandRecorder {
                     hayro_interpret::Paint::Color(c) => c.to_rgba().to_rgba8(),
                     _ => [0, 0, 0, 255],
                 };
-                let stroke_width_emu = (stroke_props.line_width * 12_700.0).max(1.0) as i64;
+                let stroke_width_emu = (stroke_props.line_width * EMU_PER_PT).max(1.0) as i64;
                 let stroke = VectorStroke {
                     color,
                     width_emu: stroke_width_emu,
@@ -180,8 +180,8 @@ pub fn compile_page_vector(
     links: Vec<SlideLink>,
 ) -> Result<VectorSlide, PdfError> {
     let (w_pt, h_pt) = page.render_dimensions();
-    let width_emu = (w_pt * 12_700.0).round() as i64;
-    let height_emu = (h_pt * 12_700.0).round() as i64;
+    let width_emu = (w_pt * EMU_PER_PT).round() as i64;
+    let height_emu = (h_pt * EMU_PER_PT).round() as i64;
 
     let cache = InterpreterCache::default();
     let settings = InterpreterSettings::default();
