@@ -11,6 +11,7 @@
 
 pub(crate) mod grapheme;
 pub(crate) mod rules;
+pub(crate) mod width;
 
 use super::measure::{StyleId, TabAlign, TabStop, TextMeasure};
 use grapheme::grapheme_spans;
@@ -352,7 +353,7 @@ pub fn break_paragraph(items: &[BreakItem], o: &BreakOptions<'_>) -> Vec<BrokenL
                 };
                 let budget = o.max_width - indent;
                 let fit = if budget.is_finite() {
-                    fit_prefix(&atoms, start, budget, line_index, o)
+                    width::fit_prefix(&atoms, start, budget, line_index, o)
                 } else {
                     end
                 };
@@ -450,43 +451,6 @@ fn finish_line(
     let mut line = make_line(atoms, start, stop, line_index, o);
     line.starts_after_break = first_line_of_region;
     line
-}
-
-/// Greatest fitting prefix: an exponential probe then a binary search, measuring
-/// only prefixes near the fit boundary (break.ts:297-330).
-fn fit_prefix(
-    atoms: &[Atom<'_>],
-    start: usize,
-    budget: f32,
-    line_index: usize,
-    o: &BreakOptions<'_>,
-) -> usize {
-    let end = atoms.len();
-    let width_at = |stop: usize| make_line(atoms, start, stop, line_index, o).width;
-    let (mut lo, mut hi) = (start, end);
-    let mut step = 1usize;
-    while lo < end {
-        let probe = (start + step).min(end);
-        if width_at(probe) <= budget {
-            lo = probe;
-            if probe == end {
-                break;
-            }
-            step *= 2;
-        } else {
-            hi = probe - 1;
-            break;
-        }
-    }
-    while lo < hi {
-        let mid = lo + (hi - lo).div_ceil(2);
-        if width_at(mid) <= budget {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    lo
 }
 
 /// `mayBreakAt` (break.ts:191-233): true when a break is permitted before `index`.
