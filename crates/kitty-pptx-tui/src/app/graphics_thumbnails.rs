@@ -268,11 +268,12 @@ impl ThumbnailSyncer {
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
         epoch: &mut u64,
+        visible_cards: &[(usize, CellRect)],
     ) -> Result<(), DisplayError> {
         // Aspect-derived sorter target: render-invariant across resizes and
         // zoom, so cached rasters and cards stay valid when the layout moves.
         let thumb_target = thumbnail_target_for_aspect(state.aspect_ratio());
-        let mut visible = state.thumbnail_placement_rects();
+        let mut visible = visible_cards.to_vec();
         let max_cards = max_sorter_cards_for_target(&thumb_target);
         visible.truncate(max_cards);
 

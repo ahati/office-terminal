@@ -29,9 +29,10 @@ fn sorter_resolves_the_dedicated_thumbnail_target() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(6);
 
-    let cards = draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
+    let cards = &bindings.thumbnails;
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &bindings)
         .unwrap();
 
     // Cards are looked up at the dedicated aspect-derived sorter target, not
@@ -56,7 +57,7 @@ fn sorter_resolves_the_dedicated_thumbnail_target() {
     // The visible page is prefetched at that same target, so the grid warms
     // exactly the rasters the cards need.
     let prefetched = pipeline.prefetch_log();
-    for (slide, _) in &cards {
+    for (slide, _) in cards {
         assert!(
             prefetched.contains(&(*slide, expected)),
             "visible slide {slide} is prefetched at the sorter target: {prefetched:?}"
@@ -103,22 +104,38 @@ fn sorter_restages_a_card_from_the_downscale_cache_when_the_raster_is_gone() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(30);
 
-    let first_page = draw_sorter(&state, SHORT);
-    assert_eq!(first_page.len(), 12);
-    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, 12);
+    let first_bindings = draw_sorter(&state, SHORT);
+    assert_eq!(first_bindings.thumbnails.len(), 12);
+    sync_until_settled(
+        &mut syncer,
+        &mut state,
+        &pipeline,
+        &mut driver,
+        &log,
+        &first_bindings,
+        12,
+    );
 
     // Scroll far away, staging a second page of cards.
     state.set_selected_sorter_index(24);
-    draw_sorter(&state, SHORT);
-    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, 24);
+    let second_bindings = draw_sorter(&state, SHORT);
+    sync_until_settled(
+        &mut syncer,
+        &mut state,
+        &pipeline,
+        &mut driver,
+        &log,
+        &second_bindings,
+        24,
+    );
     let staged_before = log.lock().unwrap().staged.len();
 
     // The first page's rasters fall out of the pipeline budget on the way
     // back: only the syncer's downscaled-card cache still holds them.
     pipeline.set_ready(false);
     state.set_selected_sorter_index(0);
-    let back = draw_sorter(&state, SHORT);
-    assert_eq!(back.len(), 12);
+    let back_bindings = draw_sorter(&state, SHORT);
+    assert_eq!(back_bindings.thumbnails.len(), 12);
 
     sync_until_settled(
         &mut syncer,
@@ -126,6 +143,7 @@ fn sorter_restages_a_card_from_the_downscale_cache_when_the_raster_is_gone() {
         &pipeline,
         &mut driver,
         &log,
+        &back_bindings,
         staged_before + 12,
     );
 
@@ -149,9 +167,9 @@ fn sorter_reissues_prefetch_while_a_card_is_unresolvable() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(6);
 
-    draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &bindings)
         .unwrap();
     let after_first = pipeline.prefetch_count();
     assert!(after_first > 0, "the window prefetch fires");
@@ -164,7 +182,7 @@ fn sorter_reissues_prefetch_while_a_card_is_unresolvable() {
     // visible card stays unresolvable, so an evicted raster can never leave
     // a permanently blank card.
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &bindings)
         .unwrap();
     let after_second = pipeline.prefetch_count();
     assert!(
@@ -174,6 +192,6 @@ fn sorter_reissues_prefetch_while_a_card_is_unresolvable() {
 
     // The re-scheduled render lands: the grid fills without any window change.
     pipeline.set_ready(true);
-    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, 6);
+    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, &bindings, 6);
     assert_eq!(log.lock().unwrap().staged.len(), 6);
 }

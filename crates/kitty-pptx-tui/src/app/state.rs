@@ -53,13 +53,18 @@ pub struct PresentationState {
     pub(crate) layout_cols: u16,
     pub(crate) layout_rows: u16,
 
-    // Terminal graphics placement
-    pub(crate) placement_rect: Arc<Mutex<Option<CellRect>>>,
-    pub(crate) preview_placement_rect: Arc<Mutex<Option<CellRect>>>,
-    /// Fitted rects of every sorter card drawn in the last frame.
-    pub(crate) thumbnail_placement_rects: Arc<Mutex<Vec<(usize, CellRect)>>>,
-    /// Placements of visible document pages in reader mode.
-    pub(crate) reader_placements: Arc<Mutex<Vec<crate::app::reader_state::ReaderSlotPlacement>>>,
+    // Last drawn frame geometry (published by the run loop, never written
+    // during rendering: the render pass fills a FrameBindings value instead)
+    /// Fitted rect of the full-screen current slide in the last drawn frame.
+    pub(crate) current_placement: Option<CellRect>,
+    /// Fitted rect of the presenter next-slide preview in the last drawn frame.
+    pub(crate) preview_placement: Option<CellRect>,
+    /// Fitted rect of every sorter card in the last drawn frame.
+    pub(crate) thumbnail_placements: Vec<(usize, CellRect)>,
+    /// Reader panes placed by the last drawn frame.
+    pub(crate) reader_placements_last: Vec<crate::app::reader_state::ReaderSlotPlacement>,
+    /// Reader column count the last drawn frame laid out.
+    pub(crate) reader_columns_last: usize,
     pub(crate) sorter_scroll_row: Arc<Mutex<usize>>,
 
     // Reader state & doc title
@@ -107,10 +112,11 @@ impl PresentationState {
             slide_height_emu: 6_858_000,
             layout_cols: 80,
             layout_rows: 24,
-            placement_rect: Arc::new(Mutex::new(None)),
-            preview_placement_rect: Arc::new(Mutex::new(None)),
-            thumbnail_placement_rects: Arc::new(Mutex::new(Vec::new())),
-            reader_placements: Arc::new(Mutex::new(Vec::new())),
+            current_placement: None,
+            preview_placement: None,
+            thumbnail_placements: Vec::new(),
+            reader_placements_last: Vec::new(),
+            reader_columns_last: 0,
             sorter_scroll_row: Arc::new(Mutex::new(0)),
             reader_state: None,
             deck_title: None,

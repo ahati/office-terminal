@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+use std::sync::Arc;
 
 use kitty_pptx_core::RenderTargetSpec;
 
@@ -24,14 +24,17 @@ pub struct ReaderState {
     /// immutable render path can advance it once per frame). Converges toward
     /// [`ReaderState::scroll_px`] via [`ReaderState::advance_display`].
     displayed_scroll_px: Arc<AtomicU32>,
-    pub num_columns: Arc<AtomicUsize>,
+    /// Effective column count of the last drawn frame. Layout output lives
+    /// in [`crate::app::bindings::FrameBindings`]; the run loop's publisher
+    /// routes it here so input-side queries (`visible_pages`, row steps)
+    /// observe the geometry that is actually on screen.
+    num_columns: usize,
     pub focused_slot: usize,
     pub row_scroll_x: Arc<AtomicI64>,
     pub max_row_scroll_x: Arc<AtomicI64>,
     views: HashMap<usize, PageView>,
     total_pages: usize,
     page_sizes: Vec<(f32, f32)>,
-    placements: Arc<Mutex<Vec<ReaderSlotPlacement>>>,
 }
 
 impl ReaderState {
@@ -46,23 +49,14 @@ impl ReaderState {
             cover_alone: false,
             scroll_px: 0,
             displayed_scroll_px: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
-            num_columns: Arc::new(AtomicUsize::new(2)),
+            num_columns: 2,
             focused_slot: 0,
             row_scroll_x: Arc::new(AtomicI64::new(0)),
             max_row_scroll_x: Arc::new(AtomicI64::new(0)),
             views: HashMap::new(),
             total_pages,
             page_sizes,
-            placements: Arc::new(Mutex::new(Vec::new())),
         }
-    }
-
-    pub fn with_shared_placements(
-        mut self,
-        placements: Arc<Mutex<Vec<ReaderSlotPlacement>>>,
-    ) -> Self {
-        self.placements = placements;
-        self
     }
 
     pub fn total_pages(&self) -> usize {
@@ -219,12 +213,17 @@ impl ReaderState {
         ((stride / 8.0).round() as i64).max(24)
     }
 
-    pub fn set_num_columns(&self, cols: usize) {
-        self.num_columns.store(cols.max(1), Ordering::Relaxed);
+    /// Records the effective column count of the last drawn frame.
+    ///
+    /// Only the run loop's frame publisher calls this: the layout output
+    /// arrives via [`crate::app::bindings::FrameBindings::reader_columns`],
+    /// never through the render path.
+    pub(crate) fn set_num_columns(&mut self, cols: usize) {
+        self.num_columns = cols.max(1);
     }
 
     pub fn num_columns(&self) -> usize {
-        self.num_columns.load(Ordering::Relaxed)
+        self.num_columns
     }
 
     pub fn effective_columns(&self) -> usize {
@@ -516,18 +515,17 @@ impl ReaderState {
         }
     }
 
-    pub fn placements(&self) -> Vec<ReaderSlotPlacement> {
-        self.placements.lock().map(|p| p.clone()).unwrap_or_default()
-    }
-
-    pub fn set_placements(&mut self, placements: Vec<ReaderSlotPlacement>) {
-        if let Ok(mut lock) = self.placements.lock() {
-            *lock = placements;
-        }
-    }
-
-    pub fn status_line(&self, filename: &str) -> String {
-        let placements = self.placements();
+    /// Status line for the reader viewport.
+    ///
+    /// `placements` and `columns` are the frame's layout output (recorded
+    /// into [`crate::app::bindings::FrameBindings`] by the reader view); the
+    /// label reports the primary row so preview rows never leak into it.
+    pub fn status_line(
+        &self,
+        filename: &str,
+        placements: &[ReaderSlotPlacement],
+        columns: usize,
+    ) -> String {
         let primary_placements: Vec<&ReaderSlotPlacement> =
             placements.iter().filter(|p| p.is_primary).collect();
         let source_placements = if primary_placements.is_empty() {
@@ -549,7 +547,7 @@ impl ReaderState {
             format!("p.{}", p + 1)
         } else {
             let vis = self.visible_pages();
-            if vis.len() > 1 {
+            if columns > 1 && vis.len() > 1 {
                 format!("spread {}-{}", vis[0] + 1, vis[1] + 1)
             } else if !vis.is_empty() {
                 format!("p.{}", vis[0] + 1)

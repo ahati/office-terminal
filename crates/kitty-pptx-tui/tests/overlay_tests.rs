@@ -7,6 +7,7 @@ use ratatui::Terminal;
 use kitty_pptx_tui::app::mode::AppMode;
 use kitty_pptx_tui::app::events::{handle_key_event, AppAction};
 use kitty_pptx_tui::app::state::PresentationState;
+use kitty_pptx_tui::app::bindings::FrameBindings;
 use kitty_pptx_tui::app::ui::render_app;
 
 fn make_key(code: KeyCode) -> KeyEvent {
@@ -395,20 +396,32 @@ fn test_ui_rendering_smoke_across_overlays() {
     state.set_slides(vec![slide0]);
 
     // 1. Render Normal view
-    terminal.draw(|f| render_app(&state, f)).expect("Render normal");
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(&state, f, &mut bindings))
+        .expect("Render normal");
 
     // 2. Render Comments Drawer overlay
     state.open_comments();
-    terminal.draw(|f| render_app(&state, f)).expect("Render comments drawer");
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(&state, f, &mut bindings))
+        .expect("Render comments drawer");
 
     // 3. Render Warnings Drawer overlay
     state.open_warnings();
     state.add_warning(WarningEvent::UnsupportedPreset { name: "testPreset".to_string() });
-    terminal.draw(|f| render_app(&state, f)).expect("Render warnings drawer");
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(&state, f, &mut bindings))
+        .expect("Render warnings drawer");
 
     // 4. Render TOC Search modal overlay
     state.open_search();
-    terminal.draw(|f| render_app(&state, f)).expect("Render search modal");
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(&state, f, &mut bindings))
+        .expect("Render search modal");
 }
 
 /// Regression test: overlays must be opaque edge-to-edge. The slide image is
@@ -489,8 +502,9 @@ fn metafile_warnings_render_in_the_drawer() {
 
     let backend = TestBackend::new(160, 40);
     let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+    let mut bindings = FrameBindings::default();
     terminal
-        .draw(|frame| render_app(&state, frame))
+        .draw(|frame| render_app(&state, frame, &mut bindings))
         .expect("draw warnings drawer");
     let text: String = terminal
         .backend()

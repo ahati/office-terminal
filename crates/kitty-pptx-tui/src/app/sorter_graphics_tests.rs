@@ -18,6 +18,7 @@ use kitty_pptx_display::{
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
+use crate::app::bindings::FrameBindings;
 use crate::app::graphics::GraphicsSyncer;
 use crate::app::graphics_thumbnails::max_sorter_cards_for_target_and_quota;
 use crate::app::mode::{AppMode, BlankMode};
@@ -186,15 +187,18 @@ impl TerminalGraphicsDriver for RecordingDriver {
     }
 }
 
-/// Draws one sorter frame at the given terminal size, clearing stale rects.
+/// Draws one sorter frame at the given terminal size and returns the
+/// bindings the render pass produced (thumbnail rects included).
 pub(crate) fn draw_sorter(
     state: &PresentationState,
     (width, height): (u16, u16),
-) -> Vec<(usize, CellRect)> {
+) -> FrameBindings {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    state.clear_placement_rects();
-    terminal.draw(|f| render_app(state, f)).unwrap();
-    state.thumbnail_placement_rects()
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(state, f, &mut bindings))
+        .unwrap();
+    bindings
 }
 
 pub(crate) fn sorter_state(slides: usize) -> PresentationState {
@@ -210,10 +214,13 @@ pub(crate) fn sync_until_settled(
     pipeline: &GridPipeline,
     driver: &mut RecordingDriver,
     log: &Arc<Mutex<DriverLog>>,
+    bindings: &FrameBindings,
     expected: usize,
 ) {
     for _ in 0..16 {
-        syncer.sync(state, pipeline, driver, &CANVAS).unwrap();
+        syncer
+            .sync(state, pipeline, driver, &CANVAS, bindings)
+            .unwrap();
         if log.lock().unwrap().staged.len() >= expected {
             return;
         }
@@ -227,10 +234,19 @@ fn sorter_stages_one_image_per_visible_card() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(12);
 
-    let cards = draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
+    let cards = &bindings.thumbnails;
     assert_eq!(cards.len(), 12, "the whole deck fits one grid page");
 
-    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, 12);
+    sync_until_settled(
+        &mut syncer,
+        &mut state,
+        &pipeline,
+        &mut driver,
+        &log,
+        &bindings,
+        12,
+    );
 
     let log = log.lock().unwrap();
     assert_eq!(log.staged.len(), 12, "one bitmap per card");
@@ -267,14 +283,15 @@ fn sorter_does_not_retransmit_an_unchanged_grid() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(6);
 
-    let cards = draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
     sync_until_settled(
         &mut syncer,
         &mut state,
         &pipeline,
         &mut driver,
         &log,
-        cards.len(),
+        &bindings,
+        bindings.thumbnails.len(),
     );
 
     let before = {
@@ -289,7 +306,7 @@ fn sorter_does_not_retransmit_an_unchanged_grid() {
 
     for _ in 0..3 {
         syncer
-            .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+            .sync(&mut state, &pipeline, &mut driver, &CANVAS, &bindings)
             .unwrap();
     }
 
@@ -307,26 +324,35 @@ fn sorter_releases_cards_that_scroll_out_of_view() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(30);
 
-    let first_page = draw_sorter(&state, SHORT);
-    assert_eq!(first_page.len(), 12);
-    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, 12);
+    let first_bindings = draw_sorter(&state, SHORT);
+    assert_eq!(first_bindings.thumbnails.len(), 12);
+    sync_until_settled(
+        &mut syncer,
+        &mut state,
+        &pipeline,
+        &mut driver,
+        &log,
+        &first_bindings,
+        12,
+    );
 
     let first_ids = log.lock().unwrap().staged.clone();
     assert_eq!(first_ids.len(), 12);
 
     // Jump far enough down that no card of the first page stays visible.
     state.set_selected_sorter_index(24);
-    let second_page = draw_sorter(&state, SHORT);
-    assert_eq!(second_page.len(), 12);
+    let second_bindings = draw_sorter(&state, SHORT);
+    assert_eq!(second_bindings.thumbnails.len(), 12);
     assert!(
-        second_page
+        second_bindings
+            .thumbnails
             .iter()
-            .all(|(slide, _)| !first_page.iter().any(|(first, _)| first == slide)),
+            .all(|(slide, _)| !first_bindings.thumbnails.iter().any(|(first, _)| first == slide)),
         "scrolling replaced the whole page"
     );
 
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &second_bindings)
         .unwrap();
 
     let log = log.lock().unwrap();
@@ -350,24 +376,27 @@ fn leaving_the_sorter_releases_thumbnails_and_restores_the_slide() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(4);
 
-    let cards = draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
     sync_until_settled(
         &mut syncer,
         &mut state,
         &pipeline,
         &mut driver,
         &log,
-        cards.len(),
+        &bindings,
+        bindings.thumbnails.len(),
     );
     let thumb_ids = log.lock().unwrap().staged.clone();
     assert_eq!(thumb_ids.len(), 4);
 
     state.set_mode(AppMode::Fullscreen);
-    state.clear_placement_rects();
     let mut terminal = Terminal::new(TestBackend::new(WIDE.0, WIDE.1)).unwrap();
-    terminal.draw(|f| render_app(&state, f)).unwrap();
+    let mut restored = FrameBindings::default();
+    terminal
+        .draw(|f| render_app(&state, f, &mut restored))
+        .unwrap();
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &restored)
         .unwrap();
 
     let log = log.lock().unwrap();
@@ -397,14 +426,15 @@ fn sorter_keeps_thumbnails_under_an_overlay_modal() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(6);
 
-    let cards = draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
     sync_until_settled(
         &mut syncer,
         &mut state,
         &pipeline,
         &mut driver,
         &log,
-        cards.len(),
+        &bindings,
+        bindings.thumbnails.len(),
     );
     let (staged, released) = {
         let log = log.lock().unwrap();
@@ -413,9 +443,9 @@ fn sorter_keeps_thumbnails_under_an_overlay_modal() {
 
     state.enter_overlay(AppMode::HelpModal);
     assert_eq!(state.base_mode(), AppMode::Sorter);
-    draw_sorter(&state, WIDE);
+    let overlay_bindings = draw_sorter(&state, WIDE);
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &overlay_bindings)
         .unwrap();
 
     let log = log.lock().unwrap();
@@ -430,22 +460,25 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(6);
 
-    let cards = draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
+    let cards = bindings.thumbnails.len();
     sync_until_settled(
         &mut syncer,
         &mut state,
         &pipeline,
         &mut driver,
         &log,
-        cards.len(),
+        &bindings,
+        cards,
     );
 
     state.toggle_blank(BlankMode::Black);
+    let blank = FrameBindings::default();
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &blank)
         .unwrap();
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &blank)
         .unwrap();
     assert_eq!(
         log.lock().unwrap().released_all,
@@ -454,12 +487,12 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
     );
 
     state.unblank();
-    draw_sorter(&state, WIDE);
+    let restored = draw_sorter(&state, WIDE);
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &restored)
         .unwrap();
     assert!(
-        log.lock().unwrap().staged.len() > cards.len(),
+        log.lock().unwrap().staged.len() > cards,
         "cards are re-staged after the blank screen"
     );
 }
@@ -471,15 +504,23 @@ fn resizing_cards_repositions_instead_of_retransmitting() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(12);
 
-    draw_sorter(&state, (100, 30));
-    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, 12);
+    let bindings = draw_sorter(&state, (100, 30));
+    sync_until_settled(
+        &mut syncer,
+        &mut state,
+        &pipeline,
+        &mut driver,
+        &log,
+        &bindings,
+        12,
+    );
     let staged_before = log.lock().unwrap().staged.len();
 
     // Taller terminal: same column count and aspect, so the card target (and
     // therefore the bitmap) is unchanged while the rows move.
-    draw_sorter(&state, (100, 40));
+    let resized = draw_sorter(&state, (100, 40));
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &resized)
         .unwrap();
 
     let log = log.lock().unwrap();
@@ -501,9 +542,9 @@ fn empty_deck_places_nothing() {
     let mut syncer = GraphicsSyncer::new();
     let mut state = sorter_state(0);
 
-    draw_sorter(&state, WIDE);
+    let bindings = draw_sorter(&state, WIDE);
     syncer
-        .sync(&mut state, &pipeline, &mut driver, &CANVAS)
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &bindings)
         .unwrap();
 
     let log = log.lock().unwrap();

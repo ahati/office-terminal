@@ -1,3 +1,4 @@
+pub mod bindings;
 pub mod events;
 mod find_state;
 mod graphics;
@@ -23,6 +24,7 @@ pub mod sorter_state;
 #[cfg(test)]
 mod sorter_thumbnail_recovery_tests;
 pub mod state;
+mod state_bindings;
 mod state_notices;
 mod state_reader;
 mod state_timing;
@@ -38,6 +40,8 @@ use std::time::{Duration, Instant};
 
 use kitty_pptx_core::{InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::TerminalGraphicsDriver;
+
+use crate::app::bindings::FrameBindings;
 
 pub use events::{handle_key_event, handle_resize_event, AppAction};
 pub use find_state::FindState;
@@ -369,7 +373,8 @@ impl PresentationApp {
         self.graphics.reset_preserving_thumbnail_cache();
     }
 
-    /// Stages and places terminal graphics for the frame that was just drawn.
+    /// Stages and places terminal graphics for the frame that was just drawn,
+    /// using the geometry the render pass recorded into `bindings`.
     /// Safe to call every frame: the syncer only talks to the driver when the
     /// slide, its rect, or the blank state actually changed.
     ///
@@ -377,12 +382,13 @@ impl PresentationApp {
     /// pipeline and filed into the warnings drawer: the drain runs on every
     /// sync (PRD 13 §10.5), and a nonzero count means the drawer content
     /// changed, so the caller schedules one more frame.
-    pub fn sync_graphics(&mut self) -> Result<usize, kitty_pptx_core::DisplayError> {
+    pub fn sync_graphics(&mut self, bindings: &FrameBindings) -> Result<usize, kitty_pptx_core::DisplayError> {
         let result = self.graphics.sync(
             &mut self.state,
             self.pipeline.as_ref(),
             self.driver.as_mut(),
             &self.current_target,
+            bindings,
         );
         let drained = self.pipeline.drain_warnings();
         let surfaced = drained.len();
@@ -405,8 +411,9 @@ impl PresentationApp {
     ///
     /// Deadline-driven: each iteration first checks whether anything changed
     /// (input events, worker completions, clock/toast boundaries, reader scroll
-    /// animation) and only then runs the expensive half — clearing the
-    /// placement sinks, the ratatui frame and the graphics sync. The poll
+    /// animation) and only then runs the expensive half — the ratatui frame,
+    /// the graphics sync against that frame's `FrameBindings`, and the
+    /// publication of those bindings for input-side queries. The poll
     /// timeout is the minimum over the applicable wake categories
     /// ([`loop_wake::next_wake`]); a fully idle presentation blocks on input
     /// instead of redrawing at ~60 fps.
@@ -433,18 +440,23 @@ impl PresentationApp {
 
             // ── Frame pass ────────────────────────────────────────
             if tracker.needs_redraw() {
-                self.state.clear_placement_rects();
+                // The render pass is pure: it fills a fresh FrameBindings
+                // value instead of mutating state during the draw.
+                let mut bindings = FrameBindings::default();
                 terminal.draw(|f| {
-                    ui::render_app(&self.state, f);
+                    ui::render_app(&self.state, f, &mut bindings);
                 })?;
 
-                // Place staged images after ratatui's frame so the graphics
-                // layer matches the cell rect the views just computed.
-                // Best-effort: a failed placement must not terminate the
-                // presentation.
+                // Place staged images after ratatui's frame, against the
+                // geometry that frame just produced. Best-effort: a failed
+                // placement must not terminate the presentation.
                 let failure_before = self.render_failure_note();
-                let fresh_warnings = self.sync_graphics().unwrap_or(0);
+                let fresh_warnings = self.sync_graphics(&bindings).unwrap_or(0);
                 let failure_now = self.render_failure_note();
+
+                // Publish the drawn geometry so input-side queries (link
+                // hit-testing, reader pan bounds) see what is on screen.
+                self.state.publish_frame_bindings(bindings);
 
                 tracker.mark_drawn(&self.state);
                 // Diagnostics that surfaced during the sync — a first render

@@ -4,11 +4,17 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Wrap};
 
+use crate::app::bindings::FrameBindings;
 use crate::app::state::PresentationState;
 use crate::app::ui::{current_slide_widget, preview_slide_widget, render_render_failure_note};
 
 /// Render the split-pane presenter mode console.
-pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
+pub fn render_presenter(
+    state: &PresentationState,
+    f: &mut Frame,
+    area: Rect,
+    bindings: &mut FrameBindings,
+) {
     let vert = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(6), Constraint::Length(3)])
@@ -28,6 +34,7 @@ pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
     let inner_slide_area = slide_block.inner(current_slide_area);
     f.render_widget(slide_block, current_slide_area);
 
+    bindings.record_current(inner_slide_area, state.aspect_ratio());
     let slide_widget = current_slide_widget(state);
     f.render_widget(slide_widget, inner_slide_area);
     render_render_failure_note(state, f, inner_slide_area);
@@ -52,6 +59,7 @@ pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect) {
     f.render_widget(preview_block, next_preview_area);
 
     if let Some(next_id) = state.next_image_id() {
+        bindings.record_preview(inner_preview_area, state.aspect_ratio());
         let next_widget = preview_slide_widget(state, next_id);
         f.render_widget(next_widget, inner_preview_area);
     } else {

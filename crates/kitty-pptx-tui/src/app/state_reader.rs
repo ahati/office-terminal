@@ -16,10 +16,7 @@ impl PresentationState {
             let h_emu = (h_pt * EMU_PER_PT).round() as i64;
             self.set_slide_dimensions(w_emu, h_emu);
         }
-        self.reader_state = Some(
-            ReaderState::new(total_pages, page_sizes)
-                .with_shared_placements(self.reader_placements.clone()),
-        );
+        self.reader_state = Some(ReaderState::new(total_pages, page_sizes));
         self.mode = AppMode::Reader;
         self.previous_mode = AppMode::Reader;
     }
@@ -44,38 +41,20 @@ impl PresentationState {
         self.reader_state.as_mut()
     }
 
-    /// Update effective columns for multi-column reader layouts.
-    pub fn set_reader_num_columns(&self, cols: usize) {
-        if let Some(reader) = self.reader_state() {
-            reader.set_num_columns(cols);
-        }
-    }
-
-    /// Retrieve effective columns for multi-column reader layouts.
+    /// Effective reader column count: the layout output of the last drawn
+    /// frame (0 before the first frame), falling back to the reader's own
+    /// default until a frame publishes real geometry.
     pub fn reader_num_columns(&self) -> usize {
-        self.reader_state().map(|r| r.num_columns()).unwrap_or(1)
-    }
-
-    /// Update staged placement coordinates recorded during reader layout rendering.
-    pub fn update_reader_placements(&self, placements: Vec<ReaderSlotPlacement>) {
-        if let Ok(mut lock) = self.reader_placements.lock() {
-            *lock = placements;
+        if self.reader_columns_last > 0 {
+            self.reader_columns_last
+        } else {
+            self.reader_state().map(|r| r.num_columns()).unwrap_or(1)
         }
     }
 
-    /// Retrieve recorded reader placement coordinates.
-    pub fn reader_placements(&self) -> Vec<ReaderSlotPlacement> {
-        self.reader_placements
-            .lock()
-            .map(|p| p.clone())
-            .unwrap_or_default()
-    }
-
-    /// Clear recorded reader placements.
-    pub fn clear_reader_placements(&self) {
-        if let Ok(mut lock) = self.reader_placements.lock() {
-            lock.clear();
-        }
+    /// Reader panes placed by the last drawn frame (input-side pan bounds).
+    pub fn reader_placements_last(&self) -> &[ReaderSlotPlacement] {
+        &self.reader_placements_last
     }
 
     /// Populate TOC search entries from table of contents.
