@@ -44,14 +44,12 @@ impl RenderPipeline for MockPdfPipeline {
     fn entry(&self, _index: usize) -> PipelineEntry {
         PipelineEntry::Ready {
             bitmap: test_page_bitmap(),
-            staged: false,
         }
     }
 
     fn entry_at(&self, _index: usize, _target: &RenderTargetSpec) -> PipelineEntry {
         PipelineEntry::Ready {
             bitmap: test_page_bitmap(),
-            staged: false,
         }
     }
 

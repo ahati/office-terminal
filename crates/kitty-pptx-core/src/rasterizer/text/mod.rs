@@ -13,19 +13,20 @@ mod warp;
 
 use std::cell::RefCell;
 
+// The glyph runs were shaped by the crate's ONE shared per-thread font
+// runtime (`crate::text::fonts`), so the painter resolves fonts through the
+// same two stores instead of scanning the system again: `with_font_system`
+// borrows the shared `cosmic-text` system and the `WARP_FONT_DB` alias keeps
+// the outline painters' `super::WARP_FONT_DB` call sites pointing at the one
+// shared raw database.
+use crate::text::fonts::{with_font_system, FACE_DB as WARP_FONT_DB};
+
 thread_local! {
-    static FONT_CONTEXT: RefCell<(FontSystem, SwashCache)> = RefCell::new({
-        let mut fs = FontSystem::new();
-        crate::text::fonts::install_into_font_system(&mut fs);
-        let sc = SwashCache::new();
-        (fs, sc)
-    });
-    static WARP_FONT_DB: RefCell<Database> = RefCell::new({
-        let mut db = Database::new();
-        db.load_system_fonts();
-        crate::text::fonts::install_into_db(&mut db);
-        db
-    });
+    /// Glyph rasterisation cache for the shared per-thread font system.
+    /// `SwashCache::new()` performs no font scan, so it stays local; the font
+    /// system itself lives in `crate::text::fonts` and is shared with the
+    /// layout measurer and the warp compiler.
+    static SWASH_CACHE: RefCell<SwashCache> = RefCell::new(SwashCache::new());
 }
 
 pub fn render_text_runs(
@@ -40,19 +41,32 @@ pub fn render_text_runs(
         return;
     }
 
-    FONT_CONTEXT.with(|ctx| {
-        let (ref mut font_system, ref mut swash_cache) = *ctx.borrow_mut();
+    with_font_system(|font_system| {
+        SWASH_CACHE.with(|cell| {
+            let swash_cache = &mut *cell.borrow_mut();
 
-        for run in runs {
-            if run.text.is_empty() {
-                continue;
-            }
+            for run in runs {
+                if run.text.is_empty() {
+                    continue;
+                }
 
-            if let Some(ref reflection) = run.reflection {
-                reflection::render_reflected_run(
+                if let Some(ref reflection) = run.reflection {
+                    reflection::render_reflected_run(
+                        pixmap,
+                        run,
+                        reflection,
+                        transform,
+                        scale,
+                        offset_x,
+                        offset_y,
+                        font_system,
+                        swash_cache,
+                    );
+                }
+
+                render_single_run(
                     pixmap,
                     run,
-                    reflection,
                     transform,
                     scale,
                     offset_x,
@@ -61,18 +75,7 @@ pub fn render_text_runs(
                     swash_cache,
                 );
             }
-
-            render_single_run(
-                pixmap,
-                run,
-                transform,
-                scale,
-                offset_x,
-                offset_y,
-                font_system,
-                swash_cache,
-            );
-        }
+        });
     });
 }
 

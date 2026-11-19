@@ -70,13 +70,20 @@ pub fn run_interactive(
                     rasterizer,
                     background_workers(),
                 )
+                .with_transmit_encoder(Arc::new(kitty_pptx_display::KittyTransmitEncoder))
                 .with_sync_fallback(true),
             );
+            // Background workers pre-encode each raster's transmission
+            // payload; the UI loop consumes one completion event per raster.
+            let render_events = pipeline.completion_receiver();
             let mut a = PresentationApp::new(pipeline, driver, total, notes)
                 .with_presenter_mode(presenter)
                 .with_slides(pres_arc.slides.clone())
                 .with_slide_dimensions(pres_arc.slide_width, pres_arc.slide_height)
                 .with_deck_title(doc_title);
+            if let Some(rx) = render_events {
+                a = a.with_render_events(rx);
+            }
             if mode == DeckModeArg::Reader {
                 let page_sizes = vec![
                     (
@@ -114,8 +121,11 @@ pub fn run_interactive(
                     rasterizer,
                     background_workers(),
                 )
+                .with_transmit_encoder(Arc::new(kitty_pptx_display::KittyTransmitEncoder))
                 .with_sync_fallback(true),
             );
+            // Same off-thread staging contract as the PPTX pipeline above.
+            let render_events = pipeline.completion_receiver();
             let notes = vec![None; total];
             let (first_w_emu, first_h_emu) = if total > 0 {
                 pdf_source.page_size_emu(0)
@@ -127,6 +137,9 @@ pub fn run_interactive(
                 .with_slide_dimensions(first_w_emu, first_h_emu)
                 .with_deck_title(doc_title)
                 .with_toc(toc);
+            if let Some(rx) = render_events {
+                a = a.with_render_events(rx);
+            }
             if enable_reader {
                 a = a.with_reader_mode(true, total, page_sizes);
             }

@@ -2,8 +2,8 @@ use std::sync::Arc;
 use crossbeam_channel::Sender;
 
 use crate::contracts::geometry::RectF32;
+use crate::contracts::pipeline::{RenderTargetSpec, RgbaSlide, WarningEvent};
 use crate::contracts::vector_slide::VectorSlide;
-use crate::contracts::pipeline::WarningEvent;
 use crate::error::RenderError;
 use crate::loader::AssetStore;
 
@@ -75,6 +75,23 @@ pub trait PageSource: Send + Sync {
         index: usize,
         warnings: &Sender<WarningEvent>,
     ) -> Result<VectorSlide, RenderError>;
+
+    /// Renders a page natively at the exact pixel target, bypassing the
+    /// Tier-1 vector pipeline.
+    ///
+    /// Raster-native sources (PDF pages) implement this so the interactive
+    /// pipeline never pays a codec round-trip: the returned bitmap is cached
+    /// in Tier 2 directly. `None` (the default) keeps the compile→rasterize
+    /// path. Errors are reported as `Some(Err(..))` so a source can still
+    /// fall back to `compile_page` when native rendering fails.
+    fn render_raster(
+        &self,
+        index: usize,
+        target: &RenderTargetSpec,
+    ) -> Option<Result<RgbaSlide, RenderError>> {
+        let _ = (index, target);
+        None
+    }
 
     /// Optional speaker notes for page `index`.
     fn notes(&self, _index: usize) -> Option<String> {

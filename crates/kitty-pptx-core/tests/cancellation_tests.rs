@@ -83,7 +83,7 @@ fn target() -> RenderTargetSpec {
 fn canceled_queued_tasks_release_their_in_flight_slots() {
     let pool = queued_pool();
     for slide in 0..3 {
-        pool.schedule(slide, 100 - slide as u32, target());
+        pool.schedule(slide, 100 - slide as u32, target(), false);
     }
     assert_eq!(pool.queue_len(), 3);
     assert_eq!(pool.in_flight_count(), 3);
@@ -106,8 +106,8 @@ fn canceled_queued_tasks_release_their_in_flight_slots() {
 #[test]
 fn kept_tasks_stay_in_flight_through_cancellation() {
     let pool = queued_pool();
-    pool.schedule(0, 100, target());
-    pool.schedule(1, 99, target());
+    pool.schedule(0, 100, target(), false);
+    pool.schedule(1, 99, target(), false);
 
     pool.cancel_except(&HashSet::from([1]));
 
@@ -119,12 +119,12 @@ fn kept_tasks_stay_in_flight_through_cancellation() {
 #[test]
 fn canceled_slides_can_be_scheduled_again() {
     let pool = queued_pool();
-    pool.schedule(0, 100, target());
+    pool.schedule(0, 100, target(), false);
     pool.cancel_except(&HashSet::new());
     assert!(!pool.is_in_flight(0));
 
     // Scrolling back to the slide must queue it again.
-    pool.schedule(0, 100, target());
+    pool.schedule(0, 100, target(), false);
     assert!(pool.is_in_flight(0));
     assert_eq!(pool.queue_len(), 1);
 }

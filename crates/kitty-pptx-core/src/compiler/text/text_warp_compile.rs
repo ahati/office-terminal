@@ -3,10 +3,9 @@
 //! Kept in a submodule so the horizontal dispatcher stays under the file-size
 //! limit. The warp geometry kernels live in [`super::super::text_warp`].
 
-use std::cell::RefCell;
 use std::sync::Arc;
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
+use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping};
 use crossbeam_channel::Sender;
 
 use super::super::math::{self, MathParams};
@@ -20,21 +19,16 @@ use crate::contracts::{
 };
 use super::{map_bullet_char, resolve_font_family};
 
-thread_local! {
-    static FONT_SYSTEM: RefCell<FontSystem> = RefCell::new({
-        let mut fs = FontSystem::new();
-        crate::text::fonts::install_into_font_system(&mut fs);
-        fs
-    });
-}
-
 struct ShapedText {
     glyphs: Vec<PositionedGlyph>,
     width: f32,
 }
 
 /// Shape one run with the same font stack used by the rasterizer so run
-/// advances are real font metrics, not per-character heuristics.
+/// advances are real font metrics, not per-character heuristics. The font
+/// system is the crate's ONE shared per-thread runtime
+/// (`crate::text::fonts::with_font_system`), the very store the measurer and
+/// the painter resolve through.
 fn shape_text_run(
     text: &str,
     font_family: &str,
@@ -42,8 +36,7 @@ fn shape_text_run(
     bold: bool,
     italic: bool,
 ) -> ShapedText {
-    FONT_SYSTEM.with(|cell| {
-        let font_system = &mut *cell.borrow_mut();
+    crate::text::fonts::with_font_system(|font_system| {
         let size_px = (font_size_emu / 12700.0).max(1.0);
         let mut buffer = Buffer::new(font_system, Metrics::new(size_px, size_px * 1.25));
         buffer.set_size(font_system, None, None);

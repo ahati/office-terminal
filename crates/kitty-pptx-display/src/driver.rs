@@ -1,5 +1,5 @@
 use kitty_pptx_core::{
-    sanitize_hyperlink_url, DisplayError, HyperlinkTarget, RgbaSlide, SlideLink,
+    sanitize_hyperlink_url, DisplayError, HyperlinkTarget, RgbaSlide, SlideLink, TransmitPayload,
 };
 
 pub use crate::drivers::KittyDriver;
@@ -11,7 +11,8 @@ pub struct ImageId(pub u32);
 // ─── Resident image-id pool ────────────────────────────────────────────────
 // The interactive TUI partitions the terminal's image namespace into disjoint
 // ranges so that releasing one class of images can never delete another:
-// current slide `1..=8`, presenter preview `9..=16`, sorter thumbnails `17..`.
+// current slide `1..=8`, presenter preview `9..=16`, sorter thumbnails
+// `17..=80`, document-reader pages `81..=92`.
 
 /// First image id used by the full-screen current-slide slot.
 pub const CURRENT_IMAGE_ID_BASE: u32 = 1;
@@ -29,6 +30,14 @@ pub const THUMBNAIL_IMAGE_ID_BASE: u32 = PREVIEW_IMAGE_ID_BASE + PREVIEW_IMAGE_I
 /// reducing memory to ~500 KB per card. Sixty-four cards comfortably fits
 /// large decks within the terminal image quota without premature eviction.
 pub const MAX_THUMBNAIL_IMAGES: u32 = 64;
+/// First image id used by document-reader page panes.
+///
+/// Reader mode is exclusive with the slide/sorter views, but its ids stay in
+/// a disjoint range so releasing one class of images can never delete
+/// another and the documented partition remains machine-checked.
+pub const READER_IMAGE_ID_BASE: u32 = THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES;
+/// Number of reader page ids (two spread rows of up to six panes).
+pub const READER_IMAGE_ID_SLOTS: u32 = 12;
 /// Default terminal graphics buffer memory quota (320 MB in standard Kitty).
 pub const DEFAULT_TERMINAL_IMAGE_QUOTA_BYTES: usize = 320 * 1024 * 1024;
 
@@ -42,7 +51,12 @@ pub fn terminal_image_quota_bytes() -> usize {
 }
 
 /// Total number of resident image ids the interactive path can keep alive.
-pub const RESIDENT_IMAGE_IDS: u32 = THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES - 1;
+pub const RESIDENT_IMAGE_IDS: u32 = READER_IMAGE_ID_BASE + READER_IMAGE_ID_SLOTS - 1;
+
+// Machine-checked partition: the reader range starts after the last sorter
+// thumbnail id, and the resident pool covers the reader range end-to-end.
+const _: () = assert!(READER_IMAGE_ID_BASE >= THUMBNAIL_IMAGE_ID_BASE + MAX_THUMBNAIL_IMAGES);
+const _: () = assert!(RESIDENT_IMAGE_IDS >= READER_IMAGE_ID_BASE + READER_IMAGE_ID_SLOTS - 1);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CellRect {
@@ -173,6 +187,24 @@ pub trait TerminalGraphicsDriver: Send {
     fn caps(&self) -> DriverCaps;
     fn placement_mode(&self) -> PlacementMode;
     fn stage(&mut self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError>;
+    /// Transmits an already-encoded payload without re-encoding on this thread.
+    ///
+    /// The payload is produced off-thread by a `kitty_pptx_core::TransmitEncoder`
+    /// (raster workers pre-encoding PNG + base64), so the UI thread only
+    /// pays the wire write. Drivers without a prebuilt-capable path keep this
+    /// default, which reports the capability gap as an I/O error instead of
+    /// silently re-encoding.
+    fn transmit_prebuilt(
+        &mut self,
+        _id: ImageId,
+        _width: u32,
+        _height: u32,
+        _payload: &TransmitPayload,
+    ) -> Result<(), DisplayError> {
+        Err(DisplayError::Io(std::io::Error::other(
+            "prebuilt transmit unsupported by this driver",
+        )))
+    }
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError>;
     fn reposition(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError>;
     fn release(&mut self, id: ImageId) -> Result<(), DisplayError>;

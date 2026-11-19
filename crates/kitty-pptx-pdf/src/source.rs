@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use crossbeam_channel::Sender;
 use kitty_pptx_core::{
-    AssetStore, PageSource, RenderError, SearchCorpus, TocEntry, VectorSlide, WarningEvent,
+    AssetStore, PageSource, RenderError, RenderTargetSpec, RgbaSlide, SearchCorpus, TocEntry,
+    VectorSlide, WarningEvent,
 };
 
 use crate::engine::{HayroEngine, PdfEngine};
@@ -22,13 +23,10 @@ impl PdfPageSource {
     }
 
     pub fn from_engine(engine: Arc<dyn PdfEngine>) -> Result<Self, PdfError> {
-        // Pre-build search corpus text for fast find
-        let count = engine.page_count();
-        let mut pages = Vec::with_capacity(count);
-        for i in 0..count {
-            pages.push(engine.extract_text(i).unwrap_or_default());
-        }
-        let corpus = Arc::new(PdfSearchCorpus::new(pages));
+        // Build the search corpus lazily: extracting text interprets every
+        // page's content stream, which must stay off the startup path. The
+        // first search query triggers a single build of all pages.
+        let corpus = Arc::new(PdfSearchCorpus::lazy(Arc::clone(&engine)));
 
         Ok(Self {
             engine,
@@ -90,6 +88,18 @@ impl PageSource for PdfPageSource {
         self.engine
             .compile_raster(index)
             .map_err(|e| RenderError::CompilationFailed(format!("PDF page {}: {}", index, e)))
+    }
+
+    fn render_raster(
+        &self,
+        index: usize,
+        target: &RenderTargetSpec,
+    ) -> Option<Result<RgbaSlide, RenderError>> {
+        Some(
+            self.engine
+                .render_raster(index, target)
+                .map_err(|e| RenderError::CompilationFailed(format!("PDF page {}: {}", index, e))),
+        )
     }
 
     fn notes(&self, _index: usize) -> Option<String> {

@@ -7,12 +7,20 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::compiler::SlideCompiler;
-use crate::contracts::{PageSource, PptxPageSource, RenderTargetSpec, WarningEvent};
+use crate::contracts::{PageSource, PptxPageSource, RenderTargetSpec, TransmitEncoder, WarningEvent};
 use crate::error::RenderError;
 use crate::loader::AssetStore;
 use crate::rasterizer::SlideRasterizer;
 use super::cache::PipelineCache;
 use super::cancellation::CancellationToken;
+use super::payload::PayloadCache;
+
+/// Shared, late-bindable slot for the off-thread transmission encoder.
+///
+/// The pool is created before the pipeline builder attaches an encoder, so
+/// the slot is shared into every worker context and mutated through
+/// [`WorkerPool::set_transmit_encoder`].
+type TransmitSlot = Arc<Mutex<Option<Arc<dyn TransmitEncoder>>>>;
 
 /// Work item representing a pending slide pre-rasterization task.
 #[derive(Clone)]
@@ -23,6 +31,8 @@ pub struct PrefetchTask {
     pub slide_index: usize,
     /// Destination render resolution.
     pub target: RenderTargetSpec,
+    /// Pre-encode the terminal transmission payload after rasterizing.
+    pub stage: bool,
     /// Cooperative cancellation token.
     pub cancellation: CancellationToken,
 }
@@ -58,6 +68,13 @@ pub struct WorkerSharedContext {
     pub failed: Arc<Mutex<HashMap<usize, RenderError>>>,
     /// Compile/expansion warnings, tagged with the slide index.
     pub warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
+    /// Late-bindable transmission encoder (PNG + base64 for the Kitty
+    /// driver); workers pre-encode staged rasters through this slot.
+    pub transmit: TransmitSlot,
+    /// Pre-encoded payload cache shared with the pipeline.
+    pub payloads: PayloadCache,
+    /// Signals one event per worker-completed raster to the UI loop.
+    pub done_tx: Option<Sender<()>>,
 }
 
 /// Background worker thread pool with priority queue and cooperative cancellation.
@@ -69,6 +86,10 @@ pub struct WorkerPool {
     active_tokens: Arc<Mutex<HashMap<usize, CancellationToken>>>,
     shutdown: Arc<AtomicBool>,
     threads: Mutex<Vec<JoinHandle<()>>>,
+    /// Late-bindable transmission encoder shared with every worker context.
+    transmit: TransmitSlot,
+    /// Yields one event per worker-completed raster for the UI loop.
+    done_rx: Receiver<()>,
 }
 
 impl WorkerPool {
@@ -114,25 +135,37 @@ impl WorkerPool {
             Some(asset_store),
             rasterizer,
             cache,
+            PayloadCache::new(),
+            None,
             warnings,
         )
     }
 
     /// Spawns a background worker pool from a generalized [`PageSource`].
+    ///
+    /// `payloads` is the pre-encoded transmission cache shared with the
+    /// pipeline; `transmit` optionally pre-binds an encoder (the pipeline
+    /// builder can also attach one later via
+    /// [`WorkerPool::set_transmit_encoder`]).
+    #[allow(clippy::too_many_arguments)]
     pub fn with_source_and_warnings(
         num_workers: usize,
         source: Arc<dyn PageSource>,
         asset_store: Option<Arc<dyn AssetStore>>,
         rasterizer: Arc<dyn SlideRasterizer>,
         cache: PipelineCache,
+        payloads: PayloadCache,
+        transmit: Option<Arc<dyn TransmitEncoder>>,
         warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
     ) -> Self {
         let queue = Arc::new(Mutex::new(BinaryHeap::new()));
         let (notify_tx, notify_rx) = crossbeam_channel::unbounded();
+        let (done_tx, done_rx) = crossbeam_channel::unbounded::<()>();
         let in_flight = Arc::new(Mutex::new(HashSet::new()));
         let failed = Arc::new(Mutex::new(HashMap::new()));
         let active_tokens = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
+        let transmit = Arc::new(Mutex::new(transmit));
 
         let ctx = WorkerSharedContext {
             source,
@@ -142,6 +175,9 @@ impl WorkerPool {
             in_flight: Arc::clone(&in_flight),
             failed: Arc::clone(&failed),
             warnings: Arc::clone(&warnings),
+            transmit: Arc::clone(&transmit),
+            payloads,
+            done_tx: Some(done_tx),
         };
 
         let mut threads = Vec::with_capacity(num_workers);
@@ -169,16 +205,19 @@ impl WorkerPool {
             active_tokens,
             shutdown,
             threads: Mutex::new(threads),
+            transmit,
+            done_rx,
         }
     }
 
-    /// Schedule a slide prefetch task with given priority and target spec.
-    /// Returns the associated cooperative cancellation token.
+    /// Schedule a slide prefetch task with given priority, target spec and
+    /// staging flag. Returns the associated cooperative cancellation token.
     pub fn schedule(
         &self,
         slide_index: usize,
         priority: u32,
         target: RenderTargetSpec,
+        stage: bool,
     ) -> CancellationToken {
         let token = CancellationToken::new();
 
@@ -194,6 +233,7 @@ impl WorkerPool {
             priority,
             slide_index,
             target,
+            stage,
             cancellation: token.clone(),
         };
 
@@ -305,6 +345,21 @@ impl WorkerPool {
     /// Number of tasks waiting in the priority queue.
     pub fn queue_len(&self) -> usize {
         self.queue.lock().map(|q| q.len()).unwrap_or(0)
+    }
+
+    /// Receiver that yields one event per worker-completed raster, letting
+    /// the UI loop know fresh results exist without polling the caches.
+    pub fn completion_receiver(&self) -> Receiver<()> {
+        self.done_rx.clone()
+    }
+
+    /// Attaches the off-thread transmission encoder workers use to pre-encode
+    /// staged rasters. Called by the pipeline builder after pool creation;
+    /// the slot is shared with every already-spawned worker thread.
+    pub fn set_transmit_encoder(&self, encoder: Arc<dyn TransmitEncoder>) {
+        if let Ok(mut slot) = self.transmit.lock() {
+            *slot = Some(encoder);
+        }
     }
 
     /// Shut down all worker threads cleanly.
@@ -496,9 +551,29 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
     match ctx.rasterizer.rasterize(&vector_slide, &target, store) {
         Ok(bmp) => {
             if !task.cancellation.is_canceled() && !shutdown.load(AtomicOrdering::Acquire) {
-                ctx.cache.put_raster(index, target, bmp);
+                ctx.cache.put_raster(index, target, bmp.clone());
                 if let Ok(mut fl) = ctx.failed.lock() {
                     fl.remove(&index);
+                }
+
+                // Staging policy (PRD 03a): pre-encode the terminal payload
+                // on the worker so the UI thread writes prebuilt bytes.
+                // Encode failures are skipped: the syncer falls back to
+                // on-thread encoding through the driver.
+                if task.stage {
+                    let encoder = ctx
+                        .transmit
+                        .lock()
+                        .ok()
+                        .and_then(|slot| slot.clone());
+                    if let Some(encoder) = encoder {
+                        ctx.payloads.stage(encoder.as_ref(), index, target, &bmp);
+                    }
+                }
+
+                // One event per freshly published raster wakes the UI loop.
+                if let Some(done) = ctx.done_tx.as_ref() {
+                    done.send(()).ok();
                 }
             }
         }

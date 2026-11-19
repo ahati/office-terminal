@@ -61,6 +61,9 @@ pub struct PresentationApp {
     graphics: GraphicsSyncer,
     is_running: bool,
     current_target: RenderTargetSpec,
+    /// Yields one event per worker-completed raster; drained each frame so
+    /// freshly published results re-sync without blocking the event poll.
+    render_events: Option<crossbeam_channel::Receiver<()>>,
 }
 
 /// Backwards-compatible type alias for `PresentationApp`.
@@ -84,6 +87,7 @@ impl PresentationApp {
                 width_px: 1920,
                 height_px: 1080,
             },
+            render_events: None,
         }
     }
 
@@ -135,6 +139,13 @@ impl PresentationApp {
     /// Attach a document table of contents for fuzzy search.
     pub fn with_toc(mut self, toc: Vec<kitty_pptx_core::TocEntry>) -> Self {
         self.state.set_toc(&toc);
+        self
+    }
+
+    /// Attach the pipeline's worker-completion receiver so the UI loop can
+    /// observe freshly published rasters and re-sync placements for them.
+    pub fn with_render_events(mut self, rx: crossbeam_channel::Receiver<()>) -> Self {
+        self.render_events = Some(rx);
         self
     }
 
@@ -383,6 +394,13 @@ impl PresentationApp {
             // matches the cell rect the views just computed. Best-effort: a
             // failed placement must not terminate the presentation.
             let _ = self.sync_graphics();
+
+            // Drain background render-completion events (one per worker
+            // raster). A worker finished publishing fresh results; the next
+            // loop iteration re-syncs placements without blocking here.
+            if let Some(rx) = self.render_events.as_ref() {
+                while rx.try_recv().is_ok() {}
+            }
 
             if event::poll(Duration::from_millis(16))? {
                 let mut ev_opt = Some(event::read()?);

@@ -1,6 +1,6 @@
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use kitty_pptx_core::{DisplayError, RgbaSlide};
+use kitty_pptx_core::{DisplayError, RgbaSlide, TransmitPayload};
 
 use crate::driver::*;
 use crate::tty::global_tty;
@@ -21,6 +21,51 @@ pub const BEHIND_CELL_BACKGROUNDS_Z: i32 = i32::MIN / 2 - 1;
 // Kitty's below-background band starts at INT32_MIN/2; a placement at or above
 // it would cover overlay fills again.
 const _: () = assert!(BEHIND_CELL_BACKGROUNDS_Z < i32::MIN / 2);
+
+// ─── PNG + base64 transmission encoding ─────────────────────────────────────
+
+/// Encodes a raster as PNG with the transmission settings used by
+/// [`KittyDriver::stage`]: `CompressionType::Fast` + `FilterType::NoFilter`
+/// favour encode latency over payload size — transmission is bound by pty
+/// write throughput, not by terminal-side decompression cost.
+fn encode_png(bmp: &RgbaSlide) -> Result<Vec<u8>, DisplayError> {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    use image::ImageEncoder;
+
+    let mut png_bytes = Vec::new();
+    let encoder = PngEncoder::new_with_quality(
+        &mut png_bytes,
+        CompressionType::Fast,
+        FilterType::NoFilter,
+    );
+
+    encoder
+        .write_image(
+            &bmp.pixels,
+            bmp.width,
+            bmp.height,
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|e| DisplayError::Io(std::io::Error::other(e.to_string())))?;
+
+    Ok(png_bytes)
+}
+
+/// Encodes a raster into a pre-built Kitty transmission payload: PNG (`f=100`)
+/// bytes wrapped in base64, exactly matching `KittyDriver::stage`.
+///
+/// Raster workers run this off the UI thread (via [`crate::KittyTransmitEncoder`])
+/// and hand the result to
+/// [`TerminalGraphicsDriver::transmit_prebuilt`], so the UI thread never pays
+/// the PNG + base64 encode cost for a ready slide.
+pub fn encode_transmit_payload(bmp: &RgbaSlide) -> Result<TransmitPayload, DisplayError> {
+    let png = encode_png(bmp)?;
+    let b64 = BASE64.encode(&png);
+    Ok(TransmitPayload {
+        base64: b64.as_str().into(),
+        base64_len: b64.len(),
+    })
+}
 
 /// Driver for the Kitty Graphics Protocol.
 ///
@@ -104,30 +149,7 @@ impl KittyDriver {
         chunks
     }
 
-    fn encode_png(bmp: &RgbaSlide) -> Result<Vec<u8>, DisplayError> {
-        use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-        use image::ImageEncoder;
-
-        let mut png_bytes = Vec::new();
-        let encoder = PngEncoder::new_with_quality(
-            &mut png_bytes,
-            CompressionType::Fast,
-            FilterType::NoFilter,
-        );
-
-        encoder
-            .write_image(
-                &bmp.pixels,
-                bmp.width,
-                bmp.height,
-                image::ExtendedColorType::Rgba8,
-            )
-            .map_err(|e| DisplayError::Io(std::io::Error::other(e.to_string())))?;
-
-        Ok(png_bytes)
-    }
-
-    /// Transmits one bitmap as a single coalesced write.
+    /// Transmits one bitmap as a single coalesced write (fallback path).
     ///
     /// Kitty requires the base64 payload to be split into ≤4 KB chunks with
     /// `m=0`/`m=1` framing, but the framing lives in the escape sequences, not
@@ -135,16 +157,35 @@ impl KittyDriver {
     /// keeps the protocol framing intact while replacing dozens of
     /// write+flush syscalls per image with exactly one (PRD 03a §6: pty writes
     /// block on the terminal reader, so syscall count is latency).
+    ///
+    /// This path still pays the PNG + base64 encode inline; the prebuilt
+    /// pipeline avoids it via [`TerminalGraphicsDriver::transmit_prebuilt`] +
+    /// [`crate::KittyTransmitEncoder`].
     fn transmit(&self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError> {
+        let payload = encode_transmit_payload(bmp)?;
+        self.write_prebuilt(id, bmp.width, bmp.height, &payload.base64)
+    }
+
+    /// Joins Kitty's ≤4 KB `m=0`/`m=1` chunk framing for a pre-encoded base64
+    /// payload into one coalesced blob and writes it with a single buffered
+    /// write: one lock acquisition, one `write_all`, one flush per image.
+    ///
+    /// The framing is identical to [`Self::format_transmission_chunks`]; the
+    /// base64 text is sliced as-is and never re-encoded.
+    fn write_prebuilt(
+        &self,
+        id: ImageId,
+        width: u32,
+        height: u32,
+        b64: &str,
+    ) -> Result<(), DisplayError> {
         let tty = global_tty();
-        let png = Self::encode_png(bmp)?;
-        let b64 = BASE64.encode(&png);
-        let chunks = Self::format_transmission_chunks(id, bmp.width, bmp.height, &b64);
-        let mut blob = String::with_capacity(b64.len() + chunks.len() * 64);
-        for seq in chunks {
-            blob.push_str(&seq);
+        let chunks = Self::format_transmission_chunks(id, width, height, b64);
+        let mut blob = String::with_capacity(b64.len() + chunks.len() * 48);
+        for seq in &chunks {
+            blob.push_str(seq);
         }
-        tty.write_seq(&blob).map_err(DisplayError::Io)
+        tty.write_seq_batch(&[&blob]).map_err(DisplayError::Io)
     }
 
     /// Escape sequences that present `id` for the given [`Placement`].
@@ -219,6 +260,16 @@ impl TerminalGraphicsDriver for KittyDriver {
 
     fn stage(&mut self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError> {
         self.transmit(bmp, id)
+    }
+
+    fn transmit_prebuilt(
+        &mut self,
+        id: ImageId,
+        width: u32,
+        height: u32,
+        payload: &TransmitPayload,
+    ) -> Result<(), DisplayError> {
+        self.write_prebuilt(id, width, height, &payload.base64)
     }
 
     fn present(&mut self, id: ImageId, placement: Placement) -> Result<(), DisplayError> {

@@ -44,7 +44,6 @@ impl RenderPipeline for MockPipeline {
         if index < self.slides {
             PipelineEntry::Ready {
                 bitmap: test_bitmap(4, 2),
-                staged: false,
             }
         } else {
             PipelineEntry::NotLoaded

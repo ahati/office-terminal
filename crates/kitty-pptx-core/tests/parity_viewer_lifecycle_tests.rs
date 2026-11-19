@@ -371,7 +371,7 @@ fn a_failed_slide_replays_its_error_on_every_later_read() {
 
     // The worker records the failure; repeated reads replay it verbatim.
     pipeline.workers().cancel_all();
-    pipeline.workers().schedule(1, 10, TARGET);
+    pipeline.workers().schedule(1, 10, TARGET, false);
     let mut recorded = None;
     for _ in 0..200 {
         if let Some(failure) = pipeline.workers().get_failed(1) {
@@ -548,7 +548,7 @@ fn out_of_range_slide_reads_fail_typed() {
 #[test]
 fn deck_reload_clears_latched_failures() {
     let pipeline = failing_pipeline(2, 1);
-    pipeline.workers().schedule(1, 10, TARGET);
+    pipeline.workers().schedule(1, 10, TARGET, false);
     for _ in 0..200 {
         if pipeline.workers().get_failed(1).is_some() {
             break;

@@ -320,7 +320,7 @@ fn quiet_pool(count: usize) -> WorkerPool {
 fn cancel_except_cancels_tokens_and_purges_the_queue() {
     let pool = quiet_pool(6);
     let tokens: Vec<CancellationToken> = (0..6)
-        .map(|index| pool.schedule(index, 10, TARGET))
+        .map(|index| pool.schedule(index, 10, TARGET, false))
         .collect();
     assert_eq!(pool.queue_len(), 6);
     assert_eq!(pool.in_flight_count(), 6);
@@ -345,7 +345,7 @@ fn cancel_except_cancels_tokens_and_purges_the_queue() {
 fn cancel_all_drains_queue_and_in_flight() {
     let pool = quiet_pool(4);
     let tokens: Vec<CancellationToken> = (0..4)
-        .map(|index| pool.schedule(index, 10, TARGET))
+        .map(|index| pool.schedule(index, 10, TARGET, false))
         .collect();
     pool.cancel_all();
 
@@ -389,6 +389,7 @@ fn prefetch_task_priority_orders_the_queue() {
         priority,
         slide_index,
         target: TARGET,
+        stage: false,
         cancellation: CancellationToken::new(),
     };
     assert!(task(20, 0) > task(10, 5));
@@ -405,8 +406,8 @@ fn prefetch_task_priority_orders_the_queue() {
 #[test]
 fn pool_shutdown_is_idempotent() {
     let pool = quiet_pool(3);
-    pool.schedule(0, 10, TARGET);
-    pool.schedule(1, 10, TARGET);
+    pool.schedule(0, 10, TARGET, false);
+    pool.schedule(1, 10, TARGET, false);
     pool.shutdown();
     assert_eq!((pool.queue_len(), pool.in_flight_count()), (0, 0));
     pool.shutdown();
