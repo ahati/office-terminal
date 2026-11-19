@@ -136,7 +136,8 @@ fn expired_toast_imposes_no_deadline() {
     state.set_toast("buffering...");
     // Age the toast past its TTL: it is no longer displayed, so it must not
     // wake the loop either.
-    state.toast_time = state
+    state.session.toast_time = state
+        .session
         .toast_time
         .and_then(|shown_at| shown_at.checked_sub(TOAST_TTL + Duration::from_secs(1)));
     assert_eq!(state.toast(), None);
@@ -183,8 +184,8 @@ fn tracker_requests_redraw_when_presenter_clock_flips() {
     assert!(!tracker.needs_redraw());
 
     // Two elapsed seconds pass with no input: the console clock must flip.
-    if let Some(backdated) = state.start_time.checked_sub(Duration::from_secs(2)) {
-        state.start_time = backdated;
+    if let Some(backdated) = state.session.start_time.checked_sub(Duration::from_secs(2)) {
+        state.session.start_time = backdated;
     }
     tracker.evaluate(&state, 0);
     assert!(tracker.needs_redraw());
@@ -205,7 +206,8 @@ fn tracker_requests_redraw_when_toast_appears_or_expires() {
     tracker.mark_drawn(&state);
 
     // The toast ages out: the status line drops it without any input.
-    state.toast_time = state
+    state.session.toast_time = state
+        .session
         .toast_time
         .and_then(|shown_at| shown_at.checked_sub(TOAST_TTL + Duration::from_secs(1)));
     tracker.evaluate(&state, 0);

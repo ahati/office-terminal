@@ -1,9 +1,9 @@
 //! Reader mode state extensions for [`PresentationState`].
 //!
-//! Split out of `state.rs` to keep the state module under the project's
-//! 600-line ceiling.
+//! Split out of `state.rs` to keep the state module under the 600-line
+//! ceiling.
 
-use crate::app::mode::AppMode;
+use crate::app::mode_stack::BaseView;
 use crate::app::reader_state::{ReaderSlotPlacement, ReaderState};
 use crate::app::state::PresentationState;
 use kitty_pptx_core::EMU_PER_PT;
@@ -17,18 +17,19 @@ impl PresentationState {
             self.set_slide_dimensions(w_emu, h_emu);
         }
         self.reader_state = Some(ReaderState::new(total_pages, page_sizes));
-        self.mode = AppMode::Reader;
-        self.previous_mode = AppMode::Reader;
+        // Reader is a persistent base view: switch the mode stack's base so
+        // overlays (find modal, help) remember it underneath.
+        self.mode_stack.switch_base(BaseView::Reader);
     }
 
     /// Set human-readable presentation or document title.
     pub fn set_deck_title(&mut self, title: impl Into<String>) {
-        self.deck_title = Some(title.into());
+        self.deck.set_deck_title(title);
     }
 
     /// Presentation or document title if configured.
     pub fn presentation_title(&self) -> Option<&str> {
-        self.deck_title.as_deref()
+        self.deck.presentation_title()
     }
 
     /// Read-only access to reader mode state.
@@ -59,7 +60,7 @@ impl PresentationState {
 
     /// Populate TOC search entries from table of contents.
     pub fn set_toc(&mut self, toc: &[kitty_pptx_core::TocEntry]) {
-        self.toc = toc.to_vec();
+        self.deck.set_toc(toc);
         let total = self.total_slides;
         self.search.sync_from_toc(toc, total);
     }

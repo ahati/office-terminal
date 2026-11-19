@@ -252,19 +252,14 @@ impl PresentationState {
         }
     }
 
+    /// Enter the sorter grid, remembering the view to return to. The return
+    /// target survives overlays opened on top of the grid (help, TOC search)
+    /// and is consumed only on exit, so the grid hands the screen back to
+    /// the view that opened it.
     pub fn open_sorter(&mut self) {
         if self.mode() != AppMode::Sorter {
-            if self.sorter_return_mode.is_none() {
-                let return_mode = if self.mode.is_base_mode() {
-                    self.mode
-                } else if self.previous_mode.is_base_mode() && self.previous_mode != AppMode::Sorter {
-                    self.previous_mode
-                } else {
-                    AppMode::Fullscreen
-                };
-                self.sorter_return_mode = Some(return_mode);
-            }
-            self.enter_overlay(AppMode::Sorter);
+            self.unblank();
+            self.mode_stack.open_sorter();
             self.sorter.selected_index = self.current_slide();
         }
     }
@@ -278,15 +273,7 @@ impl PresentationState {
             let clamped = self.sorter.selected_index.min(self.total_slides() - 1);
             slide_changed = self.set_current_slide(clamped);
         }
-        let return_mode = self.sorter_return_mode.take().unwrap_or_else(|| {
-            if self.previous_mode.is_base_mode() && self.previous_mode != AppMode::Sorter {
-                self.previous_mode
-            } else {
-                AppMode::Fullscreen
-            }
-        });
-        self.mode = return_mode;
-        self.previous_mode = return_mode;
+        self.mode_stack.exit_sorter();
         slide_changed
     }
 
