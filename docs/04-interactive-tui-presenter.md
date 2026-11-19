@@ -104,9 +104,10 @@ The split layout reserves $\approx 70\%$ of screen width for the main slide canv
 ### 5.1 Slide Sorter Grid
 - Activated via `Tab` or `s`.
 - Dynamically computes thumbnail cell grid based on terminal dimensions (e.g. $4\times 3$ or $5\times 4$), capped at `MAX_THUMBNAIL_IMAGES` (16) visible cards.
-- Places one directly-positioned image per visible card, reusing the **canvas raster** and letting the terminal scale it into the card. This keeps a thumbnail pixel-identical to the full-screen slide; rendering at a card-sized target instead inflates text runs past the rasterizer's 6 px font-size floor, which makes thumbnails look unwrapped.
-- Prefetches the visible page at the canvas target, so the grid warms exactly the bitmaps the deck itself needs; at most 4 cards are transmitted per frame so scrolling never blocks the event loop.
-- Releases cards that scroll out of view and every thumbnail when the sorter closes.
+- Places one directly-positioned image per visible card, rasterized at the dedicated aspect-derived **sorter target** (1280 px wide, see [PRD 03a §5.1](./03a-kitty-graphics-protocol-driver.md)) and downscaled to ~480 px before transmission; the terminal scales it into the card. 1280 px keeps text runs above the rasterizer's 6 px font-size floor, and the aspect-derived target survives resizes and zoom changes.
+- Prefetches the visible window at that same sorter target; at most 4 cards are transmitted per frame so scrolling never blocks the event loop.
+- Releases cards that scroll out of view immediately. Leaving the grid releases every card, but only after the slide view has placed its own bitmap — tearing the grid down first blanked the screen for the length of the canvas transmit.
+- Entering or leaving the grid never re-transmits a displayed image id: the canvas upgrades from the card raster to the canvas raster through the spare-id swap described in [PRD 03a §5.1](./03a-kitty-graphics-protocol-driver.md), so the slide never blinks while it sharpens.
 - Displays slide numbers, titles, and dimmed borders for `hidden` slides.
 - Arrow keys navigate the grid cursor; `Enter` jumps to selected slide; `Esc` cancels.
 

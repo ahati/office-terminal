@@ -1,5 +1,8 @@
 use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
-use kitty_pptx_display::{CellRect, ImageId, Placement, TerminalGraphicsDriver};
+use kitty_pptx_display::{
+    CellRect, ImageId, Placement, TerminalGraphicsDriver, CURRENT_IMAGE_ID_BASE,
+    CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE, PREVIEW_IMAGE_ID_SLOTS,
+};
 
 use crate::app::bindings::FrameBindings;
 use crate::app::graphics_reader::ReaderGraphicsSyncer;
@@ -15,6 +18,30 @@ use crate::app::state::PresentationState;
 enum SlideSlot {
     Current,
     Preview,
+}
+
+impl SlideSlot {
+    /// Image-id pool the display layer reserves for this slot.
+    ///
+    /// The pools are disjoint, so a swap inside one slot can never collide
+    /// with the other slot's resident image.
+    fn id_pool(self) -> (u32, u32) {
+        match self {
+            SlideSlot::Current => (CURRENT_IMAGE_ID_BASE, CURRENT_IMAGE_ID_SLOTS),
+            SlideSlot::Preview => (PREVIEW_IMAGE_ID_BASE, PREVIEW_IMAGE_ID_SLOTS),
+        }
+    }
+}
+
+/// What resolving a slot against the pipeline produced for this frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum StageLookup {
+    /// The slot's pixels are on the terminal under this id.
+    Ready(ImageId),
+    /// The bitmap is still being rendered; the screen must stay as it is.
+    Rendering,
+    /// Nothing to show and nothing pending (render failure, unsupported).
+    Unavailable,
 }
 
 /// Keeps terminal graphics in sync with the geometry the last frame drew.
@@ -106,11 +133,22 @@ impl GraphicsSyncer {
             return self.sync_thumbnails(state, pipeline, driver, bindings);
         }
 
-        self.release_thumbnails(driver)?;
-        self.sync_slide(state, pipeline, driver, canvas_target, bindings)
+        // The sorter grid is only torn down once the slide view actually owns
+        // the screen: releasing the cards while the canvas bitmap is still
+        // being rendered would blank the whole screen for the length of that
+        // render. `sync_slide` presents the slide (and every swap is
+        // present-then-release), so the grid never leaves a hole behind.
+        let slide_pending = self.sync_slide(state, pipeline, driver, canvas_target, bindings)?;
+        if !slide_pending {
+            self.release_thumbnails(driver)?;
+        }
+        Ok(())
     }
 
     /// Syncs the full-screen slide and the presenter next-slide preview.
+    ///
+    /// Returns whether the current slot is still waiting for its first bitmap:
+    /// the grid then stays resident instead of being released.
     fn sync_slide(
         &mut self,
         state: &mut PresentationState,
@@ -118,25 +156,31 @@ impl GraphicsSyncer {
         driver: &mut dyn TerminalGraphicsDriver,
         canvas_target: &RenderTargetSpec,
         bindings: &FrameBindings,
-    ) -> Result<(), DisplayError> {
+    ) -> Result<bool, DisplayError> {
         let current_rect = bindings.current;
         let preview_rect = bindings.preview;
+        let mut pending = false;
 
         match current_rect {
             Some(rect) => {
-                let id = state.current_image_id();
                 let slide = state.current_slide();
-                if self.ensure_staged(
+                match self.ensure_staged(
                     slide,
-                    id,
+                    state.current_image_id(),
                     SlideSlot::Current,
                     pipeline,
                     driver,
                     state,
                     canvas_target,
                 )? {
-                    state.clear_render_failure_for(slide);
-                    self.place_slot(SlideSlot::Current, id, rect, driver)?;
+                    StageLookup::Ready(id) => {
+                        state.clear_render_failure_for(slide);
+                        self.place_slot(SlideSlot::Current, id, rect, driver)?;
+                    }
+                    // First bitmap still in flight and nothing to keep on
+                    // screen: hold whatever the previous view left up.
+                    StageLookup::Rendering => pending = self.current.is_clear(),
+                    StageLookup::Unavailable => {}
                 }
             }
             None => self.release_slot(SlideSlot::Current, driver)?,
@@ -157,7 +201,7 @@ impl GraphicsSyncer {
 
         match preview {
             Some((slide, id, rect)) => {
-                if self.ensure_staged(
+                if let StageLookup::Ready(id) = self.ensure_staged(
                     slide,
                     id,
                     SlideSlot::Preview,
@@ -172,7 +216,7 @@ impl GraphicsSyncer {
             None => self.release_slot(SlideSlot::Preview, driver)?,
         }
 
-        Ok(())
+        Ok(pending)
     }
 
     /// Syncs the slide-sorter grid: one bitmap per visible card.
@@ -215,29 +259,35 @@ impl GraphicsSyncer {
         self.thumbnails.release_all_keep_cache(driver)
     }
 
-    /// Stages `slide` under `id` when the slot does not already hold it.
-    ///
-    /// Returns `true` when the bitmap is ready on the terminal. A failed
-    /// render is noted on the state instead of blocking forever silently.
+    /// Stages `slide` into its slot when the slot does not already hold those
+    /// pixels. A failed render is noted on the state instead of blocking
+    /// forever silently.
     #[allow(clippy::too_many_arguments)]
     fn ensure_staged(
         &mut self,
         slide: usize,
-        id: ImageId,
+        preferred: ImageId,
         slot_key: SlideSlot,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
         state: &mut PresentationState,
         canvas_target: &RenderTargetSpec,
-    ) -> Result<bool, DisplayError> {
+    ) -> Result<StageLookup, DisplayError> {
         match pipeline.entry(slide) {
             PipelineEntry::Ready { bitmap, .. } => {
-                let want =
-                    SlotBitmap { id, page: slide, width: bitmap.width, height: bitmap.height };
-                if !self.slot(slot_key).needs_stage(&want) {
-                    return Ok(true);
+                let want = SlotBitmap {
+                    id: preferred,
+                    page: slide,
+                    width: bitmap.width,
+                    height: bitmap.height,
+                };
+                // The same pixels may already be resident under the spare id
+                // of a completed swap: keep them instead of re-sending.
+                if let Some(staged_id) = self.staged_equivalent(slot_key, &want) {
+                    return Ok(StageLookup::Ready(staged_id));
                 }
 
+                let id = self.stage_id(slot_key, preferred);
                 // Prefer the worker's pre-encoded payload: one batched write,
                 // no on-thread encode. Fall back to encoding here when the
                 // worker has not produced one (sync renders, payload-cache
@@ -249,32 +299,78 @@ impl GraphicsSyncer {
                     None => driver.stage(&bitmap, id)?,
                 }
                 let epoch = self.epochs.bump();
-                self.slot_mut(slot_key).record_staged(want, epoch);
-                Ok(true)
+                self.slot_mut(slot_key)
+                    .record_staged(SlotBitmap { id, ..want }, epoch);
+                Ok(StageLookup::Ready(id))
             }
             PipelineEntry::Failed { error } => {
                 state.note_render_failure(slide, error.to_string());
                 // Keep presenting an already staged bitmap if we have one.
-                Ok(self.stages(slot_key, id, slide))
+                Ok(self.keep_staged(slot_key, slide))
             }
-            // Rendering / NotLoaded: keep presenting an already staged bitmap.
-            _ => Ok(self.stages(slot_key, id, slide)),
+            // Still rendering: keep presenting whatever the slot holds for
+            // this slide, and tell the caller the first bitmap has not
+            // arrived when it holds nothing at all.
+            PipelineEntry::Rendering => Ok(self
+                .staged_for(slot_key, slide)
+                .map_or(StageLookup::Rendering, StageLookup::Ready)),
+            PipelineEntry::NotLoaded => Ok(self.keep_staged(slot_key, slide)),
         }
     }
 
-    /// Whether a slot still stages `id` for `slide` — kept across render
-    /// hiccups so the view never flashes blank.
-    fn stages(&self, slot_key: SlideSlot, id: ImageId, slide: usize) -> bool {
+    /// The id of a slot bitmap that already holds exactly these pixels.
+    fn staged_equivalent(&self, slot_key: SlideSlot, want: &SlotBitmap) -> Option<ImageId> {
+        self.slot(slot_key).staged().and_then(|staged| {
+            (staged.page == want.page
+                && staged.width == want.width
+                && staged.height == want.height)
+                .then_some(staged.id)
+        })
+    }
+
+    /// Keep presenting the bitmap the slot already stages for `slide` (across
+    /// render hiccups) so the view never flashes blank.
+    fn keep_staged(&self, slot_key: SlideSlot, slide: usize) -> StageLookup {
+        self.staged_for(slot_key, slide)
+            .map_or(StageLookup::Unavailable, StageLookup::Ready)
+    }
+
+    /// Id of the bitmap the slot already holds for `slide`, if any.
+    fn staged_for(&self, slot_key: SlideSlot, slide: usize) -> Option<ImageId> {
         self.slot(slot_key)
             .staged()
-            .is_some_and(|staged| staged.id == id && staged.page == slide)
+            .filter(|staged| staged.page == slide)
+            .map(|staged| staged.id)
+    }
+
+    /// Id to transmit fresh pixels under.
+    ///
+    /// Kitty deletes an image *and every placement of it* the moment new data
+    /// is transmitted for its id: "when re-transmitting image data for a
+    /// specific id, the existing image and all its placements must be deleted
+    /// ... the new data ... is not actually displayed until a placement for it
+    /// is created". Re-staging over a displayed slot therefore blanks the
+    /// slide for the whole transmit + decode window — the flicker seen when
+    /// the canvas upgrades from the sorter's card raster (or a pre-resize
+    /// frame) to the canvas raster. While the preferred id is on screen the
+    /// slot stages into a spare id from its own pool instead; [`Self::place_slot`]
+    /// then presents the new bitmap before releasing the old one, so the slot
+    /// is never empty.
+    fn stage_id(&self, slot_key: SlideSlot, preferred: ImageId) -> ImageId {
+        if self.slot(slot_key).placed_id() != Some(preferred) {
+            return preferred;
+        }
+        let (base, slots) = slot_key.id_pool();
+        let offset = preferred.0.saturating_sub(base);
+        ImageId(base + (offset + 1) % slots.max(1))
     }
 
     /// Places (or repositions) one full-screen slot's image at `rect`.
     ///
-    /// Same id: re-place for new data/rect; kitty wipes the old placement
-    /// when the same image id is placed again. Different id: release the
-    /// old placement first, then present.
+    /// Same id: re-place for the new geometry — kitty replaces the placement
+    /// of that (image id, placement id) pair without flicker. Different id:
+    /// present the incoming bitmap first and release the outgoing one
+    /// afterwards, so the slot never holds an empty screen between the two.
     fn place_slot(
         &mut self,
         slot_key: SlideSlot,
@@ -287,16 +383,16 @@ impl GraphicsSyncer {
             return Ok(());
         }
 
-        if let Some(previous) = self.slot_mut(slot_key).take_placed() {
-            if previous.id == id {
+        match self.slot_mut(slot_key).take_placed() {
+            Some(previous) if previous.id == id => {
                 driver.reposition(id, Placement::Cells(rect))?;
-                self.record_placement(slot_key, id, key);
-                return Ok(());
             }
-            self.drop_placed(slot_key, previous, driver)?;
+            Some(previous) => {
+                driver.present(id, Placement::Cells(rect))?;
+                self.drop_placed(slot_key, previous, driver)?;
+            }
+            None => driver.present(id, Placement::Cells(rect))?,
         }
-
-        driver.present(id, Placement::Cells(rect))?;
         self.record_placement(slot_key, id, key);
         Ok(())
     }
