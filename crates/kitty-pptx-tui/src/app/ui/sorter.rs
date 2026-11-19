@@ -61,19 +61,11 @@ pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect) {
     let card_height = (grid_area.height / 3).clamp(5, 12);
 
     // Never plan more cards than the terminal image quota and image-id pool can keep resident; the
-    // graphics syncer would otherwise leave the overflow blank.
-    let (w_emu, h_emu) = state.slide_dimensions();
-    let ar = if h_emu > 0 { w_emu as f32 / h_emu as f32 } else { 16.0 / 9.0 };
-    let (target_w, target_h) = if ar >= 1.0 {
-        (2560u32, ((2560.0 / ar).round() as u32).clamp(1024, 8192))
-    } else {
-        (((2560.0 * ar).round() as u32).clamp(1024, 8192), 2560u32)
-    };
-    let canvas_target = kitty_pptx_core::RenderTargetSpec {
-        width_px: target_w,
-        height_px: target_h,
-    };
-    let max_cards = crate::app::graphics_thumbnails::max_sorter_cards_for_target(&canvas_target);
+    // graphics syncer would otherwise leave the overflow blank. Capacity is computed against the
+    // same aspect-derived sorter target the graphics syncer renders at.
+    let thumb_target =
+        crate::app::graphics_thumbnails::thumbnail_target_for_aspect(state.aspect_ratio());
+    let max_cards = crate::app::graphics_thumbnails::max_sorter_cards_for_target(&thumb_target);
     let capacity_rows = (max_cards / cols).max(1) as u16;
     let rows_visible = (grid_area.height / card_height).max(1).min(capacity_rows);
     let cursor = state.selected_sorter_index();

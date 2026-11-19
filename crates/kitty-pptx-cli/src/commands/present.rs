@@ -7,6 +7,17 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
+/// Background raster worker count for the interactive pipeline.
+///
+/// The sorter grid resolves a raster per visible card, so a wider worker pool
+/// directly shortens first-window fill. Sorter rasters are ~1280 px wide
+/// (~3.7–5.1 MB each), keeping peak in-flight memory modest even at the cap.
+fn background_workers() -> usize {
+    std::thread::available_parallelism()
+        .map_or(4, |cpus| cpus.get())
+        .clamp(2, 6)
+}
+
 pub fn run_interactive(
     file_path: Option<PathBuf>,
     start_slide: Option<usize>,
@@ -52,11 +63,12 @@ pub fn run_interactive(
             let notes: Vec<Option<String>> =
                 pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
             let pipeline = Arc::new(
-                DefaultRenderPipeline::new(
+                DefaultRenderPipeline::with_worker_count(
                     pres_arc.clone(),
                     asset_store,
                     compiler,
                     rasterizer,
+                    background_workers(),
                 )
                 .with_sync_fallback(true),
             );
@@ -91,17 +103,16 @@ pub fn run_interactive(
             let enable_reader = match mode {
                 DeckModeArg::Reader => true,
                 DeckModeArg::Slides => false,
-                DeckModeArg::Auto => {
-                    kitty_pptx_pdf::classify_mode(&page_sizes)
-                        .map(|d| d.is_reader())
-                        .unwrap_or(false)
-                }
+                DeckModeArg::Auto => kitty_pptx_pdf::classify_mode(&page_sizes)
+                    .map(|d| d.is_reader())
+                    .unwrap_or(false),
             };
 
             let pipeline = Arc::new(
-                DefaultRenderPipeline::from_page_source(
+                DefaultRenderPipeline::from_page_source_with_workers(
                     Arc::clone(&pdf_source),
                     rasterizer,
+                    background_workers(),
                 )
                 .with_sync_fallback(true),
             );
