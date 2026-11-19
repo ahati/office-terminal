@@ -4,10 +4,11 @@ use hayro_syntax::object::String as PdfString;
 use hayro_syntax::object::{Dict, ObjectIdentifier};
 use hayro_syntax::page::Rotation;
 use hayro_syntax::Pdf;
-use kitty_pptx_core::{RgbaSlide, SlideLink, TextLine, TocEntry, VectorSlide};
+use kitty_pptx_core::{RenderTargetSpec, RgbaSlide, SlideLink, TextLine, TocEntry, VectorSlide};
 
 use crate::detect::is_encrypted;
 use crate::error::PdfError;
+use crate::limits::calculate_target_scale;
 use crate::links::extract_page_links;
 use crate::raster_bridge::{compile_page_raster, render_page_rgba};
 use crate::text::extract_page_text;
@@ -19,6 +20,7 @@ pub trait PdfEngine: Send + Sync {
     fn page_size_pt(&self, page: usize) -> (f32, f32);
     fn page_rotation(&self, page: usize) -> u16;
     fn render_rgba(&self, page: usize, scale: f32) -> Result<RgbaSlide, PdfError>;
+    fn render_raster(&self, page: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, PdfError>;
     fn compile_raster(&self, page: usize) -> Result<VectorSlide, PdfError>;
     fn compile_vector(&self, page: usize) -> Result<VectorSlide, PdfError>;
     fn outline(&self) -> Vec<TocEntry>;
@@ -28,8 +30,22 @@ pub trait PdfEngine: Send + Sync {
 
 /// Hayro-based pure-Rust PDF engine implementation.
 pub struct HayroEngine {
-    data: Arc<[u8]>,
     pdf: Pdf,
+}
+
+/// Sized wrapper handing the shared PDF bytes to hayro with zero copies.
+///
+/// hayro's `PdfData` accepts `Arc<T>` only for `T: Sized` (generic params
+/// are implicitly sized), so an `Arc<[u8]>` cannot be transferred directly
+/// and would force a full-file `to_vec()`. Wrapping the shared buffer in
+/// this sized newtype satisfies `impl From<Arc<T>> for PdfData` and lets
+/// the engine and the loader share one buffer instead of two.
+struct SharedPdfBytes(Arc<[u8]>);
+
+impl AsRef<[u8]> for SharedPdfBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 impl HayroEngine {
@@ -38,24 +54,22 @@ impl HayroEngine {
             return Err(PdfError::EncryptedUnsupported);
         }
 
-        let pdf = Pdf::new(data.to_vec()).map_err(|e| PdfError::Malformed {
-            page: 0,
-            detail: format!("Failed to parse PDF: {:?}", e),
+        let pdf = Pdf::new(Arc::new(SharedPdfBytes(Arc::clone(&data)))).map_err(|e| {
+            PdfError::Malformed {
+                page: 0,
+                detail: format!("Failed to parse PDF: {:?}", e),
+            }
         })?;
 
         if pdf.pages().is_empty() {
             return Err(PdfError::EmptyDocument);
         }
 
-        Ok(Self { data, pdf })
+        Ok(Self { pdf })
     }
 
     pub fn pdf(&self) -> &Pdf {
         &self.pdf
-    }
-
-    pub fn data(&self) -> &Arc<[u8]> {
-        &self.data
     }
 
     fn traverse_outlines(
@@ -141,7 +155,27 @@ impl PdfEngine for HayroEngine {
             })?;
 
         let cache = RenderCache::new();
-        render_page_rgba(page_obj, scale, &cache)
+        render_page_rgba(page_obj, page, scale, &cache)
+    }
+
+    fn render_raster(&self, page: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, PdfError> {
+        let page_obj = self
+            .pdf
+            .pages()
+            .get(page)
+            .ok_or(PdfError::IndexOutOfBounds {
+                index: page,
+                total: self.page_count(),
+            })?;
+
+        // Render at the exact interactive pixel width, clamped so no axis
+        // exceeds MAX_RASTER_AXIS. The effective dimensions match
+        // `page_size_pt` (rotation-aware render dimensions).
+        let (w_pt, h_pt) = page_obj.render_dimensions();
+        let scale = calculate_target_scale(w_pt, h_pt, target.width_px);
+
+        let cache = RenderCache::new();
+        render_page_rgba(page_obj, page, scale, &cache)
     }
 
     fn compile_raster(&self, page: usize) -> Result<VectorSlide, PdfError> {
@@ -156,7 +190,7 @@ impl PdfEngine for HayroEngine {
 
         let links = self.links(page);
         let cache = RenderCache::new();
-        compile_page_raster(page_obj, &cache, links)
+        compile_page_raster(page_obj, page, &cache, links)
     }
 
     fn compile_vector(&self, page: usize) -> Result<VectorSlide, PdfError> {

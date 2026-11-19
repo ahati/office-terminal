@@ -1,19 +1,21 @@
 pub mod cache;
 pub mod cancellation;
+pub mod payload;
 pub mod worker;
 
 pub use cache::PipelineCache;
 pub use cancellation::CancellationToken;
+pub use payload::PayloadCache;
 pub use worker::{PrefetchTask, WorkerPool, WorkerSharedContext};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::compiler::SlideCompiler;
 use crate::contracts::{
     InvalidateCause, PageSource, PipelineEntry, PptxPageSource, PrefetchPlan, RenderPipeline,
-    RenderTargetSpec, RgbaSlide, VectorSlide, WarningEvent,
+    RenderTargetSpec, RgbaSlide, TransmitEncoder, TransmitPayload, VectorSlide, WarningEvent,
 };
 use crate::error::RenderError;
 use crate::loader::AssetStore;
@@ -27,6 +29,8 @@ pub struct DefaultRenderPipeline {
     asset_store: Option<Arc<dyn AssetStore>>,
     generation: AtomicU64,
     cache: PipelineCache,
+    /// Pre-encoded transmission payloads, shared with the worker pool.
+    payloads: PayloadCache,
     workers: Arc<WorkerPool>,
     last_target: Mutex<RenderTargetSpec>,
     sync_fallback: AtomicBool,
@@ -50,6 +54,7 @@ impl DefaultRenderPipeline {
         worker_threads: usize,
     ) -> Self {
         let cache = PipelineCache::new();
+        let payloads = PayloadCache::new();
         let warnings = Arc::new(Mutex::new(Vec::new()));
         let asset_store = source.asset_store();
         let workers = Arc::new(WorkerPool::with_source_and_warnings(
@@ -58,6 +63,8 @@ impl DefaultRenderPipeline {
             asset_store.clone(),
             Arc::clone(&rasterizer),
             cache.clone(),
+            payloads.clone(),
+            None,
             Arc::clone(&warnings),
         ));
 
@@ -67,6 +74,7 @@ impl DefaultRenderPipeline {
             asset_store,
             generation: AtomicU64::new(0),
             cache,
+            payloads,
             workers,
             last_target: Mutex::new(RenderTargetSpec {
                 width_px: 1920,
@@ -106,6 +114,18 @@ impl DefaultRenderPipeline {
     /// Builder option to enable/disable synchronous fallback on `entry()` misses.
     pub fn with_sync_fallback(self, enabled: bool) -> Self {
         self.sync_fallback.store(enabled, Ordering::Release);
+        self
+    }
+
+    /// Builder option: attach an off-thread transmission encoder (e.g. Kitty
+    /// PNG + base64).
+    ///
+    /// Prefetch workers then pre-encode each raster's terminal payload right
+    /// after rasterizing (for tasks whose plan requests staging), so the
+    /// interactive syncer writes prebuilt bytes instead of paying encode
+    /// cost on the UI thread.
+    pub fn with_transmit_encoder(self, encoder: Arc<dyn TransmitEncoder>) -> Self {
+        self.workers.set_transmit_encoder(encoder);
         self
     }
 
@@ -233,10 +253,7 @@ impl DefaultRenderPipeline {
         // 3. Synchronous fallback if enabled and not already running in background
         if self.sync_fallback.load(Ordering::Acquire) {
             return match self.rasterize_now(index, target) {
-                Ok(bitmap) => PipelineEntry::Ready {
-                    bitmap,
-                    staged: false,
-                },
+                Ok(bitmap) => PipelineEntry::Ready { bitmap },
                 Err(error) => PipelineEntry::Failed { error },
             };
         }
@@ -292,7 +309,7 @@ impl RenderPipeline for DefaultRenderPipeline {
             if self.workers.is_in_flight(idx) {
                 continue;
             }
-            self.workers.schedule(idx, prio, *target);
+            self.workers.schedule(idx, prio, *target, plan.stage);
         }
     }
 
@@ -308,20 +325,14 @@ impl RenderPipeline for DefaultRenderPipeline {
 
         // 1. Check Tier 2 raster cache for target
         if let Some(bmp) = self.cache.get_raster(index, &target) {
-            return PipelineEntry::Ready {
-                bitmap: bmp,
-                staged: false,
-            };
+            return PipelineEntry::Ready { bitmap: bmp };
         }
 
         // Fall back to the widest cached raster for this slide (e.g. the frame
         // from before a resize). O(1) via the cache's per-slide index instead of
         // scanning every cached raster.
         if let Some(bitmap) = self.cache.best_raster(index) {
-            return PipelineEntry::Ready {
-                bitmap,
-                staged: false,
-            };
+            return PipelineEntry::Ready { bitmap };
         }
 
         self.entry_after_cache_miss(index, &target)
@@ -332,10 +343,7 @@ impl RenderPipeline for DefaultRenderPipeline {
         // the canvas raster and lets the terminal scale it, so another
         // resolution would silently change what the card shows.
         if let Some(bmp) = self.cache.get_raster(index, target) {
-            return PipelineEntry::Ready {
-                bitmap: bmp,
-                staged: false,
-            };
+            return PipelineEntry::Ready { bitmap: bmp };
         }
 
         if let Some(error) = self.workers.get_failed(index) {
@@ -353,6 +361,68 @@ impl RenderPipeline for DefaultRenderPipeline {
         DefaultRenderPipeline::drain_warnings(self)
     }
 
+    fn staged_payload(&self, index: usize, target: &RenderTargetSpec) -> Option<TransmitPayload> {
+        self.payloads.get(index, target)
+    }
+
+    fn prefetch_window(&self, plan: &PrefetchPlan, targets: &[(usize, RenderTargetSpec)]) {
+        // Per-page-target scheduling: unlike `prefetch`, there is no single
+        // canvas target to latch, and `entry()` fallbacks are not used by
+        // window callers (they resolve each page with `entry_at`).
+        let total_slides = self.source.len();
+        if total_slides == 0 || targets.is_empty() {
+            return;
+        }
+
+        // Priority per plan window: center first, then alternating +1/-1, ...,
+        // mirroring `prefetch`'s ordering.
+        let mut priority_of: HashMap<usize, u32> = HashMap::new();
+        let mut cur_prio = 10_000u32;
+        if plan.center < total_slides {
+            priority_of.insert(plan.center, cur_prio);
+            cur_prio = cur_prio.saturating_sub(10);
+        }
+        let max_dist = std::cmp::max(plan.ahead, plan.behind);
+        for dist in 1..=max_dist {
+            if dist <= plan.ahead && plan.center + dist < total_slides {
+                priority_of.entry(plan.center + dist).or_insert(cur_prio);
+                cur_prio = cur_prio.saturating_sub(10);
+            }
+            if dist <= plan.behind && plan.center >= dist {
+                priority_of.entry(plan.center - dist).or_insert(cur_prio);
+                cur_prio = cur_prio.saturating_sub(10);
+            }
+        }
+
+        // Cooperative cancellation: cancel pending tasks outside the window.
+        let active_set: HashSet<usize> = targets.iter().map(|(idx, _)| *idx).collect();
+        self.workers.cancel_except(&active_set);
+
+        // Out-of-window targets still render, after the prioritized window.
+        let tail_prio = cur_prio;
+        for (idx, target) in targets {
+            if *idx >= total_slides {
+                continue;
+            }
+            let prio = priority_of.get(idx).copied().unwrap_or(tail_prio);
+            if self.cache.contains_raster(*idx, target) {
+                continue;
+            }
+            if self.workers.is_in_flight(*idx) {
+                continue;
+            }
+            self.workers.schedule(*idx, prio, *target, plan.stage);
+        }
+    }
+
+    fn in_flight(&self) -> usize {
+        self.workers.in_flight_count()
+    }
+
+    fn completion_receiver(&self) -> Option<crossbeam_channel::Receiver<()>> {
+        Some(self.workers.completion_receiver())
+    }
+
     fn invalidate(&self, cause: InvalidateCause) {
         self.generation.fetch_add(1, Ordering::SeqCst);
         match cause {
@@ -360,17 +430,21 @@ impl RenderPipeline for DefaultRenderPipeline {
                 // Resolution unchanged, only cell grid adjusted; keep caches intact
             }
             InvalidateCause::TargetChanged => {
-                // New pixel target resolution; cancel workers and clear raster cache
+                // New pixel target resolution; cancel workers and clear raster
+                // cache plus any pre-encoded payloads keyed to old targets.
                 self.workers.cancel_all();
                 self.cache.clear_raster();
+                self.payloads.clear();
             }
             InvalidateCause::DeckReload => {
                 // Entire presentation reloaded; cancel workers, clear all caches
-                // and drop the per-slide failure latch so a stale compile error
+                // (stale payloads would show the old deck) and drop the
+                // per-slide failure latch so a stale compile error
                 // cannot poison the freshly loaded deck.
                 self.workers.cancel_all();
                 self.workers.clear_failed();
                 self.cache.clear_all();
+                self.payloads.clear();
             }
         }
     }

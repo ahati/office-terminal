@@ -82,7 +82,9 @@ impl ReaderGraphicsSyncer {
                     center,
                     behind,
                     ahead,
-                    stage: false,
+                    // Reader pages are pre-encoded on the workers so the syncer
+                    // can later write prebuilt bytes instead of encoding.
+                    stage: true,
                 };
                 pipeline.prefetch(&plan, &prefetch_target);
                 self.last_prefetch = Some(prefetch_key);

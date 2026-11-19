@@ -1,6 +1,8 @@
 use crate::error::RenderError;
 use std::sync::Arc;
 
+use super::transmit::TransmitPayload;
+
 /// RgbaSlide is the pixel seam between composition and terminal graphics display.
 /// Pixels are straight (non-premultiplied) RGBA8, tightly packed in row-major order.
 #[derive(Clone)]
@@ -91,7 +93,7 @@ pub struct PrefetchPlan {
 }
 
 pub enum PipelineEntry {
-    Ready { bitmap: RgbaSlide, staged: bool },
+    Ready { bitmap: RgbaSlide },
     Rendering,
     NotLoaded,
     Failed { error: RenderError },
@@ -127,5 +129,35 @@ pub trait RenderPipeline: Send + Sync {
     /// Pipelines that do not surface diagnostics may keep the default no-op.
     fn drain_warnings(&self) -> Vec<(usize, WarningEvent)> {
         Vec::new()
+    }
+
+    /// Pre-encoded transmission payload for a cached raster, if the pipeline
+    /// pre-encodes on its worker threads. `None` = the caller must encode.
+    fn staged_payload(&self, index: usize, target: &RenderTargetSpec) -> Option<TransmitPayload> {
+        let _ = (index, target);
+        None
+    }
+
+    /// Prefetch a window of pages, each at its own render target.
+    ///
+    /// The default falls back to single-target `prefetch` using the first
+    /// entry's target, preserving the previous semantics for simple pipelines.
+    fn prefetch_window(&self, plan: &PrefetchPlan, targets: &[(usize, RenderTargetSpec)]) {
+        if let Some((_, target)) = targets.first() {
+            self.prefetch(plan, target);
+        } else {
+            let _ = plan;
+        }
+    }
+
+    /// Number of slides currently queued or rendering (0 for simple pipelines).
+    fn in_flight(&self) -> usize {
+        0
+    }
+
+    /// Receiver that yields one event per worker-completed raster, letting the
+    /// UI loop sleep until fresh results actually exist. `None` = no workers.
+    fn completion_receiver(&self) -> Option<crossbeam_channel::Receiver<()>> {
+        None
     }
 }

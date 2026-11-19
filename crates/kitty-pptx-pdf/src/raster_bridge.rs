@@ -15,8 +15,13 @@ use crate::error::PdfError;
 use crate::limits::calculate_canonical_scale;
 
 /// Renders a PDF page to RGBA pixels at the given scale factor.
+///
+/// The hayro pixmap is premultiplied RGBA8; the returned slide holds
+/// straight (non-premultiplied) RGBA8 as required by the `RgbaSlide`
+/// contract.
 pub fn render_page_rgba<'a>(
     page: &'a Page<'a>,
+    page_index: usize,
     scale: f32,
     cache: &RenderCache<'a>,
 ) -> Result<RgbaSlide, PdfError> {
@@ -34,31 +39,29 @@ pub fn render_page_rgba<'a>(
 
     if width == 0 || height == 0 {
         return Err(PdfError::RenderFailed {
-            page: 0,
+            page: page_index,
             detail: "Rendered pixmap has 0 dimensions".to_string(),
         });
     }
 
-    // Convert premultiplied RGBA8 from pixmap to straight RGBA8
-    let data = pixmap.data();
-    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    // Convert premultiplied RGBA8 to straight RGBA8. `PremulRgba8` is
+    // `#[repr(C)] { r, g, b, a }`, so the raw byte slice yields exactly one
+    // `[r, g, b, a]` chunk per pixel. The output is pre-sized and uses only
+    // integer math: un-premultiply is round(c_p * 255 / a), computed as
+    // `(c_p * 255 + a / 2) / a` (rounds half-up, within parity tolerance).
+    let data = pixmap.data_as_u8_slice();
+    let mut pixels = Vec::with_capacity(data.len());
 
-    for p in data {
-        let a = p.a;
+    let (chunks, _remainder) = data.as_chunks::<4>();
+    for px in chunks {
+        let a = px[3];
         if a == 255 || a == 0 {
-            pixels.push(p.r);
-            pixels.push(p.g);
-            pixels.push(p.b);
-            pixels.push(a);
+            pixels.extend_from_slice(&[px[0], px[1], px[2], a]);
         } else {
-            let alpha = a as f32 / 255.0;
-            let r = ((p.r as f32 / alpha).min(255.0).round()) as u8;
-            let g = ((p.g as f32 / alpha).min(255.0).round()) as u8;
-            let b = ((p.b as f32 / alpha).min(255.0).round()) as u8;
-            pixels.push(r);
-            pixels.push(g);
-            pixels.push(b);
-            pixels.push(a);
+            let a32 = a as u32;
+            let half = a32 / 2;
+            let unpremul = |c: u8| ((c as u32 * 255 + half) / a32).min(255) as u8;
+            pixels.extend_from_slice(&[unpremul(px[0]), unpremul(px[1]), unpremul(px[2]), a]);
         }
     }
 
@@ -72,6 +75,7 @@ pub fn render_page_rgba<'a>(
 /// Compiles a PDF page into a Tier-1 VectorSlide wrapping an embedded raster bitmap (Phase R).
 pub fn compile_page_raster<'a>(
     page: &'a Page<'a>,
+    page_index: usize,
     cache: &RenderCache<'a>,
     links: Vec<SlideLink>,
 ) -> Result<VectorSlide, PdfError> {
@@ -80,7 +84,7 @@ pub fn compile_page_raster<'a>(
     let height_emu = (h_pt * 12_700.0).round() as i64;
 
     let scale = calculate_canonical_scale(w_pt, h_pt);
-    let slide = render_page_rgba(page, scale, cache)?;
+    let slide = render_page_rgba(page, page_index, scale, cache)?;
 
     // Encode RGBA pixels to PNG
     let mut png_bytes = Vec::new();
@@ -93,7 +97,7 @@ pub fn compile_page_raster<'a>(
             image::ExtendedColorType::Rgba8,
         )
         .map_err(|e| PdfError::RenderFailed {
-            page: 0,
+            page: page_index,
             detail: format!("PNG encoding failed: {}", e),
         })?;
 

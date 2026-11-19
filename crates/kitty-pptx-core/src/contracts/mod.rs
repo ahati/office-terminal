@@ -7,6 +7,7 @@ pub mod shape_effects;
 pub mod hyperlink;
 pub mod deck;
 pub mod pptx_source;
+pub mod transmit;
 
 pub use geometry::*;
 pub use paint::*;
@@ -17,4 +18,5 @@ pub use shape_effects::*;
 pub use hyperlink::*;
 pub use deck::*;
 pub use pptx_source::*;
+pub use transmit::*;
 

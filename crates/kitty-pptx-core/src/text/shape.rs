@@ -12,17 +12,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style, Weight};
+use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping, Style, Weight};
 
 thread_local! {
-    static FONT_SYSTEM: RefCell<FontSystem> = RefCell::new({
-        let mut fs = FontSystem::new();
-        super::fonts::install_into_font_system(&mut fs);
-        fs
-    });
-    /// `(family, bold, italic) -> ascent share`, one font-db scan per process/thread.
+    /// `(family, bold, italic) -> ascent share`; the face probe itself runs
+    /// against the shared runtime in [`super::fonts`] (one font scan per
+    /// thread, not per consumer).
     static ASCENT_CACHE: RefCell<HashMap<(String, bool, bool), f32>> = RefCell::new(HashMap::new());
-    static FACE_DB: RefCell<Option<fontdb::Database>> = const { RefCell::new(None) };
 }
 
 /// One shaped run in element-local EMU.
@@ -56,8 +52,7 @@ pub fn shape(text: &str, family: &str, size_emu: f32, bold: bool, italic: bool) 
     if text.is_empty() {
         return ShapedText::empty();
     }
-    FONT_SYSTEM.with(|cell| {
-        let font_system = &mut *cell.borrow_mut();
+    super::fonts::with_font_system(|font_system| {
         let size_px = (size_emu / 12700.0).max(0.5);
         let mut buffer = Buffer::new(font_system, Metrics::new(size_px, size_px * 1.2));
         buffer.set_size(font_system, None, None);
@@ -183,16 +178,7 @@ fn catalogue_family(family: &str) -> &str {
 }
 
 fn compute_ascent_share(family: &str, bold: bool, italic: bool) -> f32 {
-    FACE_DB.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        let db = slot.get_or_insert_with(|| {
-            let mut db = fontdb::Database::new();
-            db.load_system_fonts();
-            super::fonts::install_into_db(&mut db);
-            db
-        });
-        face_ascent_share(db, family, bold, italic)
-    })
+    super::fonts::with_face_db(|db| face_ascent_share(db, family, bold, italic))
 }
 
 fn face_ascent_share(db: &fontdb::Database, family: &str, bold: bool, italic: bool) -> f32 {
@@ -237,14 +223,7 @@ pub(crate) fn with_face_data<R>(
     italic: bool,
     f: impl FnOnce(&[u8], u32) -> R,
 ) -> Option<R> {
-    FACE_DB.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        let db = slot.get_or_insert_with(|| {
-            let mut db = fontdb::Database::new();
-            db.load_system_fonts();
-            super::fonts::install_into_db(&mut db);
-            db
-        });
+    super::fonts::with_face_db(|db| {
         let weight = if bold {
             fontdb::Weight::BOLD
         } else {

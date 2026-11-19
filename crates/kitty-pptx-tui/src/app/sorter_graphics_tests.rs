@@ -99,7 +99,6 @@ impl RenderPipeline for GridPipeline {
         if self.ready.load(Ordering::SeqCst) && index < self.slides {
             PipelineEntry::Ready {
                 bitmap: card_bitmap(),
-                staged: false,
             }
         } else {
             PipelineEntry::NotLoaded
@@ -113,7 +112,6 @@ impl RenderPipeline for GridPipeline {
         if self.ready.load(Ordering::SeqCst) && index < self.slides {
             PipelineEntry::Ready {
                 bitmap: card_bitmap(),
-                staged: false,
             }
         } else {
             PipelineEntry::NotLoaded

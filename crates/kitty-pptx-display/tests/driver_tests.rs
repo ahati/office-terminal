@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use kitty_pptx_core::{HyperlinkTarget, RectF32, RgbaSlide, SlideLink};
+use kitty_pptx_core::{
+    DisplayError, HyperlinkTarget, RectF32, RgbaSlide, SlideLink, TransmitEncoder,
+};
 use kitty_pptx_display::probe::env::kitty_from_env_with;
 use kitty_pptx_display::*;
 
@@ -32,6 +34,45 @@ fn test_kitty_driver_caps() {
         "resident pool must cover the thumbnail id range"
     );
     assert_eq!(driver.placement_mode(), PlacementMode::Interactive);
+}
+
+#[test]
+fn test_image_id_partition_is_disjoint() {
+    // Machine-checks the documented id partition in `driver.rs`: current
+    // slide `1..=8`, preview `9..=16`, thumbnails `17..=80`, reader `81..=92`.
+    let ranges: [(u32, u32); 4] = [
+        (CURRENT_IMAGE_ID_BASE, CURRENT_IMAGE_ID_SLOTS),
+        (PREVIEW_IMAGE_ID_BASE, PREVIEW_IMAGE_ID_SLOTS),
+        (THUMBNAIL_IMAGE_ID_BASE, MAX_THUMBNAIL_IMAGES),
+        (READER_IMAGE_ID_BASE, READER_IMAGE_ID_SLOTS),
+    ];
+    for (i, &(base_i, len_i)) in ranges.iter().enumerate() {
+        assert!(len_i > 0, "partition range at index {i} must be non-empty");
+        for &(base_j, len_j) in ranges.iter().skip(i + 1) {
+            assert!(
+                base_i.saturating_add(len_i) <= base_j
+                    || base_j.saturating_add(len_j) <= base_i,
+                "id ranges ({base_i}, {len_i}) and ({base_j}, {len_j}) must not overlap"
+            );
+        }
+    }
+    let resident_ids = RESIDENT_IMAGE_IDS;
+    let reader_end = READER_IMAGE_ID_BASE + READER_IMAGE_ID_SLOTS;
+    assert!(
+        resident_ids + 1 >= reader_end,
+        "resident pool must cover the reader range"
+    );
+}
+
+#[test]
+fn test_tty_write_seq_batch_smoke() {
+    // A batch — including the empty batch — must complete one buffered
+    // write+flush without error; output is captured by the test harness.
+    let tty = TtyWriter::new();
+    assert!(tty.write_seq_batch(&[]).is_ok());
+    assert!(tty
+        .write_seq_batch(&["\x1b_Ga=d,d=a,q=2\x1b\\", "\x1b_Gm=0;QUJD\x1b\\"])
+        .is_ok());
 }
 
 #[test]
@@ -134,6 +175,75 @@ fn test_kitty_stage_and_sink() {
     assert_eq!(driver.resident_capacity(), RESIDENT_IMAGE_IDS);
     assert!(driver.stage(ImageId(10), &slide).is_ok());
     assert!(driver.release(ImageId(10)).is_ok());
+}
+
+#[test]
+fn test_kitty_transmit_prebuilt_reuses_payload_without_reencode() {
+    let slide = create_test_slide(8, 8, [0, 255, 0, 255]);
+
+    // The encoder produces a base64 wire payload the driver can slice as-is.
+    let payload = KittyTransmitEncoder
+        .encode(&slide)
+        .expect("transmit encode must succeed");
+    assert!(!payload.base64.is_empty());
+    assert_eq!(payload.base64_len, payload.base64.len());
+
+    // Framing from the prebuilt payload matches the documented chunk format.
+    let chunks = KittyDriver::format_transmission_chunks(ImageId(10), 8, 8, &payload.base64);
+    assert!(!chunks.is_empty());
+    assert!(chunks[0].starts_with("\x1b_Ga=t,f=100,i=10,s=8,v=8,q=2,m="));
+
+    // The driver accepts the prebuilt payload without re-encoding it.
+    let mut driver = KittyDriver::new(PlacementMode::Interactive);
+    assert!(driver.transmit_prebuilt(ImageId(10), 8, 8, &payload).is_ok());
+    assert!(driver.release(ImageId(10)).is_ok());
+}
+
+#[test]
+fn test_default_transmit_prebuilt_reports_unsupported() {
+    // Drivers that never pre-encode (e.g. test mocks) inherit the trait's
+    // default, which reports the capability gap instead of panicking — this
+    // is what keeps the TUI driver mocks free of per-method stubs.
+    struct NoPrebuiltDriver;
+
+    impl TerminalGraphicsDriver for NoPrebuiltDriver {
+        fn name(&self) -> &'static str {
+            "stub"
+        }
+        fn caps(&self) -> DriverCaps {
+            DriverCaps {
+                alpha: false,
+                terminal_side_scaling: false,
+                resident_ids: 1,
+            }
+        }
+        fn placement_mode(&self) -> PlacementMode {
+            PlacementMode::Interactive
+        }
+        fn stage(&mut self, _bmp: &RgbaSlide, _id: ImageId) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn present(&mut self, _id: ImageId, _p: Placement) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn reposition(&mut self, _id: ImageId, _p: Placement) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn release(&mut self, _id: ImageId) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn release_all(&mut self) -> Result<(), DisplayError> {
+            Ok(())
+        }
+    }
+
+    let payload = kitty_pptx_core::TransmitPayload {
+        base64: "".into(),
+        base64_len: 0,
+    };
+    let mut driver = NoPrebuiltDriver;
+    let result = driver.transmit_prebuilt(ImageId(1), 1, 1, &payload);
+    assert!(matches!(result, Err(DisplayError::Io(_))));
 }
 
 #[test]

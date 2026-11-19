@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use kitty_pptx_core::PageSource;
+use kitty_pptx_core::{EmuRect, RenderTargetSpec, RgbaSlide, TextLine, VectorSlide};
 use kitty_pptx_pdf::detect::{classify_mode, is_encrypted, is_pdf, parse_version, ReaderModeDecision};
 use kitty_pptx_pdf::engine::{HayroEngine, PdfEngine};
 use kitty_pptx_pdf::error::PdfError;
@@ -55,6 +57,27 @@ fn test_parse_version() {
 fn test_encryption_detection() {
     assert!(!is_encrypted(MINIMAL_PDF));
     assert!(is_encrypted(b"%PDF-1.4\n... /Encrypt 5 0 R ..."));
+}
+
+#[test]
+fn test_encryption_detection_scan_edge_cases() {
+    // Buffers smaller than the needle can never match.
+    assert!(!is_encrypted(b""));
+    assert!(!is_encrypted(b"%PDF-1.4"));
+
+    // Pattern at the very end of a large buffer: found by the tail scan.
+    let mut tail_hit = vec![b'x'; 8192];
+    tail_hit.extend_from_slice(b"trailer << /Encrypt 5 0 R >>");
+    assert!(is_encrypted(&tail_hit));
+
+    // Pattern before the tail window: found by the full-buffer scan.
+    let mut head_hit = b"%PDF-1.4 /Encrypt".to_vec();
+    head_hit.extend_from_slice(&[b'x'; 8192]);
+    assert!(is_encrypted(&head_hit));
+
+    // Partial '/' occurrences that never complete the pattern.
+    assert!(!is_encrypted(b"%PDF-1.4 trailer << /Encrxyz >> end"));
+    assert!(!is_encrypted(b"/Encryp"));
 }
 
 #[test]
@@ -135,6 +158,122 @@ fn test_minimal_pdf_engine_and_source() {
     assert_eq!(vector_slide.width_emu, w_emu);
     assert_eq!(vector_slide.height_emu, h_emu);
     assert_eq!(vector_slide.commands.len(), 1); // 1 DrawBitmap command
+}
+
+#[test]
+fn test_render_raster_native_target() {
+    let bytes = Arc::from(MINIMAL_PDF);
+    let source = PdfPageSource::open(bytes).expect("open page source");
+
+    // The minimal PDF page is 200x200 pt: a 120 px target renders at
+    // exactly 120x120 pixels with no codec round-trip.
+    let target = RenderTargetSpec {
+        width_px: 120,
+        height_px: 120,
+    };
+    let slide = source
+        .render_raster(0, &target)
+        .expect("native raster path is implemented")
+        .expect("native render succeeds");
+    assert_eq!(slide.width, 120);
+    assert_eq!(slide.height, 120);
+    assert_eq!(slide.pixels.len(), 120 * 120 * 4);
+
+    // Opaque white background survives un-premultiplication exactly.
+    assert_eq!(&slide.pixels[..4], &[255, 255, 255, 255]);
+
+    // Out-of-bounds pages report a native error so callers can fall back.
+    assert!(matches!(source.render_raster(1, &target), Some(Err(_))));
+}
+
+/// Mock engine proving the search corpus is built lazily: it counts how
+/// often `extract_text` is invoked.
+struct LazyCorpusEngine {
+    page_count: usize,
+    extract_calls: AtomicUsize,
+}
+
+impl PdfEngine for LazyCorpusEngine {
+    fn page_count(&self) -> usize {
+        self.page_count
+    }
+
+    fn page_size_pt(&self, _page: usize) -> (f32, f32) {
+        (612.0, 792.0)
+    }
+
+    fn page_rotation(&self, _page: usize) -> u16 {
+        0
+    }
+
+    fn render_rgba(&self, _page: usize, _scale: f32) -> Result<RgbaSlide, PdfError> {
+        Ok(RgbaSlide {
+            width: 1,
+            height: 1,
+            pixels: Arc::from(vec![0, 0, 0, 0].into_boxed_slice()),
+        })
+    }
+
+    fn render_raster(
+        &self,
+        _page: usize,
+        _target: &RenderTargetSpec,
+    ) -> Result<RgbaSlide, PdfError> {
+        Ok(RgbaSlide {
+            width: 1,
+            height: 1,
+            pixels: Arc::from(vec![0, 0, 0, 0].into_boxed_slice()),
+        })
+    }
+
+    fn compile_raster(&self, _page: usize) -> Result<VectorSlide, PdfError> {
+        Ok(VectorSlide::new(612 * 12_700, 792 * 12_700))
+    }
+
+    fn compile_vector(&self, _page: usize) -> Result<VectorSlide, PdfError> {
+        Ok(VectorSlide::new(612 * 12_700, 792 * 12_700))
+    }
+
+    fn outline(&self) -> Vec<kitty_pptx_core::TocEntry> {
+        Vec::new()
+    }
+
+    fn links(&self, _page: usize) -> Vec<kitty_pptx_core::SlideLink> {
+        Vec::new()
+    }
+
+    fn extract_text(&self, _page: usize) -> Result<Vec<TextLine>, PdfError> {
+        self.extract_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(vec![TextLine {
+            text: "line".to_string(),
+            rect: EmuRect::new(0.0, 0.0, 1.0, 1.0),
+        }])
+    }
+}
+
+#[test]
+fn test_search_corpus_builds_lazily() {
+    let engine = Arc::new(LazyCorpusEngine {
+        page_count: 3,
+        extract_calls: AtomicUsize::new(0),
+    });
+    let source =
+        PdfPageSource::from_engine(Arc::clone(&engine) as Arc<dyn PdfEngine>).expect("source");
+
+    // Opening the document and asking for the corpus size must not
+    // interpret any page content streams.
+    assert_eq!(engine.extract_calls.load(Ordering::SeqCst), 0);
+    let corpus = source.search_corpus();
+    assert_eq!(corpus.page_count(), 3);
+    assert_eq!(engine.extract_calls.load(Ordering::SeqCst), 0);
+
+    // The first text query extracts all pages exactly once.
+    assert_eq!(corpus.page_text(1).len(), 1);
+    assert_eq!(engine.extract_calls.load(Ordering::SeqCst), 3);
+
+    // Subsequent queries reuse the cache without re-extraction.
+    assert_eq!(corpus.page_text(0).len(), 1);
+    assert_eq!(engine.extract_calls.load(Ordering::SeqCst), 3);
 }
 
 #[test]

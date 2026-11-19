@@ -38,12 +38,57 @@ pub fn parse_version(bytes: &[u8]) -> Option<String> {
 }
 
 /// Fast pre-check whether the PDF specifies document encryption.
+///
+/// Returns true iff the byte pattern `b"/Encrypt"` occurs anywhere in the
+/// file. Most trailers place `/Encrypt` near the end, so the last 4 KiB
+/// is scanned first with an early exit on match; only if that misses does
+/// a first-byte-prefilter scan cover the whole buffer.
 pub fn is_encrypted(bytes: &[u8]) -> bool {
     // In unencrypted files, /Encrypt dictionary is absent from trailer.
     // Check for b"/Encrypt" within trailer or xref streams (last 4 KiB or whole document).
     let tail_len = bytes.len().min(4096);
     let tail = &bytes[bytes.len() - tail_len..];
-    tail.windows(8).any(|w| w == b"/Encrypt") || bytes.windows(8).any(|w| w == b"/Encrypt")
+    if contains_pattern(tail, b"/Encrypt") {
+        return true;
+    }
+
+    // The tail scan already covered the whole buffer.
+    if tail_len == bytes.len() {
+        return false;
+    }
+
+    contains_pattern(bytes, b"/Encrypt")
+}
+
+/// Returns true if `needle` occurs in `haystack` (an empty needle never
+/// matches).
+///
+/// Skips to each occurrence of the needle's first byte instead of running
+/// a full-width windowed comparison at every offset, keeping the common
+/// (pattern-absent) path cheap without extra dependencies.
+fn contains_pattern(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return false;
+    }
+
+    let first = needle[0];
+    let mut window = haystack;
+    while window.len() >= needle.len() {
+        // Jump to the next occurrence of the first byte.
+        let Some(offset) = window.iter().position(|&b| b == first) else {
+            return false;
+        };
+        window = &window[offset..];
+        if window.len() < needle.len() {
+            return false;
+        }
+        if &window[..needle.len()] == needle {
+            return true;
+        }
+        window = &window[1..];
+    }
+
+    false
 }
 
 /// Classifies a PDF document into Slides vs Reader mode per PRD 14a §2.

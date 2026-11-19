@@ -8,6 +8,9 @@ use hayro_interpret::{
 };
 use hayro_syntax::page::Page;
 use kitty_pptx_core::{EmuRect, SearchCorpus, TextLine};
+use std::sync::{Arc, OnceLock};
+
+use crate::engine::PdfEngine;
 
 /// Device that intercepts glyph runs during page interpretation to extract text and bounds.
 struct TextExtractionDevice {
@@ -141,24 +144,53 @@ pub fn extract_page_text(page: &Page<'_>) -> Vec<TextLine> {
     device.finish()
 }
 
-/// In-memory search corpus for a PDF document.
-#[derive(Clone, Debug, Default)]
+/// Lazily-built in-memory search corpus for a PDF document.
+///
+/// Text extraction fully interprets every page's content stream, which is
+/// far too expensive to run eagerly when a document is opened. The corpus
+/// defers extraction until the first text query, then caches all pages at
+/// once; concurrent queries block until that single build completes. This
+/// keeps the `SearchCorpus` contract (`page_count` / `page_text` borrowing
+/// a slice) while removing extraction from the startup path.
 pub struct PdfSearchCorpus {
-    pages: Vec<Vec<TextLine>>,
+    engine: Arc<dyn PdfEngine>,
+    page_count: usize,
+    pages: OnceLock<Vec<Vec<TextLine>>>,
 }
 
 impl PdfSearchCorpus {
-    pub fn new(pages: Vec<Vec<TextLine>>) -> Self {
-        Self { pages }
+    /// Creates a corpus that extracts text from `engine` lazily on first
+    /// use. No page content streams are interpreted at construction time.
+    pub fn lazy(engine: Arc<dyn PdfEngine>) -> Self {
+        let page_count = engine.page_count();
+        Self {
+            engine,
+            page_count,
+            pages: OnceLock::new(),
+        }
+    }
+
+    /// Returns the cached pages, building them once on first access.
+    fn built_pages(&self) -> &[Vec<TextLine>] {
+        self.pages.get_or_init(|| {
+            let mut all = Vec::with_capacity(self.page_count);
+            for index in 0..self.page_count {
+                all.push(self.engine.extract_text(index).unwrap_or_default());
+            }
+            all
+        })
     }
 }
 
 impl SearchCorpus for PdfSearchCorpus {
     fn page_count(&self) -> usize {
-        self.pages.len()
+        self.page_count
     }
 
     fn page_text(&self, page: usize) -> &[TextLine] {
-        self.pages.get(page).map(|v| v.as_slice()).unwrap_or(&[])
+        self.built_pages()
+            .get(page)
+            .map(|lines| lines.as_slice())
+            .unwrap_or(&[])
     }
 }
