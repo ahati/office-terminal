@@ -1,7 +1,7 @@
 use pptx_model::ChartModel;
 use crate::contracts::{
     AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPaint,
-    VectorPath, VectorStroke,
+    VectorPath, VectorStroke, EMU_PER_PT,
 };
 use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::resolve_slice_color;
@@ -131,7 +131,7 @@ pub fn compile_pie(
             // Inside labels paint white over the slice, moved-outside labels use
             // the dark data-label ink (ref shared/data-labels.ts:187 default).
             let label_color = if outside { [60, 60, 60, 255] } else { [255, 255, 255, 255] };
-            let font = slice_label_pt * 12700.0;
+            let font = slice_label_pt * EMU_PER_PT;
             let r_label = if outside {
                 r_outer + font * 0.5
             } else {

@@ -1181,7 +1181,6 @@ dependencies = [
  "crossterm",
  "kitty-pptx-core",
  "kitty-pptx-display",
- "kitty-pptx-pdf",
  "pptx-model",
  "ratatui",
  "serde_json",

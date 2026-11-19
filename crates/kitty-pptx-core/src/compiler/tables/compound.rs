@@ -25,8 +25,9 @@ use crate::contracts::{
 
 /// One device pixel in EMU at DPR = 1. The IR is resolution independent, so the
 /// reference's device-pixel floor (`double-border.ts:26-30`) is applied at the
-/// 96 DPI reference rate.
-const EMU_PER_DEVICE_PX: f32 = 9525.0;
+/// 96 DPI reference rate (the shared contracts constant `EMU_PER_PX`, aliased
+/// for the local name).
+use crate::contracts::EMU_PER_PX as EMU_PER_DEVICE_PX;
 
 /// Slack for "is this segment axis-aligned?" — border endpoints are produced by
 /// exact arithmetic, so only float noise separates them.

@@ -328,7 +328,7 @@ pub struct PrefetchPlan {
 }
 
 pub enum PipelineEntry {
-    Ready { bitmap: RgbaSlide, staged: bool },
+    Ready { bitmap: RgbaSlide },
     Rendering,
     NotLoaded,
     Failed { error: RenderError },
@@ -340,6 +340,24 @@ pub trait RenderPipeline: Send + Sync {
     fn prefetch(&self, plan: &PrefetchPlan, target: &RenderTargetSpec);
     fn entry(&self, index: usize) -> PipelineEntry;
     fn invalidate(&self, cause: InvalidateCause);
+
+    /// Direct synchronous render of one page at an exact pixel target,
+    /// native-first for raster sources (populates the caches).
+    fn render(&self, index: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, RenderError>;
+
+    /// Worker-side payload pre-encoding: the transmission payload for a
+    /// cached raster (`None` = the caller must encode).
+    fn staged_payload(&self, index: usize, target: &RenderTargetSpec) -> Option<TransmitPayload>;
+
+    /// Prefetch a window of pages, each at its own render target.
+    fn prefetch_window(&self, plan: &PrefetchPlan, targets: &[(usize, RenderTargetSpec)]);
+
+    /// Number of slides currently queued or rendering (0 for simple pipelines).
+    fn in_flight(&self) -> usize;
+
+    /// Receiver yielding one event per worker-completed raster (`None` = no
+    /// workers), letting the UI loop sleep until fresh results exist.
+    fn completion_receiver(&self) -> Option<crossbeam_channel::Receiver<()>>;
 }
 
 pub trait TerminalGraphicsDriver: Send {
@@ -347,6 +365,15 @@ pub trait TerminalGraphicsDriver: Send {
     fn caps(&self) -> DriverCaps;
     fn placement_mode(&self) -> PlacementMode;
     fn stage(&mut self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError>;
+    /// Transmits an already-encoded worker payload without re-encoding on
+    /// this thread (one batched write per image).
+    fn transmit_prebuilt(
+        &mut self,
+        id: ImageId,
+        width: u32,
+        height: u32,
+        payload: &TransmitPayload,
+    ) -> Result<(), DisplayError>;
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError>;
     fn reposition(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError>;
     fn release(&mut self, id: ImageId) -> Result<(), DisplayError>;
@@ -357,6 +384,27 @@ pub trait StageSink: Send + Sync {
     fn stage(&self, id: ImageId, bmp: &RgbaSlide) -> Result<(), DisplayError>;
     fn release(&self, id: ImageId) -> Result<(), DisplayError>;
     fn resident_capacity(&self) -> u32;
+}
+
+// Deck sources (PRD 14) may render natively: PDF pages skip the compile step
+// entirely through `PageSource::render_raster` —
+//
+//     fn render_raster(&self, index: usize, target: &RenderTargetSpec)
+//         -> Option<Result<RgbaSlide, RenderError>>;
+//
+// `None` (the default) keeps the compile→rasterize path; `Some(Err(..))`
+// falls back to `compile_page`.
+
+// Worker-side payload pre-encoding (PRD 03a §5): raster workers encode the
+// terminal wire format (PNG + base64) immediately after rasterizing, so the
+// UI thread only pays the write via `transmit_prebuilt`.
+pub struct TransmitPayload {
+    pub base64: Arc<str>,
+    pub base64_len: usize,
+}
+
+pub trait TransmitEncoder: Send + Sync {
+    fn encode(&self, bitmap: &RgbaSlide) -> Result<TransmitPayload, DisplayError>;
 }
 ```
 

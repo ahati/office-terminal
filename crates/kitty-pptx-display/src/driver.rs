@@ -76,6 +76,8 @@ impl CellRect {
 }
 
 /// A clickable terminal-cell region emitting an OSC 8 hyperlink.
+///
+/// Test-only surface: no production caller; exercised by driver tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerminalHyperlink {
     /// Stable hotkey/OSC-8 `id` parameter.
@@ -98,6 +100,8 @@ impl TerminalHyperlink {
 ///
 /// Only validated external URIs are returned; internal jumps and presentation
 /// actions are handled by the TUI instead of the terminal protocol.
+///
+/// Test-only surface: no production caller; exercised by driver tests.
 pub fn map_slide_links_to_cells(
     links: &[SlideLink],
     slide_width_emu: i64,
@@ -174,6 +178,7 @@ pub enum PlacementMode {
     Scrollback,
 }
 
+/// Test-only surface: no production reader today; queried by driver mocks/tests.
 #[derive(Clone, Debug)]
 pub struct DriverCaps {
     pub alpha: bool,
@@ -183,8 +188,10 @@ pub struct DriverCaps {
 }
 
 pub trait TerminalGraphicsDriver: Send {
+    /// Test-only surface: returned by every driver but read only in tests.
     fn name(&self) -> &'static str;
     fn caps(&self) -> DriverCaps;
+    /// Test-only surface: queried only by driver tests, not the presenter.
     fn placement_mode(&self) -> PlacementMode;
     fn stage(&mut self, bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError>;
     /// Transmits an already-encoded payload without re-encoding on this thread.
@@ -211,6 +218,7 @@ pub trait TerminalGraphicsDriver: Send {
     fn release_all(&mut self) -> Result<(), DisplayError>;
 }
 
+/// Test-only surface: only the driver implements it; no production caller.
 pub trait StageSink: Send + Sync {
     fn stage(&self, id: ImageId, bmp: &RgbaSlide) -> Result<(), DisplayError>;
     fn release(&self, id: ImageId) -> Result<(), DisplayError>;

@@ -87,8 +87,8 @@ pub fn run_interactive(
             if mode == DeckModeArg::Reader {
                 let page_sizes = vec![
                     (
-                        pres_arc.slide_width as f32 / 12700.0,
-                        pres_arc.slide_height as f32 / 12700.0,
+                        pres_arc.slide_width as f32 / EMU_PER_PT,
+                        pres_arc.slide_height as f32 / EMU_PER_PT,
                     );
                     total
                 ];
@@ -102,8 +102,8 @@ pub fn run_interactive(
             let mut page_sizes = Vec::with_capacity(total);
             for i in 0..total {
                 let (w_emu, h_emu) = pdf_source.page_size_emu(i);
-                let pt_w = (w_emu as f64 / 12700.0) as f32;
-                let pt_h = (h_emu as f64 / 12700.0) as f32;
+                let pt_w = (w_emu as f64 / f64::from(EMU_PER_PT)) as f32;
+                let pt_h = (h_emu as f64 / f64::from(EMU_PER_PT)) as f32;
                 page_sizes.push((pt_w, pt_h));
             }
 

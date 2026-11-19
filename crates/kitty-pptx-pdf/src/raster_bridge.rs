@@ -8,7 +8,7 @@ use hayro_syntax::page::Page;
 use image::ImageEncoder;
 use kitty_pptx_core::{
     AffineTransform, BitmapSampling, RgbaSlide, SlideLink, VectorBackground, VectorCommand,
-    VectorSlide,
+    VectorSlide, EMU_PER_PT,
 };
 
 use crate::error::PdfError;
@@ -80,8 +80,8 @@ pub fn compile_page_raster<'a>(
     links: Vec<SlideLink>,
 ) -> Result<VectorSlide, PdfError> {
     let (w_pt, h_pt) = page.render_dimensions();
-    let width_emu = (w_pt * 12_700.0).round() as i64;
-    let height_emu = (h_pt * 12_700.0).round() as i64;
+    let width_emu = (w_pt * EMU_PER_PT).round() as i64;
+    let height_emu = (h_pt * EMU_PER_PT).round() as i64;
 
     let scale = calculate_canonical_scale(w_pt, h_pt);
     let slide = render_page_rgba(page, page_index, scale, cache)?;

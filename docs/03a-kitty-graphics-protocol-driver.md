@@ -70,12 +70,14 @@ The TUI reserves a rectangular cell region with blank cells and the driver prese
 ## 5. Image Lifecycle & Staging Subsystem
 
 ```
-Idle Time (Pipeline Worker)                 Flip Time (UI Keypress)
+Idle Time (Pipeline Worker)                 Flip Time (UI Thread)
 ───────────────────────────                 ───────────────────────
 1. Rasterize RgbaSlide                      1. Keypress event (Space/Enter)
-2. stage(bmp, id=1)                         2. present(id=1, Cells(rect))
-   └─ Transmits a=t,f=100 chunks               └─ Emits a=p sequence
-   └─ Decoded into GPU memory                  └─ Flip latency < 16 ms (O(1))
+2. TransmitEncoder pre-encodes PNG+base64   2. transmit_prebuilt(id, payload)
+   └─ cached as a TransmitPayload              └─ One batched write, no encode
+3. staged_payload(index) hands it to UI     3. present(id=1, Cells(rect))
+                                               └─ Emits a=p sequence
+                                               └─ Flip latency < 16 ms (O(1))
 ```
 
 ### 5.1 The Partitioned Image ID Pool
@@ -85,19 +87,21 @@ The driver partitions the terminal's image namespace into disjoint ranges so tha
 | :--- | :--- | :--- | :--- |
 | `1..=8` (`CURRENT_IMAGE_ID_BASE`) | Full-screen current slide | 8 | Rotates with `slide_index % 8`. |
 | `9..=16` (`PREVIEW_IMAGE_ID_BASE`) | Presenter next-slide preview | 8 | Separate range so releasing a preview cannot delete the incoming slide. |
-| `17..=32` (`THUMBNAIL_IMAGE_ID_BASE`) | Slide-sorter thumbnail cards | 16 (`MAX_THUMBNAIL_IMAGES`) | Allocated from a free-list, stable while a card stays visible. |
+| `17..=80` (`THUMBNAIL_IMAGE_ID_BASE`) | Slide-sorter thumbnail cards | 64 (`MAX_THUMBNAIL_IMAGES`) | Allocated from a free-list, stable while a card stays visible. |
+| `81..=92` (`READER_IMAGE_ID_BASE`) | Document-reader page panes | 12 (`READER_IMAGE_ID_SLOTS`) | Disjoint range so reader releases can never delete slide/preview/thumbnail images; reader mode is exclusive with the other views. |
 
 - **Idempotent Replacement**: Staging a new frame with an existing active `id` atomically overwrites the slot in terminal memory without screen flicker.
-- **Resident capacity**: `DriverCaps::resident_ids` and `StageSink::resident_capacity()` report `RESIDENT_IMAGE_IDS` (32), covering all three ranges.
+- **Resident capacity**: `DriverCaps::resident_ids` and `StageSink::resident_capacity()` report `RESIDENT_IMAGE_IDS` (92), covering all four ranges end-to-end.
 - **Sorter reuses the canvas raster**: a card stages the same bitmap the full-screen view renders and lets the terminal scale it into the card cells. There is no second thumbnail render path: rendering cards at their own small target inflates every text run past the text rasterizer's 6 px font-size floor (`rasterizer/text/mod.rs`), so glyphs overflow the compiled line boxes and the slide looks unwrapped.
-- **Memory bound**: a resident card therefore costs one canvas frame — roughly $1.4\text{ MB}$ at an $800\times450$ canvas and $\approx 8\text{ MB}$ at 1080p. The 16-slot cap keeps a full grid inside the documented terminal-memory budget.
+- **Memory bound**: a resident card therefore costs one canvas frame — roughly $1.4\text{ MB}$ at an $800\times450$ canvas and $\approx 8\text{ MB}$ at 1080p. The 64-slot cap keeps a full grid inside the documented terminal-memory budget.
 - **Sorter lifecycle**: only visible cards are staged (at most 4 new transmissions per frame, to keep the event loop responsive); the visible page is prefetched at the canvas target, cards that scroll out of view are released immediately, and leaving the sorter releases every thumbnail.
 
 ### 5.2 Driver Operations
 
 | Method | Escape Sequence Form | Latency Cost |
 | :--- | :--- | :--- |
-| `stage(bmp, id)` | `\x1b_Ga=t,f=100,i=<id>,m=...;...\x1b\` | Idle time (amortized) |
+| `stage(bmp, id)` | Encodes PNG + base64 on the calling thread, then transmits `a=t,f=100,i=<id>,m=...` chunks | Idle time (fallback path) |
+| `transmit_prebuilt(id, payload)` | One batched write of a worker-pre-encoded `TransmitPayload` (wire framing identical to `stage`) | $< 5\text{ ms}$ wire write |
 | `present(id, rect)` | Cursor position + `a=p,c=...,r=...,z=-1073741825` | $< 16\text{ ms}$ ($O(1)$) |
 | `reposition(id, rect)` | Re-emit `a=p` at the new cell rect | $< 5\text{ ms}$ ($O(1)$) |
 | `release(id)` | `\x1b_Ga=d,d=i,i=<id>\x1b\` | Instantaneous |
