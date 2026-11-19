@@ -26,6 +26,10 @@ thread_local! {
 pub struct ShapedText {
     /// `(glyph id, advance start x in EMU, advance in EMU)` in logical order.
     pub glyphs: Vec<(u16, f32, f32)>,
+    /// `fontdb` id of each entry in `glyphs` (parallel array): the compile-time
+    /// faces, so a run whose ids all came from one face can be painted
+    /// without re-shaping (see `PositionedGlyphRun::single_face`).
+    pub font_ids: Vec<fontdb::ID>,
     /// Sum of advances in EMU (reference `measureText().width`).
     pub width: f32,
     /// `usWinAscent / (usWinAscent + usWinDescent)` proxy for the line box split.
@@ -36,6 +40,7 @@ impl ShapedText {
     pub fn empty() -> Self {
         Self {
             glyphs: Vec::new(),
+            font_ids: Vec::new(),
             width: 0.0,
             ascent_share: 0.8,
         }
@@ -68,6 +73,7 @@ pub fn shape(text: &str, family: &str, size_emu: f32, bold: bool, italic: bool) 
         buffer.shape_until_scroll(font_system, false);
 
         let mut glyphs = Vec::new();
+        let mut font_ids = Vec::new();
         let mut width = 0.0f32;
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
@@ -77,11 +83,13 @@ pub fn shape(text: &str, family: &str, size_emu: f32, bold: bool, italic: bool) 
                     glyph.x * 12700.0,
                     glyph.w * 12700.0,
                 ));
+                font_ids.push(glyph.font_id);
             }
         }
 
         ShapedText {
             glyphs,
+            font_ids,
             width: width * 12700.0,
             ascent_share: ascent_share_for(family, bold, italic),
         }
