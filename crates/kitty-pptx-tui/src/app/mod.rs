@@ -37,6 +37,9 @@ mod state_reader;
 mod state_timing;
 mod session_state;
 mod terminal_guard;
+pub(crate) mod toc_numbering;
+#[cfg(test)]
+mod toc_numbering_tests;
 pub mod ui;
 pub mod warnings_state;
 
