@@ -112,8 +112,9 @@ The split layout reserves $\approx 70\%$ of screen width for the main slide canv
 
 ### 5.2 Fuzzy TOC Search (`/`)
 - Centered popup window with search text input.
-- Real-time substring and fuzzy matching across slide titles, numbers, and notes.
+- Real-time substring and fuzzy matching across slide titles, numbers, notes, and outline section numbers.
 - Matched slide list updates on each keystroke. Pressing `Enter` navigates directly to the matched slide.
+- Documents with a bookmark outline (PDF) render it as a collapsible tree; each row is `<tree number> <title> [<page>]` (e.g. `2.1 Sub Chapter [64]`) with the page column right-aligned. Flat decks (PPTX) keep the leading `[page]` prefix and gain no numbers.
 
 ---
 

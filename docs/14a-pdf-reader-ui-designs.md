@@ -316,7 +316,7 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 <file> · [spread <l>–<r>|p.<n>] /<total> · <scroll %> · fit:<mode> <zoom%> · focus:<L|R> · sync:<on|off> [· cover:<on>] · q:help
 ```
 
-Find/TOC/help overlays open **over** the reader exactly as over fullscreen (centered modal, dimmed base); find hits highlight on the ratatui layer with page+jump navigation, using the `SearchCorpus` boxes ([PRD 14](./14-pdf-input-support.md) §5.4).
+Find/TOC/help overlays open **over** the reader exactly as over fullscreen (centered modal, dimmed base); find hits highlight on the ratatui layer with page+jump navigation, using the `SearchCorpus` boxes ([PRD 14](./14-pdf-input-support.md) §5.4). The TOC modal numbers outline nodes by their tree position (`1`, `1.1`, `1.1.1`, …) and renders `2.1 Sub Chapter [64]` with the page column right-aligned to the document's widest page number.
 
 ---
 

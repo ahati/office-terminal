@@ -108,13 +108,25 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
 
         let visible_count = inner_height.min(matched.len().saturating_sub(scroll_top));
 
+        // Numbered outlines (PDF bookmarks) lead with the tree number and trail
+        // a right-aligned page column; flat decks keep the leading `[page]`
+        // prefix so their rows are unchanged.
+        let numbered = search.entries().iter().any(|entry| !entry.number.is_empty());
+        let page_width = search
+            .entries()
+            .iter()
+            .map(|entry| entry.slide_number)
+            .max()
+            .unwrap_or(1)
+            .to_string()
+            .len();
+
         for row in 0..visible_count {
             let item_idx = scroll_top + row;
             let entry_idx = matched[item_idx];
             let is_selected = item_idx == cursor;
 
             if let Some(entry) = search.entry(entry_idx) {
-                let mut spans = Vec::new();
                 let indent = "  ".repeat(entry.level);
                 let icon = if entry.has_children {
                     if entry.expanded { "▾ " } else { "▸ " }
@@ -123,20 +135,33 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                 } else {
                     "  "
                 };
+                let lead = if is_selected { " ▶ " } else { "   " };
+
+                let (prefix, suffix) = if numbered {
+                    let number = if entry.number.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{} ", entry.number)
+                    };
+                    (
+                        format!("{lead}{indent}{icon}{number}"),
+                        format!(" [{:>width$}]", entry.slide_number, width = page_width),
+                    )
+                } else {
+                    (
+                        format!("{lead}{indent}{icon}[{:>3}] ", entry.slide_number),
+                        String::new(),
+                    )
+                };
+                let prefix_len = prefix.chars().count();
+                let suffix_len = suffix.chars().count();
 
                 let q = search.query().trim().to_lowercase();
                 let is_direct_match = q.is_empty() || {
                     let title_lower = entry.title.to_lowercase();
                     let num_str = entry.slide_number.to_string();
-                    title_lower.contains(&q) || num_str.contains(&q)
+                    title_lower.contains(&q) || num_str.contains(&q) || entry.number.contains(&q)
                 };
-
-                let prefix = if is_selected {
-                    format!(" ▶ {}{}[{:>3}] ", indent, icon, entry.slide_number)
-                } else {
-                    format!("   {}{}[{:>3}] ", indent, icon, entry.slide_number)
-                };
-                let prefix_len = prefix.chars().count();
 
                 let notes_span_text = if !entry.notes.is_empty() {
                     let budget = 20.min(inner_width.saturating_sub(prefix_len + 15));
@@ -149,50 +174,46 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                     None
                 };
                 let notes_len = notes_span_text.as_ref().map(|n| n.chars().count()).unwrap_or(0);
-                let max_title_len = inner_width.saturating_sub(prefix_len + notes_len + 1).max(10);
+                // Reserve the trailing page column before truncating the title.
+                let max_title_len = inner_width
+                    .saturating_sub(prefix_len + notes_len + suffix_len)
+                    .max(10);
+                let title_text = truncate_str(&entry.title, max_title_len);
+                let title_len = title_text.chars().count();
 
-                if is_selected {
-                    spans.push(Span::styled(
-                        prefix,
-                        Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
-                    ));
-                    spans.push(Span::styled(
-                        truncate_str(&entry.title, max_title_len),
-                        Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
-                    ));
-
-                    if let Some(notes_text) = notes_span_text {
-                        spans.push(Span::styled(
-                            notes_text,
-                            Style::default().bg(Color::Cyan).fg(Color::DarkGray),
-                        ));
-                    }
+                let (chrome_style, title_style, notes_style) = if is_selected {
+                    let selected = Style::default()
+                        .bg(Color::Cyan)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD);
+                    (selected, selected, Style::default().bg(Color::Cyan).fg(Color::DarkGray))
                 } else if is_direct_match {
-                    spans.push(Span::styled(
-                        prefix,
+                    (
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                    ));
-                    spans.push(Span::styled(
-                        truncate_str(&entry.title, max_title_len),
                         Style::default().fg(Color::White),
-                    ));
-
-                    if let Some(notes_text) = notes_span_text {
-                        spans.push(Span::styled(
-                            notes_text,
-                            Style::default().fg(Color::DarkGray),
-                        ));
-                    }
+                        Style::default().fg(Color::DarkGray),
+                    )
                 } else {
                     // Ancestor context node shown dimmed
-                    spans.push(Span::styled(
-                        prefix,
+                    (
                         Style::default().fg(Color::DarkGray),
-                    ));
-                    spans.push(Span::styled(
-                        truncate_str(&entry.title, max_title_len),
                         Style::default().fg(Color::DarkGray),
-                    ));
+                        Style::default().fg(Color::DarkGray),
+                    )
+                };
+
+                let mut spans = vec![
+                    Span::styled(prefix, chrome_style),
+                    Span::styled(title_text, title_style),
+                ];
+                if let Some(notes_text) = notes_span_text {
+                    spans.push(Span::styled(notes_text, notes_style));
+                }
+                if numbered {
+                    let padding = inner_width
+                        .saturating_sub(prefix_len + title_len + notes_len + suffix_len);
+                    spans.push(Span::styled(" ".repeat(padding), chrome_style));
+                    spans.push(Span::styled(suffix, chrome_style));
                 }
 
                 list_lines.push(Line::from(spans));
