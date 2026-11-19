@@ -1,9 +1,8 @@
 //! Spatial layout and pane geometry calculations for Reader mode.
 
 use kitty_pptx_core::RenderTargetSpec;
-use kitty_pptx_display::{CellRect, ImageId, PixelRect};
+use kitty_pptx_display::{CellRect, PixelRect};
 
-use crate::app::reader_types::ReaderFitMode;
 use crate::app::state::PresentationState;
 
 pub const MIN_PANE_COLS: u16 = 10;
@@ -73,12 +72,9 @@ pub fn compute_horizontal_pane_metrics(
         cols,
     };
 
-    let target_w = 2560u32;
-    let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
-    let page_target = RenderTargetSpec {
-        width_px: target_w,
-        height_px: target_h,
-    };
+    let page_target = reader.page_render_target(page);
+    let target_w = page_target.width_px;
+    let target_h = page_target.height_px;
 
     let scale = target_w as f32 / pane_w_px.max(1.0);
     let src_x = ((scroll_x_px.max(0) as f32 * scale).round() as u32).min(target_w);
@@ -113,17 +109,8 @@ pub fn compute_pane_metrics_cropped(
 ) -> Option<PaneMetrics> {
     let reader = ctx.state.reader_state()?;
     let view = reader.page_view(page);
-    let (pt_w, pt_h) = reader.page_size_pt(page);
-    let ar = (pt_w / pt_h).max(0.1);
 
-    let (_base_w_px, base_h_px) = match view.fit {
-        ReaderFitMode::FitWidth => (ctx.fit_slot_w_px, ctx.fit_slot_w_px / ar),
-        ReaderFitMode::FitPage => {
-            let h = ctx.viewport_h_px.min(ctx.fit_slot_w_px / ar);
-            let w = h * ar;
-            (w, h)
-        }
-    };
+    let (_base_w_px, base_h_px) = reader.pane_fit(page, ctx.viewport_h_px, ctx.fit_slot_w_px);
     let pane_h_px = base_h_px * view.zoom;
 
     let visible_h_px = (pane_h_px - scroll_px as f32).max(0.0);
@@ -137,12 +124,9 @@ pub fn compute_pane_metrics_cropped(
         cols: area.cols,
     };
 
-    let target_w = 2560u32;
-    let target_h = ((target_w as f32 / ar).round() as u32).clamp(1024, 8192);
-    let page_target = RenderTargetSpec {
-        width_px: target_w,
-        height_px: target_h,
-    };
+    let page_target = reader.page_render_target(page);
+    let target_w = page_target.width_px;
+    let target_h = page_target.height_px;
 
     let scale = target_w as f32 / crop.pane_w_px.max(1.0);
     let screen_w_px = (cell_rect.cols as f32) * ctx.cell_w_px;
@@ -183,18 +167,4 @@ pub fn compute_pane_metrics_cropped(
         page_target,
         max_scroll_x,
     })
-}
-
-pub fn select_row_image_id(is_even_row: bool, slot_idx: usize, num_cols: usize) -> ImageId {
-    let base_id = if is_even_row {
-        slot_idx as u32 + 1
-    } else {
-        slot_idx as u32 + 1 + (num_cols as u32).max(1)
-    };
-    ImageId(base_id.clamp(1, 12))
-}
-
-pub fn select_spread_image_id(page: usize, slot_idx: usize, num_cols: usize) -> ImageId {
-    let row_parity = (page / num_cols.max(1)).is_multiple_of(2);
-    select_row_image_id(row_parity, slot_idx, num_cols)
 }
