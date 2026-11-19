@@ -293,6 +293,15 @@ impl ReaderGraphicsSyncer {
                     }
                     for id in stale {
                         let _ = driver.release(id);
+                        // The released image is gone from the terminal, so its
+                        // staged record must go too: a later frame for that
+                        // page would find it via `staged_equivalent` and
+                        // place a deleted image (a blank pane).
+                        for slot in &mut self.slots {
+                            if slot.staged_holds(id) {
+                                slot.take_staged();
+                            }
+                        }
                     }
                 }
                 PipelineEntry::Failed { error } => {

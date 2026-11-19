@@ -25,9 +25,17 @@ const _: () = assert!(BEHIND_CELL_BACKGROUNDS_Z < i32::MIN / 2);
 // ─── PNG + base64 transmission encoding ─────────────────────────────────────
 
 /// Encodes a raster as PNG with the transmission settings used by
-/// [`KittyDriver::stage`]: `CompressionType::Fast` + `FilterType::NoFilter`
-/// favour encode latency over payload size — transmission is bound by pty
-/// write throughput, not by terminal-side decompression cost.
+/// [`KittyDriver::stage`]: `CompressionType::Default` + `FilterType::Adaptive`.
+///
+/// Payload size dominates: the pty write is the bottleneck, and the encode
+/// itself runs on the raster workers ([`crate::KittyTransmitEncoder`]
+/// pre-encodes; `stage` is only the rare sync fallback). `Fast` + `NoFilter`
+/// produced a near-raw PNG — ~34 MB for a 2560×3312 reader page, ~45 MB of
+/// base64 on the wire — and the UI thread blocked in `write_all` for the
+/// whole drain whenever a page scrolled into view: the reader's smoothed
+/// scroll stalled at every page boundary and the pane's cells sat blank
+/// until the placement landed. `Default` + `Adaptive` encodes the same page
+/// to ~0.05–2 MB (~250× less wire traffic) for ~35 ms more worker time.
 fn encode_png(bmp: &RgbaSlide) -> Result<Vec<u8>, DisplayError> {
     use image::codecs::png::{CompressionType, FilterType, PngEncoder};
     use image::ImageEncoder;
@@ -35,8 +43,8 @@ fn encode_png(bmp: &RgbaSlide) -> Result<Vec<u8>, DisplayError> {
     let mut png_bytes = Vec::new();
     let encoder = PngEncoder::new_with_quality(
         &mut png_bytes,
-        CompressionType::Fast,
-        FilterType::NoFilter,
+        CompressionType::Default,
+        FilterType::Adaptive,
     );
 
     encoder

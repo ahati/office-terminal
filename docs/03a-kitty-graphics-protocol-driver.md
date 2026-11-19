@@ -102,7 +102,9 @@ The driver partitions the terminal's image namespace into disjoint ranges so tha
 | Method | Escape Sequence Form | Latency Cost |
 | :--- | :--- | :--- |
 | `stage(bmp, id)` | Encodes PNG + base64 on the calling thread, then transmits `a=t,f=100,i=<id>,m=...` chunks | Idle time (fallback path) |
-| `transmit_prebuilt(id, payload)` | One batched write of a worker-pre-encoded `TransmitPayload` (wire framing identical to `stage`) | $< 5\text{ ms}$ wire write |
+| `transmit_prebuilt(id, payload)` | One batched write of a worker-pre-encoded `TransmitPayload` (wire framing identical to `stage`) | Wire write, see below |
+
+**PNG encode settings are a wire-throughput decision.** Payloads are encoded with `CompressionType::Default` + `FilterType::Adaptive`: the pty write is the transmission bottleneck (the terminal applies backpressure to `write_all`, stalling the UI thread for the whole drain), and the encode itself runs on the raster workers. `Fast` + `NoFilter` produced a near-raw PNG — ~34 MB for a 2560×3312 reader page, ~45 MB of base64 on the wire — so every page entering the viewport froze the reader's smoothed scroll at the boundary and left the pane blank until the placement landed. `Default` + `Adaptive` encodes the same page to ~0.05–2 MB (~250× less wire traffic) for ~35 ms more worker time; a page transmit now completes in single-digit milliseconds.
 | `present(id, rect)` | Cursor position + `a=p,c=...,r=...,z=-1073741825` | $< 16\text{ ms}$ ($O(1)$) |
 | `reposition(id, rect)` | Re-emit `a=p` at the new cell rect | $< 5\text{ ms}$ ($O(1)$) |
 | `release(id)` | `\x1b_Ga=d,d=i,i=<id>\x1b\` | Instantaneous |
