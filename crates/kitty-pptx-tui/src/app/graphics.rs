@@ -2,28 +2,19 @@ use kitty_pptx_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetS
 use kitty_pptx_display::{CellRect, ImageId, Placement, TerminalGraphicsDriver};
 
 use crate::app::bindings::FrameBindings;
+use crate::app::graphics_reader::ReaderGraphicsSyncer;
+use crate::app::graphics_slots::{PlacedKey, PlacedRecord, SlotBitmap, SlotEpochs, SlotState};
+use crate::app::graphics_thumbnails::ThumbnailSyncer;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
 
-/// Identity of the bitmap currently staged on the terminal for a slot.
+/// The two full-screen slide slots the syncer owns: the current slide and
+/// the presenter next-slide preview. Slot bookkeeping lives in the shared
+/// engine; this key parameterizes the policy methods over it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct StagedImage {
-    id: ImageId,
-    slide: usize,
-    width: u32,
-    height: u32,
-    /// Monotonic staging epoch; a new epoch means the image data changed even
-    /// when the image id and placement rect stayed the same (e.g. slide N and
-    /// slide N+8 share an id).
-    epoch: u64,
-}
-
-/// Identity of the image currently placed on screen for a slot.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct PlacedImage {
-    id: ImageId,
-    rect: CellRect,
-    epoch: u64,
+enum SlideSlot {
+    Current,
+    Preview,
 }
 
 /// Keeps terminal graphics in sync with the geometry the last frame drew.
@@ -35,14 +26,13 @@ struct PlacedImage {
 /// with a presenter preview) or the slide-sorter thumbnail grid.
 #[derive(Default)]
 pub(crate) struct GraphicsSyncer {
-    current_staged: Option<StagedImage>,
-    preview_staged: Option<StagedImage>,
-    current_placed: Option<PlacedImage>,
-    preview_placed: Option<PlacedImage>,
-    thumbnails: crate::app::graphics_thumbnails::ThumbnailSyncer,
-    reader: crate::app::graphics_reader::ReaderGraphicsSyncer,
+    current: SlotState,
+    preview: SlotState,
+    thumbnails: ThumbnailSyncer,
+    reader: ReaderGraphicsSyncer,
     suppressed: bool,
-    epoch: u64,
+    /// One staging-epoch discipline shared by all three syncers.
+    epochs: SlotEpochs,
 }
 
 impl GraphicsSyncer {
@@ -99,11 +89,16 @@ impl GraphicsSyncer {
         // modal on top of the sorter does not tear the grid images down.
         if state.base_mode() == AppMode::Reader {
             self.release_thumbnails(driver)?;
-            self.release_current(driver)?;
-            self.release_preview(driver)?;
-            return self
-                .reader
-                .sync(state, pipeline, driver, canvas_target, &mut self.epoch, bindings);
+            self.release_slot(SlideSlot::Current, driver)?;
+            self.release_slot(SlideSlot::Preview, driver)?;
+            return self.reader.sync(
+                state,
+                pipeline,
+                driver,
+                canvas_target,
+                &mut self.epochs,
+                bindings,
+            );
         }
 
         self.reader.release_all(driver)?;
@@ -130,12 +125,12 @@ impl GraphicsSyncer {
             Some(rect) => {
                 let id = state.current_image_id();
                 let slide = state.current_slide();
-                if self.ensure_staged(slide, id, pipeline, driver, false, state)? {
+                if self.ensure_staged(slide, id, SlideSlot::Current, pipeline, driver, state)? {
                     state.clear_render_failure_for(slide);
-                    self.place_current(id, rect, driver)?;
+                    self.place_slot(SlideSlot::Current, id, rect, driver)?;
                 }
             }
-            None => self.release_current(driver)?,
+            None => self.release_slot(SlideSlot::Current, driver)?,
         }
 
         let preview = if state.mode() == AppMode::PresenterConsole {
@@ -153,11 +148,11 @@ impl GraphicsSyncer {
 
         match preview {
             Some((slide, id, rect)) => {
-                if self.ensure_staged(slide, id, pipeline, driver, true, state)? {
-                    self.place_preview(id, rect, driver)?;
+                if self.ensure_staged(slide, id, SlideSlot::Preview, pipeline, driver, state)? {
+                    self.place_slot(SlideSlot::Preview, id, rect, driver)?;
                 }
             }
-            None => self.release_preview(driver)?,
+            None => self.release_slot(SlideSlot::Preview, driver)?,
         }
 
         Ok(())
@@ -182,10 +177,15 @@ impl GraphicsSyncer {
         driver: &mut dyn TerminalGraphicsDriver,
         bindings: &FrameBindings,
     ) -> Result<(), DisplayError> {
-        self.release_current(driver)?;
-        self.release_preview(driver)?;
-        self.thumbnails
-            .sync_thumbnails(state, pipeline, driver, &mut self.epoch, &bindings.thumbnails)
+        self.release_slot(SlideSlot::Current, driver)?;
+        self.release_slot(SlideSlot::Preview, driver)?;
+        self.thumbnails.sync_thumbnails(
+            state,
+            pipeline,
+            driver,
+            &mut self.epochs,
+            &bindings.thumbnails,
+        )
     }
 
     /// Releases all staged thumbnails (leaving the sorter). The downscaled-card
@@ -206,147 +206,119 @@ impl GraphicsSyncer {
         &mut self,
         slide: usize,
         id: ImageId,
+        slot_key: SlideSlot,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
-        preview: bool,
         state: &mut PresentationState,
     ) -> Result<bool, DisplayError> {
-        let staged = if preview {
-            self.preview_staged
-        } else {
-            self.current_staged
-        };
         match pipeline.entry(slide) {
             PipelineEntry::Ready { bitmap, .. } => {
-                if staged.is_some_and(|s| {
-                    s.id == id
-                        && s.slide == slide
-                        && s.width == bitmap.width
-                        && s.height == bitmap.height
-                }) {
+                let want =
+                    SlotBitmap { id, page: slide, width: bitmap.width, height: bitmap.height };
+                if !self.slot(slot_key).needs_stage(&want) {
                     return Ok(true);
                 }
 
                 driver.stage(&bitmap, id)?;
-
-                self.epoch = self.epoch.saturating_add(1);
-                let key = StagedImage {
-                    id,
-                    slide,
-                    width: bitmap.width,
-                    height: bitmap.height,
-                    epoch: self.epoch,
-                };
-                if preview {
-                    self.preview_staged = Some(key);
-                } else {
-                    self.current_staged = Some(key);
-                }
+                let epoch = self.epochs.bump();
+                self.slot_mut(slot_key).record_staged(want, epoch);
                 Ok(true)
             }
             PipelineEntry::Failed { error } => {
                 state.note_render_failure(slide, error.to_string());
                 // Keep presenting an already staged bitmap if we have one.
-                Ok(staged.is_some_and(|s| s.id == id && s.slide == slide))
+                Ok(self.stages(slot_key, id, slide))
             }
             // Rendering / NotLoaded: keep presenting an already staged bitmap.
-            _ => Ok(staged.is_some_and(|s| s.id == id && s.slide == slide)),
+            _ => Ok(self.stages(slot_key, id, slide)),
         }
     }
 
-    fn place_current(
+    /// Whether a slot still stages `id` for `slide` — kept across render
+    /// hiccups so the view never flashes blank.
+    fn stages(&self, slot_key: SlideSlot, id: ImageId, slide: usize) -> bool {
+        self.slot(slot_key)
+            .staged()
+            .is_some_and(|staged| staged.id == id && staged.page == slide)
+    }
+
+    /// Places (or repositions) one full-screen slot's image at `rect`.
+    ///
+    /// Same id: re-place for new data/rect; kitty wipes the old placement
+    /// when the same image id is placed again. Different id: release the
+    /// old placement first, then present.
+    fn place_slot(
         &mut self,
+        slot_key: SlideSlot,
         id: ImageId,
         rect: CellRect,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        let epoch = self.current_staged.map(|s| s.epoch).unwrap_or(0);
-        if let Some(previous) = self.current_placed {
-            if previous.id == id {
-                if previous.rect == rect && previous.epoch == epoch {
-                    return Ok(());
-                }
-                // Same id: re-place for new data/rect; kitty wipes the old
-                // placement when the same image id is placed again.
-                self.present_current(id, rect, driver, true)?;
-                self.current_placed = Some(PlacedImage { id, rect, epoch });
-                return Ok(());
-            }
-            self.release_current(driver)?;
+        let key = PlacedKey::Cells(rect);
+        if !self.slot(slot_key).needs_place(id, key, true) {
+            return Ok(());
         }
 
-        self.present_current(id, rect, driver, false)?;
-        self.current_placed = Some(PlacedImage { id, rect, epoch });
-        Ok(())
-    }
-
-    fn place_preview(
-        &mut self,
-        id: ImageId,
-        rect: CellRect,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
-        let epoch = self.preview_staged.map(|s| s.epoch).unwrap_or(0);
-        if let Some(previous) = self.preview_placed {
+        if let Some(previous) = self.slot_mut(slot_key).take_placed() {
             if previous.id == id {
-                if previous.rect == rect && previous.epoch == epoch {
-                    return Ok(());
-                }
                 driver.reposition(id, Placement::Cells(rect))?;
-                self.preview_placed = Some(PlacedImage { id, rect, epoch });
+                self.record_placement(slot_key, id, key);
                 return Ok(());
             }
-            self.release_preview(driver)?;
+            self.drop_placed(slot_key, previous, driver)?;
         }
 
         driver.present(id, Placement::Cells(rect))?;
-        self.preview_placed = Some(PlacedImage { id, rect, epoch });
+        self.record_placement(slot_key, id, key);
         Ok(())
     }
 
-    fn present_current(
-        &mut self,
-        id: ImageId,
-        rect: CellRect,
-        driver: &mut dyn TerminalGraphicsDriver,
-        reposition: bool,
-    ) -> Result<(), DisplayError> {
-        let placement = Placement::Cells(rect);
-        if reposition {
-            driver.reposition(id, placement)
-        } else {
-            driver.present(id, placement)
-        }
+    /// Records a placement against the slot's current staged epoch.
+    fn record_placement(&mut self, slot_key: SlideSlot, id: ImageId, key: PlacedKey) {
+        let epoch = self.slot(slot_key).staged_epoch();
+        self.slot_mut(slot_key).record_placed(id, key, epoch);
     }
 
-    /// Releases the current image and invalidates its staged key.
-    fn release_current(
+    /// Releases a placement the slot no longer shows and forgets the
+    /// staged key when it matches the released id (the driver dropped that
+    /// bitmap; a different staged bitmap stays valid).
+    fn drop_placed(
         &mut self,
+        slot_key: SlideSlot,
+        previous: PlacedRecord,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        let Some(previous) = self.current_placed.take() else {
+        driver.release(previous.id)?;
+        if self.slot(slot_key).staged_holds(previous.id) {
+            self.slot_mut(slot_key).take_staged();
+        }
+        Ok(())
+    }
+
+    /// Releases a slot's image and invalidates its staged key.
+    fn release_slot(
+        &mut self,
+        slot_key: SlideSlot,
+        driver: &mut dyn TerminalGraphicsDriver,
+    ) -> Result<(), DisplayError> {
+        let Some(previous) = self.slot_mut(slot_key).take_placed() else {
             return Ok(());
         };
-        driver.release(previous.id)?;
-        if self.current_staged.is_some_and(|s| s.id == previous.id) {
-            self.current_staged = None;
-        }
-        Ok(())
+        self.drop_placed(slot_key, previous, driver)
     }
 
-    /// Releases the preview image and invalidates its staged key.
-    fn release_preview(
-        &mut self,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
-        let Some(previous) = self.preview_placed.take() else {
-            return Ok(());
-        };
-        driver.release(previous.id)?;
-        if self.preview_staged.is_some_and(|s| s.id == previous.id) {
-            self.preview_staged = None;
+    fn slot(&self, slot_key: SlideSlot) -> &SlotState {
+        match slot_key {
+            SlideSlot::Current => &self.current,
+            SlideSlot::Preview => &self.preview,
         }
-        Ok(())
+    }
+
+    fn slot_mut(&mut self, slot_key: SlideSlot) -> &mut SlotState {
+        match slot_key {
+            SlideSlot::Current => &mut self.current,
+            SlideSlot::Preview => &mut self.preview,
+        }
     }
 
     /// Empty deck: nothing may remain on screen.
@@ -354,10 +326,7 @@ impl GraphicsSyncer {
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {
-        if self.current_placed.is_none()
-            && self.preview_placed.is_none()
-            && self.thumbnails.thumbs.is_empty()
-        {
+        if self.current.is_clear() && self.preview.is_clear() && self.thumbnails.thumbs.is_empty() {
             return Ok(());
         }
         driver.release_all()?;
