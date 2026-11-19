@@ -9,6 +9,8 @@ mod graphics;
 pub(crate) mod graphics_reader;
 pub(crate) mod graphics_slots;
 #[cfg(test)]
+mod graphics_swap_reader_tests;
+#[cfg(test)]
 mod graphics_swap_tests;
 #[cfg(test)]
 mod graphics_tests;

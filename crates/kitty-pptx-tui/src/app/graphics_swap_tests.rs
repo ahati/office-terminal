@@ -46,14 +46,14 @@ use crate::app::state::PresentationState;
 use crate::app::PresentationApp;
 
 const ASPECT: f32 = 16.0 / 9.0;
-const CANVAS: RenderTargetSpec = RenderTargetSpec {
+pub(crate) const CANVAS: RenderTargetSpec = RenderTargetSpec {
     width_px: 160,
     height_px: 90,
 };
 
 /// Raster size the pipeline reports for a slide; toggled between the sorter's
 /// card raster and the canvas raster to model the upgrade.
-const CARD_RASTER: (u32, u32) = (64, 36);
+pub(crate) const CARD_RASTER: (u32, u32) = (64, 36);
 const CANVAS_RASTER: (u32, u32) = (160, 90);
 
 fn bitmap(size: (u32, u32)) -> RgbaSlide {
@@ -66,27 +66,27 @@ fn bitmap(size: (u32, u32)) -> RgbaSlide {
 
 /// Pipeline whose per-slide outcome the test scripts directly.
 #[derive(Default)]
-struct ScriptedPipeline {
+pub(crate) struct ScriptedPipeline {
     sizes: Mutex<HashMap<usize, (u32, u32)>>,
     rendering: Mutex<HashSet<usize>>,
     in_flight: AtomicUsize,
 }
 
 impl ScriptedPipeline {
-    fn ready(sizes: &[(usize, (u32, u32))]) -> Self {
+    pub(crate) fn ready(sizes: &[(usize, (u32, u32))]) -> Self {
         Self {
             sizes: Mutex::new(sizes.iter().copied().collect()),
             ..Self::default()
         }
     }
 
-    fn set_size(&self, slide: usize, size: (u32, u32)) {
+    pub(crate) fn set_size(&self, slide: usize, size: (u32, u32)) {
         self.sizes.lock().unwrap().insert(slide, size);
         self.rendering.lock().unwrap().remove(&slide);
     }
 
     /// The slide has no raster yet and its render is in flight.
-    fn set_rendering(&self, slide: usize) {
+    pub(crate) fn set_rendering(&self, slide: usize) {
         self.sizes.lock().unwrap().remove(&slide);
         self.rendering.lock().unwrap().insert(slide);
     }
@@ -136,8 +136,8 @@ impl RenderPipeline for ScriptedPipeline {
 
 /// Driver calls in issue order — the present/release *sequence* is the point.
 #[derive(Default, Debug)]
-struct CallLog {
-    calls: Vec<String>,
+pub(crate) struct CallLog {
+    pub(crate) calls: Vec<String>,
 }
 
 impl CallLog {
@@ -145,21 +145,21 @@ impl CallLog {
         self.calls.push(call.into());
     }
 
-    fn position(&self, needle: &str) -> Option<usize> {
+    pub(crate) fn position(&self, needle: &str) -> Option<usize> {
         self.calls.iter().position(|call| call.contains(needle))
     }
 
-    fn count_prefix(&self, prefix: &str) -> usize {
+    pub(crate) fn count_prefix(&self, prefix: &str) -> usize {
         self.calls.iter().filter(|call| call.starts_with(prefix)).count()
     }
 }
 
-struct LoggingDriver {
+pub(crate) struct LoggingDriver {
     log: Arc<Mutex<CallLog>>,
 }
 
 impl LoggingDriver {
-    fn new() -> (Self, Arc<Mutex<CallLog>>) {
+    pub(crate) fn new() -> (Self, Arc<Mutex<CallLog>>) {
         let log = Arc::new(Mutex::new(CallLog::default()));
         (
             Self {
@@ -192,8 +192,17 @@ impl TerminalGraphicsDriver for LoggingDriver {
         Ok(())
     }
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {
-        if let Placement::Cells(rect) = p {
-            self.log.lock().unwrap().record(format!("present id={} {rect:?}", id.0));
+        match p {
+            Placement::Cells(rect) => {
+                self.log.lock().unwrap().record(format!("present id={} {rect:?}", id.0));
+            }
+            Placement::CellsSubrect { rect, .. } => {
+                self.log
+                    .lock()
+                    .unwrap()
+                    .record(format!("present id={} subrect {rect:?}", id.0));
+            }
+            Placement::ScrollbackBlock => {}
         }
         Ok(())
     }

@@ -3,15 +3,17 @@
 //! Staging and direct subrect placement (`Placement::CellsSubrect`) for
 //! focusable document panes.
 
+use std::collections::{HashSet, VecDeque};
+
 use kitty_pptx_core::{
     DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
 };
 use kitty_pptx_display::{
-    Placement, TerminalGraphicsDriver, READER_IMAGE_ID_BASE, READER_IMAGE_ID_SLOTS,
+    ImageId, Placement, TerminalGraphicsDriver, READER_IMAGE_ID_BASE, READER_IMAGE_ID_SLOTS,
 };
 
 use crate::app::bindings::FrameBindings;
-use crate::app::graphics_slots::{PlacedKey, SlotBitmap, SlotEpochs, SlotState};
+use crate::app::graphics_slots::{PlacedKey, PlacedRecord, SlotBitmap, SlotEpochs, SlotState};
 use crate::app::reader_state::ReaderSlotPlacement;
 use crate::app::state::PresentationState;
 
@@ -34,6 +36,58 @@ pub(crate) struct ReaderGraphicsSyncer {
 }
 
 impl ReaderGraphicsSyncer {
+    /// Index of the pool slot an id belongs to.
+    fn slot_index(id: ImageId) -> usize {
+        (id.0.saturating_sub(READER_IMAGE_ID_BASE) as usize).min(READER_SLOTS - 1)
+    }
+
+    /// The id of a slot bitmap that already holds exactly these pixels
+    /// (possibly the spare id of a completed swap).
+    fn staged_equivalent(&self, want: &SlotBitmap) -> Option<ImageId> {
+        self.slots.iter().find_map(|slot| {
+            slot.staged().and_then(|staged| {
+                (staged.page == want.page
+                    && staged.width == want.width
+                    && staged.height == want.height)
+                    .then_some(staged.id)
+            })
+        })
+    }
+
+    /// Whether any slot currently displays `id`.
+    fn displays(&self, id: ImageId) -> bool {
+        self.slots.iter().any(|slot| slot.placed_id() == Some(id))
+    }
+
+    /// Id to transmit fresh pixels under.
+    ///
+    /// Re-transmitting image data for an id deletes that image *and every
+    /// placement of it* until a new placement arrives, so the id a pane is
+    /// displaying is never reused: a page whose stable id is currently on
+    /// screen (an id collision `page % READER_IMAGE_ID_SLOTS`, or a
+    /// re-rendered page) stages into a spare id of the reader pool instead,
+    /// is presented, and only then is the outgoing id released. The spare
+    /// avoids every id another pane owns, stages or displays this frame.
+    /// When the pool is exhausted the preferred id degrades to the old
+    /// destructive behaviour (more visible panes than ids is already
+    /// broken beyond repair).
+    fn stage_id(&self, preferred: ImageId, pane_ids: &HashSet<u32>) -> ImageId {
+        if !self.displays(preferred) {
+            return preferred;
+        }
+        let busy: HashSet<u32> = self
+            .slots
+            .iter()
+            .filter_map(|slot| slot.staged().map(|staged| staged.id.0))
+            .chain(self.slots.iter().filter_map(|slot| slot.placed_id().map(|id| id.0)))
+            .chain(pane_ids.iter().copied())
+            .collect();
+        (0..READER_SLOTS as u32)
+            .map(|offset| ImageId(READER_IMAGE_ID_BASE + offset))
+            .find(|candidate| !busy.contains(&candidate.0))
+            .unwrap_or(preferred)
+    }
+
     pub(crate) fn release_all(
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
@@ -114,54 +168,97 @@ impl ReaderGraphicsSyncer {
             }
         }
 
+        // Ids the panes own this frame; a swap candidate must avoid them.
+        let pane_ids: HashSet<u32> = placements.iter().map(|p| p.id.0).collect();
         let mut active_slots = [false; READER_SLOTS];
 
         for placement in placements {
-            // Stable per-page ids (reader image pool base 81): slot index is
-            // derived from the id, not from a row-parity scheme.
-            let slot_idx = (placement.id.0.saturating_sub(READER_IMAGE_ID_BASE) as usize)
-                .min(READER_SLOTS - 1);
-            active_slots[slot_idx] = true;
+            // Stable per-page ids (reader image pool base 81): the pane's
+            // nominal slot is derived from the id, not from a row-parity
+            // scheme. An id swap can move the pane's bitmap to a spare slot
+            // for a frame; both slots stay active so the cleanup below
+            // keeps whatever the pane is showing.
+            let preferred = placement.id;
+            let preferred_idx = Self::slot_index(preferred);
             let page = placement.page;
-            let id = placement.id;
-            let slot = &mut self.slots[slot_idx];
+            active_slots[preferred_idx] = true;
 
             match pipeline.entry_at(page, &placement.page_target) {
                 PipelineEntry::Ready { bitmap, .. } => {
-                    let want =
-                        SlotBitmap { id, page, width: bitmap.width, height: bitmap.height };
-                    if slot.needs_stage(&want) {
-                        // Pre-encoded payloads from the raster workers keep
-                        // PNG encoding off the UI thread; fall back to staging
-                        // the bitmap directly when no payload is cached (or
-                        // the driver cannot take prebuilt bytes).
-                        let prebuilt_sent =
-                            match pipeline.staged_payload(page, &placement.page_target) {
-                                Some(payload) => driver
-                                    .transmit_prebuilt(id, bitmap.width, bitmap.height, &payload)
-                                    .is_ok(),
-                                None => false,
-                            };
-                        if !prebuilt_sent {
-                            driver.stage(&bitmap, id)?;
+                    let want = SlotBitmap {
+                        id: preferred,
+                        page,
+                        width: bitmap.width,
+                        height: bitmap.height,
+                    };
+                    // The same pixels may already be resident under the
+                    // spare id of a completed swap: keep them instead of
+                    // re-sending.
+                    let id = match self.staged_equivalent(&want) {
+                        Some(resident) => resident,
+                        None => {
+                            // Never transmit over an id a pane is displaying:
+                            // kitty deletes the image and its placements
+                            // until a new placement arrives, which blanks the
+                            // pane for the whole transmit + decode window.
+                            let id = self.stage_id(preferred, &pane_ids);
+                            let idx = Self::slot_index(id);
+                            let want = SlotBitmap { id, ..want };
+                            if self.slots[idx].needs_stage(&want) {
+                                // Pre-encoded payloads from the raster workers
+                                // keep PNG encoding off the UI thread; fall
+                                // back to staging the bitmap directly when no
+                                // payload is cached (or the driver cannot take
+                                // prebuilt bytes).
+                                let prebuilt_sent =
+                                    match pipeline.staged_payload(page, &placement.page_target) {
+                                        Some(payload) => driver
+                                            .transmit_prebuilt(
+                                                id,
+                                                bitmap.width,
+                                                bitmap.height,
+                                                &payload,
+                                            )
+                                            .is_ok(),
+                                        None => false,
+                                    };
+                                if !prebuilt_sent {
+                                    driver.stage(&bitmap, id)?;
+                                }
+                                self.slots[idx].record_staged(want, epochs.bump());
+                            }
+                            id
                         }
-                        slot.record_staged(want, epochs.bump());
-                    }
+                    };
+                    let idx = Self::slot_index(id);
+                    active_slots[idx] = true;
 
                     let key =
                         PlacedKey::Subrect { rect: placement.cell_rect, src: placement.pixel_src };
-                    let placed_epoch = slot.staged_epoch();
-                    if slot.needs_place(id, key, true) {
-                        let previous = slot.take_placed();
+                    let placed_epoch = self.slots[idx].staged_epoch();
+                    if self.slots[idx].needs_place(id, key, true) {
+                        // The pane's previous placement may live in its
+                        // nominal slot (pre-swap) or in this one; collect
+                        // both, present first, release afterwards.
+                        let mut outgoing: VecDeque<PlacedRecord> =
+                            self.slots[idx].take_placed().into_iter().collect();
+                        if preferred_idx != idx {
+                            outgoing.extend(self.slots[preferred_idx].take_placed());
+                        }
                         let direct = Placement::CellsSubrect {
                             rect: placement.cell_rect,
                             src: placement.pixel_src,
                         };
                         driver.present(id, direct)?;
-                        slot.record_placed(id, key, placed_epoch);
-                        if let Some(previous) = previous {
+                        self.slots[idx].record_placed(id, key, placed_epoch);
+                        for previous in outgoing {
                             if previous.id != id {
                                 let _ = driver.release(previous.id);
+                                for slot in &mut self.slots {
+                                    if slot.staged_holds(previous.id) {
+                                        slot.take_staged();
+                                    }
+                                }
                             }
                         }
                     }
@@ -171,14 +268,31 @@ impl ReaderGraphicsSyncer {
                     state.clear_render_failure_for(page);
                 }
                 PipelineEntry::Rendering | PipelineEntry::NotLoaded => {
-                    // If this slot was showing a different page before, release it so
-                    // stale pages are never shown during page turns (P1-2)
-                    if let Some(staged) = slot.staged() {
-                        if staged.page != page {
+                    // If this pane still shows another page, release it so
+                    // stale pages are never shown during page turns (P1-2).
+                    // After an id swap the pane's bitmap can live in a slot
+                    // other than its nominal one, so both the nominal slot
+                    // and any placement sitting on this pane's rect go.
+                    let mut stale = Vec::new();
+                    for (idx, slot) in self.slots.iter_mut().enumerate() {
+                        if !slot.staged().is_some_and(|staged| staged.page != page) {
+                            continue;
+                        }
+                        let on_pane_rect = slot.placed().is_some_and(|placed| {
+                            matches!(
+                                placed.key,
+                                PlacedKey::Subrect { rect, .. }
+                                    if rect == placement.cell_rect
+                            )
+                        });
+                        if idx == preferred_idx || on_pane_rect {
                             if let Some(placed) = slot.take_placed() {
-                                let _ = driver.release(placed.id);
+                                stale.push(placed.id);
                             }
                         }
+                    }
+                    for id in stale {
+                        let _ = driver.release(id);
                     }
                 }
                 PipelineEntry::Failed { error } => {

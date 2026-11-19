@@ -102,6 +102,10 @@ Kitty mapping: `a=p,i=<id>,p=<pid>,x=<src.x>,y=<src.y>,w=<src.width>,h=<src.heig
 
 Non-Kitty future drivers emulate `CellsSubrect` with client-side cropping + re-stage (correctness fallback; performance secondary).
 
+**Re-transmission is destructive.** Transmitting image data for an id deletes that image *and every placement of it* until a new placement arrives (kitty §*Transmitting images*), so a pane never re-stages the id it is displaying. Reader ids repeat every `READER_IMAGE_ID_SLOTS` (12) pages, so a page turn onto a colliding id — and any re-render of a page already on screen — stages into a **spare id of the reader pool** (one no other pane owns, stages or displays), presents the new bitmap, and only then releases the outgoing id. The next frame reuses the resident bitmap without re-sending it. A pane whose next page is still rendering releases whatever it displays — including a swapped bitmap, matched on the pane's own cell rect — so a stale page is never shown during a page turn (P1-2).
+
+Non-Kitty future drivers emulate the swap by keeping the outgoing image alive until the incoming one is placed (same ordering, client-side).
+
 ### 3.2 Placement IDs become explicit
 
 The syncer must update *specific* placements (left pane pans while the right pane's band shifts). The driver emits `p=<placement-id>` for reader slots (kitty placement ids `1..=2` per image, one per pane). `reposition(id, placement)` keeps its current signature; the syncer tracks the pairing.
