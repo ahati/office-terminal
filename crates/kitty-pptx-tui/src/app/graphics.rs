@@ -85,6 +85,10 @@ impl GraphicsSyncer {
     /// A failed background render is recorded on the state (canvas note +
     /// warning entry) instead of silently leaving the slide blank.
     ///
+    /// Returns how many sorter cards the per-frame staging throttle deferred:
+    /// their rasters are already resolvable, so only another drawn frame can
+    /// place them.
+    ///
     /// `bindings` carries the geometry the just-drawn frame produced;
     /// `canvas_target` is the resolution the full-screen view is rendered
     /// at: the sorter shares those bitmaps and lets the terminal scale them
@@ -96,12 +100,12 @@ impl GraphicsSyncer {
         driver: &mut dyn TerminalGraphicsDriver,
         canvas_target: &RenderTargetSpec,
         bindings: &FrameBindings,
-    ) -> Result<(), DisplayError> {
+    ) -> Result<usize, DisplayError> {
         if state.total_slides() == 0 {
-            return self.clear_everything(driver);
+            return self.clear_everything(driver).map(|_| 0);
         }
         if state.is_blank() {
-            return self.suppress(driver);
+            return self.suppress(driver).map(|_| 0);
         }
         self.suppressed = false;
 
@@ -109,7 +113,7 @@ impl GraphicsSyncer {
         // graphics stay resident and must not do expensive staging, downscaling,
         // or transmission on the UI thread while the user interacts with the modal.
         if state.mode().is_overlay() {
-            return Ok(());
+            return Ok(0);
         }
 
         // Resolve the base view exactly like the renderer does, so an overlay
@@ -118,14 +122,10 @@ impl GraphicsSyncer {
             self.release_thumbnails(driver)?;
             self.release_slot(SlideSlot::Current, driver)?;
             self.release_slot(SlideSlot::Preview, driver)?;
-            return self.reader.sync(
-                state,
-                pipeline,
-                driver,
-                canvas_target,
-                &mut self.epochs,
-                bindings,
-            );
+            return self
+                .reader
+                .sync(state, pipeline, driver, canvas_target, &mut self.epochs, bindings)
+                .map(|_| 0);
         }
 
         self.reader.release_all(driver)?;
@@ -142,7 +142,7 @@ impl GraphicsSyncer {
         if !slide_pending {
             self.release_thumbnails(driver)?;
         }
-        Ok(())
+        Ok(0)
     }
 
     /// Syncs the full-screen slide and the presenter next-slide preview.
@@ -237,7 +237,7 @@ impl GraphicsSyncer {
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
         bindings: &FrameBindings,
-    ) -> Result<(), DisplayError> {
+    ) -> Result<usize, DisplayError> {
         self.release_slot(SlideSlot::Current, driver)?;
         self.release_slot(SlideSlot::Preview, driver)?;
         self.thumbnails.sync_thumbnails(

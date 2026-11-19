@@ -44,6 +44,7 @@ import time
 
 INITIAL_WAIT = float(os.environ.get("INITIAL_WAIT", "2.0"))
 KEY_WAIT = float(os.environ.get("KEY_WAIT", "1.5"))
+FINAL_WAIT = float(os.environ.get("FINAL_WAIT", "3.0"))
 BIN = os.path.abspath(
     "target/release/kitty-pptx"
     if os.path.exists("target/release/kitty-pptx")
@@ -159,7 +160,7 @@ def main():
         read_for(fd, KEY_WAIT, reader)
         out.append((time.time(), f"--- sent {key} ---"))
 
-    read_for(fd, 3.0, reader)
+    read_for(fd, FINAL_WAIT, reader)
     try:
         os.kill(pid, 9)
     except ProcessLookupError:
