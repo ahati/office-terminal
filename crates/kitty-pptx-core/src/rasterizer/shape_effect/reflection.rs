@@ -14,7 +14,7 @@
 
 use crate::contracts::VectorReflection;
 use crate::rasterizer::mask::pixmap_from_premultiplied;
-
+use crate::rasterizer::scratch::EffectScratch;
 use super::filters;
 
 /// `(x, y, w, h)` box in the coordinate space of the target canvas.
@@ -133,6 +133,7 @@ pub(crate) fn padding(r: &VectorReflection, bbox: Bbox, scale: f32, sigma: f32) 
 ///
 /// `layer` is the scratch layer holding the painted shape, `bbox` the body box
 /// in layer-local pixels and `origin` the layer's canvas offset.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn composite(
     pixmap: &mut tiny_skia::Pixmap,
     layer: &tiny_skia::Pixmap,
@@ -141,6 +142,7 @@ pub(super) fn composite(
     reach_cap: f32,
     origin: (f32, f32),
     bbox: Bbox,
+    scratch: &mut EffectScratch,
 ) {
     let (lw, lh) = (layer.width() as usize, layer.height() as usize);
     let (_, _, bw, bh) = bbox;
@@ -158,7 +160,7 @@ pub(super) fn composite(
     let mut src = layer.data().to_vec();
     let sigma = filters::clamp_reach_px(reflection.blur_radius_emu, scale, reach_cap);
     if sigma > 0.0 {
-        filters::gaussian_blur_premultiplied(&mut src, lw, lh, sigma);
+        filters::gaussian_blur_premultiplied_with(scratch, &mut src, lw, lh, sigma);
     }
 
     // 2. `destination-in` against the authored band gradient.

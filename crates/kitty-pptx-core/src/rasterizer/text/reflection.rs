@@ -14,6 +14,7 @@ use crate::rasterizer::shape_effect::reflection::{
     band_alpha, mirror_matrix, padding, Bbox,
 };
 use crate::rasterizer::shape_effect::MAX_LAYER_PIXELS;
+use crate::rasterizer::scratch::EffectScratch;
 
 /// Render the distance-aware reflection under a single text run.
 #[allow(clippy::too_many_arguments)]
@@ -27,6 +28,7 @@ pub(crate) fn render_reflected_run(
     offset_y: f32,
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
+    scratch: &mut EffectScratch,
 ) {
     if run.text.is_empty() || run.glyphs.is_empty() {
         return;
@@ -131,7 +133,7 @@ pub(crate) fn render_reflected_run(
             }
         } else {
             let mut blurred = layer.data().to_vec();
-            filters::gaussian_blur_premultiplied(&mut blurred, layer_w, layer_h, band.radius);
+            filters::gaussian_blur_premultiplied_with(scratch, &mut blurred, layer_w, layer_h, band.radius);
             for row in band_top..band_bottom {
                 let start = row * layer_w * 4;
                 let end = start + layer_w * 4;

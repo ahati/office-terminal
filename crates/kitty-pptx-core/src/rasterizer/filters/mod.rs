@@ -11,10 +11,22 @@
 //! outside the canvas as transparent", ref packages/core/src/shape/effects.ts
 //! :131-140). Buffers therefore must be padded by the kernel extent when the
 //! caller needs the interior to stay untouched.
+//!
+//! The box-filter kernels live in [`kernels`]; the `_with` twins take pooled
+//! working buffers from [`crate::rasterizer::scratch::EffectScratch`] so a
+//! whole raster pass reuses one set of ping-pong buffers.
 
 #![allow(clippy::chunks_exact_to_as_chunks)]
 
+mod kernels;
+
+use kernels::{
+    box_blur_horizontal_alpha, box_blur_horizontal_rgba, box_blur_vertical_alpha,
+    box_blur_vertical_rgba, premultiply, unpremultiply,
+};
+
 use crate::contracts::VectorOuterShadow;
+use crate::rasterizer::scratch::EffectScratch;
 
 /// Compute the three odd box widths whose cascaded variance best matches the
 /// requested Gaussian standard deviation (PRD 08 §4.1).
@@ -70,6 +82,19 @@ pub fn gaussian_blur_rgba(buf: &mut [u8], width: usize, height: usize, sigma: f3
 
 /// Blur an already-premultiplied RGBA8 buffer.
 pub fn gaussian_blur_premultiplied(buf: &mut [u8], width: usize, height: usize, sigma: f32) {
+    let mut scratch = EffectScratch::default();
+    gaussian_blur_premultiplied_with(&mut scratch, buf, width, height, sigma);
+}
+
+/// Pooled twin of [`gaussian_blur_premultiplied`]: identical algorithm, but
+/// the ping-pong and prefix working buffers are reused across calls.
+pub(crate) fn gaussian_blur_premultiplied_with(
+    scratch: &mut EffectScratch,
+    buf: &mut [u8],
+    width: usize,
+    height: usize,
+    sigma: f32,
+) {
     let radii = box_radii_for_sigma(sigma);
     if width == 0 || height == 0 || radii.iter().all(|&r| r == 0) {
         return;
@@ -79,20 +104,38 @@ pub fn gaussian_blur_premultiplied(buf: &mut [u8], width: usize, height: usize, 
         return;
     }
 
-    let mut current = buf[..len].to_vec();
-    let mut scratch = vec![0u8; len];
+    let EffectScratch {
+        rgba_a, rgba_b, prefix, ..
+    } = scratch;
+    rgba_a.resize(len, 0);
+    rgba_a[..len].copy_from_slice(&buf[..len]);
+    rgba_b.resize(len, 0);
+    prefix.resize((width + 1).max(height + 1), 0);
     for radius in radii {
         if radius == 0 {
             continue;
         }
-        box_blur_horizontal_rgba(&current, &mut scratch, width, height, radius);
-        box_blur_vertical_rgba(&scratch, &mut current, width, height, radius);
+        box_blur_horizontal_rgba(&rgba_a[..len], &mut rgba_b[..len], width, height, radius, &mut prefix[..width + 1]);
+        box_blur_vertical_rgba(&rgba_b[..len], &mut rgba_a[..len], width, height, radius, &mut prefix[..height + 1]);
     }
-    buf[..len].copy_from_slice(&current);
+    buf[..len].copy_from_slice(&rgba_a[..len]);
 }
 
 /// Blur a single-channel 8-bit alpha mask.
 pub fn gaussian_blur_alpha(mask: &mut [u8], width: usize, height: usize, sigma: f32) {
+    let mut scratch = EffectScratch::default();
+    gaussian_blur_alpha_with(&mut scratch, mask, width, height, sigma);
+}
+
+/// Pooled twin of [`gaussian_blur_alpha`]: identical algorithm, but the
+/// ping-pong and prefix working buffers are reused across calls.
+pub(crate) fn gaussian_blur_alpha_with(
+    scratch: &mut EffectScratch,
+    mask: &mut [u8],
+    width: usize,
+    height: usize,
+    sigma: f32,
+) {
     let radii = box_radii_for_sigma(sigma);
     if width == 0 || height == 0 || radii.iter().all(|&r| r == 0) {
         return;
@@ -102,16 +145,21 @@ pub fn gaussian_blur_alpha(mask: &mut [u8], width: usize, height: usize, sigma: 
         return;
     }
 
-    let mut current = mask[..len].to_vec();
-    let mut scratch = vec![0u8; len];
+    let EffectScratch {
+        alpha_a, alpha_b, prefix, ..
+    } = scratch;
+    alpha_a.resize(len, 0);
+    alpha_a[..len].copy_from_slice(&mask[..len]);
+    alpha_b.resize(len, 0);
+    prefix.resize((width + 1).max(height + 1), 0);
     for radius in radii {
         if radius == 0 {
             continue;
         }
-        box_blur_horizontal_alpha(&current, &mut scratch, width, height, radius);
-        box_blur_vertical_alpha(&scratch, &mut current, width, height, radius);
+        box_blur_horizontal_alpha(&alpha_a[..len], &mut alpha_b[..len], width, height, radius, &mut prefix[..width + 1]);
+        box_blur_vertical_alpha(&alpha_b[..len], &mut alpha_a[..len], width, height, radius, &mut prefix[..height + 1]);
     }
-    mask[..len].copy_from_slice(&current);
+    mask[..len].copy_from_slice(&alpha_a[..len]);
 }
 
 /// Convert a DrawingML direction (degrees clockwise from East) and a distance
@@ -213,12 +261,26 @@ pub fn feather_alpha_bleed(
     bbox: (f32, f32, f32, f32),
     radius: f32,
 ) {
+    let mut scratch = EffectScratch::default();
+    feather_alpha_bleed_with(&mut scratch, layer, width, height, mask, bbox, radius);
+}
+
+/// Pooled twin of [`feather_alpha_bleed`].
+pub(crate) fn feather_alpha_bleed_with(
+    scratch: &mut EffectScratch,
+    layer: &mut [u8],
+    width: usize,
+    height: usize,
+    mask: &[u8],
+    bbox: (f32, f32, f32, f32),
+    radius: f32,
+) {
     let pixels = width * height;
     if radius <= 0.0 || !radius.is_finite() || pixels == 0 || layer.len() < pixels * 4 {
         return;
     }
     let mut feathered = mask[..pixels].to_vec();
-    gaussian_blur_alpha(&mut feathered, width, height, radius / 3.0);
+    gaussian_blur_alpha_with(scratch, &mut feathered, width, height, radius / 3.0);
 
     let source = layer[..pixels * 4].to_vec();
     let (bx, by, bw, bh) = bbox;
@@ -364,107 +426,6 @@ fn sample_rgba_bilinear(buf: &[u8], width: usize, height: usize, x: f32, y: f32)
         *value = top * (1.0 - fy) + bottom * fy;
     }
     out
-}
-
-fn box_blur_horizontal_rgba(src: &[u8], dst: &mut [u8], width: usize, height: usize, radius: usize) {
-    let mut prefix = vec![0u32; width + 1];
-    for y in 0..height {
-        let row = y * width;
-        for channel in 0..4 {
-            prefix[0] = 0;
-            for x in 0..width {
-                prefix[x + 1] = prefix[x] + src[(row + x) * 4 + channel] as u32;
-            }
-            for x in 0..width {
-                let lo = x.saturating_sub(radius);
-                let hi = (x + radius).min(width - 1);
-                let count = (radius * 2 + 1) as u32;
-                let sum = prefix[hi + 1] - prefix[lo];
-                dst[(row + x) * 4 + channel] = ((sum + count / 2) / count) as u8;
-            }
-        }
-    }
-}
-
-fn box_blur_vertical_rgba(src: &[u8], dst: &mut [u8], width: usize, height: usize, radius: usize) {
-    let mut prefix = vec![0u32; height + 1];
-    for x in 0..width {
-        for channel in 0..4 {
-            prefix[0] = 0;
-            for y in 0..height {
-                prefix[y + 1] = prefix[y] + src[(y * width + x) * 4 + channel] as u32;
-            }
-            for y in 0..height {
-                let lo = y.saturating_sub(radius);
-                let hi = (y + radius).min(height - 1);
-                let count = (radius * 2 + 1) as u32;
-                let sum = prefix[hi + 1] - prefix[lo];
-                dst[(y * width + x) * 4 + channel] = ((sum + count / 2) / count) as u8;
-            }
-        }
-    }
-}
-
-fn box_blur_horizontal_alpha(src: &[u8], dst: &mut [u8], width: usize, height: usize, radius: usize) {
-    let mut prefix = vec![0u32; width + 1];
-    for y in 0..height {
-        let row = y * width;
-        prefix[0] = 0;
-        for x in 0..width {
-            prefix[x + 1] = prefix[x] + src[row + x] as u32;
-        }
-        for x in 0..width {
-            let lo = x.saturating_sub(radius);
-            let hi = (x + radius).min(width - 1);
-            let count = (radius * 2 + 1) as u32;
-            let sum = prefix[hi + 1] - prefix[lo];
-            dst[row + x] = ((sum + count / 2) / count) as u8;
-        }
-    }
-}
-
-fn box_blur_vertical_alpha(src: &[u8], dst: &mut [u8], width: usize, height: usize, radius: usize) {
-    let mut prefix = vec![0u32; height + 1];
-    for x in 0..width {
-        prefix[0] = 0;
-        for y in 0..height {
-            prefix[y + 1] = prefix[y] + src[y * width + x] as u32;
-        }
-        for y in 0..height {
-            let lo = y.saturating_sub(radius);
-            let hi = (y + radius).min(height - 1);
-            let count = (radius * 2 + 1) as u32;
-            let sum = prefix[hi + 1] - prefix[lo];
-            dst[y * width + x] = ((sum + count / 2) / count) as u8;
-        }
-    }
-}
-
-#[allow(clippy::chunks_exact_to_as_chunks)]
-fn premultiply(buf: &mut [u8]) {
-    for chunk in buf.chunks_exact_mut(4) {
-        let a = chunk[3] as u32;
-        if a == 0 {
-            chunk[0] = 0;
-            chunk[1] = 0;
-            chunk[2] = 0;
-        } else if a < 255 {
-            chunk[0] = ((chunk[0] as u32 * a + 127) / 255) as u8;
-            chunk[1] = ((chunk[1] as u32 * a + 127) / 255) as u8;
-            chunk[2] = ((chunk[2] as u32 * a + 127) / 255) as u8;
-        }
-    }
-}
-
-fn unpremultiply(buf: &mut [u8]) {
-    for chunk in buf.chunks_exact_mut(4) {
-        let a = chunk[3] as u32;
-        if a > 0 && a < 255 {
-            chunk[0] = ((chunk[0] as u32 * 255 + a / 2) / a).min(255) as u8;
-            chunk[1] = ((chunk[1] as u32 * 255 + a / 2) / a).min(255) as u8;
-            chunk[2] = ((chunk[2] as u32 * 255 + a / 2) / a).min(255) as u8;
-        }
-    }
 }
 
 #[cfg(test)]
