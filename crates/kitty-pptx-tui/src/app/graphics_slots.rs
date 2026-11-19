@@ -134,6 +134,11 @@ impl SlotState {
         self.placed.map(|placed| placed.id)
     }
 
+    /// The recorded placement, if any (read-only view for policy checks).
+    pub fn placed(&self) -> Option<PlacedRecord> {
+        self.placed
+    }
+
     /// Whether the slot has nothing on screen.
     pub fn is_clear(&self) -> bool {
         self.placed.is_none()
