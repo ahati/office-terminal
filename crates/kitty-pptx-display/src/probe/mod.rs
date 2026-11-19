@@ -6,6 +6,7 @@ use crate::driver::{PlacementMode, TerminalGraphicsDriver};
 use crate::drivers::KittyDriver;
 
 pub mod env;
+pub mod geometry;
 pub mod query;
 
 pub struct CapabilityProbe;

@@ -60,11 +60,13 @@ pub fn cell_pixel_size_cached() -> CellPixelSize {
             return size;
         }
     }
-    let probed = probe_cell_pixel_size();
+    // Layered resolution: env override, ioctl pixels, the sticky startup CSI
+    // probe, then the default — see `probe::geometry` for the ladder.
+    let resolved = crate::probe::geometry::resolve_current();
     if let Ok(mut guard) = lock.write() {
-        *guard = Some(probed);
+        *guard = Some(resolved.size);
     }
-    probed
+    resolved.size
 }
 
 /// Drops the cached cell metrics so the next [`cell_pixel_size_cached`] call

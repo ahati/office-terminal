@@ -78,7 +78,42 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
         }
     }
 
+    print_terminal_geometry();
+
     ExitCode::SUCCESS
+}
+
+/// Prints the resolved terminal pixel geometry and its source.
+///
+/// Runs the full resolution ladder once (env override → TIOCGWINSZ pixels →
+/// CSI 16 t → CSI 14 t ÷ grid → default) so a remote session can be
+/// diagnosed in one command. Outside a terminal the CSI layers find no
+/// controlling tty and fall through instantly.
+fn print_terminal_geometry() {
+    let resolved = kitty_pptx_display::probe::geometry::prime_cell_metrics();
+    let cell = resolved.size;
+    match crossterm::terminal::size() {
+        Ok((cols, rows)) => {
+            let vw = (cols as f64 * cell.width_px).round() as u64;
+            let vh = (rows as f64 * cell.height_px).round() as u64;
+            println!(
+                "Terminal:       cell {:.0}x{:.0} px via {}, grid {}x{} = {}x{} px",
+                cell.width_px,
+                cell.height_px,
+                resolved.source.label(),
+                cols,
+                rows,
+                vw,
+                vh
+            );
+        }
+        Err(_) => println!(
+            "Terminal:       cell {:.0}x{:.0} px via {} (no tty grid)",
+            cell.width_px,
+            cell.height_px,
+            resolved.source.label()
+        ),
+    }
 }
 
 fn format_aspect_ratio(w: i64, h: i64) -> String {

@@ -51,6 +51,12 @@ pub fn run_interactive(
         }
     };
 
+    // Resolve the terminal's pixel geometry while the input stream is still
+    // ours: the CSI fallback probes (for terminals whose TIOCGWINSZ reports
+    // zero pixels) round-trip bytes once, here, before the TUI owns stdin.
+    // Resizes later re-resolve via the ioctl, keeping the sticky CSI cell.
+    kitty_pptx_display::probe::geometry::prime_cell_metrics();
+
     let doc_title = file_path
         .file_name()
         .and_then(|n| n.to_str())

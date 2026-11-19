@@ -1102,6 +1102,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "crossbeam-channel",
+ "crossterm",
  "image",
  "indicatif",
  "kitty-pptx-core",
@@ -1155,6 +1156,7 @@ dependencies = [
  "crossterm",
  "image",
  "kitty-pptx-core",
+ "rustix 1.1.6",
  "thiserror",
 ]
 
