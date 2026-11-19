@@ -107,7 +107,7 @@ impl GraphicsSyncer {
         }
 
         self.release_thumbnails(driver)?;
-        self.sync_slide(state, pipeline, driver, bindings)
+        self.sync_slide(state, pipeline, driver, canvas_target, bindings)
     }
 
     /// Syncs the full-screen slide and the presenter next-slide preview.
@@ -116,6 +116,7 @@ impl GraphicsSyncer {
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
+        canvas_target: &RenderTargetSpec,
         bindings: &FrameBindings,
     ) -> Result<(), DisplayError> {
         let current_rect = bindings.current;
@@ -125,7 +126,15 @@ impl GraphicsSyncer {
             Some(rect) => {
                 let id = state.current_image_id();
                 let slide = state.current_slide();
-                if self.ensure_staged(slide, id, SlideSlot::Current, pipeline, driver, state)? {
+                if self.ensure_staged(
+                    slide,
+                    id,
+                    SlideSlot::Current,
+                    pipeline,
+                    driver,
+                    state,
+                    canvas_target,
+                )? {
                     state.clear_render_failure_for(slide);
                     self.place_slot(SlideSlot::Current, id, rect, driver)?;
                 }
@@ -148,7 +157,15 @@ impl GraphicsSyncer {
 
         match preview {
             Some((slide, id, rect)) => {
-                if self.ensure_staged(slide, id, SlideSlot::Preview, pipeline, driver, state)? {
+                if self.ensure_staged(
+                    slide,
+                    id,
+                    SlideSlot::Preview,
+                    pipeline,
+                    driver,
+                    state,
+                    canvas_target,
+                )? {
                     self.place_slot(SlideSlot::Preview, id, rect, driver)?;
                 }
             }
@@ -202,6 +219,7 @@ impl GraphicsSyncer {
     ///
     /// Returns `true` when the bitmap is ready on the terminal. A failed
     /// render is noted on the state instead of blocking forever silently.
+    #[allow(clippy::too_many_arguments)]
     fn ensure_staged(
         &mut self,
         slide: usize,
@@ -210,6 +228,7 @@ impl GraphicsSyncer {
         pipeline: &dyn RenderPipeline,
         driver: &mut dyn TerminalGraphicsDriver,
         state: &mut PresentationState,
+        canvas_target: &RenderTargetSpec,
     ) -> Result<bool, DisplayError> {
         match pipeline.entry(slide) {
             PipelineEntry::Ready { bitmap, .. } => {
@@ -219,7 +238,16 @@ impl GraphicsSyncer {
                     return Ok(true);
                 }
 
-                driver.stage(&bitmap, id)?;
+                // Prefer the worker's pre-encoded payload: one batched write,
+                // no on-thread encode. Fall back to encoding here when the
+                // worker has not produced one (sync renders, payload-cache
+                // eviction) or the driver cannot transmit prebuilt bytes.
+                match pipeline.staged_payload(slide, canvas_target) {
+                    Some(payload) => driver
+                        .transmit_prebuilt(id, bitmap.width, bitmap.height, &payload)
+                        .or_else(|_| driver.stage(&bitmap, id))?,
+                    None => driver.stage(&bitmap, id)?,
+                }
                 let epoch = self.epochs.bump();
                 self.slot_mut(slot_key).record_staged(want, epoch);
                 Ok(true)
