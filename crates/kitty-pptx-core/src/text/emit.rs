@@ -10,7 +10,7 @@ use crate::contracts::{AffineTransform, PositionedGlyphRun, VectorCommand, Warni
 use crate::text::bidi;
 use crate::text::bullets::MarkerBitmap;
 use crate::text::linebreak::{break_paragraph, BreakOptions, LineItem};
-use crate::text::measure::{StyleId, TextMeasure};
+use crate::text::measure::{StyleId, TextMeasure, WrapWords};
 use crate::text::metrics;
 use crate::text::shape;
 use crate::text::vertical::{self, VertMode};
@@ -189,6 +189,13 @@ impl TextMeasure for Measurer {
 
     fn space(&self, style: StyleId) -> f32 {
         self.advance(" ", style)
+    }
+
+    fn wrap_words(&self, text: &str, style: StyleId) -> Option<WrapWords> {
+        let def = self.style(style);
+        let shaped =
+            shape::shape_words(text, &def.family, def.draw_size_emu(), def.bold, def.italic)?;
+        Some(WrapWords::from_shaped(shaped, def.letter_spacing_emu))
     }
 }
 
