@@ -53,9 +53,9 @@ BIN = os.path.abspath(
 
 # A complete kitty APC sequence ends with ST (ESC backslash): matching the
 # terminator keeps rescanning a growing buffer from re-emitting partials.
-COMMAND = re.compile(rb"\x1b_Ga=(t|p|d)([^\x1b]*)\x1b\\")
+COMMAND = re.compile(rb"(?:\x1b\[(\d+);(\d+)H)?\x1b_Ga=(t|p|d)([^\x1b]*)\x1b\\")
 TRANSMIT = re.compile(rb"a=t(?:,f=100)?(?:,i=(\d+))(?:,s=(\d+))?(?:,v=(\d+))?")
-PRESENT = re.compile(rb"a=p,i=(\d+),p=(\d+)")
+PRESENT = re.compile(rb"a=p,i=(\d+),p=(\d+)(?:,x=(\d+),y=(\d+),w=(\d+),h=(\d+))?,c=(\d+),r=(\d+)")
 DELETE = re.compile(rb"a=d,d=(\w+)(?:,i=(\d+))?")
 
 KEYS = {
@@ -115,7 +115,9 @@ class Reader:
 
     def emit(self, seq):
         stamp = time.time()
-        head = seq[5:6]
+        m = COMMAND.match(seq)
+        head = m.group(3) if m else None
+        cup = m.group(1) if m and m.group(1) else None
         if head == b"t":
             t = TRANSMIT.search(seq)
             if t and t.group(1):
@@ -125,7 +127,15 @@ class Reader:
         elif head == b"p":
             p = PRESENT.search(seq)
             if p:
-                self.out.append((stamp, f"place     id={p.group(1).decode():>3} p={p.group(2).decode()}"))
+                g = p.groups()
+                if g[2] is not None:
+                    src = f"x={int(g[2]):4} y={int(g[3]):4} w={int(g[4]):4} h={int(g[5]):4}"
+                else:
+                    src = "full"
+                at = f"@r{int(cup)-1:<2}c{int(m.group(2))-1:<2}" if cup else "@????"
+                self.out.append(
+                    (stamp, f"place id={g[0].decode():>3} {at} c={int(g[6]):3} r={int(g[7]):2} {src}")
+                )
         else:
             d = DELETE.search(seq)
             if d:

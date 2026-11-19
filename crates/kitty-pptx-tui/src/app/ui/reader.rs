@@ -60,17 +60,37 @@ pub fn render_reader(
 
     // ─── Horizontal Continuous Mode ──────────────────────────────────────────────
     if reader.layout == ReaderLayout::Horizontal {
+        // Same post-wrap lag compensation as the vertical branch, with the
+        // wrapping page's width as the stride: while the smoothed slide
+        // lags a just-wrapped anchor, the previous page is still on screen.
+        let mut displayed = reader.displayed_scroll_px();
+        let mut render_anchor = reader.anchor;
+        while displayed < 0.0 && render_anchor > 0 {
+            let prev = render_anchor - 1;
+            let (pt_w, pt_h) = reader.page_size_pt(prev);
+            let ar = (pt_w / pt_h).max(0.1);
+            let page_w = viewport_h_px * reader.page_view(prev).zoom * ar;
+            if page_w <= 0.0 {
+                displayed = 0.0;
+                break;
+            }
+            render_anchor = prev;
+            displayed += page_w;
+        }
+        if displayed < 0.0 {
+            displayed = 0.0;
+        }
         let mut col_x = viewport_area.x;
-        let mut p = reader.anchor;
+        let mut p = render_anchor;
         // The smoothed value drives placement so horizontal slides glide.
-        let anchor_scroll_x = reader.displayed_scroll_px() as i64;
+        let anchor_scroll_x = displayed as i64;
 
         while p < reader.total_pages() && col_x < viewport_area.right() {
             let avail_cols = viewport_area.right().saturating_sub(col_x);
             if avail_cols < MIN_PANE_COLS && p > reader.anchor {
                 break;
             }
-            let scroll_x = if p == reader.anchor {
+            let scroll_x = if p == render_anchor {
                 anchor_scroll_x
             } else {
                 0
@@ -137,6 +157,8 @@ pub fn render_reader(
     }
 
     // ─── Vertical Reflow / Spread Mode ───────────────────────────────────────────
+    // Column count from the true anchor; the lag-compensated render anchor
+    // below only moves pane geometry, not the column plan.
     let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
     let ar = (pt_w / pt_h).max(0.1);
     let page_w_px = viewport_h_px * ar;
@@ -164,6 +186,30 @@ pub fn render_reader(
         viewport_w_px
     };
 
+    // Post-wrap lag compensation. The anchor wraps when the scroll TARGET
+    // crosses the row stride, and the wrap shifts the smoothed display by
+    // the same stride; under continuous scrolling the display still lags the
+    // target by the remaining glide distance, so right after the flip it is
+    // NEGATIVE under the new anchor. The layout cannot render a negative
+    // offset — it would clamp the new row to the viewport top and the whole
+    // page would jump up by the lag (the boundary flicker). Render the
+    // previous row instead, with the lag added back: (anchor - step,
+    // displayed + stride) is geometrically identical to the pre-wrap frame,
+    // so the flip is invisible and the new row slides exactly as far as the
+    // display has actually scrolled.
+    let row_stride_px = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
+    let mut displayed = reader.displayed_scroll_px();
+    let mut render_anchor = reader.anchor;
+    while displayed < 0.0 {
+        let prev = prev_row_anchor(reader, render_anchor);
+        if prev == render_anchor {
+            displayed = 0.0;
+            break;
+        }
+        render_anchor = prev;
+        displayed += row_stride_px;
+    }
+
     let ctx = PaneLayoutContext {
         state,
         fit_slot_w_px: slot_w_px,
@@ -173,11 +219,13 @@ pub fn render_reader(
     };
 
     // ─── 1. Primary (Anchor) Row ─────────────────────────────────────────────────
-    let primary_pages: Vec<usize> = if reader.cover_alone && reader.anchor == 0 {
+    // `render_anchor` (not `reader.anchor`): while the smoothed scroll lags
+    // a just-wrapped anchor, the previous row is still what is on screen.
+    let primary_pages: Vec<usize> = if reader.cover_alone && render_anchor == 0 {
         vec![0]
     } else {
         (0..num_cols)
-            .map(|i| reader.anchor + i)
+            .map(|i| render_anchor + i)
             .filter(|&p| p < reader.total_pages())
             .collect()
     };
@@ -213,17 +261,17 @@ pub fn render_reader(
         row_y: viewport_area.y,
         avail_rows: viewport_area.height,
         // The smoothed offset drives placement so vertical scrolls glide.
-        scroll_px: reader.displayed_scroll_px() as i64,
+        scroll_px: displayed as i64,
         row_scroll_x: reader.row_scroll_x(),
         is_primary: true,
     };
     let row_occupied_cells_h = render_row(&primary_row, f, &mut placements);
 
     // ─── 2. Next Row (Continuous Scroll Transition with Vertical Gutter) ──────────
-    let next_anchor = if reader.cover_alone && reader.anchor == 0 {
+    let next_anchor = if reader.cover_alone && render_anchor == 0 {
         1
     } else {
-        reader.anchor + num_cols
+        render_anchor + num_cols
     };
 
     if next_anchor < reader.total_pages() {
@@ -234,7 +282,7 @@ pub fn render_reader(
         } else {
             let row_0_stride_px =
                 reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
-            let y1_px = row_0_stride_px - reader.displayed_scroll_px();
+            let y1_px = row_0_stride_px - displayed;
             let offset_rows = (y1_px / cell_h_px).round() as i16;
             if offset_rows > 0 {
                 let next_y = viewport_area.y + offset_rows as u16;
@@ -398,4 +446,21 @@ fn render_row(
     }
 
     occupied_rows
+}
+
+/// Anchor of the row above `anchor` under the current layout — the mirror of
+/// the retreat step in `scroll_column_detailed`, so lag-compensated rendering
+/// backs up exactly the way scrolling down advanced.
+fn prev_row_anchor(reader: &ReaderState, anchor: usize) -> usize {
+    match reader.layout {
+        ReaderLayout::Single | ReaderLayout::Horizontal => anchor.saturating_sub(1),
+        ReaderLayout::Spread => {
+            let step = reader.effective_columns();
+            if reader.cover_alone && anchor <= step {
+                0
+            } else {
+                anchor.saturating_sub(step)
+            }
+        }
+    }
 }

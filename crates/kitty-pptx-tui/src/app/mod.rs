@@ -27,6 +27,8 @@ pub mod reader_events;
 mod reader_graphics_tests;
 pub mod reader_scroll;
 pub mod reader_state;
+#[cfg(test)]
+mod reader_boundary_tests;
 pub mod reader_types;
 mod scale;
 pub mod search_state;

@@ -170,6 +170,8 @@ Zoom and fit changes invalidate that page's raster at the new scale class and re
 ## 5. Design Pillars
 
 1. **Flicker-free movement is a protocol feature, not a re-render.** A page bitmap is transmitted once per (page, scale class); scrolling and panning re-issue placements with shifted source rects. Zero PNG encoding on the movement hot path.
+
+**The anchor flip is lag-compensated.** The anchor wraps when the scroll *target* crosses the row stride, and the wrap shifts the smoothed display by the same stride — so under continuous scrolling the display is still negative under the new anchor (it lags by the remaining glide distance). The renderer draws the previous row with the lag added back while that holds: `(anchor − step, displayed + stride)` is geometrically identical to the pre-wrap frame, so the flip is invisible and the new row slides in exactly as far as the display has actually scrolled. Without it the layout clamped the new row to the viewport top and the whole page jumped up by the lag at every boundary.
 2. **Left-aligned is a policy, not an accident.** The left page always anchors at column 0 and is always fully visible at fit. The reader **never shrinks pages below fit to force both spread pages on screen** — the right page is clipped at the viewport edge when it doesn't fit, and panning reveals it.
 3. **Pixel-exact fit.** Pages render at exactly the terminal's pixel metrics for the chosen fit; a 1:1 source-to-screen mapping means scrolling never resamples.
 4. **Focus over modes.** One pane model, one keymap; focus + the `sync` flag compose into book behavior (synced spread) or diff-viewer behavior (independent panes) without separate modes.
