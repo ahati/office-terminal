@@ -24,6 +24,16 @@ exclude = [
 ]
 default-members = ["crates/kitty-pptx-cli"]
 
+# Release profile: thin LTO. Without it, the final link kept prebuilt
+# dependency objects whose libm references carried the build host's glibc
+# version tags, so release binaries demanded GLIBC_2.43 on hosts with older
+# glibc (atan2f/log10f/acosf & co). Thin LTO re-codegens those symbols at
+# link time and the binary binds the historical versions (max GLIBC_2.39 on
+# this toolchain). Also a modest size/perf win.
+[profile.release]
+lto = "thin"
+incremental = false
+
 [workspace.dependencies]
 crc32fast = "1"
 flate2 = { version = "1", default-features = false, features = ["miniz_oxide"] }
