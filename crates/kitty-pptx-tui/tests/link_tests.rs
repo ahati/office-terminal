@@ -183,7 +183,18 @@ fn mouse_click_hits_link_and_miss_advances_slide() {
     let mut state = state_with_external_link();
     state.set_layout_dimensions(80, 24);
 
-    // The link is full-bleed: the center of the fitted slide must hit it.
+    // Draw one frame so the slide widget records the rect it actually drew
+    // (fullscreen minus the status row); hit-testing targets that rect.
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    terminal
+        .draw(|frame| render_app(&state, frame))
+        .expect("render frame");
+    let (placed, _) = state.placement_rects();
+    let placed = placed.expect("frame must record the slide placement rect");
+    assert_eq!((placed.col, placed.row, placed.cols, placed.rows), (0, 0, 80, 23));
+
+    // The link is full-bleed: the center of the drawn slide rect must hit it.
     let action = handle_mouse_event(click(40, 11), &mut state);
     assert_eq!(
         action,
@@ -191,12 +202,24 @@ fn mouse_click_hits_link_and_miss_advances_slide() {
     );
     assert_eq!(state.current_slide(), 0);
 
-    // Clicks outside the fitted slide rect fall through to next-slide.
+    // Clicks outside the drawn slide rect (the status row) fall through to
+    // next-slide.
     let mut miss_state = PresentationState::new(3, vec![]);
     miss_state.set_layout_dimensions(80, 24);
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    terminal
+        .draw(|frame| render_app(&miss_state, frame))
+        .expect("render frame");
     let action = handle_mouse_event(click(79, 23), &mut miss_state);
     assert_eq!(action, AppAction::SlideChanged);
     assert_eq!(miss_state.current_slide(), 1);
+
+    // Before any frame is drawn, a click can never hit a link and advances.
+    let mut fresh_state = state_with_external_link();
+    let action = handle_mouse_event(click(40, 11), &mut fresh_state);
+    assert_eq!(action, AppAction::SlideChanged);
+    assert_eq!(fresh_state.current_slide(), 1);
 }
 
 #[test]
