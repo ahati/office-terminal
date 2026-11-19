@@ -285,7 +285,7 @@ impl ThumbnailSyncer {
         driver: &mut dyn TerminalGraphicsDriver,
         epochs: &mut SlotEpochs,
         visible_cards: &[(usize, CellRect)],
-    ) -> Result<(), DisplayError> {
+    ) -> Result<usize, DisplayError> {
         // Aspect-derived sorter target: render-invariant across resizes and
         // zoom, so cached rasters and cards stay valid when the layout moves.
         let thumb_target = thumbnail_target_for_aspect(state.aspect_ratio());
@@ -294,7 +294,7 @@ impl ThumbnailSyncer {
         visible.truncate(max_cards);
 
         let Some((first_slide, _)) = visible.first().copied() else {
-            return self.release_all(driver);
+            return self.release_all(driver).map(|_| 0);
         };
 
         let prefetch_key = (first_slide, visible.len(), thumb_target);
@@ -315,6 +315,13 @@ impl ThumbnailSyncer {
         let quota = terminal_image_quota_bytes();
         let mut stages_left = MAX_THUMBNAIL_STAGES_PER_FRAME;
         let mut missed_not_loaded = false;
+        // Ready cards the per-frame throttle skipped. Their rasters are
+        // already resolvable, so no worker and no completion event will
+        // ever wake the loop: the caller must draw another frame per batch
+        // or the rest of the grid never appears (re-entering the sorter
+        // with a warm cache used to leave it four-cards-full until the
+        // next key press).
+        let mut deferred_stages = 0;
 
         for &(slide, rect) in &visible {
             // Resolve the card against the pipeline first so render failures
@@ -365,6 +372,7 @@ impl ThumbnailSyncer {
             let Some(source) = source else { continue };
 
             if stages_left == 0 {
+                deferred_stages += 1;
                 continue;
             }
             stages_left -= 1;
@@ -390,6 +398,6 @@ impl ThumbnailSyncer {
             pipeline.prefetch(&plan, &thumb_target);
         }
 
-        Ok(())
+        Ok(deferred_stages)
     }
 }

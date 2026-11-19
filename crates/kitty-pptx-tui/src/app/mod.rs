@@ -34,6 +34,8 @@ pub mod search_state;
 mod sorter_graphics_tests;
 pub mod sorter_state;
 #[cfg(test)]
+mod sorter_fill_tests;
+#[cfg(test)]
 mod sorter_thumbnail_recovery_tests;
 pub mod state;
 mod state_bindings;
@@ -91,6 +93,19 @@ pub struct PresentationApp {
 
 /// Backwards-compatible type alias for `PresentationApp`.
 pub type PresenterApp = PresentationApp;
+
+/// What one graphics sync produced, consumed by the run loop's dirty checks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GraphicsSyncOutcome {
+    /// Compile/expansion diagnostics drained from the pipeline and filed
+    /// into the warnings drawer.
+    pub fresh_warnings: usize,
+    /// Sorter cards whose staging was deferred by the per-frame throttle.
+    /// Their rasters are already resolvable (warm cache), so neither a
+    /// worker nor a completion event will ever wake the loop: only another
+    /// drawn frame places them.
+    pub deferred_card_stages: usize,
+}
 
 impl PresentationApp {
     pub fn new(
@@ -304,11 +319,15 @@ impl PresentationApp {
     /// Safe to call every frame: the syncer only talks to the driver when the
     /// slide, its rect, or the blank state actually changed.
     ///
-    /// Returns how many compile/expansion diagnostics were drained from the
-    /// pipeline and filed into the warnings drawer: the drain runs on every
-    /// sync (PRD 13 §10.5), and a nonzero count means the drawer content
-    /// changed, so the caller schedules one more frame.
-    pub fn sync_graphics(&mut self, bindings: &FrameBindings) -> Result<usize, kitty_pptx_core::DisplayError> {
+    /// Returns what the sync produced for the run loop's dirty checks: the
+    /// compile/expansion diagnostics drained from the pipeline and filed
+    /// into the warnings drawer (the drain runs on every sync, PRD 13
+    /// §10.5, and a nonzero count means the drawer content changed), plus
+    /// the sorter cards the per-frame staging throttle deferred.
+    pub fn sync_graphics(
+        &mut self,
+        bindings: &FrameBindings,
+    ) -> Result<GraphicsSyncOutcome, kitty_pptx_core::DisplayError> {
         let result = self.graphics.sync(
             &mut self.state,
             self.pipeline.as_ref(),
@@ -321,7 +340,10 @@ impl PresentationApp {
         for (slide, event) in drained {
             self.state.add_slide_warning(slide, event);
         }
-        result.map(|_| surfaced)
+        result.map(|deferred_card_stages| GraphicsSyncOutcome {
+            fresh_warnings: surfaced,
+            deferred_card_stages,
+        })
     }
 
     /// Snapshot of the render-failure note: the event loop compares it
@@ -386,7 +408,7 @@ impl PresentationApp {
                 // geometry that frame just produced. Best-effort: a failed
                 // placement must not terminate the presentation.
                 let failure_before = self.render_failure_note();
-                let fresh_warnings = self.sync_graphics(&bindings).unwrap_or(0);
+                let outcome = self.sync_graphics(&bindings).unwrap_or_default();
                 let failure_now = self.render_failure_note();
 
                 // Publish the drawn geometry so input-side queries (link
@@ -394,10 +416,18 @@ impl PresentationApp {
                 self.state.publish_frame_bindings(bindings);
 
                 tracker.mark_drawn(&self.state);
-                // Diagnostics that surfaced during the sync — a first render
-                // failure for the visible slide, freshly drained compile
-                // warnings — only become visible on the next frame.
-                if fresh_warnings > 0 || failure_now != failure_before {
+                // Work that surfaced during the sync and only becomes
+                // visible on the next frame: a first render failure for the
+                // visible slide, freshly drained compile warnings, and
+                // sorter cards the staging throttle deferred. Without the
+                // last one, re-entering the grid with a warm cache left it
+                // four-cards-full until the next key press (the sorter has
+                // no clock, and cached rasters schedule no worker whose
+                // completion could wake the loop).
+                if outcome.fresh_warnings > 0
+                    || outcome.deferred_card_stages > 0
+                    || failure_now != failure_before
+                {
                     tracker.mark_dirty();
                 }
             }
