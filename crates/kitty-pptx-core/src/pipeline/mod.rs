@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod cancellation;
+pub mod config;
 pub mod payload;
 pub mod worker;
 
@@ -7,6 +8,7 @@ mod render;
 
 pub use cache::PipelineCache;
 pub use cancellation::CancellationToken;
+pub use config::default_worker_count;
 pub use payload::PayloadCache;
 pub use worker::{PrefetchTask, WorkerPool, WorkerSharedContext};
 
@@ -46,7 +48,7 @@ impl DefaultRenderPipeline {
         source: Arc<dyn PageSource>,
         rasterizer: Arc<dyn SlideRasterizer>,
     ) -> Self {
-        Self::from_page_source_with_workers(source, rasterizer, 2)
+        Self::from_page_source_with_workers(source, rasterizer, default_worker_count())
     }
 
     /// Create a new render pipeline wrapping a [`PageSource`] with a custom worker count.
@@ -87,14 +89,15 @@ impl DefaultRenderPipeline {
         }
     }
 
-    /// Create a new render pipeline with default 2 background worker threads.
+    /// Create a new render pipeline with the default background worker count
+    /// ([`default_worker_count`]).
     pub fn new(
         presentation: Arc<pptx_model::Presentation>,
         asset_store: Arc<dyn AssetStore>,
         compiler: Arc<dyn SlideCompiler>,
         rasterizer: Arc<dyn SlideRasterizer>,
     ) -> Self {
-        Self::with_worker_count(presentation, asset_store, compiler, rasterizer, 2)
+        Self::with_worker_count(presentation, asset_store, compiler, rasterizer, default_worker_count())
     }
 
     /// Create a new render pipeline with a custom number of background worker threads.

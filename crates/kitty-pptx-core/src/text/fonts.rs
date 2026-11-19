@@ -113,3 +113,45 @@ pub fn with_font_system<R>(f: impl FnOnce(&mut cosmic_text::FontSystem) -> R) ->
 pub fn with_face_db<R>(f: impl FnOnce(&fontdb::Database) -> R) -> R {
     FACE_DB.with(|cell| f(&cell.borrow()))
 }
+
+/// Resolve the face cosmic-text's shaper picks FIRST for `family` at the
+/// given weight/style: the family's own exact-weight, exact-style face (the
+/// `FontFallbackIter` first-font criteria). The raw `fontdb::query` result is
+/// only a candidate -- a family without the exact weight/style makes cosmic
+/// fall back per script, so the candidate is verified before use and `None`
+/// is returned when it does not qualify. Callers then keep their fallback
+/// path, which is what cosmic itself would have done.
+///
+/// The compile-side marker compares this resolution against the faces cosmic
+/// actually shaped with, so any divergence between the two orderings simply
+/// falls back to re-shaping -- it can never paint through the wrong face.
+pub(crate) fn cosmic_family_face_id(
+    db: &fontdb::Database,
+    family: &str,
+    bold: bool,
+    italic: bool,
+) -> Option<fontdb::ID> {
+    let weight = if bold {
+        fontdb::Weight::BOLD
+    } else {
+        fontdb::Weight::NORMAL
+    };
+    let style = if italic {
+        fontdb::Style::Italic
+    } else {
+        fontdb::Style::Normal
+    };
+    let query = fontdb::Query {
+        families: &[fontdb::Family::Name(family)],
+        weight,
+        stretch: fontdb::Stretch::Normal,
+        style,
+    };
+    let id = db.query(&query)?;
+    let face = db.face(id)?;
+    let exact_family = face
+        .families
+        .iter()
+        .any(|(name, _)| name == family);
+    (face.weight == weight && face.style == style && exact_family).then_some(id)
+}

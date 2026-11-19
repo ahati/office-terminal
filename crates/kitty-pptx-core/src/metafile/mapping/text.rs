@@ -316,6 +316,7 @@ fn run_with_glyphs(
         italic: source.italic,
         glyphs,
         decorations: decorations_for(source, size_emu),
+        single_face: false,
         warp: None,
         reflection: None,
     }

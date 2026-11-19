@@ -515,6 +515,17 @@ fn emit_run_at(
             warp_u: None,
         })
         .collect();
+    // The ids are paintable straight from the IR only when the shaping used
+    // ONE face and that face is the family's own cosmic match: the raster then
+    // re-resolves the same face and paints without re-shaping. A run shaped
+    // across fallback faces (or through a fallback face because the family
+    // lacks the weight/coverage) keeps the re-shaping raster path.
+    let single_face = crate::text::fonts::with_face_db(|db| {
+        crate::text::fonts::cosmic_family_face_id(db, &def.family, def.bold, def.italic)
+    })
+    .is_some_and(|expected| {
+        !shaped.font_ids.is_empty() && shaped.font_ids.iter().all(|id| *id == expected)
+    });
     out.push(PositionedGlyphRun {
         text: text.to_string(),
         font_family: def.family.clone(),
@@ -524,6 +535,7 @@ fn emit_run_at(
         italic: def.italic,
         glyphs,
         decorations: super::run_decorations::resolve(def),
+        single_face,
         warp: None,
         reflection: def.reflection.clone(),
     });

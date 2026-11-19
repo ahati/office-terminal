@@ -251,6 +251,7 @@ fn text_command(
             italic: false,
             glyphs,
             decorations: Default::default(),
+            single_face: false,
             warp: None,
             reflection: None,
         }],
