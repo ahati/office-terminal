@@ -94,7 +94,7 @@ fn next_wall_second() -> Duration {
 /// Time until the elapsed clock's displayed second flips (1..=1000 ms).
 fn next_elapsed_second(state: &PresentationState, now: Instant) -> Duration {
     let subsec = now
-        .checked_duration_since(state.start_time)
+        .checked_duration_since(state.session.start_time)
         .unwrap_or_default()
         .subsec_millis();
     let remaining = u64::from(1000 - subsec.min(999));
@@ -142,7 +142,7 @@ pub(crate) fn next_wake(
     }
 
     if state.toast().is_some() {
-        if let Some(shown_at) = state.toast_time {
+        if let Some(shown_at) = state.session.toast_time {
             let age = now.checked_duration_since(shown_at).unwrap_or_default();
             wake = Some(shorter(wake, TOAST_TTL.saturating_sub(age)));
         }

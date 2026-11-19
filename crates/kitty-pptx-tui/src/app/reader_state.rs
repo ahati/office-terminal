@@ -22,8 +22,9 @@ pub struct ReaderState {
     pub scroll_px: i64,
     /// Scroll offset currently shown on screen (f32 bits in an atomic so the
     /// immutable render path can advance it once per frame). Converges toward
-    /// [`ReaderState::scroll_px`] via [`ReaderState::advance_display`].
-    displayed_scroll_px: Arc<AtomicU32>,
+    /// [`ReaderState::scroll_px`] via [`ReaderState::advance_display`]
+    /// (implemented in [`crate::app::reader::anim`]).
+    pub(crate) displayed_scroll_px: Arc<AtomicU32>,
     /// Effective column count of the last drawn frame. Layout output lives
     /// in [`crate::app::bindings::FrameBindings`]; the run loop's publisher
     /// routes it here so input-side queries (`visible_pages`, row steps)
@@ -32,7 +33,9 @@ pub struct ReaderState {
     pub focused_slot: usize,
     pub row_scroll_x: Arc<AtomicI64>,
     pub max_row_scroll_x: Arc<AtomicI64>,
-    views: HashMap<usize, PageView>,
+    /// Per-page fit/zoom/scroll cache; default-filled lazily on first access
+    /// (accessors implemented in [`crate::app::reader::views`]).
+    pub(crate) views: HashMap<usize, PageView>,
     total_pages: usize,
     page_sizes: Vec<(f32, f32)>,
 }
@@ -67,77 +70,15 @@ impl ReaderState {
         self.page_sizes.get(page).copied().unwrap_or((612.0, 792.0))
     }
 
-    pub fn page_view(&self, page: usize) -> PageView {
-        self.views.get(&page).cloned().unwrap_or(PageView {
-            fit: self.default_fit,
-            zoom: self.default_zoom,
-            scroll_x: 0,
-            scroll_y: 0,
-        })
-    }
-
-    pub fn page_view_mut(&mut self, page: usize) -> &mut PageView {
-        let def_fit = self.default_fit;
-        let def_zoom = self.default_zoom;
-        self.views.entry(page).or_insert(PageView {
-            fit: def_fit,
-            zoom: def_zoom,
-            scroll_x: 0,
-            scroll_y: 0,
-        })
-    }
+    // Page views: `page_view` / `page_view_mut` / `cycle_fit` /
+    // `adjust_zoom` / `reset_view` / `apply_zoom_all` live in
+    // `crate::app::reader::views`.
 
     // ─── Smoothed scroll display ───────────────────────────────────────
 
-    /// Scroll offset currently shown on screen. The smoothing target is
-    /// [`ReaderState::scroll_px`].
-    pub fn displayed_scroll_px(&self) -> f32 {
-        f32::from_bits(self.displayed_scroll_px.load(Ordering::Relaxed))
-    }
-
-    fn set_displayed_scroll_px(&self, value: f32) {
-        self.displayed_scroll_px
-            .store(value.to_bits(), Ordering::Relaxed);
-    }
-
-    /// Shifts the displayed scroll by the same amount the target wrapped when
-    /// the anchor advanced, keeping the on-screen content position continuous
-    /// across row transitions (see `reader_scroll`).
-    pub(crate) fn shift_displayed_scroll_px(&self, delta_px: f32) {
-        self.set_displayed_scroll_px(self.displayed_scroll_px() + delta_px);
-    }
-
-    /// Snaps the displayed scroll onto its target (discrete navigation:
-    /// layout toggles, row jumps and page jumps must not glide).
-    fn snap_display(&mut self) {
-        self.set_displayed_scroll_px(self.scroll_px as f32);
-    }
-
-    /// Advances the displayed scroll toward its target with an exponential
-    /// approach (~35% of the remaining distance per frame, snapping below
-    /// 1 px). Called once per frame by the reader render path; the value
-    /// lives behind an atomic because the renderer only sees `&self`.
-    /// Returns whether the displayed value moved this frame.
-    pub fn advance_display(&self) -> bool {
-        let target = self.scroll_px as f32;
-        let displayed = self.displayed_scroll_px();
-        let delta = target - displayed;
-        if delta.abs() < 1.0 {
-            if displayed == target {
-                return false;
-            }
-            self.set_displayed_scroll_px(target);
-            return true;
-        }
-        self.set_displayed_scroll_px(displayed + delta * 0.35);
-        true
-    }
-
-    /// Whether the displayed scroll is still converging toward its target
-    /// (the event loop should keep ticking while this is true).
-    pub fn is_animating(&self) -> bool {
-        (self.displayed_scroll_px() - self.scroll_px as f32).abs() >= 1.0
-    }
+    // Implemented in `crate::app::reader::anim` (`displayed_scroll_px`,
+    // `shift_displayed_scroll_px`, `snap_display`, `advance_display`,
+    // `is_animating`).
 
     // ─── Shared pane geometry (PRD 14a §6) ─────────────────────────────
 
@@ -338,77 +279,6 @@ impl ReaderState {
 
     pub fn set_sync(&mut self, sync: bool) {
         self.sync = sync;
-    }
-
-    pub fn cycle_fit(&mut self) {
-        let targets = if self.sync {
-            self.visible_pages()
-        } else {
-            vec![self.focused_page()]
-        };
-
-        for page in targets {
-            let view = self.page_view_mut(page);
-            view.fit = match view.fit {
-                ReaderFitMode::FitWidth => ReaderFitMode::FitPage,
-                ReaderFitMode::FitPage => ReaderFitMode::FitWidth,
-            };
-        }
-    }
-
-    pub fn adjust_zoom(&mut self, factor: f32) {
-        let new_zoom = (self.default_zoom * factor).clamp(0.1, 4.0);
-        self.default_zoom = new_zoom;
-        if self.sync {
-            for view in self.views.values_mut() {
-                view.zoom = new_zoom;
-            }
-            for page in self.visible_pages() {
-                let view = self.page_view_mut(page);
-                view.zoom = new_zoom;
-            }
-        } else {
-            let page = self.focused_page();
-            let view = self.page_view_mut(page);
-            view.zoom = (view.zoom * factor).clamp(0.1, 4.0);
-        }
-    }
-
-    pub fn reset_view(&mut self) {
-        self.default_zoom = 1.0;
-        self.scroll_px = 0;
-        self.snap_display();
-        self.set_row_scroll_x(0);
-        if self.sync {
-            for view in self.views.values_mut() {
-                view.zoom = 1.0;
-                view.scroll_x = 0;
-                view.scroll_y = 0;
-            }
-            for page in self.visible_pages() {
-                let view = self.page_view_mut(page);
-                view.zoom = 1.0;
-                view.scroll_x = 0;
-                view.scroll_y = 0;
-            }
-        } else {
-            let page = self.focused_page();
-            let def_zoom = self.default_zoom;
-            let def_fit = self.default_fit;
-            let view = self.page_view_mut(page);
-            view.zoom = def_zoom;
-            view.fit = def_fit;
-            view.scroll_x = 0;
-            view.scroll_y = 0;
-        }
-    }
-
-    pub fn apply_zoom_all(&mut self) {
-        let page = self.focused_page();
-        let view = self.page_view(page);
-        self.default_zoom = view.zoom;
-        self.default_fit = view.fit;
-        self.views.clear();
     }
 
     pub fn toggle_layout(&mut self) {

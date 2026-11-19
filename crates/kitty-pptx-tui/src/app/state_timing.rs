@@ -10,7 +10,7 @@ use super::state::PresentationState;
 impl PresentationState {
     /// Elapsed time since presentation start.
     pub fn elapsed(&self) -> Duration {
-        self.start_time.elapsed()
+        self.session.start_time.elapsed()
     }
 
     /// Formatted presentation elapsed time (`HH:MM:SS`).
