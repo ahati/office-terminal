@@ -106,15 +106,16 @@ Non-Kitty future drivers emulate `CellsSubrect` with client-side cropping + re-s
 
 The syncer must update *specific* placements (left pane pans while the right pane's band shifts). The driver emits `p=<placement-id>` for reader slots (kitty placement ids `1..=2` per image, one per pane). `reposition(id, placement)` keeps its current signature; the syncer tracks the pairing.
 
-### 3.3 ID pool partition (unchanged total budget)
+### 3.3 ID pool partition (disjoint ranges)
 
-| Range | Role (today) | Role (after) |
-| :--- | :--- | :--- |
-| 1–8 | current slide | reader window pages (≤4 resident: 2 visible + neighbors) |
-| 9–16 | presenter preview | reader off-window prefetch (≤2) + presenter preview |
-| 17–32 | thumbnails | thumbnails (unchanged) |
+| Range | Role |
+| :--- | :--- |
+| 1–8 | current slide (rotating) |
+| 9–16 | presenter preview |
+| 17–80 | sorter thumbnails (64) |
+| 81–92 | reader pages (`READER_IMAGE_ID_BASE=81`, 12 slots for two spread rows of up to six panes) |
 
-`RESIDENT_IMAGE_IDS` stays 32; reader residency is bounded by a **window**, not document length.
+Reader ids moved to their own disjoint range (`81..=92`) so reader releases can never delete slide/preview/thumbnail images; `RESIDENT_IMAGE_IDS` is 92. Reader residency is bounded by a **window**, not document length, and panes are prefetched off-thread (worker-side pre-encoding; the UI thread writes prebuilt bytes).
 
 ---
 

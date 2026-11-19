@@ -8,7 +8,6 @@
 //! Restoration is idempotent so the normal path, a panic and a signal can all
 //! call it without fighting each other.
 
-use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossterm::cursor;
@@ -27,12 +26,13 @@ pub(crate) fn restore_terminal_once() {
     if RESTORED.swap(true, Ordering::SeqCst) {
         return;
     }
-    let mut stdout = std::io::stdout();
     // Clear all placements/transmissions first, then leave the alternate
     // screen. The sequence is valid even if the terminal is not Kitty; it is
-    // ignored there and keeps the cleanup path single.
-    let _ = stdout.write_all(b"\x1b_Ga=d,d=a,q=2\x1b\\");
-    let _ = stdout.flush();
+    // ignored there and keeps the cleanup path single. The write goes through
+    // the global `TtyWriter` (docs/06) so every escape-sequence write shares
+    // one handle — same bytes, same write-then-flush semantics.
+    let _ = kitty_pptx_display::tty::global_tty().write_seq("\x1b_Ga=d,d=a,q=2\x1b\\");
+    let mut stdout = std::io::stdout();
     let _ = execute!(
         stdout,
         event::DisableMouseCapture,

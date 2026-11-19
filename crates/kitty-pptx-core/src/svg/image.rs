@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use base64::prelude::*;
-use crate::contracts::{AffineTransform, NormalizedRect, RectF32, VectorImageFill, VectorPattern};
+use crate::contracts::{AffineTransform, EMU_PER_PX, NormalizedRect, RectF32, VectorImageFill, VectorPattern};
 use crate::loader::{AssetStore, SizeHint};
 use super::path::format_transform_attr;
 
@@ -183,9 +183,9 @@ pub fn emit_image_fill_def(
     // §20.1.8.58 tile period: the cropped logical source extent at its authored
     // DPI, scaled by sx/sy (ref renderer.ts:2451-2460).
     let pixel_to_emu = if fill.dpi > 0.0 {
-        9525.0 * 96.0 / fill.dpi
+        EMU_PER_PX * 96.0 / fill.dpi
     } else {
-        9525.0
+        EMU_PER_PX
     };
     let (cell_w, cell_h, phase_x, phase_y) = match &fill.tile {
         Some(tile) => {

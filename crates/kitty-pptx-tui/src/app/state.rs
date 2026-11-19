@@ -168,12 +168,6 @@ impl PresentationState {
         self.aspect_ratio
     }
 
-    pub fn set_aspect_ratio(&mut self, ratio: f32) {
-        if ratio.is_finite() && ratio > 0.0 {
-            self.aspect_ratio = ratio;
-        }
-    }
-
     // ─── Hidden-slide policy (ref hidden.ts, viewer.ts:437-582) ─────
 
     pub fn hidden_slide_mode(&self) -> HiddenSlideMode {

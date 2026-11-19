@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+/// English Metric Units per typographic point (1 pt = 12,700 EMU).
+pub const EMU_PER_PT: f32 = 12_700.0;
+
+/// English Metric Units per 96-DPI pixel (1 px = 9,525 EMU).
+pub const EMU_PER_PX: f32 = 9_525.0;
+
 /// 2D Fill rule for vector paths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FillRule {

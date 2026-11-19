@@ -11,15 +11,14 @@
 use ooxml_common::chart::ChartSeries;
 use pptx_model::ChartModel;
 use crate::compiler::style::parse_hex_color;
+// EMU bases come from the shared contracts constants (`contracts::geometry`),
+// the same 96-DPI pixel and typographic point every other module uses.
+use crate::contracts::{EMU_PER_PX, EMU_PER_PT};
 use super::color::{resolve_series_color, resolve_slice_color};
 use super::types::{get_category_label, ChartFamily};
 
 /// Points per CSS pixel at the reference renderer's 96 dpi host scale.
 const PT_PER_PX: f32 = 0.75;
-/// EMU per CSS pixel at 96 dpi.
-const EMU_PER_PX: f32 = 9525.0;
-/// EMU per point.
-pub const EMU_PER_PT: f32 = 12700.0;
 /// Face used for chart text measurement (matches the emitted runs).
 pub const CHART_FONT: &str = "Carlito";
 

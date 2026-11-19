@@ -6,7 +6,7 @@
 //! bevel profile curves, and Blinn-Phong material lighting so both backends
 //! produce consistent output.
 
-use crate::contracts::{AffineTransform, VectorScene3d};
+use crate::contracts::{AffineTransform, VectorScene3d, EMU_PER_PX};
 
 pub mod bevel_inputs;
 pub mod bevel_profiles;
@@ -26,9 +26,6 @@ pub use projection::{
     transformed_effect_bounds, Alignment, Bounds, EffectTransform, ProjectedEffectGeometry,
     ProjectedSurface,
 };
-
-/// EMUs per CSS/SVG user unit at 96 DPI (AGENTS.md §4).
-pub const EMU_PER_PX: f32 = 9525.0;
 
 /// Convert an EMU length to abstract 96-DPI pixels.
 #[inline]

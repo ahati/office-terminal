@@ -10,13 +10,9 @@ use std::fmt::Write as _;
 
 use super::image::serialize_svg_image;
 use crate::contracts::{
-    AffineTransform, BackgroundTile, NormalizedRect, RectF32, VectorBackground,
+    AffineTransform, BackgroundTile, NormalizedRect, RectF32, EMU_PER_PX, VectorBackground,
 };
 use crate::loader::{AssetStore, SizeHint};
-
-/// EMU per pixel at the 96-DPI bitmap basis used for native tile sizes
-/// (ref renderer.ts:2453-2455).
-const EMU_PER_PX: f32 = 9525.0;
 
 /// Identifier of the background tile pattern in the emitted `<defs>`.
 const PATTERN_ID: &str = "bg_tile";

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
-use kitty_pptx_core::{DeckSource, DefaultPresentationLoader, PresentationLoader};
+use kitty_pptx_core::{DeckSource, DefaultPresentationLoader, PresentationLoader, EMU_PER_PT, EMU_PER_PX};
 use crate::commands::source_from_path;
 
 pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
@@ -34,8 +34,8 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
             let h_emu = presentation.slide_height;
             println!("Dimensions:     {} x {} EMU", w_emu, h_emu);
 
-            let w_px = (w_emu as f64 / 9525.0).round() as u64;
-            let h_px = (h_emu as f64 / 9525.0).round() as u64;
+            let w_px = (w_emu as f64 / f64::from(EMU_PER_PX)).round() as u64;
+            let h_px = (h_emu as f64 / f64::from(EMU_PER_PX)).round() as u64;
             let ratio_str = format_aspect_ratio(w_emu, h_emu);
             println!("Aspect Ratio:   {} ({} x {} px at 96 DPI base)", ratio_str, w_px, h_px);
 
@@ -65,8 +65,8 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
             println!("Pages:          {} pages", total);
             if total > 0 {
                 let (w_emu, h_emu) = pdf_source.page_size_emu(0);
-                let pt_w = w_emu as f64 / 12700.0;
-                let pt_h = h_emu as f64 / 12700.0;
+                let pt_w = w_emu as f64 / f64::from(EMU_PER_PT);
+                let pt_h = h_emu as f64 / f64::from(EMU_PER_PT);
                 println!("Dimensions:     {:.1} x {:.1} pt ({:.0} x {:.0} mm)", pt_w, pt_h, pt_w * 25.4 / 72.0, pt_h * 25.4 / 72.0);
                 let ratio_str = format_aspect_ratio(w_emu, h_emu);
                 println!("Aspect Ratio:   {}", ratio_str);

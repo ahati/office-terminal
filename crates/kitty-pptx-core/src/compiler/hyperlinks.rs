@@ -4,7 +4,7 @@ use pptx_model::{Slide, SlideElement, TableElement, TextBody, TextRun, TextRunDa
 use super::slide_nav::{looks_like_slide_part, resolve_internal_slide};
 use crate::contracts::{
     sanitize_hyperlink_url, FidelityClass, HyperlinkTarget, RectF32, SecurityError, SlideAction,
-    SlideLink, WarningEvent,
+    SlideLink, WarningEvent, EMU_PER_PT,
 };
 
 /// Extract every hyperlink reachable from a slide model into vector IR links.
@@ -151,7 +151,7 @@ fn collect_text_links(
                 .or(text_body.default_font_size)
                 .unwrap_or(18.0) as f32
                 * scale;
-            let cell = size * 12700.0 * 1.2;
+            let cell = size * EMU_PER_PT * 1.2;
             for run in &paragraph.runs {
                 let TextRun::Text(data) = run else {
                     continue;
@@ -167,7 +167,7 @@ fn collect_text_links(
                     y += cell;
                 }
             }
-            y += size * 12700.0 * 1.2;
+            y += size * EMU_PER_PT * 1.2;
         }
         return;
     }
@@ -177,10 +177,10 @@ fn collect_text_links(
             .def_font_size
             .or(text_body.default_font_size)
             .unwrap_or(18.0) as f32;
-        let line_height = default_size * 12700.0 * 1.2 * scale;
+        let line_height = default_size * EMU_PER_PT * 1.2 * scale;
         let space_before = paragraph
             .space_before
-            .map(|points| (points as f32 / 100.0) * 12700.0)
+            .map(|points| (points as f32 / 100.0) * EMU_PER_PT)
             .unwrap_or(0.0);
         let mut line_top = y + space_before;
         let mut x = left + paragraph.mar_l.max(0) as f32;
@@ -194,7 +194,7 @@ fn collect_text_links(
                         .map(|size| size as f32)
                         .unwrap_or(default_size)
                         * scale;
-                    let size_emu = size_pt * 12700.0;
+                    let size_emu = size_pt * EMU_PER_PT;
                     line_height = line_height.max(size_emu * 1.2);
                     let width = estimate_text_width(&data.text, size_emu);
 
@@ -216,7 +216,7 @@ fn collect_text_links(
                 TextRun::Break { .. } => {
                     line_top += line_height;
                     x = left + paragraph.mar_l.max(0) as f32;
-                    line_height = default_size * 12700.0 * 1.2 * scale;
+                    line_height = default_size * EMU_PER_PT * 1.2 * scale;
                 }
                 _ => {}
             }

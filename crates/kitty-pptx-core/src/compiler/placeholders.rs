@@ -1,6 +1,6 @@
 use crate::contracts::{
     FillRule, LineCap, LineJoin, NormalizedRect, PathSegment, PositionedGlyph,
-    PositionedGlyphRun, RectF32, VectorCommand, VectorPath, VectorStroke,
+    PositionedGlyphRun, RectF32, VectorCommand, VectorPath, VectorStroke, EMU_PER_PT,
 };
 use super::transform::compute_shape_transform;
 
@@ -99,7 +99,7 @@ pub fn compile_chart_placeholder(chart_elem: &pptx_model::ChartElement) -> Vec<V
             0.08 * w,
             cur_y,
         ));
-        cur_y += 10.0 * 12700.0 * 1.3;
+        cur_y += 10.0 * EMU_PER_PT * 1.3;
     }
 
     commands.push(VectorCommand::DrawText { runs, transform });
@@ -221,7 +221,7 @@ pub fn compile_metafile_placeholder(
         effects: Box::default(),
     }];
 
-    let header_pt = (h * 0.06 / 12700.0).clamp(8.0, 18.0);
+    let header_pt = (h * 0.06 / EMU_PER_PT).clamp(8.0, 18.0);
     commands.push(VectorCommand::DrawText {
         runs: vec![make_simple_run(
             "◇ METAFILE",
@@ -235,7 +235,7 @@ pub fn compile_metafile_placeholder(
 
     let detail: String = detail.chars().take(64).collect();
     if !detail.is_empty() {
-        let detail_pt = (h * 0.045 / 12700.0).clamp(7.0, 14.0);
+        let detail_pt = (h * 0.045 / EMU_PER_PT).clamp(7.0, 14.0);
         commands.push(VectorCommand::DrawText {
             runs: vec![make_simple_run(
                 &detail,
@@ -252,7 +252,7 @@ pub fn compile_metafile_placeholder(
 }
 
 fn make_simple_run(text: &str, sz_pt: f32, color: [u8; 4], x_start: f32, y: f32) -> PositionedGlyphRun {
-    let sz_emu = sz_pt * 12700.0;
+    let sz_emu = sz_pt * EMU_PER_PT;
     let mut glyphs = Vec::new();
     let mut cur_x = x_start;
     for (i, _ch) in text.chars().enumerate() {
