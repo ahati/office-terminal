@@ -62,6 +62,12 @@ pub fn run_interactive(
             let total = pres_arc.slides.len();
             let notes: Vec<Option<String>> =
                 pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
+            // Interactive renders are worker-async; the loop stages rasters
+            // on worker completion events, and the first frame is rendered
+            // synchronously below (PresentationApp::run). Sync fallback stays
+            // off (the DefaultRenderPipeline default), so a cache-missing page
+            // turn keeps the previous slide on screen instead of rasterizing
+            // synchronously on the UI thread and freezing input.
             let pipeline = Arc::new(
                 DefaultRenderPipeline::with_worker_count(
                     pres_arc.clone(),
@@ -70,8 +76,7 @@ pub fn run_interactive(
                     rasterizer,
                     background_workers(),
                 )
-                .with_transmit_encoder(Arc::new(kitty_pptx_display::KittyTransmitEncoder))
-                .with_sync_fallback(true),
+                .with_transmit_encoder(Arc::new(kitty_pptx_display::KittyTransmitEncoder)),
             );
             // Background workers pre-encode each raster's transmission
             // payload; the UI loop consumes one completion event per raster.
@@ -115,14 +120,18 @@ pub fn run_interactive(
                     .unwrap_or(false),
             };
 
+            // Same async contract as the PPTX pipeline above: interactive
+            // renders are worker-async, the loop stages rasters on
+            // completion events, and the first frame is rendered
+            // synchronously below (PresentationApp::run). Sync fallback
+            // stays off so page turns never rasterize on the UI thread.
             let pipeline = Arc::new(
                 DefaultRenderPipeline::from_page_source_with_workers(
                     Arc::clone(&pdf_source),
                     rasterizer,
                     background_workers(),
                 )
-                .with_transmit_encoder(Arc::new(kitty_pptx_display::KittyTransmitEncoder))
-                .with_sync_fallback(true),
+                .with_transmit_encoder(Arc::new(kitty_pptx_display::KittyTransmitEncoder)),
             );
             // Same off-thread staging contract as the PPTX pipeline above.
             let render_events = pipeline.completion_receiver();
