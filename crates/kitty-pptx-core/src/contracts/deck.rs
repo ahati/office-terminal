@@ -82,8 +82,10 @@ pub trait PageSource: Send + Sync {
     /// Raster-native sources (PDF pages) implement this so the interactive
     /// pipeline never pays a codec round-trip: the returned bitmap is cached
     /// in Tier 2 directly. `None` (the default) keeps the compile→rasterize
-    /// path. Errors are reported as `Some(Err(..))` so a source can still
-    /// fall back to `compile_page` when native rendering fails.
+    /// path. `Some(Err(..))` surfaces the failure (latched per slide, exactly
+    /// like a compile failure); callers that want a vector fallback must
+    /// consult `compile_page` themselves — the unified render path does not
+    /// silently retry on native errors.
     fn render_raster(
         &self,
         index: usize,
