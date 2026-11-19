@@ -136,33 +136,19 @@ pub fn run_export_with_options(
         eprintln!("Output directory error: {}: {}", out.display(), e);
         return ExitCode::from(2);
     }
-    let (tx, compile_rx) = crossbeam_channel::unbounded();
+
+    // Pixels come from the same unified render path the interactive presenter
+    // uses (compile, metafile expansion, native raster sources, caching, and
+    // warning collection behind `pipeline.render`). SVG still needs the
+    // display list, so its arm compiles once through `compile_page` — which
+    // already expands metafiles.
+    let tiny_rasterizer: Arc<TinySkiaRasterizer> = Arc::clone(rasterizer);
+    let pipeline =
+        DefaultRenderPipeline::from_page_source(Arc::clone(&page_source), tiny_rasterizer);
     let mut failed = false;
-    let default_store = EmptyAssetStore;
 
     for idx in slide_indices {
         let (w_emu, h_emu) = page_source.page_size_emu(idx);
-
-        let mut vector_slide = match page_source.compile_page(idx, &tx) {
-            Ok(vs) => vs,
-            Err(e) => {
-                eprintln!("Render compilation failed on slide {}: {}", idx + 1, e);
-                failed = true;
-                continue;
-            }
-        };
-        for warning in compile_rx.try_iter() {
-            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
-        }
-
-        let asset_store = page_source.asset_store();
-        let store = asset_store.as_deref().unwrap_or(&default_store);
-
-        let (warning_tx, warning_rx) = crossbeam_channel::unbounded();
-        kitty_pptx_core::metafile::expand_metafiles(&mut vector_slide, store, &warning_tx);
-        for warning in warning_rx.try_iter() {
-            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
-        }
 
         // PNG Export
         if format == ExportFormat::Png || format == ExportFormat::All {
@@ -181,7 +167,7 @@ pub fn run_export_with_options(
                 height_px: target_h,
             };
 
-            match rasterizer.rasterize(&vector_slide, &target, store) {
+            match pipeline.render(idx, &target) {
                 Ok(rgba) => {
                     let png_path = out.join(format!("slide_{:03}.png", idx + 1));
                     let result = std::fs::File::create(&png_path).and_then(|mut file| {
@@ -213,10 +199,40 @@ pub fn run_export_with_options(
                     failed = true;
                 }
             }
+
+            // Warnings collected by the render pipeline for this slide. In
+            // All mode the SVG arm below re-compiles the same slide and prints
+            // them once, so echoing them here as well would duplicate every
+            // line on stderr.
+            let warnings = pipeline.drain_warnings();
+            if format == ExportFormat::Png {
+                for (slide, warning) in warnings {
+                    eprintln!("Warning (slide {}): {:?}", slide + 1, warning);
+                }
+            }
         }
 
         // SVG Export
         if format == ExportFormat::Svg || format == ExportFormat::All {
+            let (tx, compile_rx) = crossbeam_channel::unbounded();
+            let vector_slide = match page_source.compile_page(idx, &tx) {
+                Ok(vs) => vs,
+                Err(e) => {
+                    eprintln!("Render compilation failed on slide {}: {}", idx + 1, e);
+                    failed = true;
+                    continue;
+                }
+            };
+            for warning in compile_rx.try_iter() {
+                eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
+            }
+
+            // SVG serialization embeds referenced media itself, so it needs
+            // the deck's asset store (raster-native sources have none).
+            let assets = page_source.asset_store();
+            let default_store = EmptyAssetStore;
+            let store: &dyn AssetStore = assets.as_deref().unwrap_or(&default_store);
+
             match svg_serializer.serialize_svg(&vector_slide, store, svg_text_mode) {
                 Ok(svg_content) => {
                     let svg_path = out.join(format!("slide_{:03}.svg", idx + 1));

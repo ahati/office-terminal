@@ -25,7 +25,7 @@ struct RasterMeta {
 /// long session that keeps resizes and zooms cannot grow without bound.
 #[derive(Clone)]
 pub struct PipelineCache {
-    vector_cache: Arc<Mutex<HashMap<usize, VectorSlide>>>,
+    vector_cache: Arc<Mutex<HashMap<usize, Arc<VectorSlide>>>>,
     raster_cache: Arc<Mutex<HashMap<(usize, RenderTargetSpec), RgbaSlide>>>,
     meta: Arc<Mutex<RasterMeta>>,
     budget_bytes: usize,
@@ -53,16 +53,23 @@ impl PipelineCache {
         }
     }
 
-    /// Retrieve a cached vector slide if present.
-    pub fn get_vector(&self, index: usize) -> Option<VectorSlide> {
+    /// Retrieve the shared handle of a cached vector slide if present.
+    ///
+    /// The handle is an `Arc`, so hot paths keep rasterizing without
+    /// deep-copying the display list.
+    pub fn get_vector(&self, index: usize) -> Option<Arc<VectorSlide>> {
         self.vector_cache.lock().ok()?.get(&index).cloned()
     }
 
-    /// Insert a compiled vector slide into the Tier 1 cache.
-    pub fn put_vector(&self, index: usize, slide: VectorSlide) {
+    /// Insert a compiled vector slide into the Tier 1 cache, wrapping it in a
+    /// shared `Arc` internally, and return that handle so callers that still
+    /// need the scene (the unified render path) never deep-copy it.
+    pub fn put_vector(&self, index: usize, slide: VectorSlide) -> Arc<VectorSlide> {
+        let shared = Arc::new(slide);
         if let Ok(mut lock) = self.vector_cache.lock() {
-            lock.insert(index, slide);
+            lock.insert(index, Arc::clone(&shared));
         }
+        shared
     }
 
     /// Check if a vector slide is present in the Tier 1 cache.
@@ -189,8 +196,13 @@ impl PipelineCache {
         self.meta.lock().map(|m| m.bytes).unwrap_or(0)
     }
 
+    /// Raster retention budget in bytes (the eviction ceiling of Tier 2).
+    pub fn budget_bytes(&self) -> usize {
+        self.budget_bytes
+    }
+
     /// Access the raw Tier 1 vector cache mutex.
-    pub fn raw_vector_cache(&self) -> Arc<Mutex<HashMap<usize, VectorSlide>>> {
+    pub fn raw_vector_cache(&self) -> Arc<Mutex<HashMap<usize, Arc<VectorSlide>>>> {
         Arc::clone(&self.vector_cache)
     }
 
