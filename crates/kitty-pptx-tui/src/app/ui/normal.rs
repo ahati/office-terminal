@@ -17,7 +17,7 @@ pub fn render_normal(
 ) {
     if !state.status_line_visible() {
         // True fullscreen without any status line overlay
-        bindings.record_current(area, state.aspect_ratio());
+        bindings.record_current(area, state.aspect_ratio(), state.scale(), state.zoom_pan());
         f.render_widget(current_slide_widget(state), area);
         render_render_failure_note(state, f, area);
         return;
@@ -30,7 +30,12 @@ pub fn render_normal(
         .split(area);
 
     // Slide canvas
-    bindings.record_current(chunks[0], state.aspect_ratio());
+    bindings.record_current(
+        chunks[0],
+        state.aspect_ratio(),
+        state.scale(),
+        state.zoom_pan(),
+    );
     f.render_widget(current_slide_widget(state), chunks[0]);
     render_render_failure_note(state, f, chunks[0]);
 

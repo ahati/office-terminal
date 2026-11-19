@@ -152,3 +152,30 @@ Because terminal resident graphics scale client-side ([PRD 03a](./03a-kitty-grap
 2. Recomputed `CellRect` is updated in the Ratatui buffer.
 3. In direct placement mode, calls `driver.reposition(id, Cells(new_rect))`.
 4. **No raster caches are invalidated**; no slide re-rendering occurs.
+
+### 7.2 Zoom Handling (Placement First, Resolution Follows) — issue #38
+
+The zoom keys (`+` / `-` / `=` reset; arrows pan while zoomed) are **view-geometry
+operations**, never raster operations:
+
+1. The factor lives on `NavState` (ladder `[0.1, 4.0]`, change-gated); the
+   spatial half (pan) lives beside it in `app/zoom_pan.rs`, clamped against
+   the overflow the last drawn frame published.
+2. One pure function — `widget::zoom_fit::compute_zoomed_slide_fit` — maps
+   `(area, aspect, zoom, pan)` to the placed cell rect plus, when the zoomed
+   rect overflows the viewport, a normalized crop window. The widget clears
+   letterbox cells from it, `FrameBindings::record_current` records it, and
+   the slide syncer places it (whole-canvas `Cells`, or `CellsSubrect` over
+   the staged raster's crop — the reader panes' mechanism). One geometry
+   function, so the cells and the image can never disagree.
+3. A zoom step therefore **re-places the same bitmap**: Kitty replaces the
+   `(image id, placement id)` pair atomically. No re-render, no
+   re-transmit, no release — the screen is never blanked (`graphics_tests::
+   test_zoomed_slide_replaces_the_placement_without_retransmitting`).
+4. **Resolution follows placement** (`app/scale.rs`): the base raster carries
+   a 2× supersample headroom, so rungs up to ×2 keep it; zoom-out never
+   shrinks it (client-side downscale, no pixelation); zoom-in past the
+   headroom bumps the target — capped at 8192 px / 64 MP — prefetched exactly
+   once, with **no cache invalidation and no `release_all`**: the new raster
+   arrives through the syncer's present-then-release swap discipline
+   (§5.1), so even a resolution upgrade never blanks the view.

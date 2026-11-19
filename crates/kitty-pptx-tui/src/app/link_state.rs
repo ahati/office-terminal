@@ -257,31 +257,40 @@ impl PresentationState {
 
     /// Map a terminal cell to slide EMU coordinates and hit-test active links.
     ///
-    /// Hit-testing uses the slide rect the renderer actually drew, published
-    /// per frame from the render pass's `FrameBindings`. That rect already
-    /// encodes the fitted sub-area of the active view (fullscreen minus the
-    /// status row, or the presenter-mode slide pane) and the terminal's true
-    /// cell aspect, so the click maps onto the slide without any geometry
-    /// recomputation. Before the first frame is drawn no rect exists and
-    /// clicks fall through to plain slide advance.
+    /// Hit-testing uses the placement the renderer actually drew, published
+    /// per frame from the render pass's `FrameBindings`. That placement
+    /// already encodes the fitted sub-area of the active view (fullscreen
+    /// minus the status row, or the presenter-mode slide pane), the
+    /// terminal's true cell aspect, and — while the view is zoomed — the
+    /// normalized crop window the placement shows, so a click maps onto the
+    /// correct slide coordinates at any zoom and pan. Before the first
+    /// frame is drawn no placement exists and clicks fall through to plain
+    /// slide advance.
     pub fn link_at_cell(&self, col: u16, row: u16) -> Option<SlideLink> {
         if self.deck.slide_width_emu <= 0 || self.deck.slide_height_emu <= 0 {
             return None;
         }
         let placed = self.current_placement?;
-        if placed.cols == 0
-            || placed.rows == 0
-            || col < placed.col
-            || row < placed.row
-            || col >= placed.col.saturating_add(placed.cols)
-            || row >= placed.row.saturating_add(placed.rows)
+        let rect = placed.rect;
+        if rect.cols == 0
+            || rect.rows == 0
+            || col < rect.col
+            || row < rect.row
+            || col >= rect.col.saturating_add(rect.cols)
+            || row >= rect.row.saturating_add(rect.rows)
         {
             return None;
         }
-        let x_ratio = (col - placed.col) as f32 / placed.cols as f32;
-        let y_ratio = (row - placed.row) as f32 / placed.rows as f32;
-        let x_emu = x_ratio.clamp(0.0, 1.0) * self.deck.slide_width_emu as f32;
-        let y_emu = y_ratio.clamp(0.0, 1.0) * self.deck.slide_height_emu as f32;
+        let x_ratio = (col - rect.col) as f32 / rect.cols as f32;
+        let y_ratio = (row - rect.row) as f32 / rect.rows as f32;
+        // Zoomed placements show a crop window of the slide: the click lands
+        // inside that window, not at the top-left of the slide.
+        let (x_norm, y_norm) = match placed.crop {
+            Some(crop) => (crop.x + x_ratio * crop.w, crop.y + y_ratio * crop.h),
+            None => (x_ratio, y_ratio),
+        };
+        let x_emu = x_norm.clamp(0.0, 1.0) * self.deck.slide_width_emu as f32;
+        let y_emu = y_norm.clamp(0.0, 1.0) * self.deck.slide_height_emu as f32;
         self.current_slide_link_index()
             .hit_test(x_emu, y_emu)
             .cloned()
@@ -346,7 +355,8 @@ fn action_for_dispatch(dispatch: LinkDispatch) -> AppAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::bindings::FrameBindings;
+    use crate::app::bindings::{FrameBindings, SlidePlacement};
+    use crate::widget::zoom_fit::NormalizedCrop;
     use kitty_pptx_core::RectF32;
     use kitty_pptx_display::CellRect;
 
@@ -358,10 +368,21 @@ mod tests {
         )
     }
 
+    /// Plain (unzoomed) slide placement for a recorded rect.
+    fn plain_placement(rect: CellRect) -> SlidePlacement {
+        SlidePlacement {
+            rect,
+            crop: None,
+            zoom: 1.0,
+            overflow_cols: 0.0,
+            overflow_rows: 0.0,
+        }
+    }
+
     /// State whose last drawn frame placed the slide at `placement` (a
     /// presenter-style sub-rect of the layout grid), carrying one link on the
     /// right half of the slide.
-    fn state_with_right_half_link(placement: CellRect) -> PresentationState {
+    fn state_with_right_half_link(placement: SlidePlacement) -> PresentationState {
         let mut state = PresentationState::new(2, vec![]);
         state.set_slide_dimensions(12_192_000, 6_858_000);
         state.set_layout_dimensions(100, 30);
@@ -382,12 +403,12 @@ mod tests {
     fn link_hits_use_the_recorded_placement_rect() {
         // Presenter-mode pane: cols 5..55 of a 100-col layout (the renderer
         // fits the slide into a sub-rect, not the full grid).
-        let state = state_with_right_half_link(CellRect {
+        let state = state_with_right_half_link(plain_placement(CellRect {
             row: 3,
             col: 5,
             rows: 17,
             cols: 50,
-        });
+        }));
 
         // Clicking the right half of the recorded rect maps onto the link's
         // half of the slide.
@@ -410,12 +431,12 @@ mod tests {
         // outside the recorded pane rect (cols 5..55, rows 3..20): the old
         // recomputed geometry hit the link from there; the recorded rect
         // correctly refuses.
-        let state = state_with_right_half_link(CellRect {
+        let state = state_with_right_half_link(plain_placement(CellRect {
             row: 3,
             col: 5,
             rows: 17,
             cols: 50,
-        });
+        }));
         assert!(state.link_at_cell(60, 11).is_none(), "right of the pane");
         assert!(state.link_at_cell(45, 25).is_none(), "below the pane");
         assert!(state.link_at_cell(0, 0).is_none(), "above-left of the pane");
@@ -431,15 +452,69 @@ mod tests {
     }
 
     #[test]
+    fn zoomed_placements_hit_test_through_the_crop_window() {
+        // The placement covers the whole 100x30 grid; the crop window says
+        // which part of the slide is on screen. Both crops below are panned
+        // so the zoomed mapping disagrees with the unzoomed one: the link
+        // occupies the slide's right half (slide x >= 50%).
+        let base_rect = CellRect {
+            row: 0,
+            col: 0,
+            rows: 30,
+            cols: 100,
+        };
+
+        // Panned right: the window shows slide x in [60%, 100%]. A click at
+        // col 10 maps to 0.6 + 0.1 * 0.4 = 64% of the slide - a hit, where
+        // the unzoomed mapping (10%) would have missed.
+        let panned_right = state_with_right_half_link(SlidePlacement {
+            rect: base_rect,
+            crop: Some(NormalizedCrop {
+                x: 0.6,
+                y: 0.25,
+                w: 0.4,
+                h: 0.5,
+            }),
+            zoom: 2.0,
+            overflow_cols: 100.0,
+            overflow_rows: 30.0,
+        });
+        let hit = panned_right
+            .link_at_cell(10, 15)
+            .expect("click maps through the panned crop window");
+        assert!(matches!(
+            hit.target,
+            HyperlinkTarget::ExternalUri(ref url) if url == "https://example.com"
+        ));
+
+        // Panned left: the window shows slide x in [0%, 40%]. A click at
+        // col 90 maps to 0.9 * 0.4 = 36% of the slide - a miss, where the
+        // unzoomed mapping (90%) would have hit.
+        let panned_left = state_with_right_half_link(SlidePlacement {
+            rect: base_rect,
+            crop: Some(NormalizedCrop {
+                x: 0.0,
+                y: 0.25,
+                w: 0.4,
+                h: 0.5,
+            }),
+            zoom: 2.0,
+            overflow_cols: 100.0,
+            overflow_rows: 30.0,
+        });
+        assert!(panned_left.link_at_cell(90, 15).is_none());
+    }
+
+    #[test]
     fn clicks_before_the_first_frame_do_not_hit() {
         // No frame drawn yet: no published rect, so nothing can hit and a
         // click falls through to slide advance (safe default).
-        let mut state = state_with_right_half_link(CellRect {
+        let mut state = state_with_right_half_link(plain_placement(CellRect {
             row: 3,
             col: 5,
             rows: 17,
             cols: 50,
-        });
+        }));
         state.publish_frame_bindings(FrameBindings::default());
         assert!(state.link_at_cell(45, 11).is_none());
         assert_eq!(
