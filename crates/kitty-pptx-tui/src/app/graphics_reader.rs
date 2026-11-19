@@ -117,6 +117,11 @@ impl ReaderGraphicsSyncer {
         // blank.
         if let Some(reader) = state.reader_state() {
             let center = reader.focused_page();
+            // Device-pixel metrics of the laid-out grid, so prefetch targets
+            // snap to the same raster class the pane layout will look up.
+            let (cols, rows) = state.layout_size();
+            let (viewport_w_px, viewport_h_px, cell_w_px, _cell_h_px) =
+                crate::app::reader_types::reader_viewport_metrics(cols, rows);
             let mut targets: Vec<(usize, RenderTargetSpec)> = Vec::new();
             for placement in placements {
                 if !targets.iter().any(|&(page, _)| page == placement.page) {
@@ -140,12 +145,23 @@ impl ReaderGraphicsSyncer {
             for i in 0..cols {
                 let page = next_anchor + i;
                 if page < reader.total_pages() && !targets.iter().any(|&(p, _)| p == page) {
-                    targets.push((page, reader.page_render_target(page)));
+                    let pane_w = reader.pane_width_px(
+                        page,
+                        viewport_w_px,
+                        viewport_h_px,
+                        cell_w_px,
+                    );
+                    targets.push((page, reader.page_render_target(page, pane_w)));
                 }
             }
 
             if self.last_prefetch.as_ref() != Some(&targets) {
-                let center_target = reader.page_render_target(center);
+                let center_target = reader.page_render_target(center, reader.pane_width_px(
+                    center,
+                    viewport_w_px,
+                    viewport_h_px,
+                    cell_w_px,
+                ));
                 let page_bytes =
                     (center_target.width_px as usize) * (center_target.height_px as usize) * 4;
                 let max_cached_pages = (READER_CACHE_BUDGET_BYTES / page_bytes.max(1)).clamp(4, 32);

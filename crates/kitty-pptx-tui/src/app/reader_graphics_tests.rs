@@ -175,10 +175,10 @@ fn test_spread_zoom_layout_goldens_issue_24() {
     assert_eq!(p1.len(), 2, "Both spread pages visible at zoom 1.0");
     assert_eq!(p1[0].cell_rect.cols, 68, "Left pane fits at 68 cols");
     assert_eq!(p1[0].cell_rect.col, 0);
-    assert_eq!(p1[0].pixel_src.width, 2560, "Left pane full page width at fit");
+    assert_eq!(p1[0].pixel_src.width, 1280, "Left pane full page width at fit (1280 class)");
     assert_eq!(p1[1].cell_rect.col, 70, "Right starts at col 70 (68 cols + 2 gutter)");
     assert_eq!(p1[1].cell_rect.cols, 68, "Right pane fits at 68 cols");
-    assert_eq!(p1[1].pixel_src.width, 2560, "Right pane full page width");
+    assert_eq!(p1[1].pixel_src.width, 1280, "Right pane full page width (1280 class)");
 
     // 2. Zoom 1.5 (Grows)
     state.reader_state_mut().unwrap().adjust_zoom(1.5);
@@ -186,7 +186,7 @@ fn test_spread_zoom_layout_goldens_issue_24() {
 
     let p15 = &b15.reader;
     assert_eq!(p15[0].cell_rect.cols, 102, "Left pane grows to 102 cols");
-    assert_eq!(p15[0].pixel_src.width, 2560, "Left pane remains full page width");
+    assert_eq!(p15[0].pixel_src.width, 1920, "zoom 1.5 snaps up to the 1920 class");
     assert_eq!(p15.len(), 2, "Partner still placed with remaining cols");
     assert_eq!(p15[1].cell_rect.col, 104, "Right starts at col 104");
     assert_eq!(p15[1].cell_rect.cols, 56, "Right gets 160 - 104 = 56 cols");
@@ -199,7 +199,7 @@ fn test_spread_zoom_layout_goldens_issue_24() {
 
     let p2 = &b2.reader;
     assert!(p2[0].cell_rect.cols >= 158 && p2[0].cell_rect.cols <= 160);
-    assert_eq!(p2[0].pixel_src.width, 2560, "Full page width");
+    assert_eq!(p2[0].pixel_src.width, 2560, "zoom 2.0 snaps up to the 2560 class");
     assert_eq!(p2.len(), 1, "Right pane pushed out when left owns row");
 
     // 4. Zoom 3.0 (Clamped to Viewport with max_scroll_x > 0)
@@ -210,7 +210,10 @@ fn test_spread_zoom_layout_goldens_issue_24() {
     assert_eq!(p3[0].cell_rect.cols, 160, "Clamped to viewport width");
     assert_eq!(p3.len(), 1, "Partner pushed out");
     assert!(p3[0].max_scroll_x > 0, "max_scroll_x > 0 when zoomed past viewport");
-    assert!(p3[0].pixel_src.width < 2560, "Cropped horizontally only when wider than viewport");
+    assert!(
+        p3[0].pixel_src.width < p3[0].page_target.width_px,
+        "Cropped horizontally only when wider than viewport"
+    );
 
     // 5. Horizontal pan h/l no-ops when page fits
     state.reader_state_mut().unwrap().reset_view();

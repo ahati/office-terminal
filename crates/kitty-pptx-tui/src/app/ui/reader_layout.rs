@@ -72,7 +72,7 @@ pub fn compute_horizontal_pane_metrics(
         cols,
     };
 
-    let page_target = reader.page_render_target(page);
+    let page_target = reader.page_render_target(page, pane_w_px);
     let target_w = page_target.width_px;
     let target_h = page_target.height_px;
 
@@ -124,7 +124,7 @@ pub fn compute_pane_metrics_cropped(
         cols: area.cols,
     };
 
-    let page_target = reader.page_render_target(page);
+    let page_target = reader.page_render_target(page, crop.pane_w_px);
     let target_w = page_target.width_px;
     let target_h = page_target.height_px;
 
