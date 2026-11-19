@@ -10,12 +10,10 @@
 
 use crate::compiler::options::ErrorPlaceholder;
 use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun,
-    VectorCommand, VectorPath, VectorPaint, VectorStroke,
+    AffineTransform, EMU_PER_PX, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph,
+    PositionedGlyphRun, VectorCommand, VectorPath, VectorPaint, VectorStroke,
 };
 
-/// `1 px = 9525 EMU` at the 96-DPI authoring basis.
-const EMU_PER_PX: f32 = 9_525.0;
 /// CSS px → pt (`1 px = 0.75 pt`), for `font_size_pt`.
 const PT_PER_PX: f32 = 0.75;
 /// Fallback advance width per character, as a fraction of the em box. The card

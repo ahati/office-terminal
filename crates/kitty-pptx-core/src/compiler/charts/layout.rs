@@ -9,7 +9,7 @@ use ooxml_common::chart::{ChartManualLayout, ChartSeries};
 use pptx_model::ChartModel;
 use crate::contracts::{
     AffineTransform, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun,
-    VectorCommand, VectorPaint, VectorPath, VectorStroke,
+    VectorCommand, VectorPaint, VectorPath, VectorStroke, EMU_PER_PX, EMU_PER_PT,
 };
 use crate::compiler::style::parse_hex_color;
 use super::types::ChartFamily;
@@ -18,11 +18,9 @@ pub use super::bands::{
     axis_label_font_pt, axis_title_font_pt, axis_title_margin, chart_text_font_pt, elide_to_width,
     legend_bands, legend_font_pt, make_axis_title, measure_legend, pack_rows,
     series_data_label_font_pt, text_width, title_band, AxisTitleBand, ChartTitleBand, LegendItem,
-    LegendReserve, CHART_FONT, EMU_PER_PT,
+    LegendReserve, CHART_FONT,
 };
 
-/// EMU per CSS pixel at 96 dpi.
-const EMU_PER_PX: f32 = 9525.0;
 /// Legend side inset and per-side horizontal padding
 /// (ref core/src/chart/shared/legend.ts:836-848).
 const LEGEND_SIDE_PADDING: f32 = 8.0 * EMU_PER_PX;
@@ -524,7 +522,7 @@ pub fn make_simple_run(
     y_pos: f32,
     alignment: &str,
 ) -> PositionedGlyphRun {
-    let sz_emu = sz_pt * 12700.0;
+    let sz_emu = sz_pt * EMU_PER_PT;
     let advance = |ch: char| {
         if ch.is_ascii_punctuation() || ch == ' ' {
             sz_emu * 0.3

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use crossbeam_channel::Sender;
 use kitty_pptx_core::{
     AssetStore, PageSource, RenderError, RenderTargetSpec, RgbaSlide, SearchCorpus, TocEntry,
-    VectorSlide, WarningEvent,
+    VectorSlide, WarningEvent, EMU_PER_PT,
 };
 
 use crate::engine::{HayroEngine, PdfEngine};
@@ -13,6 +13,9 @@ use crate::text::PdfSearchCorpus;
 pub struct PdfPageSource {
     engine: Arc<dyn PdfEngine>,
     corpus: Arc<dyn SearchCorpus>,
+    // NOTE: dormant — nothing sets this true since the native `render_raster`
+    // pipeline landed; the vector-first branch it gates below stays for the
+    // PRD 14 Phase-V roadmap (`PdfEngine::compile_vector`, `vector_bridge`).
     prefer_vector: bool,
 }
 
@@ -35,11 +38,6 @@ impl PdfPageSource {
         })
     }
 
-    pub fn with_prefer_vector(mut self, prefer: bool) -> Self {
-        self.prefer_vector = prefer;
-        self
-    }
-
     pub fn engine(&self) -> &Arc<dyn PdfEngine> {
         &self.engine
     }
@@ -53,8 +51,8 @@ impl PageSource for PdfPageSource {
     fn page_size_emu(&self, index: usize) -> (i64, i64) {
         let (w_pt, h_pt) = self.engine.page_size_pt(index);
         (
-            (w_pt * 12_700.0).round() as i64,
-            (h_pt * 12_700.0).round() as i64,
+            (w_pt * EMU_PER_PT).round() as i64,
+            (h_pt * EMU_PER_PT).round() as i64,
         )
     }
 

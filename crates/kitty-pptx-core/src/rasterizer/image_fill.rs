@@ -19,15 +19,11 @@
 //! 2620-2700 (`paintPreparedShapeImageFill`).
 
 use crate::contracts::{
-    AffineTransform, NormalizedRect, VectorImageFill, VectorPattern, VectorTile,
+    AffineTransform, NormalizedRect, EMU_PER_PX, VectorImageFill, VectorPattern, VectorTile,
 };
 use crate::contracts::PATTERN_CELL_EMU;
 use crate::error::RenderError;
 use crate::loader::{AssetStore, DecodedImage, SizeHint};
-
-/// 96-DPI pixel in EMU — the basis for a blip's native tile extent
-/// (ref renderer.ts:2453-2455, `pixelToEmu = EMU_PER_PX * 96 / dpi`).
-const EMU_PER_PX: f32 = 9525.0;
 
 /// Scratch-surface ceiling for one tiled pattern cell
 /// (ref core/src/canvas/clamp.ts:35, `MAX_CANVAS_AREA`).

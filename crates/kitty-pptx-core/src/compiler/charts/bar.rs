@@ -1,5 +1,5 @@
 use pptx_model::ChartModel;
-use crate::contracts::{AffineTransform, VectorCommand, VectorPaint};
+use crate::contracts::{AffineTransform, VectorCommand, VectorPaint, EMU_PER_PT};
 use super::color::resolve_series_color;
 use super::layout::{
     data_label_position, make_simple_run, rect_path, series_data_label_font_pt,
@@ -158,7 +158,7 @@ fn compile_vertical_columns(
                     };
                     let pos = data_label_position(chart, s, "ctr");
                     let tx = cat_x + bar_w / 2.0;
-                    let ty = vertical_label_baseline(bar_y, bar_y + bar_h, label_pt * 12700.0, &pos);
+                    let ty = vertical_label_baseline(bar_y, bar_y + bar_h, label_pt * EMU_PER_PT, &pos);
                     let run = make_simple_run(&lbl_text, label_pt, [255, 255, 255, 255], tx, ty, "center");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
@@ -202,7 +202,7 @@ fn compile_vertical_columns(
                     let lbl_text = format_val(val);
                     let pos = data_label_position(chart, s, "outEnd");
                     let tx = bar_x + bar_w / 2.0;
-                    let ty = vertical_label_baseline(bar_y, bar_y + norm_h, label_pt * 12700.0, &pos);
+                    let ty = vertical_label_baseline(bar_y, bar_y + norm_h, label_pt * EMU_PER_PT, &pos);
                     let run = make_simple_run(&lbl_text, label_pt, [60, 60, 60, 255], tx, ty, "center");
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
@@ -290,8 +290,8 @@ fn compile_horizontal_bars(
                         format_val(val)
                     };
                     let pos = data_label_position(chart, s, "ctr");
-                    let (tx, align) = horizontal_label_anchor(cum_x, cum_x + bar_w, label_pt * 12700.0, &pos);
-                    let ty = cat_y + bar_h / 2.0 + label_pt * 12700.0 * 0.35;
+                    let (tx, align) = horizontal_label_anchor(cum_x, cum_x + bar_w, label_pt * EMU_PER_PT, &pos);
+                    let ty = cat_y + bar_h / 2.0 + label_pt * EMU_PER_PT * 0.35;
                     let run = make_simple_run(&lbl_text, label_pt, [255, 255, 255, 255], tx, ty, align);
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],
@@ -334,8 +334,8 @@ fn compile_horizontal_bars(
                 if series_shows_value_labels(chart, s) {
                     let lbl_text = format_val(val);
                     let pos = data_label_position(chart, s, "outEnd");
-                    let (tx, align) = horizontal_label_anchor(bar_x, bar_x + norm_w, label_pt * 12700.0, &pos);
-                    let ty = bar_y + bar_h / 2.0 + label_pt * 12700.0 * 0.35;
+                    let (tx, align) = horizontal_label_anchor(bar_x, bar_x + norm_w, label_pt * EMU_PER_PT, &pos);
+                    let ty = bar_y + bar_h / 2.0 + label_pt * EMU_PER_PT * 0.35;
                     let run = make_simple_run(&lbl_text, label_pt, [60, 60, 60, 255], tx, ty, align);
                     commands.push(VectorCommand::DrawText {
                         runs: vec![run],

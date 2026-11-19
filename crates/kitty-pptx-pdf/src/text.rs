@@ -7,7 +7,7 @@ use hayro_interpret::{
     ImageDrawProps, InterpreterCache, InterpreterSettings, SoftMask,
 };
 use hayro_syntax::page::Page;
-use kitty_pptx_core::{EmuRect, SearchCorpus, TextLine};
+use kitty_pptx_core::{EmuRect, SearchCorpus, TextLine, EMU_PER_PT};
 use std::sync::{Arc, OnceLock};
 
 use crate::engine::PdfEngine;
@@ -44,10 +44,10 @@ impl TextExtractionDevice {
             self.lines.push(TextLine {
                 text: trimmed.to_string(),
                 rect: EmuRect::new(
-                    (self.line_min_x * 12_700.0).max(0.0),
-                    (self.line_min_y * 12_700.0).max(0.0),
-                    ((self.line_max_x - self.line_min_x) * 12_700.0).max(1.0),
-                    ((self.line_max_y - self.line_min_y) * 12_700.0).max(1.0),
+                    (self.line_min_x * EMU_PER_PT).max(0.0),
+                    (self.line_min_y * EMU_PER_PT).max(0.0),
+                    ((self.line_max_x - self.line_min_x) * EMU_PER_PT).max(1.0),
+                    ((self.line_max_y - self.line_min_y) * EMU_PER_PT).max(1.0),
                 ),
             });
         }

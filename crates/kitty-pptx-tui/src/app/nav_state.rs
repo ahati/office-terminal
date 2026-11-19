@@ -12,6 +12,7 @@
 use kitty_pptx_core::navigation::{
     count_visible, next_visible, resolve_visible, HiddenSlideMode,
 };
+use kitty_pptx_core::EMU_PER_PX;
 
 use super::state::PresentationState;
 
@@ -254,8 +255,8 @@ impl PresentationState {
     pub fn fit_width(&mut self, container_width: f32) -> bool {
         let (width_emu, height_emu) = self.slide_dimensions();
         let scale = fit_scale(
-            width_emu as f32 / 9525.0,
-            height_emu as f32 / 9525.0,
+            width_emu as f32 / EMU_PER_PX,
+            height_emu as f32 / EMU_PER_PX,
             container_width,
             0.0,
             FitTarget::Width,
@@ -271,8 +272,8 @@ impl PresentationState {
     pub fn fit_page(&mut self, container_width: f32, container_height: f32) -> bool {
         let (width_emu, height_emu) = self.slide_dimensions();
         let scale = fit_scale(
-            width_emu as f32 / 9525.0,
-            height_emu as f32 / 9525.0,
+            width_emu as f32 / EMU_PER_PX,
+            height_emu as f32 / EMU_PER_PX,
             container_width,
             container_height,
             FitTarget::Page,

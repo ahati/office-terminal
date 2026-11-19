@@ -15,7 +15,7 @@ use super::super::text_warp::{
 };
 use crate::contracts::{
     AffineTransform, FidelityClass, PositionedGlyph, PositionedGlyphRun, RunWarp, VectorCommand,
-    WarningEvent,
+    WarningEvent, EMU_PER_PT,
 };
 use super::{map_bullet_char, resolve_font_family};
 
@@ -37,7 +37,7 @@ fn shape_text_run(
     italic: bool,
 ) -> ShapedText {
     crate::text::fonts::with_font_system(|font_system| {
-        let size_px = (font_size_emu / 12700.0).max(1.0);
+        let size_px = (font_size_emu / EMU_PER_PT).max(1.0);
         let mut buffer = Buffer::new(font_system, Metrics::new(size_px, size_px * 1.25));
         buffer.set_size(font_system, None, None);
         let mut attrs = Attrs::new().family(Family::Name(font_family));
@@ -57,16 +57,16 @@ fn shape_text_run(
             for glyph in run.glyphs {
                 glyphs.push(PositionedGlyph {
                     glyph_id: glyph.glyph_id,
-                    x: glyph.x * 12700.0,
+                    x: glyph.x * EMU_PER_PT,
                     y: 0.0,
-                    advance: glyph.w * 12700.0,
+                    advance: glyph.w * EMU_PER_PT,
                     warp_u: None,
                 });
             }
         }
         ShapedText {
             glyphs,
-            width: width * 12700.0,
+            width: width * EMU_PER_PT,
         }
     })
 }
@@ -85,7 +85,7 @@ fn warp_space_before(paragraph: &pptx_model::Paragraph, natural: f32) -> f32 {
     } else {
         paragraph
             .space_before
-            .map(|pts| pts as f32 / 100.0 * 12_700.0)
+            .map(|pts| pts as f32 / 100.0 * EMU_PER_PT)
             .unwrap_or(0.0)
     }
 }
@@ -96,7 +96,7 @@ fn warp_space_after(paragraph: &pptx_model::Paragraph, natural: f32) -> f32 {
     } else {
         paragraph
             .space_after
-            .map(|pts| pts as f32 / 100.0 * 12_700.0)
+            .map(|pts| pts as f32 / 100.0 * EMU_PER_PT)
             .unwrap_or(0.0)
     }
 }
@@ -182,7 +182,7 @@ pub(super) fn compile_text_body_warped(
 
         if let Some(ref b_text) = bullet_str {
             let b_sz = def_sz * font_scale;
-            let b_sz_emu = b_sz * 12700.0;
+            let b_sz_emu = b_sz * EMU_PER_PT;
             let shaped = shape_text_run(b_text, "Carlito", b_sz_emu, false, false);
             let b_color = parse_hex_color(def_color);
 
@@ -221,7 +221,7 @@ pub(super) fn compile_text_body_warped(
                     let font_family = resolve_font_family(raw_family, warning_sink);
 
                     let sz_pt = (data.font_size.map(|s| s as f32).unwrap_or(def_sz)) * font_scale;
-                    let sz_emu = sz_pt * 12700.0;
+                    let sz_emu = sz_pt * EMU_PER_PT;
                     cur_line_h = cur_line_h.max(sz_emu * 1.2);
 
                     let color_hex = data
@@ -284,7 +284,7 @@ pub(super) fn compile_text_body_warped(
                         math_runs: std::mem::take(&mut current_line_math_runs),
                         paths: std::mem::take(&mut current_line_paths),
                         line_w: cur_line_w,
-                        line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * 12700.0 * 1.2 * font_scale },
+                        line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * EMU_PER_PT * 1.2 * font_scale },
                         alignment: p.alignment.clone(),
                         mar_l: p.mar_l as f32,
                         avail_w,
@@ -327,7 +327,7 @@ pub(super) fn compile_text_body_warped(
                                 math_runs: std::mem::take(&mut current_line_math_runs),
                                 paths: std::mem::take(&mut current_line_paths),
                                 line_w: cur_line_w,
-                                line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * 12700.0 * 1.2 * font_scale },
+                                line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * EMU_PER_PT * 1.2 * font_scale },
                                 alignment: p.alignment.clone(),
                                 mar_l: p.mar_l as f32,
                                 avail_w,
@@ -342,7 +342,7 @@ pub(super) fn compile_text_body_warped(
                         } else {
                             "ctr".to_string()
                         };
-                        let display_h = piece_h + sz_pt * 12700.0 * 0.6;
+                        let display_h = piece_h + sz_pt * EMU_PER_PT * 0.6;
                         lines.push(LineLayout {
                             runs: Vec::new(),
                             math_runs: piece.runs,
@@ -376,7 +376,7 @@ pub(super) fn compile_text_body_warped(
                 math_runs: current_line_math_runs,
                 paths: current_line_paths,
                 line_w: cur_line_w,
-                line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * 12700.0 * 1.2 * font_scale },
+                line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * EMU_PER_PT * 1.2 * font_scale },
                 alignment: p.alignment.clone(),
                 mar_l: p.mar_l as f32,
                 avail_w,
@@ -398,7 +398,7 @@ pub(super) fn compile_text_body_warped(
         let paragraph = &text_body.paragraphs[p_idx];
         let space = warp_space_line(&paragraph.space_line);
         for line in &mut lines[start..end] {
-            line.line_h = crate::text::metrics::line_height(line.line_h, space, 12_700.0, reduction);
+            line.line_h = crate::text::metrics::line_height(line.line_h, space, EMU_PER_PT, reduction);
         }
         let before = warp_space_before(paragraph, lines[start].line_h);
         let after = warp_space_after(paragraph, lines[end - 1].line_h);
@@ -441,7 +441,7 @@ pub(super) fn compile_text_body_warped(
             .map(|run| run.font_size_pt)
             .fold(0.0f32, f32::max)
             .max(1.0);
-        let ink_h = max_size * 12700.0;
+        let ink_h = max_size * EMU_PER_PT;
 
         // Paired-edge (envelope) warp parameters, ref `renderer.ts:3236-3305`:
         // the shape's height is split into `line_count` horizontal bands (one

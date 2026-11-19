@@ -11,7 +11,7 @@ pub mod types;
 
 use crossbeam_channel::Sender;
 use pptx_model::ChartElement;
-use crate::contracts::{FidelityClass, VectorCommand, VectorPaint, WarningEvent};
+use crate::contracts::{FidelityClass, VectorCommand, VectorPaint, WarningEvent, EMU_PER_PT};
 use crate::compiler::placeholders;
 use crate::compiler::transform::compute_shape_transform;
 
@@ -72,9 +72,9 @@ pub fn compile_chart(
 
     let layout = compute_chart_layout(chart, w, h, family);
     let axis_len_pt = if family.is_horizontal_bar() {
-        layout.plot_w / 12700.0
+        layout.plot_w / EMU_PER_PT
     } else {
-        layout.plot_h / 12700.0
+        layout.plot_h / EMU_PER_PT
     };
     let bounds = ChartDataBounds::compute(chart, family, axis_len_pt);
 

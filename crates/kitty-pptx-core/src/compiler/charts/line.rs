@@ -1,7 +1,7 @@
 use pptx_model::ChartModel;
 use crate::contracts::{
     AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPath,
-    VectorStroke,
+    VectorStroke, EMU_PER_PT,
 };
 use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::{resolve_series_color, resolve_series_line_color};
@@ -73,7 +73,7 @@ pub fn compile_lines(
         let symbol = s.marker_symbol.as_deref().unwrap_or("circle").to_lowercase();
         let show_markers = s.show_marker.unwrap_or(true) && symbol != "none";
         let marker_size_pt = s.marker_size.unwrap_or(5.0) as f32;
-        let marker_r = (marker_size_pt * 12700.0 / 2.0).max(12700.0);
+        let marker_r = (marker_size_pt * EMU_PER_PT / 2.0).max(EMU_PER_PT);
         let marker_color = resolve_series_color(s_idx, s);
 
         if show_markers {
@@ -135,7 +135,7 @@ pub fn compile_lines(
         let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
         if series_shows_value_labels(chart, s) {
             let pos = data_label_position(chart, s, "r");
-            let font = label_pt * 12700.0;
+            let font = label_pt * EMU_PER_PT;
             // ref data-label-layout.ts:84-94 (`anchor.kind === 'point'`): one
             // half-em inset in the label's direction, clear of the marker.
             let gap = font * 0.5 + marker_r;

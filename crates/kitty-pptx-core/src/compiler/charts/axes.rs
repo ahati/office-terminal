@@ -1,7 +1,7 @@
 use pptx_model::ChartModel;
 use crate::contracts::{
     AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPath,
-    VectorStroke,
+    VectorStroke, EMU_PER_PT,
 };
 use crate::compiler::style::parse_hex_color;
 use super::layout::{axis_label_font_pt, make_simple_run, AxisTitleBand, ChartLayout};
@@ -309,7 +309,7 @@ pub fn compile_axis_titles(layout: &ChartLayout, transform: AffineTransform) -> 
 }
 
 fn stacked_axis_title(band: &AxisTitleBand, transform: AffineTransform) -> Vec<VectorCommand> {
-    let font = band.font_pt * 12700.0;
+    let font = band.font_pt * EMU_PER_PT;
     let count = band.text.chars().count() as f32;
     // Centre the stack on the anchor, growing upward (bottom-to-top text).
     let first = band.y + (count - 1.0) * font / 2.0;

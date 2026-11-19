@@ -10,8 +10,9 @@ use crate::contracts::{DecorationLine, DecorationStyle, TextDecorations};
 use crate::text::emit::StyleDef;
 use crate::text::faces::{power_point_face_metrics, DecorationGeometry};
 
-/// One CSS/device pixel at 96 DPI, used by the reference's 1 px minimum.
-const PX_EMU: f32 = 9_525.0;
+/// One CSS/device pixel at 96 DPI, used by the reference's 1 px minimum
+/// (the shared contracts constant `EMU_PER_PX`, aliased for the local name).
+use crate::contracts::EMU_PER_PX as PX_EMU;
 
 pub(super) fn resolve(def: &StyleDef) -> TextDecorations {
     resolve_raw(

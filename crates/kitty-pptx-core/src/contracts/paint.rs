@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use super::geometry::{AffineTransform, LineCap, LineJoin, NormalizedRect};
+use super::geometry::{AffineTransform, EMU_PER_PT, LineCap, LineJoin, NormalizedRect};
 use super::vector_slide::BlipEffect;
 
 /// One preset-pattern cell in EMU: the measured 8×8-cell tile spans 8 pt, so a
 /// square cell is 1/8 pt (`12700 / 8`). ref packages/core/src/shape/paint.ts:459-476
 /// (`sampleToUser = ptToUserUnits / 8`).
-pub const PATTERN_CELL_EMU: f32 = 12_700.0 / 8.0;
+pub const PATTERN_CELL_EMU: f32 = EMU_PER_PT / 8.0;
 
 /// Paint descriptor for filling vector shapes.
 #[derive(Clone, Debug, PartialEq)]
