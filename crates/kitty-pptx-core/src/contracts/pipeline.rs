@@ -21,7 +21,13 @@ impl RgbaSlide {
         let target_w = ((self.width as f64 * scale).round() as u32).max(1);
         let target_h = ((self.height as f64 * scale).round() as u32).max(1);
 
-        let src_img = match image::RgbaImage::from_raw(self.width, self.height, self.pixels.to_vec()) {
+        // Resize from a borrowed view of the Arc-backed pixels: no full-raster
+        // copy (an ~18 MB canvas raster used to be cloned per downscale).
+        let src_img = match image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
+            self.width,
+            self.height,
+            &self.pixels[..],
+        ) {
             Some(img) => img,
             None => return self.clone(),
         };
