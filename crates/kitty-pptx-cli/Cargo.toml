@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 kitty-pptx-core = { workspace = true }
+crossterm = { workspace = true }
 kitty-pptx-display = { workspace = true }
 kitty-pptx-pdf = { workspace = true }
 kitty-pptx-tui = { workspace = true }

@@ -74,6 +74,7 @@ swash = "0.1"
 rustybuzz = "0.14"
 resvg = "0.44"
 
+rustix = { version = "1", default-features = false, features = ["std", "fs", "event"] }
 [patch.crates-io]
 # Only the crates carrying local fixes are kept in-tree (PRD 13 §2.2).
 metafile-core = { path = "crates/metafile-core" }

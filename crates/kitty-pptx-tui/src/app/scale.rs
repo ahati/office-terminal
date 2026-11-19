@@ -88,7 +88,7 @@ impl PresentationApp {
         // Pixel target based on live terminal dimensions and slide aspect ratio.
         let (slide_width, slide_height) = self.state.slide_dimensions();
         let slide_aspect = slide_width as f64 / slide_height.max(1) as f64;
-        let metrics = kitty_pptx_display::probe_cell_pixel_size();
+        let metrics = kitty_pptx_display::cell_pixel_size_cached();
         let cell_w = metrics.width_px.max(8.0);
         let cell_h = metrics.height_px.max(16.0);
         let screen_w = (cols as f64 * cell_w * 2.0).round() as u32;
