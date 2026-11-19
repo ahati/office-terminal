@@ -180,6 +180,26 @@ impl PresentationState {
         self.nav.hidden_mode()
     }
 
+    /// Shared navigation tail for resolved slide targets: write the target
+    /// index, reset the comments scroll on movement, mirror the jump into
+    /// reader mode, and report whether the slide actually moved.
+    ///
+    /// Callers resolve the target under their own policy first (hidden-slide
+    /// clamping happens before this); the tail itself is policy-free.
+    fn navigate_to(&mut self, target: usize) -> bool {
+        let changed = self.current_slide != target;
+        self.current_slide = target;
+        if changed {
+            self.comments_scroll = 0;
+        }
+        if let Some(reader) = self.reader_state.as_mut() {
+            if reader.focused_page() != target {
+                reader.jump_to_page(target);
+            }
+        }
+        changed
+    }
+
     /// Switch the hidden-slide mode. Returns whether the current slide moved.
     /// Entering or leaving `skip` clears the active search match (`find` may
     /// only match shown slides in `skip` mode). ref viewer.ts:545-575
@@ -198,17 +218,7 @@ impl PresentationState {
         } else {
             self.nav.resolve(self.current_slide.min(self.total_slides - 1))
         };
-        let changed = self.current_slide != target;
-        self.current_slide = target;
-        if changed {
-            self.comments_scroll = 0;
-        }
-        if let Some(reader) = self.reader_state.as_mut() {
-            if reader.focused_page() != target {
-                reader.jump_to_page(target);
-            }
-        }
-        changed
+        self.navigate_to(target)
     }
 
     /// `<p:sld show="0">` for an absolute slide index.
@@ -241,17 +251,7 @@ impl PresentationState {
         // `skip` mode replaces a hidden target with the nearest shown slide.
         // ref viewer.ts:437-462
         let target = self.nav.resolve(clamped);
-        let changed = self.current_slide != target;
-        self.current_slide = target;
-        if changed {
-            self.comments_scroll = 0;
-        }
-        if let Some(reader) = self.reader_state.as_mut() {
-            if reader.focused_page() != target {
-                reader.jump_to_page(target);
-            }
-        }
-        changed
+        self.navigate_to(target)
     }
 
     /// Advance one slide under the hidden-slide policy, clamping at the last.
