@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use kitty_pptx_core::{
     DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-    RgbaSlide,
+    RgbaSlide, TransmitPayload,
 };
 use kitty_pptx_display::{
     CellRect, DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver,
@@ -60,6 +60,7 @@ struct DriverLog {
     repositioned: Vec<(u32, CellRect)>,
     released: Vec<u32>,
     released_all: usize,
+    prebuilt: Vec<(u32, u32, u32)>,
 }
 
 struct MockDriver {
@@ -94,6 +95,16 @@ impl TerminalGraphicsDriver for MockDriver {
     }
     fn stage(&mut self, _bmp: &RgbaSlide, id: ImageId) -> Result<(), DisplayError> {
         self.log.lock().unwrap().staged.push(id.0);
+        Ok(())
+    }
+    fn transmit_prebuilt(
+        &mut self,
+        id: ImageId,
+        width: u32,
+        height: u32,
+        _payload: &TransmitPayload,
+    ) -> Result<(), DisplayError> {
+        self.log.lock().unwrap().prebuilt.push((id.0, width, height));
         Ok(())
     }
     fn present(&mut self, id: ImageId, p: Placement) -> Result<(), DisplayError> {
@@ -455,4 +466,70 @@ fn a_failed_render_draws_a_note_on_the_canvas() {
         !text.contains("RENDER FAILED"),
         "no note for a failure on another slide"
     );
+}
+
+/// A pipeline whose rasters carry worker-pre-encoded transmission payloads.
+struct PrebuiltPipeline {
+    slides: usize,
+}
+
+impl RenderPipeline for PrebuiltPipeline {
+    fn prefetch(&self, _plan: &PrefetchPlan, _target: &RenderTargetSpec) {}
+    fn entry(&self, index: usize) -> PipelineEntry {
+        if index < self.slides {
+            PipelineEntry::Ready {
+                bitmap: test_bitmap(4, 2),
+            }
+        } else {
+            PipelineEntry::NotLoaded
+        }
+    }
+    fn staged_payload(
+        &self,
+        _index: usize,
+        _target: &RenderTargetSpec,
+    ) -> Option<TransmitPayload> {
+        Some(TransmitPayload {
+            base64: "".into(),
+            base64_len: 0,
+        })
+    }
+    fn invalidate(&self, _cause: InvalidateCause) {}
+}
+
+#[test]
+fn current_slide_consumes_prebuilt_payload_without_on_thread_encode() {
+    let pipeline = PrebuiltPipeline { slides: 3 };
+    let (mut driver, log) = MockDriver::new();
+    let mut state = PresentationState::new(3, vec![]);
+    let mut syncer = GraphicsSyncer::new();
+
+    let bindings = draw_frame(&state, 80, 24);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
+
+    {
+        let log = log.lock().unwrap();
+        assert_eq!(
+            log.prebuilt.len(),
+            1,
+            "staging must consume the worker's pre-encoded payload"
+        );
+        assert_eq!(log.prebuilt[0].1, 4, "payload width comes from the raster");
+        assert_eq!(log.prebuilt[0].2, 2, "payload height comes from the raster");
+        assert!(
+            log.staged.is_empty(),
+            "no on-thread encode may run while a payload exists"
+        );
+        assert_eq!(log.presented.len(), 1, "the slide is placed after staging");
+    }
+
+    // An unchanged frame must not re-transmit anything.
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
+        .unwrap();
+    let log = log.lock().unwrap();
+    assert_eq!(log.prebuilt.len(), 1);
+    assert_eq!(log.presented.len(), 1);
 }
