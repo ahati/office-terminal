@@ -6,6 +6,7 @@ pub(crate) mod graphics_reader;
 mod graphics_tests;
 pub(crate) mod graphics_thumbnails;
 pub mod link_state;
+mod loop_wake;
 pub mod media;
 pub mod mode;
 pub mod nav_state;
@@ -33,7 +34,7 @@ use crossterm::event::{self, Event, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kitty_pptx_core::{InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use kitty_pptx_display::TerminalGraphicsDriver;
@@ -61,8 +62,8 @@ pub struct PresentationApp {
     graphics: GraphicsSyncer,
     is_running: bool,
     current_target: RenderTargetSpec,
-    /// Yields one event per worker-completed raster; drained each frame so
-    /// freshly published results re-sync without blocking the event poll.
+    /// Yields one event per worker-completed raster; drained on every loop
+    /// wake so freshly published results re-sync without blocking the poll.
     render_events: Option<crossbeam_channel::Receiver<()>>,
 }
 
@@ -369,25 +370,46 @@ impl PresentationApp {
     }
 
     /// Stages and places terminal graphics for the frame that was just drawn.
-    ///
     /// Safe to call every frame: the syncer only talks to the driver when the
     /// slide, its rect, or the blank state actually changed.
-    pub fn sync_graphics(&mut self) -> Result<(), kitty_pptx_core::DisplayError> {
+    ///
+    /// Returns how many compile/expansion diagnostics were drained from the
+    /// pipeline and filed into the warnings drawer: the drain runs on every
+    /// sync (PRD 13 §10.5), and a nonzero count means the drawer content
+    /// changed, so the caller schedules one more frame.
+    pub fn sync_graphics(&mut self) -> Result<usize, kitty_pptx_core::DisplayError> {
         let result = self.graphics.sync(
             &mut self.state,
             self.pipeline.as_ref(),
             self.driver.as_mut(),
             &self.current_target,
         );
-        // Compile/expansion diagnostics are buffered by the pipeline (PRD 13
-        // §10.5); surface them in the warnings drawer with their slide.
-        for (slide, event) in self.pipeline.drain_warnings() {
+        let drained = self.pipeline.drain_warnings();
+        let surfaced = drained.len();
+        for (slide, event) in drained {
             self.state.add_slide_warning(slide, event);
         }
-        result
+        result.map(|_| surfaced)
+    }
+
+    /// Snapshot of the render-failure note: the event loop compares it
+    /// across a graphics sync so failures filed (or cleared) during the
+    /// sync reach the canvas on the immediately following frame.
+    fn render_failure_note(&self) -> Option<(usize, String)> {
+        self.state
+            .render_failure()
+            .map(|(slide, message)| (slide, message.to_owned()))
     }
 
     /// Runs the interactive presentation event loop.
+    ///
+    /// Deadline-driven: each iteration first checks whether anything changed
+    /// (input events, worker completions, clock/toast boundaries, reader scroll
+    /// animation) and only then runs the expensive half — clearing the
+    /// placement sinks, the ratatui frame and the graphics sync. The poll
+    /// timeout is the minimum over the applicable wake categories
+    /// ([`loop_wake::next_wake`]); a fully idle presentation blocks on input
+    /// instead of redrawing at ~60 fps.
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let _guard = TerminalGuard::enter()?;
         let stdout = std::io::stdout();
@@ -398,37 +420,79 @@ impl PresentationApp {
         let area = terminal.size()?;
         self.handle_resize(area.width, area.height);
 
+        // Dirty-check bookkeeping; latches refresh only on drawn frames.
+        let mut tracker = loop_wake::RedrawTracker::new();
+
         while self.is_running {
-            self.state.clear_placement_rects();
-            terminal.draw(|f| {
-                ui::render_app(&self.state, f);
-            })?;
+            // ── Dirty evaluation ────────────────────────────────────
+            // Time-driven categories (reader animation, displayed 1 s
+            // clocks, toast TTL, released worker slots) versus the latches
+            // from the last drawn frame.
+            let in_flight = self.pipeline.in_flight();
+            tracker.evaluate(&self.state, in_flight);
 
-            // Place staged images after ratatui's frame so the graphics layer
-            // matches the cell rect the views just computed. Best-effort: a
-            // failed placement must not terminate the presentation.
-            let _ = self.sync_graphics();
+            // ── Frame pass ────────────────────────────────────────
+            if tracker.needs_redraw() {
+                self.state.clear_placement_rects();
+                terminal.draw(|f| {
+                    ui::render_app(&self.state, f);
+                })?;
 
-            // Drain background render-completion events (one per worker
-            // raster). A worker finished publishing fresh results; the next
-            // loop iteration re-syncs placements without blocking here.
-            // NOTE(loop-agent): keep ticking while reader.is_animating()
-            if let Some(rx) = self.render_events.as_ref() {
-                while rx.try_recv().is_ok() {}
+                // Place staged images after ratatui's frame so the graphics
+                // layer matches the cell rect the views just computed.
+                // Best-effort: a failed placement must not terminate the
+                // presentation.
+                let failure_before = self.render_failure_note();
+                let fresh_warnings = self.sync_graphics().unwrap_or(0);
+                let failure_now = self.render_failure_note();
+
+                tracker.mark_drawn(&self.state);
+                // Diagnostics that surfaced during the sync — a first render
+                // failure for the visible slide, freshly drained compile
+                // warnings — only become visible on the next frame.
+                if fresh_warnings > 0 || failure_now != failure_before {
+                    tracker.mark_dirty();
+                }
             }
 
-            if event::poll(Duration::from_millis(16))? {
+            // ── Completion drain ────────────────────────────────
+            // One event per worker-completed raster, drained on every wake
+            // (including skipped-draw iterations): a worker finished
+            // publishing fresh results, so the next frame pass re-syncs
+            // placements for them.
+            if let Some(rx) = self.render_events.as_ref() {
+                while rx.try_recv().is_ok() {
+                    tracker.mark_dirty();
+                }
+            }
+
+            // ── Wake ─────────────────────────────────────────
+            // Work is already pending (a completion, a surfaced
+            // diagnostic): render it without sleeping. Otherwise wait for
+            // input up to the next deadline — or block when fully idle;
+            // keys, mouse moves and resizes all interrupt the poll.
+            let deadline = loop_wake::next_wake(&self.state, in_flight, Instant::now());
+            let timeout = if tracker.needs_redraw() {
+                Duration::ZERO
+            } else {
+                deadline.unwrap_or(loop_wake::IDLE_POLL)
+            };
+
+            if event::poll(timeout)? {
                 let mut ev_opt = Some(event::read()?);
                 while let Some(e) = ev_opt {
                     match e {
                         Event::Key(key) => {
                             self.handle_key(key);
+                            tracker.mark_dirty();
                         }
                         Event::Resize(cols, rows) => {
                             self.handle_resize(cols, rows);
+                            tracker.mark_dirty();
                         }
                         Event::Mouse(mouse) => {
                             self.handle_mouse(mouse);
+                            tracker.mark_dirty();
                         }
                         _ => {}
                     }

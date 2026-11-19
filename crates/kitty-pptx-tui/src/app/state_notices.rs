@@ -9,6 +9,11 @@ use kitty_pptx_core::{FidelityClass, WarningEvent};
 
 use crate::app::state::PresentationState;
 
+/// How long a toast stays on the status lines before ageing out.
+/// Shared by [`PresentationState::toast`] and the event loop's wake logic
+/// ([`crate::app::loop_wake`]) so expiry has a single source of truth.
+pub(crate) const TOAST_TTL: Duration = Duration::from_secs(5);
+
 impl PresentationState {
     pub fn set_toast(&mut self, msg: impl Into<String>) {
         self.toast_message = Some(msg.into());
@@ -17,7 +22,7 @@ impl PresentationState {
 
     pub fn toast(&self) -> Option<&str> {
         if let Some(time) = self.toast_time {
-            if time.elapsed() < Duration::from_secs(5) {
+            if time.elapsed() < TOAST_TTL {
                 return self.toast_message.as_deref();
             }
         }
