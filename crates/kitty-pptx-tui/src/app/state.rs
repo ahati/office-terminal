@@ -58,10 +58,10 @@ pub struct PresentationState {
 
     // Last drawn frame geometry (published by the run loop, never written
     // during rendering: the render pass fills a FrameBindings value instead)
-    /// Fitted rect of the full-screen current slide in the last drawn frame.
-    pub(crate) current_placement: Option<CellRect>,
-    /// Fitted rect of the presenter next-slide preview in the last drawn frame.
-    pub(crate) preview_placement: Option<CellRect>,
+    /// Zoom-aware placement of the full-screen current slide in the last frame.
+    pub(crate) current_placement: Option<crate::app::bindings::SlidePlacement>,
+    /// Placement of the presenter next-slide preview in the last drawn frame.
+    pub(crate) preview_placement: Option<crate::app::bindings::SlidePlacement>,
     /// Fitted rect of every sorter card in the last drawn frame.
     pub(crate) thumbnail_placements: Vec<(usize, CellRect)>,
     /// Reader panes placed by the last drawn frame.
@@ -69,6 +69,11 @@ pub struct PresentationState {
     /// Reader column count the last drawn frame laid out.
     pub(crate) reader_columns_last: usize,
     pub(crate) sorter_scroll_row: Arc<Mutex<usize>>,
+
+    /// Spatial view state for slide-mode zoom: signed cell-space pan from the
+    /// centered position (cols, rows). Clamped against the overflow the last
+    // drawn frame published; methods live in `zoom_pan.rs`.
+    pub(crate) zoom_pan: (f32, f32),
 
     // Reader mode view state.
     pub(crate) reader_state: Option<crate::app::reader_state::ReaderState>,
@@ -107,6 +112,7 @@ impl PresentationState {
             reader_placements_last: Vec::new(),
             reader_columns_last: 0,
             sorter_scroll_row: Arc::new(Mutex::new(0)),
+            zoom_pan: (0.0, 0.0),
             reader_state: None,
             render_failure: None,
         }
