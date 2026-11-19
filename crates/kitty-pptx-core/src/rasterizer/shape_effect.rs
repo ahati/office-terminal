@@ -15,6 +15,7 @@ use crate::rasterizer::bevel::apply_bevel_shading;
 use crate::rasterizer::filters;
 use crate::rasterizer::mask::{alpha_mask, tint_mask};
 use crate::rasterizer::path;
+use crate::rasterizer::scratch::EffectScratch;
 use crate::scene3d;
 
 mod extrusion;
@@ -57,6 +58,10 @@ pub fn projected_transform(
 }
 
 /// Render a path, executing every attached effect pass.
+///
+/// `scratch` pools the effect-layer pixmap and blur working buffers across
+/// the whole raster pass (issue #33); the pixels produced are identical to
+/// per-shape allocation.
 #[allow(clippy::too_many_arguments)]
 pub fn render_path_with_effects(
     pixmap: &mut tiny_skia::Pixmap,
@@ -70,6 +75,7 @@ pub fn render_path_with_effects(
     offset_x: f32,
     offset_y: f32,
     slide_width_emu: i64,
+    scratch: &mut EffectScratch,
 ) {
     if path.segments.is_empty() {
         return;
@@ -96,19 +102,20 @@ pub fn render_path_with_effects(
     // A non-identity scene3d camera warps the authored face through the
     // reference homography (ref renderer.ts:3944-4050 `projectScene3dPaint`);
     // the effect passes then read the *projected* silhouette.
-    if let Some(projected) =
+    if let Some(mut projected) =
         projection::project_body_layer(pixmap, assets, path, fill, stroke, transform, effects, scale, offset_x, offset_y, reach_cap)
     {
         let rotation_deg = transform.ky.atan2(transform.sx).to_degrees();
         composite_body(
             pixmap,
-            projected.layer,
+            &mut projected.layer,
             projected.origin,
             projected.bbox,
             effects,
             scale,
             reach_cap,
             rotation_deg,
+            scratch,
         );
         return;
     }
@@ -131,7 +138,7 @@ pub fn render_path_with_effects(
             // PRD 08 §7.2: degrade gracefully rather than exhausting memory.
             return None;
         }
-        let mut layer = tiny_skia::Pixmap::new(layer_w as u32, layer_h as u32)?;
+        let mut layer = scratch.take_layer(layer_w as u32, layer_h as u32)?;
 
         draw_shape_layer(
             &mut layer,
@@ -155,7 +162,8 @@ pub fn render_path_with_effects(
             max_px.1 - min_px.1,
         );
         let rotation_deg = effective.ky.atan2(effective.sx).to_degrees();
-        composite_body(pixmap, layer, origin, bbox, effects, scale, reach_cap, rotation_deg);
+        composite_body(pixmap, &mut layer, origin, bbox, effects, scale, reach_cap, rotation_deg, scratch);
+        scratch.return_layer(layer);
         Some(())
     })();
     if attempted.is_none() {
@@ -172,13 +180,14 @@ pub fn render_path_with_effects(
 #[allow(clippy::too_many_arguments)]
 fn composite_body(
     pixmap: &mut tiny_skia::Pixmap,
-    mut layer: tiny_skia::Pixmap,
+    layer: &mut tiny_skia::Pixmap,
     origin: (f32, f32),
     bbox: (f32, f32, f32, f32),
     effects: &ShapeEffects,
     scale: f32,
     reach_cap: f32,
     rotation_deg: f32,
+    scratch: &mut EffectScratch,
 ) {
     let layer_w = layer.width() as usize;
     let layer_h = layer.height() as usize;
@@ -197,20 +206,21 @@ fn composite_body(
             origin,
             bbox,
             rotation_deg,
+            scratch,
         );
     }
     // 2. Reflection (ref renderer.ts:3811-3817): above the shadow.
     if let Some(reflection) = effects.reflection.as_ref() {
-        reflection::composite(pixmap, &layer, reflection, scale, reach_cap, origin, bbox);
+        reflection::composite(pixmap, layer, reflection, scale, reach_cap, origin, bbox, scratch);
     }
     // 3. Glow (ref renderer.ts:3818-3819): still behind the body.
     if let Some(glow) = effects.glow.as_ref() {
-        composite_glow(pixmap, &base_mask, layer_w, layer_h, glow, scale, reach_cap, origin);
+        composite_glow(pixmap, &base_mask, layer_w, layer_h, glow, scale, reach_cap, origin, scratch);
     }
 
     // 4. Body — `softEdge` replaces the body paint instead of layering on it.
     if let Some(soft) = effects.soft_edge.as_ref() {
-        apply_soft_edge(&mut layer, &base_mask, layer_w, layer_h, soft, scale, reach_cap, bbox);
+        apply_soft_edge(&mut *layer, &base_mask, layer_w, layer_h, soft, scale, reach_cap, bbox, scratch);
     }
     pixmap.draw_pixmap(
         origin.0 as i32,
@@ -224,7 +234,7 @@ fn composite_body(
     // 5. Inner shadow (ref renderer.ts:3838-3848): painted over the body,
     // clipped to its interior.
     if let Some(inner) = effects.inner_shadow.as_ref() {
-        composite_inner_shadow(pixmap, &base_mask, layer_w, layer_h, inner, scale, reach_cap, origin);
+        composite_inner_shadow(pixmap, &base_mask, layer_w, layer_h, inner, scale, reach_cap, origin, scratch);
     }
 }
 
@@ -338,6 +348,7 @@ fn composite_outer_shadow(
     origin: (f32, f32),
     bbox: (f32, f32, f32, f32),
     shape_rotation_deg: f32,
+    scratch: &mut EffectScratch,
 ) {
     // ref effects.ts:applyOuterShadow — `ctx.filter='blur(r)'` takes the
     // Gaussian standard deviation, i.e. sigma = the authored blur radius.
@@ -354,7 +365,7 @@ fn composite_outer_shadow(
         filters::directional_offset(shadow.direction_deg + effect_rotation as f64, distance_px);
 
     let mut mask = base_mask.to_vec();
-    filters::gaussian_blur_alpha(&mut mask, width, height, sigma);
+    filters::gaussian_blur_alpha_with(scratch, &mut mask, width, height, sigma);
     // ref effects.ts:shadowAlignmentPoint — `algn` is not in the IR, so the
     // spec default `b` (bottom centre of the shape box) anchors the transform.
     let anchor = (bbox.0 + bbox.2 * 0.5, bbox.1 + bbox.3);
@@ -390,6 +401,7 @@ fn composite_glow(
     scale: f32,
     reach_cap: f32,
     origin: (f32, f32),
+    scratch: &mut EffectScratch,
 ) {
     let radius_px = filters::clamp_reach_px(glow.radius_emu, scale, reach_cap);
     if radius_px <= 0.0 {
@@ -398,7 +410,7 @@ fn composite_glow(
     // ref renderer.ts:2701 `applyGlow` — canvas `shadowBlur = rad` blurs with
     // sigma = rad / 2, and there is no additional intensity curve.
     let mut mask = base_mask.to_vec();
-    filters::gaussian_blur_alpha(&mut mask, width, height, radius_px / 2.0);
+    filters::gaussian_blur_alpha_with(scratch, &mut mask, width, height, radius_px / 2.0);
 
     if let Some(tinted) = tint_mask(&mask, width, height, glow.color, |a| a) {
         pixmap.draw_pixmap(
@@ -422,6 +434,7 @@ fn composite_inner_shadow(
     scale: f32,
     reach_cap: f32,
     origin: (f32, f32),
+    scratch: &mut EffectScratch,
 ) {
     let sigma = filters::clamp_reach_px(shadow.blur_radius_emu, scale, reach_cap);
     let distance_px = shadow.distance_emu as f32 * scale;
@@ -435,7 +448,7 @@ fn composite_inner_shadow(
     // surviving crescent back to the un-offset interior.
     let shifted = filters::shift_mask_subpixel(&inverted, width, height, dx, dy);
     let mut blurred = shifted;
-    filters::gaussian_blur_alpha(&mut blurred, width, height, sigma);
+    filters::gaussian_blur_alpha_with(scratch, &mut blurred, width, height, sigma);
 
     let clipped: Vec<u8> = blurred
         .iter()
@@ -467,12 +480,21 @@ fn apply_soft_edge(
     scale: f32,
     reach_cap: f32,
     bbox: (f32, f32, f32, f32),
+    scratch: &mut EffectScratch,
 ) {
     let radius_px = filters::clamp_reach_px(soft.radius_emu, scale, reach_cap);
     if radius_px <= 0.0 {
         return;
     }
-    filters::feather_alpha_bleed(layer.data_mut(), width, height, base_mask, bbox, radius_px);
+    filters::feather_alpha_bleed_with(
+        scratch,
+        layer.data_mut(),
+        width,
+        height,
+        base_mask,
+        bbox,
+        radius_px,
+    );
 }
 
 pub(super) fn effect_padding(

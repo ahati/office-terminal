@@ -9,6 +9,7 @@ use fontdb::{
 mod affine;
 mod decorations;
 mod reflection;
+mod straight;
 mod warp;
 
 use std::cell::RefCell;
@@ -20,6 +21,7 @@ use std::cell::RefCell;
 // the outline painters' `super::WARP_FONT_DB` call sites pointing at the one
 // shared raw database.
 use crate::text::fonts::{with_font_system, FACE_DB as WARP_FONT_DB};
+use crate::rasterizer::scratch::EffectScratch;
 
 thread_local! {
     /// Glyph rasterisation cache for the shared per-thread font system.
@@ -36,6 +38,7 @@ pub fn render_text_runs(
     scale: f32,
     offset_x: f32,
     offset_y: f32,
+    scratch: &mut EffectScratch,
 ) {
     if runs.is_empty() {
         return;
@@ -61,6 +64,7 @@ pub fn render_text_runs(
                         offset_y,
                         font_system,
                         swash_cache,
+                        scratch,
                     );
                 }
 
@@ -116,6 +120,39 @@ pub(crate) fn render_single_run(
 
     let pix_w = pixmap.width() as i32;
     let pix_h = pixmap.height() as i32;
+
+    // Straight path, IR glyph ids first (issue #33 subtask 4): a run whose
+    // ids all came from the family's own compile-time face paints without
+    // re-shaping. Any other run (synthetic ids, fallback faces, a face that
+    // cannot be re-resolved) falls through to the buffer path below, whose
+    // pixels it already matches.
+    if run.single_face {
+        if let Some((draw_x, origin_y)) = straight::render_shaped_run(
+            pixmap,
+            run,
+            transform,
+            scale,
+            offset_x,
+            offset_y,
+            font_system,
+            swash_cache,
+        ) {
+            if !run.decorations.is_empty() {
+                decorations::paint_upright(
+                    pixmap.data_mut(),
+                    pix_w,
+                    pix_h,
+                    run,
+                    draw_x,
+                    origin_y,
+                    estimate_run_px_width(run, scale),
+                    scale,
+                );
+            }
+            return;
+        }
+    }
+
     let sz_px = (run.font_size_pt * 12700.0 * scale).max(6.0);
     let [r, g, b, a] = run.color;
 
@@ -368,6 +405,7 @@ mod tests {
             italic: false,
             glyphs,
             decorations: Default::default(),
+            single_face: false,
             warp: None,
             reflection: None,
         }
@@ -411,6 +449,7 @@ mod tests {
             1.0 / emu,
             0.0,
             0.0,
+            &mut crate::rasterizer::scratch::EffectScratch::default(),
         );
         let (min_x, min_y, max_x, max_y) = ink_bounds(&pixmap);
         assert!(max_x > min_x && max_y > min_y, "the rotated run paints ink");

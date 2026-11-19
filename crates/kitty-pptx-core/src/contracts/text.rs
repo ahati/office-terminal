@@ -78,6 +78,15 @@ pub struct PositionedGlyphRun {
     pub italic: bool,
     pub glyphs: Vec<PositionedGlyph>,
     pub decorations: TextDecorations,
+    /// True when every `glyphs[].glyph_id` came from compile-time shaping
+    /// through the run family's own face (cosmic's first font for its attrs):
+    /// the raster's straight path can then paint the ids directly — the same
+    /// face resolved again, the same coverage rasters, positions from the IR —
+    /// instead of re-shaping the run into a fresh buffer on every raster.
+    /// `false` keeps the re-shaping path: synthetic glyph ids (math, chart,
+    /// placeholder and error cards), runs cosmic shaped across fallback
+    /// faces, missing families, and metafile ids overwritten from the record.
+    pub single_face: bool,
     /// Present when this run is mapped by a WordArt envelope.
     pub warp: Option<std::sync::Arc<RunWarp>>,
     /// Authored run-level reflection effect (`a:rPr/a:effectLst/a:reflection`).

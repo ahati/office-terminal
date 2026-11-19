@@ -1,5 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use crossbeam_channel::Sender;
 
@@ -66,16 +68,79 @@ impl StyleDef {
     }
 }
 
+// `Measurer::push` interns styles through a hash map, so `StyleDef` keys need
+// `Eq` + `Hash` consistent with the derived structural `PartialEq`. Float
+// fields are canonicalised before hashing so `==`-equal values always hash
+// equal (`-0.0 == 0.0`); a NaN field never compares equal and simply interns
+// as a fresh style, exactly like the linear scan this replaces.
+impl Eq for StyleDef {}
+
+impl Hash for StyleDef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.family.hash(state);
+        hash_f32(self.size_emu, state);
+        hash_f32(self.size_pt, state);
+        self.bold.hash(state);
+        self.italic.hash(state);
+        self.color.hash(state);
+        self.underline.hash(state);
+        self.underline_style.hash(state);
+        self.underline_color.hash(state);
+        self.strikethrough.hash(state);
+        self.strike_double.hash(state);
+        self.baseline.hash(state);
+        hash_f32(self.letter_spacing_emu, state);
+        self.highlight.hash(state);
+        self.lang.hash(state);
+        match &self.reflection {
+            Some(reflection) => {
+                true.hash(state);
+                reflection.blur_radius_emu.hash(state);
+                hash_f32(reflection.start_opacity, state);
+                hash_f32(reflection.start_pos, state);
+                hash_f32(reflection.end_opacity, state);
+                hash_f32(reflection.end_pos, state);
+                reflection.distance_emu.hash(state);
+                hash_f64(reflection.direction_deg, state);
+                hash_f32(reflection.scale_x, state);
+                hash_f32(reflection.scale_y, state);
+                reflection.align.hash(state);
+            }
+            None => false.hash(state),
+        }
+    }
+}
+
+/// Hash-consistent with `f32::eq`: collapse `-0.0` onto `+0.0` (they compare
+/// equal) and give the never-equal NaN a digest derived from its bits.
+fn hash_f32<H: Hasher>(value: f32, state: &mut H) {
+    let canonical = if value == 0.0 { 0.0f32 } else { value };
+    canonical.to_bits().hash(state);
+}
+
+fn hash_f64<H: Hasher>(value: f64, state: &mut H) {
+    let canonical = if value == 0.0 { 0.0f64 } else { value };
+    canonical.to_bits().hash(state);
+}
+
 /// Measurement adapter: `advance()` shapes with the same face the painter uses.
 pub(super) struct Measurer {
     styles: Vec<StyleDef>,
-    cache: RefCell<HashMap<(usize, String), f32>>,
+    /// Interned `StyleDef` -> id: the wrap phase re-pushes the same authored
+    /// run styles for every probe, so the lookup is a hash probe instead of a
+    /// linear structural scan over every previously interned style.
+    index: HashMap<StyleDef, usize>,
+    /// `style id -> measured width`. The inner key is interned `Arc<str>` so a
+    /// probe hit (`get(text)`, `Borrow<str>`) never allocates; only a
+    /// genuinely new prefix text pays one `Arc` for its cached width.
+    cache: RefCell<HashMap<usize, HashMap<Arc<str>, f32>>>,
 }
 
 impl Measurer {
     fn new() -> Self {
         Self {
             styles: Vec::new(),
+            index: HashMap::new(),
             cache: RefCell::new(HashMap::new()),
         }
     }
@@ -83,11 +148,13 @@ impl Measurer {
     /// Intern `style`: equal definitions reuse one `StyleId`, which is what
     /// lets the breaker coalesce equal-style runs (`renderer.ts:2000-2019`).
     pub(super) fn push(&mut self, style: StyleDef) -> StyleId {
-        if let Some(index) = self.styles.iter().position(|known| *known == style) {
+        if let Some(&index) = self.index.get(&style) {
             return StyleId(index);
         }
+        let index = self.styles.len();
+        self.index.insert(style.clone(), index);
         self.styles.push(style);
-        StyleId(self.styles.len() - 1)
+        StyleId(index)
     }
 
     pub(super) fn style(&self, id: StyleId) -> &StyleDef {
@@ -97,8 +164,13 @@ impl Measurer {
 
 impl TextMeasure for Measurer {
     fn advance(&self, text: &str, style: StyleId) -> f32 {
-        let key = (style.0, text.to_string());
-        if let Some(width) = self.cache.borrow().get(&key).copied() {
+        if let Some(width) = self
+            .cache
+            .borrow()
+            .get(&style.0)
+            .and_then(|widths| widths.get(text))
+            .copied()
+        {
             return width;
         }
         let def = self.style(style);
@@ -107,7 +179,11 @@ impl TextMeasure for Measurer {
         // run's `rPr@spc` tracking (`measureTextAdvance`, `renderer.ts:1672`).
         let width = shape::measure(text, &def.family, def.draw_size_emu(), def.bold, def.italic)
             + def.spacing_advance(text);
-        self.cache.borrow_mut().insert(key, width);
+        self.cache
+            .borrow_mut()
+            .entry(style.0)
+            .or_default()
+            .insert(Arc::from(text), width);
         width
     }
 

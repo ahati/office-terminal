@@ -149,6 +149,7 @@ fn run(text: &str, x: f32, baseline_y: f32, advance: f32) -> PositionedGlyphRun 
         italic: false,
         glyphs,
         decorations: Default::default(),
+        single_face: false,
         warp: None,
         reflection: None,
     }
