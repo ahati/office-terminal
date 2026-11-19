@@ -1,5 +1,5 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -124,7 +124,6 @@ pub fn render_reader(
         }
 
         let placed_cols = placements.len().max(1);
-        draw_focus_markers(f, reader, &placements, viewport_area);
         bindings.reader_columns = placed_cols;
         bindings.reader = placements;
 
@@ -306,7 +305,6 @@ pub fn render_reader(
         }
     }
 
-    draw_focus_markers(f, reader, &placements, viewport_area);
     bindings.reader = placements;
 
     // ─── Status Line ─────────────────────────────────────────────────────────────
@@ -342,8 +340,8 @@ struct RowRender<'a> {
     is_primary: bool,
 }
 
-/// Places one row of panes into `placements`, drawing focus borders on the
-/// primary row. Returns the tallest cell height the row occupies.
+/// Places one row of panes into `placements`. Returns the tallest cell
+/// height the row occupies.
 fn render_row(row: &RowRender<'_>, placements: &mut Vec<ReaderSlotPlacement>) -> u16 {
     let mut cur_row_px = -(row.row_scroll_x as f32);
     let mut occupied_rows = 0u16;
@@ -415,53 +413,6 @@ fn render_row(row: &RowRender<'_>, placements: &mut Vec<ReaderSlotPlacement>) ->
     }
 
     occupied_rows
-}
-
-/// Underlines the focused pane of the primary row — in the first free row
-/// below it, never on the page itself.
-///
-/// The focus marker used to be `Borders::BOTTOM` on the pane's own rect:
-/// a Cyan `─` run painted over the page's bottom row, riding up through
-/// the content while scrolling (the reported "horizontal line at the page
-/// bottom"). The marker now lives in the blank gutter row directly under
-/// the focused pane — the row between layout bands — where it still tracks
-/// the pane edge and is visible without the status line, but cannot
-/// deface content. It is suppressed when no free row exists (the pane
-/// fills the viewport, or another pane occupies the row).
-fn draw_focus_markers(
-    f: &mut Frame<'_>,
-    reader: &ReaderState,
-    placements: &[ReaderSlotPlacement],
-    viewport_area: Rect,
-) {
-    let focused = reader.focused_page();
-    for pane in placements.iter().filter(|p| p.is_primary && p.page == focused) {
-        let rect = pane.cell_rect;
-        let marker_row = rect.row.saturating_add(rect.rows);
-        if marker_row >= viewport_area.y + viewport_area.height {
-            continue; // no free row below (pane fills the viewport)
-        }
-        // Another pane owns that row in our columns: the band below is not
-        // blank, so a marker would sit on content after all.
-        let free = !placements.iter().any(|other| {
-            let r = other.cell_rect;
-            r.row <= marker_row
-                && marker_row < r.row.saturating_add(r.rows)
-                && rect.col < r.col.saturating_add(r.cols)
-                && r.col < rect.col.saturating_add(rect.cols)
-        });
-        if !free {
-            continue;
-        }
-        let marker = "─".repeat(rect.cols as usize);
-        f.render_widget(
-            Paragraph::new(Line::styled(
-                marker,
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            )),
-            Rect::new(rect.col, marker_row, rect.cols, 1),
-        );
-    }
 }
 
 /// Anchor of the row above `anchor` under the current layout — the mirror of
