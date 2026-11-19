@@ -14,6 +14,7 @@ use crate::rasterizer::SlideRasterizer;
 use super::cache::PipelineCache;
 use super::cancellation::CancellationToken;
 use super::payload::PayloadCache;
+use super::render;
 
 /// Shared, late-bindable slot for the off-thread transmission encoder.
 ///
@@ -330,6 +331,23 @@ impl WorkerPool {
         self.failed.lock().ok()?.get(&slide_index).cloned()
     }
 
+    /// Latch a per-slide render failure.
+    ///
+    /// The unified failure semantics of the sync renderer: a latched error is
+    /// replayed by `entry`/`entry_at` instead of re-paying the failing render.
+    pub fn latch_failure(&self, slide_index: usize, error: RenderError) {
+        if let Ok(mut fl) = self.failed.lock() {
+            fl.insert(slide_index, error);
+        }
+    }
+
+    /// Drop the per-slide failure latch after a successful render.
+    pub fn clear_failure(&self, slide_index: usize) {
+        if let Ok(mut fl) = self.failed.lock() {
+            fl.remove(&slide_index);
+        }
+    }
+
     /// Clear all recorded rendering failures.
     pub fn clear_failed(&self) {
         if let Ok(mut fl) = self.failed.lock() {
@@ -467,91 +485,32 @@ fn execute_task(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &Atomi
     }
 }
 
-/// Moves warnings produced during one task into the shared buffer.
-fn flush_warnings(
-    ctx: &WorkerSharedContext,
-    index: usize,
-    receiver: &Receiver<WarningEvent>,
-) {
-    let events: Vec<WarningEvent> = receiver.try_iter().collect();
-    if events.is_empty() {
-        return;
-    }
-    if let Ok(mut buffer) = ctx.warnings.lock() {
-        buffer.extend(events.into_iter().map(|event| (index, event)));
-    }
-}
-
 /// The compile + rasterize half of a task, split out so [`execute_task`] can
-/// guard it with a panic barrier. On completion the entry is in the raster
-/// cache, recorded in `failed`, or dropped (cancellation).
+/// guard it with a panic barrier. The render work itself lives in the shared
+/// path ([`render::render_page`]); this half only adds the worker
+/// bookkeeping: failure latching, payload pre-encoding, and the completion
+/// event. On completion the entry is in the raster cache, recorded in
+/// `failed`, or dropped (cancellation).
 fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdown: &AtomicBool) {
     let index = task.slide_index;
     let target = task.target;
-    let (warning_tx, warning_rx) = crossbeam_channel::unbounded::<WarningEvent>();
 
-    // Step 1: Obtain or compile VectorSlide (Tier 1)
-    let vector_slide = match ctx.cache.get_vector(index) {
-        Some(v) => v,
-        None => {
-            if task.cancellation.is_canceled() || shutdown.load(AtomicOrdering::Acquire) {
-                if let Ok(mut inf) = ctx.in_flight.lock() {
-                    inf.remove(&index);
-                }
-                return;
-            }
-
-            match ctx.source.compile_page(index, &warning_tx) {
-                Ok(v) => {
-                    // A cancellation that arrived during compilation must not
-                    // publish a stale scene into the cache (the deck may have
-                    // been reloaded while the compiler was running).
-                    if task.cancellation.is_canceled()
-                        || shutdown.load(AtomicOrdering::Acquire)
-                    {
-                        if let Ok(mut inf) = ctx.in_flight.lock() {
-                            inf.remove(&index);
-                        }
-                        return;
-                    }
-                    // Publish warnings before the cache entry so a consumer
-                    // that observes `Ready` can also drain them.
-                    flush_warnings(ctx, index, &warning_rx);
-                    ctx.cache.put_vector(index, v.clone());
-                    v
-                }
-                Err(err) => {
-                    flush_warnings(ctx, index, &warning_rx);
-                    if let Ok(mut fl) = ctx.failed.lock() {
-                        fl.insert(index, err);
-                    }
-                    if let Ok(mut inf) = ctx.in_flight.lock() {
-                        inf.remove(&index);
-                    }
-                    return;
-                }
-            }
-        }
-    };
-
-    // Cooperative cancellation check before expensive rasterization
-    if task.cancellation.is_canceled() || shutdown.load(AtomicOrdering::Acquire) {
-        if let Ok(mut inf) = ctx.in_flight.lock() {
-            inf.remove(&index);
-        }
-        return;
-    }
-
-    // Step 2: Rasterize to RgbaSlide (Tier 2)
-    let empty_store = crate::loader::asset_store::EmptyAssetStore;
-    let store: &dyn AssetStore = match &ctx.asset_store {
-        Some(s) => s.as_ref(),
-        None => &empty_store,
-    };
-    match ctx.rasterizer.rasterize(&vector_slide, &target, store) {
-        Ok(bmp) => {
+    match render::render_page(
+        ctx.source.as_ref(),
+        ctx.rasterizer.as_ref(),
+        ctx.asset_store.as_ref(),
+        &ctx.cache,
+        &ctx.warnings,
+        index,
+        &target,
+        Some(&task.cancellation),
+    ) {
+        Ok(bitmap) => {
+            // The raster is published inside the shared render path; the
+            // completion side effects stay guarded exactly as before: a
+            // canceled or shutting-down task never clears the failure latch,
+            // stages a payload, or signals the UI loop.
             if !task.cancellation.is_canceled() && !shutdown.load(AtomicOrdering::Acquire) {
-                ctx.cache.put_raster(index, target, bmp.clone());
                 if let Ok(mut fl) = ctx.failed.lock() {
                     fl.remove(&index);
                 }
@@ -567,7 +526,7 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                         .ok()
                         .and_then(|slot| slot.clone());
                     if let Some(encoder) = encoder {
-                        ctx.payloads.stage(encoder.as_ref(), index, target, &bmp);
+                        ctx.payloads.stage(encoder.as_ref(), index, target, &bitmap);
                     }
                 }
 
@@ -577,10 +536,12 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                 }
             }
         }
-        Err(err) => {
+        Err(error) => {
+            // Cancellation is a supersede, not a failure: only real render
+            // errors latch for later `entry` reads to replay.
             if !task.cancellation.is_canceled() {
                 if let Ok(mut fl) = ctx.failed.lock() {
-                    fl.insert(index, err);
+                    fl.insert(index, error);
                 }
             }
         }

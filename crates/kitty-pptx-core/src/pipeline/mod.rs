@@ -3,6 +3,8 @@ pub mod cancellation;
 pub mod payload;
 pub mod worker;
 
+mod render;
+
 pub use cache::PipelineCache;
 pub use cancellation::CancellationToken;
 pub use payload::PayloadCache;
@@ -15,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use crate::compiler::SlideCompiler;
 use crate::contracts::{
     InvalidateCause, PageSource, PipelineEntry, PptxPageSource, PrefetchPlan, RenderPipeline,
-    RenderTargetSpec, RgbaSlide, TransmitEncoder, TransmitPayload, VectorSlide, WarningEvent,
+    RenderTargetSpec, RgbaSlide, TransmitEncoder, TransmitPayload, WarningEvent,
 };
 use crate::error::RenderError;
 use crate::loader::AssetStore;
@@ -164,50 +166,35 @@ impl DefaultRenderPipeline {
 
     /// Compiles and rasterizes `index` for `target` without changing the
     /// pipeline's notion of the main canvas target.
+    ///
+    /// Thin caller over the shared render path ([`render::render_page`]) with
+    /// the workers' failure semantics: a fresh success clears any stale
+    /// per-slide failure latch, an error latches it, so sync and background
+    /// renders behave identically.
     fn rasterize_now(
         &self,
         index: usize,
         target: &RenderTargetSpec,
     ) -> Result<RgbaSlide, RenderError> {
-        if index >= self.source.len() {
-            return Err(RenderError::CompilationFailed(format!(
-                "slide index {} out of bounds (total slides: {})",
-                index,
-                self.source.len()
-            )));
+        match render::render_page(
+            self.source.as_ref(),
+            self.rasterizer.as_ref(),
+            self.asset_store.as_ref(),
+            &self.cache,
+            &self.warnings,
+            index,
+            target,
+            None,
+        ) {
+            Ok(bitmap) => {
+                self.workers.clear_failure(index);
+                Ok(bitmap)
+            }
+            Err(error) => {
+                self.workers.latch_failure(index, error.clone());
+                Err(error)
+            }
         }
-
-        // Fast path: cached raster
-        if let Some(bmp) = self.cache.get_raster(index, target) {
-            return Ok(bmp);
-        }
-
-        // Tier 1: Vector slide
-        let vector_slide: VectorSlide = if let Some(v) = self.cache.get_vector(index) {
-            v
-        } else {
-            let (tx, rx) = crossbeam_channel::unbounded();
-            let v = match self.source.compile_page(index, &tx) {
-                Ok(scene) => scene,
-                Err(error) => {
-                    self.flush_warnings(index, &rx);
-                    return Err(error);
-                }
-            };
-            self.flush_warnings(index, &rx);
-            self.cache.put_vector(index, v.clone());
-            v
-        };
-
-        // Tier 2: Target rasterization
-        let empty_store = crate::loader::asset_store::EmptyAssetStore;
-        let store: &dyn AssetStore = match &self.asset_store {
-            Some(s) => s.as_ref(),
-            None => &empty_store,
-        };
-        let bmp = self.rasterizer.rasterize(&vector_slide, target, store)?;
-        self.cache.put_raster(index, *target, bmp.clone());
-        Ok(bmp)
     }
 
     /// Get a slide from the cache if present, otherwise render it synchronously.
@@ -227,20 +214,19 @@ impl DefaultRenderPipeline {
             .unwrap_or_default()
     }
 
-    /// Moves per-task warnings into the shared buffer.
-    fn flush_warnings(&self, index: usize, receiver: &crossbeam_channel::Receiver<WarningEvent>) {
-        let events: Vec<WarningEvent> = receiver.try_iter().collect();
-        if events.is_empty() {
-            return;
-        }
-        if let Ok(mut buffer) = self.warnings.lock() {
-            buffer.extend(events.into_iter().map(|event| (index, event)));
-        }
-    }
-
-    /// Shared tail of `entry`/`entry_at` once the target raster cache missed.
-    fn entry_after_cache_miss(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
-        // 1. Check for a latched background failure
+    /// Shared tail of `entry`/`entry_at` once the requested raster cache
+    /// missed.
+    ///
+    /// `exact_target` marks explicit-target lookups (the sorter grid, reader
+    /// pages): they must not kick off synchronous rendering on the calling
+    /// thread — the background workers own rasterization for those views.
+    fn entry_after_cache_miss(
+        &self,
+        index: usize,
+        target: &RenderTargetSpec,
+        exact_target: bool,
+    ) -> PipelineEntry {
+        // 1. Check for a latched failure (background worker or last attempt)
         if let Some(error) = self.workers.get_failed(index) {
             return PipelineEntry::Failed { error };
         }
@@ -251,7 +237,7 @@ impl DefaultRenderPipeline {
         }
 
         // 3. Synchronous fallback if enabled and not already running in background
-        if self.sync_fallback.load(Ordering::Acquire) {
+        if !exact_target && self.sync_fallback.load(Ordering::Acquire) {
             return match self.rasterize_now(index, target) {
                 Ok(bitmap) => PipelineEntry::Ready { bitmap },
                 Err(error) => PipelineEntry::Failed { error },
@@ -264,6 +250,10 @@ impl DefaultRenderPipeline {
 }
 
 impl RenderPipeline for DefaultRenderPipeline {
+    fn render(&self, index: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, RenderError> {
+        self.render_sync(index, target)
+    }
+
     fn prefetch(&self, plan: &PrefetchPlan, target: &RenderTargetSpec) {
         if let Ok(mut t) = self.last_target.lock() {
             *t = *target;
@@ -335,26 +325,19 @@ impl RenderPipeline for DefaultRenderPipeline {
             return PipelineEntry::Ready { bitmap };
         }
 
-        self.entry_after_cache_miss(index, &target)
+        self.entry_after_cache_miss(index, &target, false)
     }
 
     fn entry_at(&self, index: usize, target: &RenderTargetSpec) -> PipelineEntry {
         // Exact target only: the caller (the sorter grid) stages this bitmap as
         // the canvas raster and lets the terminal scale it, so another
-        // resolution would silently change what the card shows.
+        // resolution would silently change what the card shows. No
+        // widest-raster fallback, no synchronous fallback.
         if let Some(bmp) = self.cache.get_raster(index, target) {
             return PipelineEntry::Ready { bitmap: bmp };
         }
 
-        if let Some(error) = self.workers.get_failed(index) {
-            return PipelineEntry::Failed { error };
-        }
-
-        if self.workers.is_in_flight(index) {
-            return PipelineEntry::Rendering;
-        }
-
-        PipelineEntry::NotLoaded
+        self.entry_after_cache_miss(index, target, true)
     }
 
     fn drain_warnings(&self) -> Vec<(usize, WarningEvent)> {

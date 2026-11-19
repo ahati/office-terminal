@@ -64,8 +64,12 @@ pub fn run_view(
         }
     };
 
-    let (tx, compile_rx) = crossbeam_channel::unbounded();
-    let default_store = EmptyAssetStore;
+    // The same unified render path the interactive presenter uses: compile,
+    // metafile expansion, native raster sources, caching, and warning
+    // collection all live behind `pipeline.render`.
+    let tiny_rasterizer: Arc<TinySkiaRasterizer> = Arc::clone(rasterizer);
+    let pipeline =
+        DefaultRenderPipeline::from_page_source(Arc::clone(&page_source), tiny_rasterizer);
 
     for &idx in &slide_indices {
         if all {
@@ -75,34 +79,16 @@ pub fn run_view(
         let (w_emu, h_emu) = page_source.page_size_emu(idx);
         let target = fit_render_target(w_emu, h_emu, fit);
 
-        let mut vector_slide = match page_source.compile_page(idx, &tx) {
-            Ok(vs) => vs,
-            Err(e) => {
-                eprintln!("Compile error on slide {}: {}", idx + 1, e);
+        let rgba = match pipeline.render(idx, &target) {
+            Ok(bitmap) => bitmap,
+            Err(error) => {
+                eprintln!("Render error on slide {}: {}", idx + 1, error);
                 return ExitCode::from(2);
             }
         };
-
-        for warning in compile_rx.try_iter() {
-            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
+        for (slide, warning) in pipeline.drain_warnings() {
+            eprintln!("Warning (slide {}): {:?}", slide + 1, warning);
         }
-
-        let asset_store = page_source.asset_store();
-        let store = asset_store.as_deref().unwrap_or(&default_store);
-
-        let (warning_tx, warning_rx) = crossbeam_channel::unbounded();
-        kitty_pptx_core::metafile::expand_metafiles(&mut vector_slide, store, &warning_tx);
-        for warning in warning_rx.try_iter() {
-            eprintln!("Warning (slide {}): {:?}", idx + 1, warning);
-        }
-
-        let rgba = match rasterizer.rasterize(&vector_slide, &target, store) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("Rasterize error on slide {}: {}", idx + 1, e);
-                return ExitCode::from(2);
-            }
-        };
 
         if let Err(e) = driver.stage(&rgba, ImageId(1)) {
             eprintln!("Display staging error: {}", e);

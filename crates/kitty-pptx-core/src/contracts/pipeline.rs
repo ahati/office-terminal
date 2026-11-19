@@ -122,6 +122,21 @@ pub trait RenderPipeline: Send + Sync {
         self.entry(index)
     }
 
+    /// Direct synchronous render of one page at an exact pixel target.
+    ///
+    /// Populates the implementation's caches exactly like its background
+    /// workers would (a `DefaultRenderPipeline` publishes the raster, the
+    /// compiled scene, and any compile/expansion warnings). Callers that only
+    /// need cached results should prefer `entry`/`entry_at`; `render` pays
+    /// the full compile + rasterize cost when nothing is cached yet.
+    /// Pipelines that cannot render synchronously keep the default error.
+    fn render(&self, index: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, RenderError> {
+        let _ = (index, target);
+        Err(RenderError::CompilationFailed(
+            "pipeline does not support direct render".into(),
+        ))
+    }
+
     fn invalidate(&self, cause: InvalidateCause);
 
     /// Drains warnings produced by compilation/expansion since the last call.
