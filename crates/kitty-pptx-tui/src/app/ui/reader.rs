@@ -1,4 +1,3 @@
-use kitty_pptx_display::{probe_cell_pixel_size, ImageId};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -7,11 +6,13 @@ use ratatui::Frame;
 
 pub use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
 pub use crate::app::ui::reader_layout::{
-    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, select_row_image_id,
-    select_spread_image_id, PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS,
-    MIN_PANE_COLS,
+    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, PaneCellArea, PaneCropSpan,
+    PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
 };
-use crate::app::reader_types::{ReaderFitMode, ReaderLayout, ReaderSlotPlacement};
+use crate::app::reader_state::ReaderState;
+use crate::app::reader_types::{
+    page_image_id, reader_viewport_metrics, ReaderLayout, ReaderSlotPlacement,
+};
 use crate::app::state::PresentationState;
 
 /// Renders the current reader viewport (Single, Spread, or Horizontal mode).
@@ -24,16 +25,16 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
         return;
     };
 
+    // One animation tick per frame: the ~16 ms event loop keeps calling the
+    // renderer, so panes glide toward the scroll target instead of jumping.
+    reader.advance_display();
+
     let viewport_height = area.height.saturating_sub(1);
     let viewport_area = Rect::new(area.x, area.y, area.width, viewport_height);
     let status_area = Rect::new(area.x, area.y + viewport_height, area.width, 1);
 
-    let metrics = probe_cell_pixel_size();
-    let cell_w_px = metrics.width_px.max(4.0) as f32;
-    let cell_h_px = metrics.height_px.max(8.0) as f32;
-
-    let viewport_w_px = (viewport_area.width as f32) * cell_w_px;
-    let viewport_h_px = (viewport_area.height as f32) * cell_h_px;
+    let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) =
+        reader_viewport_metrics(area.width, area.height);
 
     let gutter_cols = GUTTER_COLS;
     let gutter_px = (gutter_cols as f32) * cell_w_px;
@@ -52,13 +53,19 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
     if reader.layout == ReaderLayout::Horizontal {
         let mut col_x = viewport_area.x;
         let mut p = reader.anchor;
+        // The smoothed value drives placement so horizontal slides glide.
+        let anchor_scroll_x = reader.displayed_scroll_px() as i64;
 
         while p < reader.total_pages() && col_x < viewport_area.right() {
             let avail_cols = viewport_area.right().saturating_sub(col_x);
             if avail_cols < MIN_PANE_COLS && p > reader.anchor {
                 break;
             }
-            let scroll_x = if p == reader.anchor { reader.scroll_px } else { 0 };
+            let scroll_x = if p == reader.anchor {
+                anchor_scroll_x
+            } else {
+                0
+            };
             if let Some(m) = compute_horizontal_pane_metrics(
                 &ctx,
                 p,
@@ -69,7 +76,7 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
                 scroll_x,
             ) {
                 // ImageId tied to page index so horizontal sliding produces 0 re-stages (P0-4)
-                let id = ImageId(((p as u32) % 12) + 1);
+                let id = page_image_id(p);
                 placements.push(ReaderSlotPlacement {
                     page: p,
                     id,
@@ -154,8 +161,6 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
         viewport_h_px,
     };
 
-    let mut row_occupied_cells_h = 0u16;
-
     // ─── 1. Primary (Anchor) Row ─────────────────────────────────────────────────
     let primary_pages: Vec<usize> = if reader.cover_alone && reader.anchor == 0 {
         vec![0]
@@ -169,17 +174,8 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
     // Compute natural widths and total row width for horizontal sliding
     let mut pane_widths = Vec::with_capacity(primary_pages.len());
     for &page in &primary_pages {
-        let (pt_w, pt_h) = reader.page_size_pt(page);
-        let ar = (pt_w / pt_h).max(0.1);
-        let view = reader.page_view(page);
-        let (base_w_px, _) = match view.fit {
-            ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
-            ReaderFitMode::FitPage => {
-                let h = viewport_h_px.min(slot_w_px / ar);
-                (h * ar, h)
-            }
-        };
-        pane_widths.push(base_w_px * view.zoom);
+        let (base_w_px, _) = reader.pane_fit(page, viewport_h_px, slot_w_px);
+        pane_widths.push(base_w_px * reader.page_view(page).zoom);
     }
 
     let total_panes_w: f32 = pane_widths.iter().sum();
@@ -194,90 +190,23 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
     };
     reader.set_max_row_scroll_x(max_row_scroll_x);
 
-    let row_idx = if reader.cover_alone {
-        if reader.anchor == 0 {
-            0
-        } else {
-            (reader.anchor - 1) / num_cols + 1
-        }
-    } else {
-        reader.anchor / num_cols
+    let primary_row = RowRender {
+        reader,
+        ctx: &ctx,
+        viewport_area,
+        viewport_w_px,
+        slot_w_px,
+        cell_w_px,
+        gutter_px,
+        pages: &primary_pages,
+        row_y: viewport_area.y,
+        avail_rows: viewport_area.height,
+        // The smoothed offset drives placement so vertical scrolls glide.
+        scroll_px: reader.displayed_scroll_px() as i64,
+        row_scroll_x: reader.row_scroll_x(),
+        is_primary: true,
     };
-    let row_0_is_even = row_idx.is_multiple_of(2);
-
-    let row_scroll_x = reader.row_scroll_x();
-    let mut cur_row_px = -(row_scroll_x as f32);
-
-    for (idx, &page) in primary_pages.iter().enumerate() {
-        let pane_w_px = pane_widths[idx];
-        let page_start_px = cur_row_px;
-        let page_end_px = page_start_px + pane_w_px;
-        cur_row_px = page_end_px + gutter_px;
-
-        if page_end_px <= 0.0 || page_start_px >= viewport_w_px {
-            continue;
-        }
-
-        let vis_start_px = page_start_px.max(0.0);
-        let vis_end_px = page_end_px.min(viewport_w_px);
-        let col_x = viewport_area.x + (vis_start_px / cell_w_px).round() as u16;
-        let cols = ((vis_end_px - vis_start_px) / cell_w_px).round() as u16;
-        if cols == 0 {
-            continue;
-        }
-
-        let avail_cols = viewport_area.right().saturating_sub(col_x).min(cols);
-        if avail_cols == 0 {
-            continue;
-        }
-
-        let crop_left_px = (vis_start_px - page_start_px).max(0.0);
-        let crop_w_px = vis_end_px - vis_start_px;
-
-        if let Some(m) = compute_pane_metrics_cropped(
-            &ctx,
-            page,
-            PaneCellArea {
-                col_x,
-                cols: avail_cols,
-                row_y: viewport_area.y,
-                max_avail_rows: viewport_area.height,
-            },
-            reader.scroll_px,
-            PaneCropSpan {
-                crop_left_px,
-                crop_w_px,
-                pane_w_px,
-            },
-        ) {
-            row_occupied_cells_h = row_occupied_cells_h.max(m.cell_rect.rows);
-            let id = select_row_image_id(row_0_is_even, idx, num_cols);
-
-            placements.push(ReaderSlotPlacement {
-                page,
-                id,
-                cell_rect: m.cell_rect,
-                pixel_src: m.pixel_src,
-                page_target: m.page_target,
-                max_scroll_x: m.max_scroll_x,
-                is_primary: true,
-            });
-
-            let is_focused = page == reader.focused_page();
-            let border_style = if is_focused {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
-            let block = Block::default()
-                .borders(if is_focused { Borders::BOTTOM } else { Borders::NONE })
-                .border_style(border_style);
-            f.render_widget(
-                block,
-                Rect::new(m.cell_rect.col, m.cell_rect.row, m.cell_rect.cols, m.cell_rect.rows),
-            );
-        }
-    }
+    let row_occupied_cells_h = render_row(&primary_row, f, &mut placements);
 
     // ─── 2. Next Row (Continuous Scroll Transition with Vertical Gutter) ──────────
     let next_anchor = if reader.cover_alone && reader.anchor == 0 {
@@ -293,8 +222,8 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
             (next_y, avail, 0i64)
         } else {
             let row_0_stride_px =
-                reader.current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
-            let y1_px = row_0_stride_px - reader.scroll_px as f32;
+                reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
+            let y1_px = row_0_stride_px - reader.displayed_scroll_px();
             let offset_rows = (y1_px / cell_h_px).round() as i16;
             if offset_rows > 0 {
                 let next_y = viewport_area.y + offset_rows as u16;
@@ -312,74 +241,22 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
                 .filter(|&p| p < reader.total_pages())
                 .collect();
 
-            let row_1_is_even = !row_0_is_even;
-            let mut cur_next_row_px = -(row_scroll_x as f32);
-
-            for (idx, &np) in next_pages.iter().enumerate() {
-                let (pt_w, pt_h) = reader.page_size_pt(np);
-                let ar = (pt_w / pt_h).max(0.1);
-                let view = reader.page_view(np);
-                let (base_w_px, _) = match view.fit {
-                    ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
-                    ReaderFitMode::FitPage => {
-                        let h = viewport_h_px.min(slot_w_px / ar);
-                        (h * ar, h)
-                    }
-                };
-                let pane_w_px = base_w_px * view.zoom;
-
-                let page_start_px = cur_next_row_px;
-                let page_end_px = page_start_px + pane_w_px;
-                cur_next_row_px = page_end_px + gutter_px;
-
-                if page_end_px <= 0.0 || page_start_px >= viewport_w_px {
-                    continue;
-                }
-
-                let vis_start_px = page_start_px.max(0.0);
-                let vis_end_px = page_end_px.min(viewport_w_px);
-                let col_x = viewport_area.x + (vis_start_px / cell_w_px).round() as u16;
-                let cols = ((vis_end_px - vis_start_px) / cell_w_px).round() as u16;
-                if cols == 0 {
-                    continue;
-                }
-
-                let avail_cols = viewport_area.right().saturating_sub(col_x).min(cols);
-                if avail_cols == 0 {
-                    continue;
-                }
-
-                let crop_left_px = (vis_start_px - page_start_px).max(0.0);
-                let crop_w_px = vis_end_px - vis_start_px;
-
-                if let Some(nm) = compute_pane_metrics_cropped(
-                    &ctx,
-                    np,
-                    PaneCellArea {
-                        col_x,
-                        cols: avail_cols,
-                        row_y: next_row_y,
-                        max_avail_rows: avail_next_rows,
-                    },
-                    next_row_scroll_px,
-                    PaneCropSpan {
-                        crop_left_px,
-                        crop_w_px,
-                        pane_w_px,
-                    },
-                ) {
-                    let id = select_row_image_id(row_1_is_even, idx, num_cols);
-                    placements.push(ReaderSlotPlacement {
-                        page: np,
-                        id,
-                        cell_rect: nm.cell_rect,
-                        pixel_src: nm.pixel_src,
-                        page_target: nm.page_target,
-                        max_scroll_x: nm.max_scroll_x,
-                        is_primary: false,
-                    });
-                }
-            }
+            let next_row = RowRender {
+                reader,
+                ctx: &ctx,
+                viewport_area,
+                viewport_w_px,
+                slot_w_px,
+                cell_w_px,
+                gutter_px,
+                pages: &next_pages,
+                row_y: next_row_y,
+                avail_rows: avail_next_rows,
+                scroll_px: next_row_scroll_px,
+                row_scroll_x: reader.row_scroll_x(),
+                is_primary: false,
+            };
+            render_row(&next_row, f, &mut placements);
         }
     }
 
@@ -394,4 +271,116 @@ pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect) {
     ]))
     .style(status_style);
     f.render_widget(status_paragraph, status_area);
+}
+
+/// Inputs for rendering one row of reader panes (shared by the primary and
+/// next-row passes so the two blocks cannot drift apart).
+struct RowRender<'a> {
+    reader: &'a ReaderState,
+    ctx: &'a PaneLayoutContext<'a>,
+    viewport_area: Rect,
+    viewport_w_px: f32,
+    slot_w_px: f32,
+    cell_w_px: f32,
+    gutter_px: f32,
+    pages: &'a [usize],
+    row_y: u16,
+    avail_rows: u16,
+    scroll_px: i64,
+    row_scroll_x: i64,
+    is_primary: bool,
+}
+
+/// Places one row of panes into `placements`, drawing focus borders on the
+/// primary row. Returns the tallest cell height the row occupies.
+fn render_row(
+    row: &RowRender<'_>,
+    f: &mut Frame<'_>,
+    placements: &mut Vec<ReaderSlotPlacement>,
+) -> u16 {
+    let mut cur_row_px = -(row.row_scroll_x as f32);
+    let mut occupied_rows = 0u16;
+
+    for &page in row.pages {
+        let (base_w_px, _) = row
+            .reader
+            .pane_fit(page, row.ctx.viewport_h_px, row.slot_w_px);
+        let pane_w_px = base_w_px * row.reader.page_view(page).zoom;
+
+        let page_start_px = cur_row_px;
+        let page_end_px = page_start_px + pane_w_px;
+        cur_row_px = page_end_px + row.gutter_px;
+
+        if page_end_px <= 0.0 || page_start_px >= row.viewport_w_px {
+            continue;
+        }
+
+        let vis_start_px = page_start_px.max(0.0);
+        let vis_end_px = page_end_px.min(row.viewport_w_px);
+        let col_x = row.viewport_area.x + (vis_start_px / row.cell_w_px).round() as u16;
+        let cols = ((vis_end_px - vis_start_px) / row.cell_w_px).round() as u16;
+        if cols == 0 {
+            continue;
+        }
+
+        let avail_cols = row.viewport_area.right().saturating_sub(col_x).min(cols);
+        if avail_cols == 0 {
+            continue;
+        }
+
+        let crop_left_px = (vis_start_px - page_start_px).max(0.0);
+        let crop_w_px = vis_end_px - vis_start_px;
+
+        let Some(m) = compute_pane_metrics_cropped(
+            row.ctx,
+            page,
+            PaneCellArea {
+                col_x,
+                cols: avail_cols,
+                row_y: row.row_y,
+                max_avail_rows: row.avail_rows,
+            },
+            row.scroll_px,
+            PaneCropSpan {
+                crop_left_px,
+                crop_w_px,
+                pane_w_px,
+            },
+        ) else {
+            continue;
+        };
+
+        occupied_rows = occupied_rows.max(m.cell_rect.rows);
+
+        // Stable per-page ids: a pane that moves between rows or columns
+        // keeps its id, so the graphics syncer re-places it instead of
+        // re-encoding and re-transmitting the raster.
+        placements.push(ReaderSlotPlacement {
+            page,
+            id: page_image_id(page),
+            cell_rect: m.cell_rect,
+            pixel_src: m.pixel_src,
+            page_target: m.page_target,
+            max_scroll_x: m.max_scroll_x,
+            is_primary: row.is_primary,
+        });
+
+        if row.is_primary {
+            let is_focused = page == row.reader.focused_page();
+            let border_style = if is_focused {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let block = Block::default()
+                .borders(if is_focused { Borders::BOTTOM } else { Borders::NONE })
+                .border_style(border_style);
+            f.render_widget(
+                block,
+                Rect::new(m.cell_rect.col, m.cell_rect.row, m.cell_rect.cols, m.cell_rect.rows),
+            );
+        }
+    }
+
+    occupied_rows
 }

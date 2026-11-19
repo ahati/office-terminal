@@ -16,6 +16,7 @@ use ratatui::Terminal;
 use crate::app::events::handle_key_event;
 use crate::app::graphics::GraphicsSyncer;
 use crate::app::reader_state::{ReaderFitMode, ReaderLayout};
+use crate::app::reader_types::page_image_id;
 use crate::app::state::PresentationState;
 use crate::app::ui::reader::render_reader;
 
@@ -26,6 +27,25 @@ fn make_key(code: KeyCode) -> KeyEvent {
         kind: KeyEventKind::Press,
         state: KeyEventState::NONE,
     }
+}
+
+/// Fresh `width`×45 terminal plus a reader-mode state over `page_sizes`.
+fn reader_fixture(
+    width: u16,
+    total_pages: usize,
+    page_sizes: Vec<(f32, f32)>,
+) -> (Terminal<TestBackend>, PresentationState) {
+    let terminal = Terminal::new(TestBackend::new(width, 45)).unwrap();
+    let mut state = PresentationState::new(total_pages, vec![]);
+    state.enable_reader_mode(total_pages, page_sizes);
+    (terminal, state)
+}
+
+/// Draws one reader frame at `width`×45.
+fn draw_reader(state: &PresentationState, terminal: &mut Terminal<TestBackend>, width: u16) {
+    terminal
+        .draw(|f| render_reader(state, f, Rect::new(0, 0, width, 45)))
+        .unwrap();
 }
 
 fn test_page_bitmap() -> RgbaSlide {
@@ -133,20 +153,12 @@ impl TerminalGraphicsDriver for MockRecordingDriver {
 
 #[test]
 fn test_spread_zoom_layout_goldens_issue_24() {
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-
     let page_sizes = vec![(612.0, 792.0); 10]; // Letter / A4-proportional (ar = 0.7727)
 
     // 1. Zoom 1.0 (Fit)
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, page_sizes);
+    let (mut terminal, mut state) = reader_fixture(160, 10, page_sizes.clone());
 
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p1 = state.reader_placements();
     assert_eq!(p1.len(), 2, "Both spread pages visible at zoom 1.0");
@@ -159,11 +171,7 @@ fn test_spread_zoom_layout_goldens_issue_24() {
 
     // 2. Zoom 1.5 (Grows)
     state.reader_state_mut().unwrap().adjust_zoom(1.5);
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p15 = state.reader_placements();
     assert_eq!(p15[0].cell_rect.cols, 102, "Left pane grows to 102 cols");
@@ -176,11 +184,7 @@ fn test_spread_zoom_layout_goldens_issue_24() {
     state.reader_state_mut().unwrap().reset_view();
     state.reader_state_mut().unwrap().cycle_fit(); // FitWidth (slot = 79 cols)
     state.reader_state_mut().unwrap().adjust_zoom(2.0); // 79 * 2 = 158 cols
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p2 = state.reader_placements();
     assert!(p2[0].cell_rect.cols >= 158 && p2[0].cell_rect.cols <= 160);
@@ -189,11 +193,7 @@ fn test_spread_zoom_layout_goldens_issue_24() {
 
     // 4. Zoom 3.0 (Clamped to Viewport with max_scroll_x > 0)
     state.reader_state_mut().unwrap().adjust_zoom(1.5); // 2.0 * 1.5 = 3.0
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p3 = state.reader_placements();
     assert_eq!(p3[0].cell_rect.cols, 160, "Clamped to viewport width");
@@ -216,18 +216,9 @@ fn test_spread_zoom_layout_goldens_issue_24() {
 
 #[test]
 fn test_fractional_column_scroll_goldens_issue_26() {
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-    let page_sizes = vec![(612.0, 792.0); 10];
+    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
 
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, page_sizes);
-
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let metrics = kitty_pptx_display::probe_cell_pixel_size();
     let cell_w_px = metrics.width_px.max(4.0) as f32;
@@ -245,12 +236,12 @@ fn test_fractional_column_scroll_goldens_issue_26() {
     for step in 1..=7 {
         let scroll_offset = ((step as f32 * row_h / 8.0).round() as i64).max(1);
         state.reader_state_mut().unwrap().scroll_px = scroll_offset;
+        // Intentional smoothing change: the renderer animates toward
+        // scroll_px, so converge the displayed value before asserting
+        // geometry at the requested offset.
+        while state.reader_state().unwrap().advance_display() {}
 
-        terminal
-            .draw(|f| {
-                render_reader(&state, f, Rect::new(0, 0, 160, 45));
-            })
-            .unwrap();
+        draw_reader(&state, &mut terminal, 160);
 
         let placements = state.reader_placements();
         assert!(!placements.is_empty());
@@ -299,12 +290,7 @@ fn test_fractional_column_scroll_goldens_issue_26() {
 
 #[test]
 fn test_recording_driver_scroll_zero_re_render_issue_26() {
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-    let page_sizes = vec![(612.0, 792.0); 10];
-
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, page_sizes);
+    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
 
     let (mut driver, log) = MockRecordingDriver::new();
     let pipeline = MockPdfPipeline;
@@ -312,11 +298,16 @@ fn test_recording_driver_scroll_zero_re_render_issue_26() {
     let canvas_target = RenderTargetSpec { width_px: 2560, height_px: 3312 };
 
     // Initial render
-    terminal.draw(|f| render_reader(&state, f, Rect::new(0, 0, 160, 45))).unwrap();
+    draw_reader(&state, &mut terminal, 160);
     syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
 
     let initial_stages = log.lock().unwrap().staged.len();
     assert_eq!(initial_stages, 2, "Initially stages 2 spread pages");
+    // Intentional id-scheme change (stable per-page ids): the reader image
+    // pool starts at READER_IMAGE_ID_BASE (81), so pages 0/1 stage as 81/82
+    // instead of the old row-parity ids 1/2.
+    assert!(log.lock().unwrap().staged.contains(&page_image_id(0).0));
+    assert!(log.lock().unwrap().staged.contains(&page_image_id(1).0));
 
     let metrics = kitty_pptx_display::probe_cell_pixel_size();
     let cell_w_px = metrics.width_px.max(4.0) as f32;
@@ -327,46 +318,29 @@ fn test_recording_driver_scroll_zero_re_render_issue_26() {
     for step in 1..=4 {
         let offset = (step as f32 * row_h / 8.0).round() as i64;
         state.reader_state_mut().unwrap().scroll_px = offset;
-        terminal.draw(|f| render_reader(&state, f, Rect::new(0, 0, 160, 45))).unwrap();
+        draw_reader(&state, &mut terminal, 160);
         syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
     }
 
     // Zero stage calls for new bitmaps of existing visible panes on pure movement
-    let re_stages_of_existing = log.lock().unwrap().staged.iter().filter(|&&id| id == 1 || id == 2).count();
+    let (id_p0, id_p1) = (page_image_id(0).0, page_image_id(1).0);
+    let re_stages_of_existing = log.lock().unwrap().staged.iter().filter(|&&id| id == id_p0 || id == id_p1).count();
     assert_eq!(re_stages_of_existing, 2, "Zero re-stages for initial pages during scroll");
 }
 
 #[test]
 fn test_dynamic_n_page_reflow_issue_29() {
-    let page_sizes = vec![(612.0, 792.0); 10];
-
     // 1. Narrow terminal (80 cols) -> reflows to 1 page
-    let backend_narrow = TestBackend::new(80, 45);
-    let mut term_narrow = Terminal::new(backend_narrow).unwrap();
-    let mut state_narrow = PresentationState::new(10, vec![]);
-    state_narrow.enable_reader_mode(10, page_sizes.clone());
-
-    term_narrow
-        .draw(|f| {
-            render_reader(&state_narrow, f, Rect::new(0, 0, 80, 45));
-        })
-        .unwrap();
+    let (mut term_narrow, state_narrow) = reader_fixture(80, 10, vec![(612.0, 792.0); 10]);
+    draw_reader(&state_narrow, &mut term_narrow, 80);
 
     let p_narrow = state_narrow.reader_placements();
     let primary_narrow: Vec<_> = p_narrow.iter().filter(|p| p.cell_rect.row == 0).collect();
     assert_eq!(primary_narrow.len(), 1, "Narrow terminal reflows to 1 page in row 0");
 
     // 2. Wide terminal (240 cols) -> fits 3 pages
-    let backend_wide = TestBackend::new(240, 45);
-    let mut term_wide = Terminal::new(backend_wide).unwrap();
-    let mut state_wide = PresentationState::new(10, vec![]);
-    state_wide.enable_reader_mode(10, page_sizes.clone());
-
-    term_wide
-        .draw(|f| {
-            render_reader(&state_wide, f, Rect::new(0, 0, 240, 45));
-        })
-        .unwrap();
+    let (mut term_wide, state_wide) = reader_fixture(240, 10, vec![(612.0, 792.0); 10]);
+    draw_reader(&state_wide, &mut term_wide, 240);
 
     let p_wide = state_wide.reader_placements();
     let primary_wide: Vec<_> = p_wide.iter().filter(|p| p.cell_rect.row == 0).collect();
@@ -375,21 +349,12 @@ fn test_dynamic_n_page_reflow_issue_29() {
 
 #[test]
 fn test_horizontal_mode_sliding_issue_29() {
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-    let page_sizes = vec![(612.0, 792.0); 10];
-
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, page_sizes);
+    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
     state.reader_state_mut().unwrap().toggle_horizontal();
     assert_eq!(state.reader_state().unwrap().layout, ReaderLayout::Horizontal);
 
     // Initial draw
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p_init = state.reader_placements();
     assert!(p_init.len() >= 2, "Multiple pages laid out horizontally");
@@ -400,11 +365,7 @@ fn test_horizontal_mode_sliding_issue_29() {
     handle_key_event(make_key(KeyCode::Right), &mut state);
     assert!(state.reader_state().unwrap().scroll_px > 0, "Right arrow slides smoothly");
 
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p_scrolled = state.reader_placements();
     assert!(p_scrolled[0].pixel_src.x > 0, "Pixel src.x shifted right");
@@ -416,19 +377,10 @@ fn test_horizontal_mode_sliding_issue_29() {
 
 #[test]
 fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-    let page_sizes = vec![(612.0, 792.0); 10];
-
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, page_sizes);
+    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
 
     // Initial draw in fit mode (zoom = 1.0)
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p_fit = state.reader_placements();
     assert_eq!(p_fit.len(), 2);
@@ -436,11 +388,7 @@ fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
 
     // Zoom in 1.5x so the row overflows viewport width
     state.reader_state_mut().unwrap().adjust_zoom(1.5);
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p_zoomed = state.reader_placements();
     assert_eq!(p_zoomed.len(), 2);
@@ -455,11 +403,7 @@ fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
     );
 
     // Re-draw with updated row_scroll_x
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p_slid = state.reader_placements();
     assert!(
@@ -469,11 +413,7 @@ fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
 
     // Press Left arrow key -> should slide back left towards origin
     handle_key_event(make_key(KeyCode::Left), &mut state);
-    terminal
-        .draw(|f| {
-            render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160);
 
     let p_slid_back = state.reader_placements();
     assert!(
@@ -484,19 +424,9 @@ fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
 
 #[test]
 fn test_dynamic_columns_and_row_advancement() {
-    let page_sizes = vec![(612.0, 792.0); 10];
-
     // Wide terminal (240 cols) -> 3 columns
-    let backend_wide = TestBackend::new(240, 45);
-    let mut term_wide = Terminal::new(backend_wide).unwrap();
-    let mut state_wide = PresentationState::new(10, vec![]);
-    state_wide.enable_reader_mode(10, page_sizes.clone());
-
-    term_wide
-        .draw(|f| {
-            render_reader(&state_wide, f, Rect::new(0, 0, 240, 45));
-        })
-        .unwrap();
+    let (mut term_wide, mut state_wide) = reader_fixture(240, 10, vec![(612.0, 792.0); 10]);
+    draw_reader(&state_wide, &mut term_wide, 240);
 
     assert_eq!(state_wide.reader_num_columns(), 3);
     assert_eq!(state_wide.reader_state().unwrap().num_columns(), 3);
@@ -510,16 +440,8 @@ fn test_dynamic_columns_and_row_advancement() {
     );
 
     // Narrow terminal (80 cols) -> 1 column
-    let backend_narrow = TestBackend::new(80, 45);
-    let mut term_narrow = Terminal::new(backend_narrow).unwrap();
-    let mut state_narrow = PresentationState::new(10, vec![]);
-    state_narrow.enable_reader_mode(10, page_sizes);
-
-    term_narrow
-        .draw(|f| {
-            render_reader(&state_narrow, f, Rect::new(0, 0, 80, 45));
-        })
-        .unwrap();
+    let (mut term_narrow, mut state_narrow) = reader_fixture(80, 10, vec![(612.0, 792.0); 10]);
+    draw_reader(&state_narrow, &mut term_narrow, 80);
 
     assert_eq!(state_narrow.reader_num_columns(), 1);
     assert_eq!(state_narrow.reader_state().unwrap().num_columns(), 1);
@@ -535,12 +457,7 @@ fn test_dynamic_columns_and_row_advancement() {
 
 #[test]
 fn test_horizontal_mode_zero_restaging_on_advance() {
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-    let page_sizes = vec![(612.0, 792.0); 10];
-
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, page_sizes);
+    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
     state.reader_state_mut().unwrap().toggle_horizontal();
 
     let (mut driver, log) = MockRecordingDriver::new();
@@ -549,7 +466,7 @@ fn test_horizontal_mode_zero_restaging_on_advance() {
     let canvas_target = RenderTargetSpec { width_px: 2560, height_px: 3312 };
 
     // Initial draw and sync
-    terminal.draw(|f| render_reader(&state, f, Rect::new(0, 0, 160, 45))).unwrap();
+    draw_reader(&state, &mut terminal, 160);
     syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
 
     let initial_staged = log.lock().unwrap().staged.clone();
@@ -557,7 +474,7 @@ fn test_horizontal_mode_zero_restaging_on_advance() {
 
     // Advance anchor by 1 page
     handle_key_event(make_key(KeyCode::PageDown), &mut state);
-    terminal.draw(|f| render_reader(&state, f, Rect::new(0, 0, 160, 45))).unwrap();
+    draw_reader(&state, &mut terminal, 160);
     syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
 
     let post_staged = log.lock().unwrap().staged.clone();
@@ -566,4 +483,69 @@ fn test_horizontal_mode_zero_restaging_on_advance() {
         let count = post_staged.iter().filter(|x| *x == id).count();
         assert_eq!(count, 1, "ImageId {} was not re-staged on page shift", id);
     }
+}
+
+#[test]
+fn test_row_transition_zero_restage_stable_ids() {
+    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
+
+    let (mut driver, log) = MockRecordingDriver::new();
+    let pipeline = MockPdfPipeline;
+    let mut syncer = GraphicsSyncer::new();
+    let canvas_target = RenderTargetSpec { width_px: 2560, height_px: 3312 };
+
+    // Initial draw and sync: spread [0, 1] stages under stable per-page ids.
+    draw_reader(&state, &mut terminal, 160);
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
+
+    let metrics = kitty_pptx_display::probe_cell_pixel_size();
+    let cell_w_px = metrics.width_px.max(4.0) as f32;
+    let cell_h_px = metrics.height_px.max(8.0) as f32;
+    let (row_stride, base_h) = {
+        let reader = state.reader_state().unwrap();
+        (
+            reader.current_row_stride_px(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px, cell_h_px),
+            reader.current_row_height_px(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px),
+        )
+    };
+
+    // Scroll near the row boundary so pages 2,3 peek from below and stage.
+    state.reader_state_mut().unwrap().scroll_px = (row_stride - 8.0).round() as i64;
+    draw_reader(&state, &mut terminal, 160);
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
+
+    let peek_placements: Vec<_> = state
+        .reader_placements()
+        .into_iter()
+        .filter(|p| p.page >= 2)
+        .collect();
+    assert!(peek_placements.len() >= 2, "Next-row pages peek from below");
+    for p in &peek_placements {
+        assert_eq!(p.id, page_image_id(p.page), "pane ids are page-stable, not row-parity");
+    }
+    let staged_before = log.lock().unwrap().staged.len();
+    let presented_before = log.lock().unwrap().presented.len();
+    assert_eq!(staged_before, 4, "All four visible panes staged exactly once");
+
+    // Cross the row boundary exactly like the j handler does: pages 2,3
+    // become the primary row with the SAME stable ids.
+    state.reader_state_mut().unwrap().scroll_px = (row_stride + 4.0).round() as i64;
+    let _ = state
+        .reader_state_mut()
+        .unwrap()
+        .scroll_column_detailed(0, row_stride, base_h);
+    assert_eq!(state.reader_state().unwrap().anchor, 2, "Anchor advanced to the next row");
+
+    draw_reader(&state, &mut terminal, 160);
+    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target).unwrap();
+
+    assert_eq!(
+        log.lock().unwrap().staged.len(),
+        staged_before,
+        "row transition re-places panes without re-transmitting them"
+    );
+    assert!(
+        log.lock().unwrap().presented.len() > presented_before,
+        "the moved panes were re-placed at their new cells"
+    );
 }
