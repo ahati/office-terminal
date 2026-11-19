@@ -1,8 +1,15 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
+};
 use kitty_pptx_tui::app::events::{handle_key_event, AppAction};
 use kitty_pptx_tui::app::mode::AppMode;
+use kitty_pptx_tui::app::reader_events::handle_reader_mouse;
 use kitty_pptx_tui::app::reader_state::{ReaderFitMode, ReaderLayout, ReaderState, Slot};
 use kitty_pptx_tui::app::state::PresentationState;
+use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
+use ratatui::Terminal;
 
 fn make_key(code: KeyCode) -> KeyEvent {
     KeyEvent {
@@ -11,6 +18,20 @@ fn make_key(code: KeyCode) -> KeyEvent {
         kind: KeyEventKind::Press,
         state: KeyEventState::NONE,
     }
+}
+
+/// Reader-mode state over `pages` letter-sized pages.
+fn reader_state(pages: usize) -> PresentationState {
+    let mut state = PresentationState::new(pages, vec![]);
+    state.enable_reader_mode(pages, vec![(612.0, 792.0); pages]);
+    state
+}
+
+/// Draws one reader frame at `w`×`h`.
+fn draw_reader(state: &PresentationState, terminal: &mut Terminal<TestBackend>, w: u16, h: u16) {
+    terminal
+        .draw(|f| kitty_pptx_tui::app::ui::render_reader(state, f, Rect::new(0, 0, w, h)))
+        .unwrap();
 }
 
 #[test]
@@ -157,8 +178,7 @@ fn test_reader_status_line_format() {
 
 #[test]
 fn test_reader_key_events() {
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    let mut state = reader_state(10);
 
     assert_eq!(state.mode(), AppMode::Reader);
     assert_eq!(state.base_mode(), AppMode::Reader);
@@ -195,8 +215,7 @@ fn test_reader_key_events() {
 
 #[test]
 fn test_reader_arrow_keys_navigation() {
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    let mut state = reader_state(10);
 
     // Initial: anchor 0 (spread [0, 1])
     assert_eq!(state.reader_state().unwrap().anchor, 0);
@@ -251,8 +270,7 @@ fn test_reader_arrow_keys_navigation() {
 
 #[test]
 fn test_reader_sorter_integration() {
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    let mut state = reader_state(10);
 
     // Tab opens sorter
     handle_key_event(make_key(KeyCode::Tab), &mut state);
@@ -274,8 +292,7 @@ fn test_reader_sorter_integration() {
 
 #[test]
 fn test_h_scroll_preserved_across_next_and_prev_row() {
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    let mut state = reader_state(10);
 
     // Set max_row_scroll_x and scroll horizontally
     state.reader_state_mut().unwrap().set_max_row_scroll_x(200);
@@ -323,24 +340,13 @@ fn test_h_scroll_preserved_across_next_and_prev_row() {
 
 #[test]
 fn test_status_line_uses_primary_placements_at_zoom_0_5() {
-    use ratatui::backend::TestBackend;
-    use ratatui::layout::Rect;
-    use ratatui::Terminal;
-
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    let mut terminal = Terminal::new(TestBackend::new(160, 45)).unwrap();
+    let mut state = reader_state(10);
 
     // Zoom out to 0.5 so multiple rows are placed in the viewport
     state.reader_state_mut().unwrap().adjust_zoom(0.5);
 
-    terminal
-        .draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160, 45);
 
     let placements = state.reader_placements();
     assert!(
@@ -362,22 +368,11 @@ fn test_status_line_uses_primary_placements_at_zoom_0_5() {
 
 #[test]
 fn test_horizontal_mode_h_and_l_slide_and_publish_columns() {
-    use ratatui::backend::TestBackend;
-    use ratatui::layout::Rect;
-    use ratatui::Terminal;
-
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    let mut terminal = Terminal::new(TestBackend::new(160, 45)).unwrap();
+    let mut state = reader_state(10);
     state.reader_state_mut().unwrap().toggle_horizontal();
 
-    terminal
-        .draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160, 45);
 
     let placed_count = state.reader_placements().len();
     assert!(placed_count >= 2);
@@ -405,25 +400,14 @@ fn test_horizontal_mode_h_and_l_slide_and_publish_columns() {
 
 #[test]
 fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
-    use ratatui::backend::TestBackend;
-    use ratatui::layout::Rect;
-    use ratatui::Terminal;
-
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    let mut state = PresentationState::new(10, vec![]);
-    state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
+    let mut terminal = Terminal::new(TestBackend::new(160, 45)).unwrap();
+    let mut state = reader_state(10);
 
     // Zoom in 1.5x so rows overflow viewport width
     state.reader_state_mut().unwrap().adjust_zoom(1.5);
 
     // First draw to establish max_row_scroll_x
-    terminal
-        .draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160, 45);
 
     // Slide row horizontally
     let max_x = state.reader_state().unwrap().max_row_scroll_x();
@@ -441,12 +425,11 @@ fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
         .unwrap()
         .current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
     state.reader_state_mut().unwrap().scroll_px = (row_stride * 0.75).round() as i64;
+    // Intentional smoothing change: converge the displayed value toward the
+    // target before asserting geometry at the requested offset.
+    while state.reader_state().unwrap().advance_display() {}
 
-    terminal
-        .draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160, 45);
 
     let placements = state.reader_placements();
     let row_0: Vec<_> = placements.iter().filter(|p| p.is_primary).collect();
@@ -478,13 +461,7 @@ fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
 
 #[test]
 fn test_reproduce_zoomed_v_scroll_blank_screen_in_gutter() {
-    use ratatui::backend::TestBackend;
-    use ratatui::layout::Rect;
-    use ratatui::Terminal;
-
-    let backend = TestBackend::new(160, 45);
-    let mut terminal = Terminal::new(backend).unwrap();
-
+    let mut terminal = Terminal::new(TestBackend::new(160, 45)).unwrap();
     let mut state = PresentationState::new(10, vec![]);
     // OpenCV-like aspect ratio (~0.7727)
     state.enable_reader_mode(10, vec![(460.0, 595.0); 10]);
@@ -510,42 +487,33 @@ fn test_reproduce_zoomed_v_scroll_blank_screen_in_gutter() {
     // Set scroll_px to just past Row 0 height, but still within row_stride (inside vertical gutter)
     let gutter_scroll = (base_h as i64 + 1).min(row_stride as i64 - 1);
     state.reader_state_mut().unwrap().scroll_px = gutter_scroll;
+    // Intentional smoothing change: converge the displayed value so the
+    // deep-gutter offset is actually exercised.
+    while state.reader_state().unwrap().advance_display() {}
 
-    terminal
-        .draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, 160, 45));
-        })
-        .unwrap();
+    draw_reader(&state, &mut terminal, 160, 45);
 
     let placements = state.reader_placements();
     // DEFECT REPRODUCTION:
     // Placements should NEVER be empty while navigating valid pages!
-    // But currently, Row 0 is 0 rows and Row 1 is skipped because row_occupied_cells_h == 0,
-    // resulting in placements.is_empty() == true (dark blank screen)!
+    // Row 0 would be 0 rows and Row 1 would be skipped because
+    // row_occupied_cells_h == 0, resulting in a dark blank screen.
     assert!(
         !placements.is_empty(),
-        "Placements must not be empty when scrolled into gutter! Current count: 0 (DARK SCREEN DEFECT)"
+        "Placements must not be empty when scrolled into gutter! (DARK SCREEN DEFECT)"
     );
 }
 
 #[test]
 fn test_reproduce_horizontal_arrow_right_page_shift() {
-    use ratatui::backend::TestBackend;
-    use ratatui::layout::Rect;
-    use ratatui::Terminal;
-
     // Test a common terminal size, e.g. 160x45 or 120x40
     for &(w, h) in &[(160, 45), (140, 40), (120, 35), (180, 50)] {
-        let backend = TestBackend::new(w, h);
-        let mut terminal = Terminal::new(backend).unwrap();
-
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         let mut state = PresentationState::new(10, vec![]);
         state.update_layout_dimensions(w, h);
         state.enable_reader_mode(10, vec![(612.0, 792.0); 10]);
 
-        terminal.draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, w, h));
-        }).unwrap();
+        draw_reader(&state, &mut terminal, w, h);
 
         let p0 = state.reader_placements();
         let max_row_x = state.reader_state().unwrap().max_row_scroll_x();
@@ -562,9 +530,7 @@ fn test_reproduce_horizontal_arrow_right_page_shift() {
         assert_eq!(action, AppAction::SlideChanged);
         assert_eq!(state.reader_state().unwrap().anchor, 2);
 
-        terminal.draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, w, h));
-        }).unwrap();
+        draw_reader(&state, &mut terminal, w, h);
         let p1 = state.reader_placements();
         assert_eq!(p1[0].page, 2);
         assert_eq!(p1[0].pixel_src.x, 0);
@@ -574,12 +540,57 @@ fn test_reproduce_horizontal_arrow_right_page_shift() {
         assert_eq!(action_l, AppAction::SlideChanged);
         assert_eq!(state.reader_state().unwrap().anchor, 0);
 
-        terminal.draw(|f| {
-            kitty_pptx_tui::app::ui::render_reader(&state, f, Rect::new(0, 0, w, h));
-        }).unwrap();
+        draw_reader(&state, &mut terminal, w, h);
         let p2 = state.reader_placements();
         assert_eq!(p2[0].page, 0);
         assert_eq!(p2[0].pixel_src.x, 0);
     }
 }
 
+#[test]
+fn test_reader_mouse_wheel_scroll_direction() {
+    let wheel = |kind| MouseEvent { kind, column: 0, row: 0, modifiers: KeyModifiers::NONE };
+    let mut state = reader_state(10);
+
+    // Wheel-down scrolls forward through the same path as j.
+    let action = handle_reader_mouse(wheel(MouseEventKind::ScrollDown), &mut state);
+    assert_eq!(action, AppAction::Redraw);
+    assert!(state.reader_state().unwrap().scroll_px > 0, "wheel-down grows the scroll target");
+
+    // Wheel-up scrolls back to the origin.
+    let action = handle_reader_mouse(wheel(MouseEventKind::ScrollUp), &mut state);
+    assert_eq!(action, AppAction::Redraw);
+    assert!(state.reader_state().unwrap().scroll_px == 0, "wheel-up returns the target to the origin");
+
+    // Non-wheel kinds are ignored.
+    assert_eq!(
+        handle_reader_mouse(wheel(MouseEventKind::Down(MouseButton::Left)), &mut state),
+        AppAction::None
+    );
+}
+
+#[test]
+fn test_advance_display_converges_to_target() {
+    let mut reader = ReaderState::new(4, vec![(612.0, 792.0); 4]);
+
+    // Exponential approach snaps within a bounded number of frames; the
+    // loop needs no sleeping because advance_display is deterministic.
+    reader.scroll_px = 900;
+    assert!(reader.is_animating(), "target set, displayed value lags");
+    let mut frames = 0;
+    while reader.advance_display() && frames < 1_000 {
+        frames += 1;
+    }
+    assert!(frames < 100, "converges in a small number of frames, got {frames}");
+    assert!(!reader.is_animating());
+    assert_eq!(reader.displayed_scroll_px(), 900.0);
+
+    // Reverse direction (back to the origin) converges as well.
+    reader.scroll_px = 0;
+    let mut back_frames = 0;
+    while reader.advance_display() && back_frames < 1_000 {
+        back_frames += 1;
+    }
+    assert_eq!(reader.displayed_scroll_px(), 0.0);
+    assert!(!reader.is_animating());
+}

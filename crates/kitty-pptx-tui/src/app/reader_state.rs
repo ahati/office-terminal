@@ -1,6 +1,10 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+
+use kitty_pptx_core::RenderTargetSpec;
+
+use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
 
 pub use crate::app::reader_types::*;
 
@@ -14,7 +18,12 @@ pub struct ReaderState {
     pub focus: Slot,
     pub sync: bool,
     pub cover_alone: bool,
+    /// Vertical scroll target in pixels (anchor advancement keys off this).
     pub scroll_px: i64,
+    /// Scroll offset currently shown on screen (f32 bits in an atomic so the
+    /// immutable render path can advance it once per frame). Converges toward
+    /// [`ReaderState::scroll_px`] via [`ReaderState::advance_display`].
+    displayed_scroll_px: Arc<AtomicU32>,
     pub num_columns: Arc<AtomicUsize>,
     pub focused_slot: usize,
     pub row_scroll_x: Arc<AtomicI64>,
@@ -36,6 +45,7 @@ impl ReaderState {
             sync: true,
             cover_alone: false,
             scroll_px: 0,
+            displayed_scroll_px: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             num_columns: Arc::new(AtomicUsize::new(2)),
             focused_slot: 0,
             row_scroll_x: Arc::new(AtomicI64::new(0)),
@@ -81,6 +91,132 @@ impl ReaderState {
             scroll_x: 0,
             scroll_y: 0,
         })
+    }
+
+    // ─── Smoothed scroll display ───────────────────────────────────────
+
+    /// Scroll offset currently shown on screen. The smoothing target is
+    /// [`ReaderState::scroll_px`].
+    pub fn displayed_scroll_px(&self) -> f32 {
+        f32::from_bits(self.displayed_scroll_px.load(Ordering::Relaxed))
+    }
+
+    fn set_displayed_scroll_px(&self, value: f32) {
+        self.displayed_scroll_px
+            .store(value.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Shifts the displayed scroll by the same amount the target wrapped when
+    /// the anchor advanced, keeping the on-screen content position continuous
+    /// across row transitions (see `reader_scroll`).
+    pub(crate) fn shift_displayed_scroll_px(&self, delta_px: f32) {
+        self.set_displayed_scroll_px(self.displayed_scroll_px() + delta_px);
+    }
+
+    /// Snaps the displayed scroll onto its target (discrete navigation:
+    /// layout toggles, row jumps and page jumps must not glide).
+    fn snap_display(&mut self) {
+        self.set_displayed_scroll_px(self.scroll_px as f32);
+    }
+
+    /// Advances the displayed scroll toward its target with an exponential
+    /// approach (~35% of the remaining distance per frame, snapping below
+    /// 1 px). Called once per frame by the reader render path; the value
+    /// lives behind an atomic because the renderer only sees `&self`.
+    /// Returns whether the displayed value moved this frame.
+    pub fn advance_display(&self) -> bool {
+        let target = self.scroll_px as f32;
+        let displayed = self.displayed_scroll_px();
+        let delta = target - displayed;
+        if delta.abs() < 1.0 {
+            if displayed == target {
+                return false;
+            }
+            self.set_displayed_scroll_px(target);
+            return true;
+        }
+        self.set_displayed_scroll_px(displayed + delta * 0.35);
+        true
+    }
+
+    /// Whether the displayed scroll is still converging toward its target
+    /// (the event loop should keep ticking while this is true).
+    pub fn is_animating(&self) -> bool {
+        (self.displayed_scroll_px() - self.scroll_px as f32).abs() >= 1.0
+    }
+
+    // ─── Shared pane geometry (PRD 14a §6) ─────────────────────────────
+
+    /// Base pane size in pixels for `page` under its current fit mode, before
+    /// zoom is applied. Returns `(width_px, height_px)`.
+    ///
+    /// Single source of truth for the FitWidth/FitPage fit formula shared by
+    /// the row renderer (`ui::reader`), pane metrics (`ui::reader_layout`)
+    /// and the scroll math (`reader_scroll`, `reader_events`).
+    pub fn pane_fit(&self, page: usize, viewport_h_px: f32, slot_w_px: f32) -> (f32, f32) {
+        let (pt_w, pt_h) = self.page_size_pt(page);
+        let ar = (pt_w / pt_h).max(0.1);
+        match self.page_view(page).fit {
+            ReaderFitMode::FitWidth => (slot_w_px, slot_w_px / ar),
+            ReaderFitMode::FitPage => {
+                let h = viewport_h_px.min(slot_w_px / ar);
+                (h * ar, h)
+            }
+        }
+    }
+
+    /// Canonical raster target for `page`: 2560 px wide, aspect-true height
+    /// clamped to the rasterizer's supported range.
+    ///
+    /// Shared by the pane layout and the prefetch planner so staged rasters
+    /// always match placement lookups, including mixed-size documents.
+    pub fn page_render_target(&self, page: usize) -> RenderTargetSpec {
+        let (pt_w, pt_h) = self.page_size_pt(page);
+        let ar = (pt_w / pt_h).max(0.1);
+        let width_px = 2560u32;
+        let height_px = ((width_px as f32 / ar).round() as u32).clamp(1024, 8192);
+        RenderTargetSpec {
+            width_px,
+            height_px,
+        }
+    }
+
+    /// Total stride in pixels of the current row, including the inter-row
+    /// vertical gutter.
+    ///
+    /// Unlike [`ReaderState::current_row_stride_px`] this takes the slot
+    /// width directly, so callers that already computed it (the row
+    /// renderer) do not re-derive it. `cell_w_px` is accepted for signature
+    /// symmetry with [`ReaderState::scroll_step_px`].
+    pub fn row_stride_px(
+        &self,
+        viewport_h_px: f32,
+        slot_w_px: f32,
+        _cell_w_px: f32,
+        cell_h_px: f32,
+    ) -> f32 {
+        let mut max_h = 0.0f32;
+        for page in self.visible_pages() {
+            let (_, base_h) = self.pane_fit(page, viewport_h_px, slot_w_px);
+            let h = base_h * self.page_view(page).zoom;
+            if h > max_h {
+                max_h = h;
+            }
+        }
+        max_h.max(10.0) + (VERTICAL_GUTTER_ROWS as f32) * cell_h_px
+    }
+
+    /// One-eighth of the current row stride, floored at 24 px so every
+    /// continuous-scroll key press moves a visible distance.
+    pub fn scroll_step_px(
+        &self,
+        viewport_h_px: f32,
+        slot_w_px: f32,
+        cell_w_px: f32,
+        cell_h_px: f32,
+    ) -> i64 {
+        let stride = self.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
+        ((stride / 8.0).round() as i64).max(24)
     }
 
     pub fn set_num_columns(&self, cols: usize) {
@@ -242,6 +378,7 @@ impl ReaderState {
     pub fn reset_view(&mut self) {
         self.default_zoom = 1.0;
         self.scroll_px = 0;
+        self.snap_display();
         self.set_row_scroll_x(0);
         if self.sync {
             for view in self.views.values_mut() {
@@ -282,6 +419,7 @@ impl ReaderState {
             ReaderLayout::Horizontal => ReaderLayout::Spread,
         };
         self.scroll_px = 0;
+        self.snap_display();
         self.set_row_scroll_x(0);
         self.set_max_row_scroll_x(0);
     }
@@ -293,6 +431,7 @@ impl ReaderState {
             ReaderLayout::Horizontal
         };
         self.scroll_px = 0;
+        self.snap_display();
         self.set_row_scroll_x(0);
         self.set_max_row_scroll_x(0);
     }
@@ -300,12 +439,14 @@ impl ReaderState {
     pub fn toggle_cover_alone(&mut self) {
         self.cover_alone = !self.cover_alone;
         self.scroll_px = 0;
+        self.snap_display();
         self.set_row_scroll_x(0);
         self.set_max_row_scroll_x(0);
     }
 
     pub fn next_row(&mut self) {
         self.scroll_px = 0;
+        self.snap_display();
         if self.total_pages == 0 {
             return;
         }
@@ -329,6 +470,7 @@ impl ReaderState {
 
     pub fn prev_row(&mut self) {
         self.scroll_px = 0;
+        self.snap_display();
         let step = self.effective_columns();
         match self.layout {
             ReaderLayout::Single => {
@@ -349,6 +491,7 @@ impl ReaderState {
 
     pub fn jump_to_page(&mut self, page_0based: usize) {
         self.scroll_px = 0;
+        self.snap_display();
         self.set_row_scroll_x(0);
         if self.total_pages == 0 {
             return;
