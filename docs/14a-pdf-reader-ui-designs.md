@@ -312,7 +312,7 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 │          │                          │            │   console / sorter / blank
 │          └──────────────────────────┘            │   all available as-is
 │                                                  │
-│ deck.pdf · slide 12/30 · q:help                  │
+│ deck.pdf · slide 12/30 · ?:help · q:quit                  │
 ```
 
 ### 9.2 Reader, Spread, fit-width — both pages fit
@@ -325,7 +325,7 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 │ █                      █  │ █                     █ │
 │ █                      █  │ █                     █ │
 └────────────────────────┘  └───────────────────────┘
- report.pdf · spread 6–7/240 · 12% · fit:width 100% · focus:L · sync:on · q:help
+ report.pdf · spread 6–7/240 · 12% · fit:width 100% · focus:L · sync:on · ?:help · q:quit
 ```
 
 ### 9.3 Reader, Spread, zoomed — right page clipped (overflow pan policy)
@@ -338,7 +338,7 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 │ █  …                          █  │ █             ││   h/l pans it
 │ █                             █  │ █             ││
 └───────────────────────────────┘  └───────────────│
- report.pdf · spread 6–7/240 · fit:width 160% · focus:L · sync:off · q:help
+ report.pdf · spread 6–7/240 · fit:width 160% · focus:L · sync:off · ?:help · q:quit
  (left page: fully visible at zoom; right page: partial — pan with h/l)
 ```
 
@@ -353,13 +353,18 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 │ █                     █  │ └────────────────────┘ █ │
 │ █                     █  │                        █ │
 └───────────────────────┘  └────────────────────────┘
- report.pdf · spread 34–35/240 · fit:width 100% · focus:L · sync:on · q:help
+ report.pdf · spread 34–35/240 · fit:width 100% · focus:L · sync:on · ?:help · q:quit
 ```
 
 ### 9.5 Status bar grammar (one row, existing chrome slot)
 
 ```
-<file> · [spread <l>–<r>|p.<n>] /<total> · <scroll %> · fit:<mode> <zoom%> · focus:<L|R> · sync:<on|off> [· cover:<on>] · q:help
+<file> · [spread <l>–<r>|p.<n>] /<total> · <scroll %> · fit:<mode> <zoom%> · focus:<L|R> · sync:<on|off> [· cover:<on>] · ?:help · q:quit
+
+Everything on the bar is a segment joined by the one `·` separator
+(the optional `cover:on` and the key hints join like any other — the
+joiner owns the single policy; hints are the keymap's §10 `key:action`
+pairs).
 ```
 
 Find/TOC/help overlays open **over** the reader exactly as over fullscreen (centered modal, dimmed base); find hits highlight on the ratatui layer with page+jump navigation, using the `SearchCorpus` boxes ([PRD 14](./14-pdf-input-support.md) §5.4). The TOC modal numbers outline nodes by their tree position (`1`, `1.1`, `1.1.1`, …) and renders `2.1 Sub Chapter [64]` with the page column right-aligned to the document's widest page number.

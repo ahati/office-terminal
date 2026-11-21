@@ -8,10 +8,12 @@
 //! * [`anim`] — smoothed scroll display (the `Arc<AtomicU32>` dance: the
 //!   immutable render path advances the displayed offset once per frame),
 //! * [`views`] — the per-`PageView` map (fit cycling, zoom adjustment,
-//!   view reset, apply-zoom-to-all).
+//!   view reset, apply-zoom-to-all),
+//! * [`status`] — the status bar: `·`-joined segments and the key hints.
 //!
-//! Both are plain `impl ReaderState` continuation blocks, following the same
+//! All are plain `impl ReaderState` continuation blocks, following the same
 //! pattern as [`crate::app::reader_scroll`].
 
 mod anim;
+mod status;
 mod views;

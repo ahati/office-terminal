@@ -39,12 +39,12 @@ fn test_reader_status_line_format() {
     reader.next_row(); // spread [2, 3] -> 1-based "spread 3-4"
 
     let status = reader.status_line("report.pdf", &[], 2);
-    assert!(status.contains("report.pdf"));
-    assert!(status.contains("spread 3-4/10"));
-    assert!(status.contains("fit:page 100%"));
-    assert!(status.contains("focus:L"));
-    assert!(status.contains("sync:on"));
-    assert!(status.contains("q:help"));
+    // Full-line golden: everything is a segment joined by the one `·`
+    // policy — the exact separator contract.
+    assert_eq!(
+        status,
+        "report.pdf · spread 3-4/10 · fit:page 100% · focus:L · sync:on · ?:help · q:quit"
+    );
 }
 
 #[test]
@@ -74,5 +74,19 @@ fn test_status_line_uses_primary_placements_at_zoom_0_5() {
     assert!(
         !status.contains("spread 1-8"),
         "Status line must NOT include the preview row (pages 5-8) in the label"
+    );
+}
+
+#[test]
+fn the_optional_cover_segment_joins_like_any_other() {
+    let page_sizes = vec![(612.0, 792.0); 10];
+    let mut reader = ReaderState::new(10, page_sizes);
+    reader.cover_alone = true;
+
+    let status = reader.status_line("book.pdf", &[], 2);
+    assert_eq!(
+        status,
+        "book.pdf · p.1/10 · fit:page 100% · focus:L · sync:on · cover:on · ?:help · q:quit",
+        "cover:on and the hints join like every other segment; one separator policy"
     );
 }
