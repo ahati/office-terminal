@@ -189,16 +189,24 @@ Zoom and fit changes invalidate that page's raster at the new scale class and re
 ```
 viewport_w_px, viewport_h_px   from the live cell probe (§8)
 gutter_cols  = 2
-slot_w_px    = (viewport_w_px − gutter_cols·cell_w_px) / 2      // fit-width basis
-row_w_px     = Σ pane_w + (panes − 1) · gutter                  // the drawn row
-row.x_px     = max(0, (viewport_w_px − row_w_px) / 2)            // CENTERED anchor
-right.x_px   = left.x_px + left.w_px + gutter_cols·cell_w_px
+box_w_px     = fit width of the DOMINANT page at the current zoom   // the column box
+grid_w_px    = N · box_w_px + (N − 1) · gutter                  // the column grid
+grid.x_px    = max(0, (viewport_w_px − grid_w_px) / 2)            // CENTERED anchor
+pane_i.x_px  = grid.x_px + i·(box_w_px + gutter) + (box_w_px − pane_i.w) / 2
 ```
 
-- A row **narrower than the viewport is centered as a unit**: the leftover
-  horizontal space splits evenly on both sides instead of piling up on the
-  right. The left pane is always fully horizontally visible at its fit
-  width; panes are never auto-shrunk to fill the gap.
+- The column grid is **stable per document**: boxes are sized by the
+  dominant (majority) page, so every row — and the row peeking in from
+  below during a continuous scroll — sits at identical x positions. Pages
+  glide straight up; nothing shuffles sideways at an anchor flip.
+- Each pane **centers in its box**; a pane never exceeds its box at fit
+  (FitPage containment, §6.4). Uniform documents reduce to the classic
+  centered row: box = the page's own fit width, so panes sit edge to edge
+  with one gutter between them.
+- Rows whose panes overflow their boxes (FitWidth zoomed past the slot,
+  per-page zoom with `sync` off) keep the flush-left content walk and its
+  horizontal pan window (`h/l`); a walk narrower than the viewport still
+  centers as a unit.
 - The **right page may or may not fit fully** — by policy (§5, pillar 2). When `right.x + right.w > viewport_w`, the right pane is clipped at the viewport edge; `h/l` on the focused right pane pans within its content (the left pane never moves).
 - Row height = `max(left.h, right.h)`; a shorter pane is **top-aligned** within the row (reading flow), leaving blank space below — never stretched.
 
@@ -214,7 +222,7 @@ At fit-width, panes don't overflow horizontally. Zoom multiplies the render size
 render_w_px(page) = slot_w_px · zoom(page)        // Spread; Single: viewport basis
 ```
 
-**The column plan re-evaluates on every zoom step.** The renderer recomputes how many panes fit per row from the anchor page's *zoomed* width each frame (same formula as §6.1, `page_w = viewport_h · ar · zoom`, clamped `1..=6`): zooming in reflows to fewer columns — a 2-up row drops to 1-up as soon as the zoomed pair would overflow — and zooming out packs more pages per row. When a reflow would push the focused page out of the narrower row, the focused page becomes the new row lead (page-turn snap), so the zoom always follows the page under the cursor. Zooming out only adds columns, so it never moves the anchor.
+**The column plan re-evaluates on every zoom step.** The renderer recomputes how many panes fit per row from the document's *dominant* page at the current zoom each frame (same formula as §6.1, `page_w = viewport_h · dom_ar · zoom`, clamped `1..=6`): zooming in reflows to fewer columns — a 2-up row drops to 1-up as soon as the zoomed pair would overflow — and zooming out packs more pages per row. The dominant basis keeps the plan stable across mixed-orientation documents (§6.4): a landscape page never re-plans the row just because it happens to lead. When a reflow would push the focused page out of the narrower row, the focused page becomes the new row lead (page-turn snap), so the zoom always follows the page under the cursor. Zooming out only adds columns, so it never moves the anchor.
 
 - `zoom > 1`: the focused page re-renders at the higher scale class (per [PRD 14](./14-pdf-input-support.md) §3.2 hi-res recompile), the row reflows to fewer columns as above, and the **viewport shows a window into the larger bitmap** — vertical scroll and horizontal pan move the window (`src.x`, `src.y` in §3.1).
 - `zoom < 1`: the page shrinks inside its slot (centered vertically-top, horizontally-center); the spread may then fit both pages with room — fine.
@@ -222,11 +230,12 @@ render_w_px(page) = slot_w_px · zoom(page)        // Spread; Single: viewport b
 
 ### 6.4 Per-page orientation and size (mixed geometry)
 
-Every pane box derives from **that page's** effective dimensions (§2.1):
+Rows pair **consecutive physical page indices** on the §6.1 column grid — the grid is derived from the document's *dominant* (majority) page, never re-planned per row:
 
-- Portrait page in portrait flow: fit-width in its slot — the standard case.
-- **Landscape page in a portrait flow** (the mid-document rotated figure, §2.3): **contained** in the slot box (aspect preserved, width-limited, hence shorter), top-aligned. Never cropped, never rotated again — `/Rotate` is already folded in.
-- Mixed sizes (A4 + A3 appendix): each pane sizes independently; pairing is by consecutive physical page index, not by visual height.
+- Portrait page in portrait flow: fills its column box — the standard case.
+- **Landscape page in a portrait flow** (the mid-document rotated figure, §2.3): **contained in its column box** (aspect preserved, width-limited, hence shorter), top-aligned, beside the following page — it never claims the whole row just because it leads, and it lands at exactly the columns the portrait pages use. Never cropped, never rotated again — `/Rotate` is already folded in.
+- Mixed sizes (A4 + A3 appendix): each pane sizes independently within its box; a shorter pane leaves blank space below (top-aligned, never stretched).
+- The row peeking in from below during a continuous scroll is laid out with the same grid, so it is exactly the row the anchor flips to — pages never vanish or jump at an orientation change.
 - Spread pairing: `(1)` alone if `cover_alone`, then `(2,3)`, `(4,5)`, … — book order, left = even display position, right = odd.
 
 ### 6.5 Continuous vertical flow

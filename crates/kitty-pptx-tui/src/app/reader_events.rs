@@ -242,7 +242,7 @@ fn column_step(state: &PresentationState, dir: i64) -> i64 {
         return 0;
     };
     let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(state);
-    let slot_w_px = reader.slot_width(viewport_w_px, cell_w_px);
+    let slot_w_px = reader.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
     dir * reader.scroll_step_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px)
 }
 
@@ -256,7 +256,7 @@ fn scroll_vertical(state: &mut PresentationState, delta_px: i64, idle: AppAction
     let mut anchor_changed = false;
     let mut moved = false;
     if let Some(reader) = state.reader_state_mut() {
-        let slot_w_px = reader.slot_width(viewport_w_px, cell_w_px);
+        let slot_w_px = reader.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         let row_stride = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
         let base_h = row_stride - (VERTICAL_GUTTER_ROWS as f32) * cell_h_px;
         let (ach, mv) = reader.scroll_column_detailed(delta_px, row_stride, base_h);
@@ -279,7 +279,7 @@ fn scroll_vertical(state: &mut PresentationState, delta_px: i64, idle: AppAction
 fn half_page_scroll(state: &mut PresentationState, dir: i64) -> AppAction {
     let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(state);
     if let Some(reader) = state.reader_state_mut() {
-        let slot_w_px = reader.slot_width(viewport_w_px, cell_w_px);
+        let slot_w_px = reader.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         let row_stride = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
         let base_h = row_stride - (VERTICAL_GUTTER_ROWS as f32) * cell_h_px;
         let step = ((viewport_h_px / 2.0).round() as i64).max(1);
@@ -458,8 +458,8 @@ fn reflow_row_after_view_change(state: &mut PresentationState) {
             viewport_cols,
             viewport_h_px,
             cell_w_px,
-            reader.page_size_pt(anchor),
-            reader.page_view(anchor).zoom,
+            reader.dominant_page_pt(),
+            reader.default_zoom,
         ) as usize;
         if focused >= anchor.saturating_add(planned) {
             // Page-turn snap onto the focused page as the new row lead.
