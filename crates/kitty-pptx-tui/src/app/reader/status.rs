@@ -6,7 +6,7 @@
 //! separator policy owned by the single joiner.
 
 use crate::app::reader_state::ReaderState;
-use crate::app::reader_types::{ReaderFitMode, ReaderLayout, ReaderSlotPlacement, Slot};
+use crate::app::reader_types::{ReaderFitMode, ReaderLayout, ReaderSlotPlacement};
 
 /// Separator between status segments — the one policy for the whole bar
 /// (PRD 14a §9 statusbar).
@@ -65,11 +65,6 @@ impl ReaderState {
             ReaderFitMode::FitPage => "page",
         };
         let zoom_pct = (view.zoom * 100.0).round() as u32;
-        let focus_side = match self.focus {
-            Slot::Left => "L",
-            Slot::Right => "R",
-        };
-        let sync_status = if self.sync { "on" } else { "off" };
 
         // Segments as data: the joiner owns the separator, so the optional
         // cover segment is a plain value, not a `·`-prefixed string.
@@ -77,8 +72,6 @@ impl ReaderState {
             filename.to_string(),
             format!("{page_label}/{}", self.total_pages()),
             format!("fit:{fit_label} {zoom_pct}%"),
-            format!("focus:{focus_side}"),
-            format!("sync:{sync_status}"),
         ];
         if self.layout == ReaderLayout::Spread && self.cover_alone {
             segments.push("cover:on".to_string());

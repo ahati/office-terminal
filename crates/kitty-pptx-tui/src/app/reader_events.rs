@@ -43,13 +43,6 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             }
             AppAction::Redraw
         }
-        KeyCode::Char('y') => {
-            if let Some(reader) = state.reader_state_mut() {
-                reader.set_sync(true);
-            }
-            AppAction::Redraw
-        }
-
         // Fit & Zoom
         KeyCode::Char('f') => {
             if let Some(reader) = state.reader_state_mut() {

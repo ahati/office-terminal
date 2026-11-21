@@ -2,8 +2,7 @@
 //!
 //! The views map (`page -> PageView`) is a lazily-populated LRU-ish cache:
 //! unseen pages resolve to a default view derived from the reader's default
-//! fit/zoom, and zoom adjustments either fan out across every cached view
-//! (`sync` on) or touch only the focused pane (`sync` off).
+//! fit/zoom, and zoom adjustments fan out across every cached view.
 
 use crate::app::reader_state::ReaderState;
 use crate::app::reader_types::{PageView, ReaderFitMode};
@@ -30,11 +29,7 @@ impl ReaderState {
     }
 
     pub fn cycle_fit(&mut self) {
-        let targets = if self.sync {
-            self.visible_pages()
-        } else {
-            vec![self.focused_page()]
-        };
+        let targets = self.visible_pages();
 
         for page in targets {
             let view = self.page_view_mut(page);
@@ -48,18 +43,12 @@ impl ReaderState {
     pub fn adjust_zoom(&mut self, factor: f32) {
         let new_zoom = (self.default_zoom * factor).clamp(0.1, 4.0);
         self.default_zoom = new_zoom;
-        if self.sync {
-            for view in self.views.values_mut() {
-                view.zoom = new_zoom;
-            }
-            for page in self.visible_pages() {
-                let view = self.page_view_mut(page);
-                view.zoom = new_zoom;
-            }
-        } else {
-            let page = self.focused_page();
+        for view in self.views.values_mut() {
+            view.zoom = new_zoom;
+        }
+        for page in self.visible_pages() {
             let view = self.page_view_mut(page);
-            view.zoom = (view.zoom * factor).clamp(0.1, 4.0);
+            view.zoom = new_zoom;
         }
     }
 
@@ -68,25 +57,14 @@ impl ReaderState {
         self.scroll_px = 0;
         self.snap_display();
         self.set_row_scroll_x(0);
-        if self.sync {
-            for view in self.views.values_mut() {
-                view.zoom = 1.0;
-                view.scroll_x = 0;
-                view.scroll_y = 0;
-            }
-            for page in self.visible_pages() {
-                let view = self.page_view_mut(page);
-                view.zoom = 1.0;
-                view.scroll_x = 0;
-                view.scroll_y = 0;
-            }
-        } else {
-            let page = self.focused_page();
-            let def_zoom = self.default_zoom;
-            let def_fit = self.default_fit;
+        for view in self.views.values_mut() {
+            view.zoom = 1.0;
+            view.scroll_x = 0;
+            view.scroll_y = 0;
+        }
+        for page in self.visible_pages() {
             let view = self.page_view_mut(page);
-            view.zoom = def_zoom;
-            view.fit = def_fit;
+            view.zoom = 1.0;
             view.scroll_x = 0;
             view.scroll_y = 0;
         }

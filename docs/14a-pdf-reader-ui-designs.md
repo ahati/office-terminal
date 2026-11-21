@@ -13,7 +13,7 @@ The presenter TUI is strictly **page-indexed**: `PresentationState::current_slid
 This PRD specifies the missing interaction layer:
 
 1. **Mode detection (§2)** — a deterministic classification from page geometry alone that decides whether a PDF opens in the existing **slide** UX or the new **reader**.
-2. **Reader mode (§4–§7)** — pages as **focusable panes**: side by side, **rows centered when narrower than the viewport** (§6.1), each independently zoomable and scrollable (with optional spread-wide synchronization).
+2. **Reader mode (§4–§7)** — pages as **focusable panes**: side by side, **rows centered when narrower than the viewport** (§6.1), each independently zoomable and scrollable, with fit and zoom applied across the visible row.
 3. **Fit & zoom correctness (§8)** — `fit-width`, `fit-page`, per-pane zoom ladders on live cell-pixel metrics.
 4. **Driver support (§3)** — sub-rect placements (Kitty source-rect `x,y,w,h`) so scrolling/panning re-places an already-transmitted page without re-encoding or flicker.
 5. **Slot & prefetch generalization (§9)** — windowed page residency with focus-aware priority.
@@ -138,7 +138,6 @@ pub struct ReaderState {
     pub default_fit: FitMode,        // FitWidth (default) | FitPage — for pages w/o override
     pub default_zoom: f32,           // 1.0 — multiplier over fit; ladder 0.1..=4.0 (NavState reuse)
     pub focus: Slot,                 // the focused pane; focus gates scroll/pan/zoom/fit
-    pub sync: bool,                  // default true: j/k and zoom apply to BOTH panes
     pub cover_alone: bool,           // Spread: page 1 shown solo
     views: LruCache<usize, PageView>,// per-page view state (bounded, §4.3)
 }
@@ -147,16 +146,16 @@ pub struct ReaderState {
 ### 4.1 Focus
 
 - Exactly one visible pane is **focused**. The status bar shows it (`focus:L` / `focus:R`), and nothing is drawn in or around the pages for focus: any line on, under or beside page content read as a rendering artifact (`Borders::BOTTOM` on the pane, then a gutter marker, both removed). No `─` glyph may appear in a reader frame.
-- `Tab` / `Shift-Tab` cycles focus between visible panes. **Focusing a pane turns `sync` off** — subsequent `j/k`, `h/l`, zoom and fit operations act on the focused pane only. `y` re-enables spread-wide synchronization.
+- `BackTab` / `w` / `\` cycles focus between visible panes. The focused pane is the **current page**: numeric jumps, TOC entries, the sorter grid and the zoom-reflow re-anchor land on it. (`Tab`/`t`/`s` open the sorter grid.)
 - On page turn, focus **stays on the same slot side** (reading a book, you keep your eye on the same side); the focused page's `PageView` is restored from the LRU (fresh pages start at top, default fit).
 
-### 4.2 Scroll, pan, zoom — all pane-local, sync-optional
+### 4.2 Scroll, pan, zoom — spread-wide
 
 | Operation | Acts on |
 | :--- | :--- |
-| Vertical scroll (`j/k/d/u`, wheel) | focused pane; both panes when `sync` (each clamped independently) |
+| Vertical scroll (`j/k/d/u`, wheel) | both panes of the visible row (each clamped independently) |
 | Horizontal pan (`h/l`) | focused pane — only meaningful when it overflows (§6.3); clamped to content |
-| Zoom (`+`/`−`) / fit cycle (`f`) / zoom reset (`=`) | focused pane; both when `sync` |
+| Zoom (`+`/`−`) / fit cycle (`f`) / zoom reset (`=`) | both panes of the visible row |
 | Zoom-all (`Z`) | apply the focused pane's zoom to every page (bulk override) |
 
 Zoom and fit changes invalidate that page's raster at the new scale class and re-stage (existing `ScaleChanged` path); scroll/pan **never** re-render — they re-place only (§3.1).
@@ -176,7 +175,7 @@ Zoom and fit changes invalidate that page's raster at the new scale class and re
 **The anchor flip is lag-compensated — in both directions, with per-row strides.** The anchor wraps when the scroll *target* crosses the row stride, and the wrap shifts the smoothed display by the same stride — so under continuous scrolling the display is still negative under the new anchor (it lags by the remaining glide distance). The renderer walks back, adding the stride of each row it steps into, while that holds: the frame is geometrically identical to the pre-wrap frame, so the flip is invisible. Retreats are the mirror image: a scroll-up wrap leaves the display *above* the retreated row's range, and the renderer walks forward, consuming the stride of each row it leaves. Because rows of a mixed-orientation document differ in height, every re-base — the advance wrap, the retreat wrap, and both render walks (including the deep-gutter stride) — consumes the stride of the row it steps into or out of, never a blanket stride. Without these the layout clamped the new row to the viewport top and the whole page jumped by the lag at every boundary — the transition flicker under a held key.
 2. **No shrinking, and no one-sided margins.** The reader **never shrinks pages below fit to force both spread pages on screen** — when a row overflows, the left page anchors at column 0 (always fully visible at fit) and the right page is clipped at the viewport edge, with panning to reveal it. When a row *fits*, it is centered (§6.1) so the slack splits evenly instead of piling up on the right.
 3. **Pixel-exact fit.** Pages render at exactly the terminal's pixel metrics for the chosen fit; a 1:1 source-to-screen mapping means scrolling never resamples.
-4. **Focus over modes.** One pane model, one keymap; focus + the `sync` flag compose into book behavior (synced spread) or diff-viewer behavior (independent panes) without separate modes.
+4. **Focus over modes.** One pane model, one keymap; focus marks the current page — the target of jumps, the sorter grid and the zoom-reflow re-anchor.
 5. **Progressive disclosure under slow renders.** Panes paint placeholders (aspect-correct silhouette + page number) the instant geometry is known; bitmaps arrive when the pipeline delivers (`NotLoaded → Rendering → Ready`).
 6. **Nothing new below `RgbaSlide`.** All changes sit in `kitty-pptx-display` (placement), `kitty-pptx-tui` (state/layout/keys), and pipeline *prefetch policy* — render backends untouched.
 
@@ -204,7 +203,7 @@ pane_i.x_px  = grid.x_px + i·(box_w_px + gutter) + (box_w_px − pane_i.w) / 2
   centered row: box = the page's own fit width, so panes sit edge to edge
   with one gutter between them.
 - Rows whose panes overflow their boxes (FitWidth zoomed past the slot,
-  per-page zoom with `sync` off) keep the flush-left content walk and its
+  per-page zoom that outgrows its box) keep the flush-left content walk and its
   horizontal pan window (`h/l`); a walk narrower than the viewport still
   centers as a unit.
 - The **right page may or may not fit fully** — by policy (§5, pillar 2). When `right.x + right.w > viewport_w`, the right pane is clipped at the viewport edge; `h/l` on the focused right pane pans within its content (the left pane never moves).
@@ -325,7 +324,7 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 │ █                      █  │ █                     █ │
 │ █                      █  │ █                     █ │
 └────────────────────────┘  └───────────────────────┘
- report.pdf · spread 6–7/240 · 12% · fit:width 100% · focus:L · sync:on · ?:help · q:quit
+ report.pdf · spread 6–7/240 · 12% · fit:width 100% · ?:help · q:quit
 ```
 
 ### 9.3 Reader, Spread, zoomed — right page clipped (overflow pan policy)
@@ -338,7 +337,7 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 │ █  …                          █  │ █             ││   h/l pans it
 │ █                             █  │ █             ││
 └───────────────────────────────┘  └───────────────│
- report.pdf · spread 6–7/240 · fit:width 160% · focus:L · sync:off · ?:help · q:quit
+ report.pdf · spread 6–7/240 · fit:width 160% · ?:help · q:quit
  (left page: fully visible at zoom; right page: partial — pan with h/l)
 ```
 
@@ -353,13 +352,13 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
 │ █                     █  │ └────────────────────┘ █ │
 │ █                     █  │                        █ │
 └───────────────────────┘  └────────────────────────┘
- report.pdf · spread 34–35/240 · fit:width 100% · focus:L · sync:on · ?:help · q:quit
+ report.pdf · spread 34–35/240 · fit:width 100% · ?:help · q:quit
 ```
 
 ### 9.5 Status bar grammar (one row, existing chrome slot)
 
 ```
-<file> · [spread <l>–<r>|p.<n>] /<total> · <scroll %> · fit:<mode> <zoom%> · focus:<L|R> · sync:<on|off> [· cover:<on>] · ?:help · q:quit
+<file> · [spread <l>–<r>|p.<n>] /<total> · <scroll %> · fit:<mode> <zoom%> [· cover:<on>] · ?:help · q:quit
 
 Everything on the bar is a segment joined by the one `·` separator
 (the optional `cover:on` and the key hints join like any other — the
@@ -381,13 +380,12 @@ Find/TOC/help overlays open **over** the reader exactly as over fullscreen (cent
 | `←` / `→` | prev/next slide | **slide row horizontally** (when zoomed/overflow) / **prev, next row** (at fit) |
 | `h` / `l` | — | **pan horizontally** (Spread/Single) / **slide continuous** (Horizontal mode) |
 | `H` | — | **toggle Horizontal slide flow** ↔ Spread |
-| `Tab` / `Shift-Tab` / `w` / `\` | — | **cycle pane focus** |
-| `y` | — | re-enable spread-wide `sync` (scroll + zoom) |
+| `BackTab` / `w` / `\` | — | **cycle pane focus** (marks the current page) |
 | `PgDn`/`PgUp`, `Space`, `Enter`, `n`, `p` | slide step | **row/page turn** (focus keeps its side, h-scroll preserved) |
 | `g` / `G` | first/last slide | first / last page — in Horizontal mode the **centered rest positions** (§6.6: start rest / end clamp) |
 | `N` + `Enter` | jump slide | jump to page `N` (its row, top) |
 | `f` | — | cycle fit of focused pane: width → page |
-| `+` / `−` | zoom ladder | zoom ladder, **focused pane** (both if `sync`) — every step **reflows the column plan** (§6.3); the last `−` **hands off to the sorter** at the floor |
+| `+` / `−` | zoom ladder | zoom ladder, row-wide — every step **reflows the column plan** (§6.3); the last `−` **hands off to the sorter** at the floor |
 | `=` | — | reset focused pane to fit + top (resets h-scroll) |
 | `Z` | — | apply focused zoom to all pages (new default) |
 | `2` | — | toggle Spread ↔ Single |
@@ -410,7 +408,7 @@ Find/TOC/help overlays open **over** the reader exactly as over fullscreen (cent
 | Mode detection | deterministic, metadata-only | L1 table tests: §2 matrix incl. portrait-majority, mid-rotated pages both ways, A4-landscape uniform, near-square, single page, 10 % outliers, mixed sizes |
 | Resize | ≤ existing resize path | comparative harness |
 
-Test levels (PRD 07): L1 unit — classifier table (above), pane math (slot boxes, clamping, cover-alone pairing, LRU restore, zoom class snapping); L2 layout goldens — placement plans as JSON traces (cell rects + `src` rects per scroll/pan/focus scenario, incl. right-pane clipping); L2a scene goldens — PDF corpus ([PRD 14](./14-pdf-input-support.md) P5); L3 protocol goldens — `CellsSubrect` escapes incl. re-place without re-transmit; L4 interaction — the keymap table, focus/sync semantics, coalescing; L5 live-terminal matrix — kitty/ghostty/wezterm movement smoothness + `d=a` teardown cleanliness.
+Test levels (PRD 07): L1 unit — classifier table (above), pane math (slot boxes, clamping, cover-alone pairing, LRU restore, zoom class snapping); L2 layout goldens — placement plans as JSON traces (cell rects + `src` rects per scroll/pan/focus scenario, incl. right-pane clipping); L2a scene goldens — PDF corpus ([PRD 14](./14-pdf-input-support.md) P5); L3 protocol goldens — `CellsSubrect` escapes incl. re-place without re-transmit; L4 interaction — the keymap table, focus semantics, coalescing; L5 live-terminal matrix — kitty/ghostty/wezterm movement smoothness + `d=a` teardown cleanliness.
 
 ---
 
@@ -420,7 +418,7 @@ Test levels (PRD 07): L1 unit — classifier table (above), pane math (slot boxe
 | :--- | :--- | :--- |
 | **R0** | Driver: `Placement::CellsSubrect`, placement-id emission, probe wiring, fit unit fix | L3 goldens for subrect place/re-place; `fit:width` pixel-exact on live kitty |
 | **R1** | Mode detection (§2) + Single-pane continuous reader (state, column, windowed slots, scroll, status bar) | classifier L1 suite green; NFR table on 240-page portrait fixture; D2 deck opens in **unchanged** slide UX |
-| **R2** | Spread: centered rows (§6.1) + left-anchored overflow, right-clip policy, focus + `sync`, per-page zoom/pan, cover-alone | §9.3/§9.4 goldens; focus/sync L4 suite; uneven-size fixture |
+| **R2** | Spread: centered rows (§6.1) + left-anchored overflow, right-clip policy, focus (current-page marker), per-page zoom/pan, cover-alone | §9.3/§9.4 goldens; uneven-size fixture |
 | **R3** | Find/TOC/link-picker composition over reader; page-label display | L4 suite |
 | **R4** | Wheel scroll + Ctrl-wheel zoom; scale-class resize reuse | L5 live matrix |
 
@@ -431,7 +429,7 @@ R0 is a prerequisite of [PRD 14](./14-pdf-input-support.md) P2 (the reader ships
 ## 13. Open Questions
 
 1. Smooth (pixel-wise, timer-driven) scroll vs discrete-step as default? (Discrete ships first; optional `--smooth` later.)
-2. When the focused pane hits its bottom and `j` continues, should the view flow into the next row automatically (continuous feel) or stop (explicit page turns only)? Proposal: flow when `sync` is on, stop when off.
+2. When the focused pane hits its bottom and `j` continues, should the view flow into the next row automatically (continuous feel) or stop (explicit page turns only)? Resolved: flow — the continuous column ships unconditionally.
 3. Should `Z` (zoom-all) also reset per-page `PageView` overrides, or merge with them? Proposal: reset (it declares a new baseline).
 4. Mouse drag-to-pan policy over the Kitty placement layer (threshold, pointer capture).
 5. Page-label vs physical-index display priority in the status bar (ties to [PRD 14](./14-pdf-input-support.md) §12.4).

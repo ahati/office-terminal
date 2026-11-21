@@ -46,7 +46,6 @@ fn test_reader_state_initialization() {
     assert_eq!(reader.focus, Slot::Left);
     assert_eq!(reader.default_fit, ReaderFitMode::FitPage);
     assert_eq!(reader.default_zoom, 1.0);
-    assert!(reader.sync);
     assert!(!reader.cover_alone);
 
     // Initial pages: side-by-side spread [0, 1]
