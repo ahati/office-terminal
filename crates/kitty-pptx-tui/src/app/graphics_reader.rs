@@ -284,16 +284,17 @@ impl ReaderGraphicsSyncer {
                     state.clear_render_failure_for(page);
                 }
                 PipelineEntry::Rendering | PipelineEntry::NotLoaded => {
-                    // If this pane still shows another page, release it so
-                    // stale pages are never shown during page turns (P1-2).
-                    // After an id swap the pane's bitmap can live in a slot
-                    // other than its nominal one, so both the nominal slot
-                    // and any placement sitting on this pane's rect go.
-                    let mut stale = Vec::new();
-                    for (idx, slot) in self.slots.iter_mut().enumerate() {
-                        if !slot.staged().is_some_and(|staged| staged.page != page) {
-                            continue;
-                        }
+                    // Keep whatever the pane is displaying until this page's
+                    // raster is Ready — the same rule the slide views follow
+                    // ("page turns keep the previous slide on screen until
+                    // the worker completion event lands"). Releasing it here
+                    // would blank the pane for the whole raster window: the
+                    // transition flicker when a held key outruns the
+                    // rasterizer. The Ready path swaps atomically (present
+                    // first, release after), so the previous image is
+                    // replaced, never interrupted. Mark the displaying slot
+                    // active so this pass's out-of-window cleanup spares it.
+                    for (idx, slot) in self.slots.iter().enumerate() {
                         let on_pane_rect = slot.placed().is_some_and(|placed| {
                             matches!(
                                 placed.key,
@@ -301,22 +302,8 @@ impl ReaderGraphicsSyncer {
                                     if rect == placement.cell_rect
                             )
                         });
-                        if idx == preferred_idx || on_pane_rect {
-                            if let Some(placed) = slot.take_placed() {
-                                stale.push(placed.id);
-                            }
-                        }
-                    }
-                    for id in stale {
-                        let _ = driver.release(id);
-                        // The released image is gone from the terminal, so its
-                        // staged record must go too: a later frame for that
-                        // page would find it via `staged_equivalent` and
-                        // place a deleted image (a blank pane).
-                        for slot in &mut self.slots {
-                            if slot.staged_holds(id) {
-                                slot.take_staged();
-                            }
+                        if on_pane_rect {
+                            active_slots[idx] = true;
                         }
                     }
                 }

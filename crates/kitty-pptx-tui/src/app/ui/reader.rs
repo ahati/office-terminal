@@ -205,17 +205,46 @@ pub fn render_reader(
     // displayed + stride) is geometrically identical to the pre-wrap frame,
     // so the flip is invisible and the new row slides exactly as far as the
     // display has actually scrolled.
-    let row_stride_px = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
     let mut displayed = reader.displayed_scroll_px();
     let mut render_anchor = reader.anchor;
+    // Advance flips leave the display below the new row's range: step back,
+    // adding the stride of each row stepped INTO (the same stride the wrap
+    // subtracted), so the frame renders the pre-wrap geometry exactly.
     while displayed < 0.0 {
         let prev = prev_row_anchor(reader, render_anchor);
         if prev == render_anchor {
             displayed = 0.0;
             break;
         }
+        displayed += reader.row_stride_for_anchor(
+            prev,
+            viewport_h_px,
+            slot_w_px,
+            cell_w_px,
+            cell_h_px,
+        );
         render_anchor = prev;
-        displayed += row_stride_px;
+    }
+    // Retreat flips (scrolling up) leave the display ABOVE the new row's
+    // range — the same lag, mirrored. Without the forward walk the layout
+    // clamps the retreated row to the viewport top and the whole page
+    // jumps by the lag at every upward boundary (the transition flicker).
+    // Step forward, consuming the stride of each row LEFT, until the
+    // display lands inside the row it names.
+    while displayed > 0.0 {
+        let leaving = reader.row_stride_for_anchor(
+            render_anchor,
+            viewport_h_px,
+            slot_w_px,
+            cell_w_px,
+            cell_h_px,
+        );
+        let next = next_row_anchor(reader, render_anchor);
+        if displayed < leaving || next == render_anchor || next >= reader.total_pages() {
+            break;
+        }
+        displayed -= leaving;
+        render_anchor = next;
     }
 
     let ctx = PaneLayoutContext {
@@ -288,8 +317,16 @@ pub fn render_reader(
             let avail = (viewport_area.y + viewport_area.height).saturating_sub(next_y);
             (next_y, avail, 0i64)
         } else {
-            let row_0_stride_px =
-                reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
+            // The deep-gutter stride is the RENDER anchor's row — after a
+            // lag-compensated walk-back that is not the state anchor's row,
+            // and the rows of a mixed-height document differ (§6.4).
+            let row_0_stride_px = reader.row_stride_for_anchor(
+                render_anchor,
+                viewport_h_px,
+                slot_w_px,
+                cell_w_px,
+                cell_h_px,
+            );
             let y1_px = row_0_stride_px - displayed;
             let offset_rows = (y1_px / cell_h_px).round() as i16;
             if offset_rows > 0 {
@@ -498,6 +535,24 @@ fn prev_row_anchor(reader: &ReaderState, anchor: usize) -> usize {
                 0
             } else {
                 anchor.saturating_sub(step)
+            }
+        }
+    }
+}
+
+/// Anchor of the row below `anchor` under the current layout — the mirror of
+/// [`prev_row_anchor`] and of the advance step in `scroll_column_detailed`,
+/// so the lag-compensated forward walk (scroll-up flips) steps exactly the
+/// way scrolling up retreated.
+fn next_row_anchor(reader: &ReaderState, anchor: usize) -> usize {
+    match reader.layout {
+        ReaderLayout::Single | ReaderLayout::Horizontal => anchor.saturating_add(1),
+        ReaderLayout::Spread => {
+            let step = reader.effective_columns();
+            if reader.cover_alone && anchor == 0 {
+                1
+            } else {
+                anchor.saturating_add(step)
             }
         }
     }
