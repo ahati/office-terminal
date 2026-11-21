@@ -40,15 +40,15 @@ fn the_floor_fires_when_two_rows_stop_filling_the_viewport() {
 }
 
 #[test]
-fn the_floor_also_fires_on_sorter_card_scale() {
-    // Short terminals where the two-row window still fits but the pane is
-    // already card-sized: 7 viewport rows (140 px), 5-row cards.
+fn the_floor_fires_on_overview_scale() {
+    // The overview condition: a pane within twice sorter-card size is
+    // heading for thumbnail territory (12-row cards -> 480 px at cell 20).
     let dom = (612.0_f32, 792.0_f32);
-    // Two rows still fill (2*70+20 >= 140) yet the 70 px pane fits a 100 px
-    // card: card scale decides.
-    assert!(reader_zoom_hits_sorter_floor(0.5, dom, 140.0, 20.0, 5));
-    // A zoom where neither condition holds.
-    assert!(!reader_zoom_hits_sorter_floor(0.9, dom, 140.0, 20.0, 5));
+    // Two rows still fill (2*440+20 >= 880) yet the 440 px pane is within
+    // twice the 240 px card: overview scale decides.
+    assert!(reader_zoom_hits_sorter_floor(0.5, dom, 880.0, 20.0, 12));
+    // Still readable size: 792 px panes, no void, above twice card scale.
+    assert!(!reader_zoom_hits_sorter_floor(0.9, dom, 880.0, 20.0, 12));
 }
 
 #[test]
@@ -56,16 +56,17 @@ fn zoom_out_hands_off_to_the_sorter_at_the_floor() {
     let mut state = reader_state(30);
     state.set_current_slide(8);
 
-    // 0.9^6 ~ 0.53: still comfortably above the floor — six presses zoom.
-    for _ in 0..6 {
+    // 0.9^5 ~ 0.59: panes ~26 rows, still reading size — five presses zoom.
+    for _ in 0..5 {
         handle_key_event(key(KeyCode::Char('-')), &mut state);
     }
-    assert_eq!(state.mode(), AppMode::Reader, "six presses stay in the reader");
+    assert_eq!(state.mode(), AppMode::Reader, "five presses stay in the reader");
     let zoom = state.reader_state().unwrap().default_zoom;
-    assert!((zoom - 0.531).abs() < 0.01, "zoom reached {zoom}");
+    assert!((zoom - 0.590).abs() < 0.01, "zoom reached {zoom}");
 
-    // The seventh press would cross the floor (0.9^7 ~ 0.48): the sorter
-    // opens instead, selected on the page being read, zoom untouched.
+    // The sixth press would take the pane within twice sorter-card scale
+    // (0.9^6 ~ 0.53): the sorter opens instead, selected on the page being
+    // read, zoom untouched.
     handle_key_event(key(KeyCode::Char('-')), &mut state);
     assert_eq!(state.mode(), AppMode::Sorter, "the floor hands off to the sorter");
     assert_eq!(state.selected_sorter_index(), 8, "the sorter selects the read page");
@@ -82,7 +83,7 @@ fn sorter_enter_returns_to_the_reader_on_the_selected_page() {
     state.set_current_slide(8);
 
     // Walk down to the floor and into the sorter.
-    for _ in 0..7 {
+    for _ in 0..6 {
         handle_key_event(key(KeyCode::Char('-')), &mut state);
     }
     assert_eq!(state.mode(), AppMode::Sorter);
@@ -102,6 +103,10 @@ fn sorter_enter_returns_to_the_reader_on_the_selected_page() {
         state.current_slide(), 9,
         "the applied selection is the page the sorter chose"
     );
+    assert_eq!(
+        reader.default_zoom, 1.0,
+        "the applied selection resets the zoomed-out view to fit"
+    );
 }
 
 #[test]
@@ -109,7 +114,7 @@ fn sorter_esc_returns_without_moving_the_reader() {
     let mut state = reader_state(30);
     state.set_current_slide(8);
 
-    for _ in 0..7 {
+    for _ in 0..6 {
         handle_key_event(key(KeyCode::Char('-')), &mut state);
     }
     assert_eq!(state.mode(), AppMode::Sorter);
@@ -120,6 +125,10 @@ fn sorter_esc_returns_without_moving_the_reader() {
     assert_eq!(state.mode(), AppMode::Reader, "Esc returns to the reader");
     assert_eq!(state.reader_state().unwrap().anchor, 8, "the reader is unmoved");
     assert_eq!(state.current_slide(), 8, "the unapplied selection is dropped");
+    assert!(
+        (state.reader_state().unwrap().default_zoom - 0.590).abs() < 0.01,
+        "Esc preserves the zoomed-out view"
+    );
 }
 
 #[test]
@@ -135,4 +144,31 @@ fn tab_remains_a_manual_override_from_any_zoom() {
     handle_key_event(key(KeyCode::Esc), &mut state);
     assert_eq!(state.mode(), AppMode::Reader);
     assert_eq!(state.reader_state().unwrap().anchor, 4);
+}
+
+#[test]
+fn sorter_enter_on_the_already_selected_page_still_returns() {
+    let mut state = reader_state(30);
+    state.set_current_slide(8);
+
+    // Walk down to the floor and into the sorter.
+    for _ in 0..6 {
+        handle_key_event(key(KeyCode::Char('-')), &mut state);
+    }
+    assert_eq!(state.mode(), AppMode::Sorter);
+    assert_eq!(state.selected_sorter_index(), 8, "the floor selects the read page");
+
+    // Enter without moving the selection: the reader must come back on the
+    // same page, and the applied selection resets the zoom to fit.
+    handle_key_event(key(KeyCode::Enter), &mut state);
+    assert_eq!(
+        state.mode(),
+        AppMode::Reader,
+        "Enter on the already-selected page returns to the reader"
+    );
+    assert_eq!(state.reader_state().unwrap().anchor, 8);
+    assert_eq!(
+        state.reader_state().unwrap().default_zoom, 1.0,
+        "the same-page selection also lands at fit"
+    );
 }

@@ -194,12 +194,13 @@ impl SorterState {
 /// sorter does better — the reader's zoom-out floor (PRD 14a §6.3).
 ///
 /// Whichever comes first:
+/// - the zoomed pane is within **twice sorter-card scale**
+///   (`pane_h <= 2·card_height·cell_h`): the view is heading for
+///   thumbnail territory, and the reader — capped at two rows against its
+///   12-image pool — can only spread the same pages thinner; or
 /// - the reader's **two-row render window stops filling the viewport**
-///   (`2·pane_h + gutter < viewport_h`): the reader cannot place a third
-///   row, so a further zoom-out only turns the freed space into voids —
-///   while the sorter grid fills it with cards; or
-/// - the zoomed pane itself has shrunk to **sorter-card scale**
-///   (`pane_h <= card_height·cell_h`).
+///   (`2·pane_h + gutter < viewport_h`), the structural backstop for
+///   tall terminals where the card comparison fires too late.
 ///
 /// `pane_h` is the dominant page's pane height at `zoom` on the same fit
 /// basis the column plan uses (contained in the column box, height-limited
@@ -221,8 +222,8 @@ pub fn reader_zoom_hits_sorter_floor(
     let pane_h_px = (box_w / ar).min(viewport_h_px);
     let gutter_px = crate::app::reader_scroll::VERTICAL_GUTTER_ROWS as f32 * cell_h_px;
     let two_row_window_px = 2.0 * pane_h_px + gutter_px;
-    let card_px = card_height_rows as f32 * cell_h_px;
-    two_row_window_px < viewport_h_px || pane_h_px <= card_px
+    let overview_scale_px = 2.0 * card_height_rows as f32 * cell_h_px;
+    two_row_window_px < viewport_h_px || pane_h_px <= overview_scale_px
 }
 
 /// PresentationState extensions for Sorter Grid.
@@ -307,6 +308,14 @@ impl PresentationState {
         if apply_selection && self.total_slides() > 0 {
             let clamped = self.sorter.selected_index.min(self.total_slides() - 1);
             slide_changed = self.set_current_slide(clamped);
+            // A sorter jump lands at reading size (PRD 14a §6.3): a
+            // zoomed-out overview — the handoff context — resets to fit;
+            // a zoomed-in reading view is preserved.
+            if let Some(reader) = self.reader_state_mut() {
+                if reader.default_zoom < 1.0 {
+                    reader.reset_view();
+                }
+            }
         }
         self.mode_stack.exit_sorter();
         slide_changed

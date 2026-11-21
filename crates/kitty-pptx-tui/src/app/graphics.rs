@@ -119,13 +119,20 @@ impl GraphicsSyncer {
         // Resolve the base view exactly like the renderer does, so an overlay
         // modal on top of the sorter does not tear the grid images down.
         if state.base_mode() == AppMode::Reader {
-            self.release_thumbnails(driver)?;
             self.release_slot(SlideSlot::Current, driver)?;
             self.release_slot(SlideSlot::Preview, driver)?;
-            return self
-                .reader
-                .sync(state, pipeline, driver, canvas_target, &mut self.epochs, bindings)
-                .map(|_| 0);
+            self.reader
+                .sync(state, pipeline, driver, canvas_target, &mut self.epochs, bindings)?;
+            // The sorter's cards are torn down only once the reader actually
+            // presents its panes — the same present-then-release discipline
+            // as the slide path below. Releasing them first would blank the
+            // screen for the whole raster window whenever the returning
+            // page's reader raster was evicted during the sorter visit:
+            // the reader would come back dark, as if the jump never landed.
+            if self.reader.has_placements() {
+                self.release_thumbnails(driver)?;
+            }
+            return Ok(0);
         }
 
         self.reader.release_all(driver)?;
