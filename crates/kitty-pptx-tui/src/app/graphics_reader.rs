@@ -88,6 +88,14 @@ impl ReaderGraphicsSyncer {
             .unwrap_or(preferred)
     }
 
+    /// Whether the reader currently owns any placement on screen — the
+    /// grid-teardown gate when the sorter hands the screen back: the cards
+    /// are released only once the reader's panes actually present, never
+    /// into a blank.
+    pub(crate) fn has_placements(&self) -> bool {
+        self.slots.iter().any(|slot| slot.placed().is_some())
+    }
+
     pub(crate) fn release_all(
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,

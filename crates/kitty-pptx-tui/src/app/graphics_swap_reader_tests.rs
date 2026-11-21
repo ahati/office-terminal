@@ -274,3 +274,88 @@ fn a_page_kept_while_rendering_returns_instantly() {
         "the pane is placed from the resident bitmap"
     );
 }
+
+#[test]
+fn the_sorter_teardown_waits_for_the_reader_to_present() {
+    // Leaving the sorter into the reader releases the grid's cards only
+    // after the reader's panes present (present-then-release, the same
+    // discipline as the slide path). When the returning page's raster was
+    // evicted during the sorter visit, the cards stay on screen instead of
+    // blanking it — the reader never "fails to come back".
+    let pipeline = ScriptedPipeline::ready(&[(5, CARD_RASTER), (6, CARD_RASTER)]);
+    let (mut driver, log) = LoggingDriver::new();
+    let mut syncer = GraphicsSyncer::new();
+    let mut state = reader_state(30);
+
+    // The reader owns the screen with page 5 staged and placed.
+    let reader_bindings = single_pane(5);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &reader_bindings)
+        .unwrap();
+    assert!(
+        log.lock().unwrap().position(&format!("present id={}", page_image_id(5).0)).is_some(),
+        "the reader pane is on screen"
+    );
+
+    // The sorter takes over: two cards staged; the reader's pane releases.
+    state.open_sorter();
+    let sorter_bindings = FrameBindings {
+        thumbnails: vec![
+            (5, CellRect { row: 0, col: 0, rows: 10, cols: 40 }),
+            (6, CellRect { row: 0, col: 40, rows: 10, cols: 40 }),
+        ],
+        ..FrameBindings::default()
+    };
+    for _ in 0..8 {
+        syncer
+            .sync(&mut state, &pipeline, &mut driver, &CANVAS, &sorter_bindings)
+            .unwrap();
+    }
+    assert_eq!(
+        log.lock().unwrap().count_prefix("present id="),
+        3,
+        "two cards presented beside the reader pane"
+    );
+
+    // Enter jumps back to page 5 — but its raster was evicted while the
+    // sorter had the screen. The cards must stay: releasing them now would
+    // leave nothing on screen for the whole raster window.
+    pipeline.set_rendering(5);
+    state.set_selected_sorter_index(5);
+    state.exit_sorter(true);
+    let releases_before = log.lock().unwrap().count_prefix("release id=");
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &reader_bindings)
+        .unwrap();
+    {
+        let log = log.lock().unwrap();
+        assert_eq!(
+            log.count_prefix("release id="),
+            releases_before,
+            "the grid cards stay while the reader cannot present"
+        );
+    }
+
+    // The raster lands: the reader presents first, then the cards release.
+    pipeline.set_size(5, CARD_RASTER);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &reader_bindings)
+        .unwrap();
+    let log = log.lock().unwrap();
+    let present_pos = log
+        .calls
+        .iter()
+        .rposition(|call| call.starts_with(&format!("present id={}", page_image_id(5).0)))
+        .expect("the reader pane is presented again");
+    let releases_after = log
+        .calls
+        .iter()
+        .enumerate()
+        .filter(|(pos, call)| *pos > present_pos && call.starts_with("release id="))
+        .count();
+    assert!(
+        releases_after >= 2,
+        "both grid cards release after the reader presents: {:?}",
+        log.calls
+    );
+}
