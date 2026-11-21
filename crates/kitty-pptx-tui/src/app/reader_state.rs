@@ -16,7 +16,6 @@ pub struct ReaderState {
     pub default_fit: ReaderFitMode,
     pub default_zoom: f32,
     pub focus: Slot,
-    pub sync: bool,
     pub cover_alone: bool,
     /// Vertical scroll target in pixels (anchor advancement keys off this).
     pub scroll_px: i64,
@@ -51,7 +50,6 @@ impl ReaderState {
             default_fit: ReaderFitMode::FitPage,
             default_zoom: 1.0,
             focus: Slot::Left,
-            sync: true,
             cover_alone: false,
             scroll_px: 0,
             displayed_scroll_px: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
@@ -385,10 +383,6 @@ impl ReaderState {
                 Slot::Right
             };
         }
-    }
-
-    pub fn set_sync(&mut self, sync: bool) {
-        self.sync = sync;
     }
 
     pub fn toggle_layout(&mut self) {

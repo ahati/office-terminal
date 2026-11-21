@@ -226,11 +226,7 @@ impl ReaderState {
     }
 
     pub fn scroll_vertical_bounded(&mut self, delta_px: i32, max_scroll_y: u32) -> bool {
-        let targets = if self.sync {
-            self.visible_pages()
-        } else {
-            vec![self.focused_page()]
-        };
+        let targets = self.visible_pages();
 
         let mut moved = false;
         for page in targets {

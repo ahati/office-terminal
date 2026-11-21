@@ -139,8 +139,8 @@ pub fn render_help_modal(f: &mut Frame, area: Rect) {
             Span::styled(": Fit mode / Zoom in, out, reset", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("  Tab, w, \\                     ", key_style),
-            Span::styled(": Cycle spread slot focus", desc_style),
+            Span::styled("  BackTab, w, \\                 ", key_style),
+            Span::styled(": Cycle slot focus (the current page)", desc_style),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled("Help & Exit:", header_style)]),

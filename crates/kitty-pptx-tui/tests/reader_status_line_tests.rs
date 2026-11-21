@@ -43,7 +43,7 @@ fn test_reader_status_line_format() {
     // policy — the exact separator contract.
     assert_eq!(
         status,
-        "report.pdf · spread 3-4/10 · fit:page 100% · focus:L · sync:on · ?:help · q:quit"
+        "report.pdf · spread 3-4/10 · fit:page 100% · ?:help · q:quit"
     );
 }
 
@@ -86,7 +86,7 @@ fn the_optional_cover_segment_joins_like_any_other() {
     let status = reader.status_line("book.pdf", &[], 2);
     assert_eq!(
         status,
-        "book.pdf · p.1/10 · fit:page 100% · focus:L · sync:on · cover:on · ?:help · q:quit",
+        "book.pdf · p.1/10 · fit:page 100% · cover:on · ?:help · q:quit",
         "cover:on and the hints join like every other segment; one separator policy"
     );
 }
