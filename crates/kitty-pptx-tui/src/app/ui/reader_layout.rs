@@ -42,13 +42,16 @@ pub struct PaneCropSpan {
     pub pane_w_px: f32,
 }
 
-/// Column plan for the vertical reflow: how many anchor-sized panes fit
-/// across the viewport at the anchor page's current zoom (PRD 14a §6.1/§6.3).
+/// Column plan for the vertical reflow: how many dominant-page panes fit
+/// across the viewport at the document's current zoom (PRD 14a §6.1/§6.3).
 ///
-/// Recomputed every frame from the *zoomed* pane width, so every zoom step
-/// re-evaluates the decision — zooming in reflows to fewer columns, zooming
-/// out packs more pages per row. Clamped to `1..=6` columns; `Single` and
-/// `Horizontal` layouts ignore it (they always show one pane per row lead).
+/// Recomputed every frame from the *zoomed* dominant width, so every zoom
+/// step re-evaluates the decision — zooming in reflows to fewer columns,
+/// zooming out packs more pages per row. The dominant (majority) basis
+/// keeps the plan stable across mixed-orientation documents (§6.4): a
+/// landscape page never re-plans its row just because it happens to lead.
+/// Clamped to `1..=6` columns; `Single` and `Horizontal` layouts ignore it
+/// (they always show one pane per row lead).
 pub fn plan_row_columns(
     viewport_cols: u16,
     viewport_h_px: f32,

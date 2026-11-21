@@ -38,6 +38,9 @@ pub struct ReaderState {
     pub(crate) views: HashMap<usize, PageView>,
     total_pages: usize,
     page_sizes: Vec<(f32, f32)>,
+    /// Dominant page size in points (post-rotation): the majority size of
+    /// the document, the basis of the stable column grid (PRD 14a §6.4).
+    dominant_pt: (f32, f32),
 }
 
 impl ReaderState {
@@ -58,6 +61,7 @@ impl ReaderState {
             max_row_scroll_x: Arc::new(AtomicI64::new(0)),
             views: HashMap::new(),
             total_pages,
+            dominant_pt: dominant_page_pt(&page_sizes),
             page_sizes,
         }
     }
@@ -68,6 +72,24 @@ impl ReaderState {
 
     pub fn page_size_pt(&self, page: usize) -> (f32, f32) {
         self.page_sizes.get(page).copied().unwrap_or((612.0, 792.0))
+    }
+
+    /// The document's dominant page size in points: the most common
+    /// `(width, height)` bucket (0.1 pt granularity; ties go to the
+    /// earliest page). Uniform documents report their own size; mixed
+    /// documents report the majority, which becomes the column-grid basis
+    /// so outlier (landscape) pages pair with their neighbors at identical
+    /// positions row after row (PRD 14a §6.4).
+    pub fn dominant_page_pt(&self) -> (f32, f32) {
+        self.dominant_pt
+    }
+
+    /// Width in device pixels of one column box on the stable grid: the
+    /// dominant page's fit width at the document zoom level.
+    pub fn column_box_w(&self, viewport_h_px: f32) -> f32 {
+        let (w, h) = self.dominant_pt;
+        let ar = (w / h).max(0.1);
+        (viewport_h_px * ar * self.default_zoom).max(10.0)
     }
 
     // Page views: `page_view` / `page_view_mut` / `cycle_fit` /
@@ -124,7 +146,7 @@ impl ReaderState {
         viewport_h_px: f32,
         cell_w_px: f32,
     ) -> f32 {
-        let slot_w = self.slot_width(viewport_w_px, cell_w_px);
+        let slot_w = self.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         let (base_w, _) = self.pane_fit(page, viewport_h_px, slot_w);
         base_w * self.page_view(page).zoom
     }
@@ -297,15 +319,37 @@ impl ReaderState {
         }
     }
 
-    pub fn slot_width(&self, viewport_w_px: f32, cell_w_px: f32) -> f32 {
-        let gutter_cols = 2u16;
-        let gutter_px = (gutter_cols as f32) * cell_w_px;
-        let cols = self.effective_columns();
-        if cols > 1 {
-            let total_gutters = (cols - 1) as f32 * gutter_px;
-            ((viewport_w_px - total_gutters) / cols as f32).max(10.0)
-        } else {
-            viewport_w_px
+    /// Fit-slot width in device pixels for the current row (PRD 14a §6.1/§6.4).
+    ///
+    /// Single-column rows fit the viewport. Multi-column rows pick the slot
+    /// by fit mode: `FitWidth` fills the viewport-divided slot; `FitPage`
+    /// contains every page in the dominant page's **column box**, so a
+    /// document's rows all share one stable grid — a landscape page beside
+    /// a portrait lead lands at exactly the columns the portrait pages use,
+    /// and the row peeking in from below during a scroll is the row the
+    /// anchor will flip to.
+    pub fn slot_width(&self, viewport_w_px: f32, viewport_h_px: f32, cell_w_px: f32) -> f32 {
+        self.slot_width_for(viewport_w_px, viewport_h_px, cell_w_px, self.effective_columns())
+    }
+
+    /// [`Self::slot_width`] for an explicit column count — the render path
+    /// passes its freshly planned count so the slot always matches the
+    /// frame's own layout (the stored count trails by one publish).
+    pub fn slot_width_for(
+        &self,
+        viewport_w_px: f32,
+        viewport_h_px: f32,
+        cell_w_px: f32,
+        cols: usize,
+    ) -> f32 {
+        let gutter_px = 2.0 * cell_w_px;
+        if cols <= 1 {
+            return viewport_w_px;
+        }
+        let fit_slot = ((viewport_w_px - (cols - 1) as f32 * gutter_px) / cols as f32).max(10.0);
+        match self.page_view(self.anchor).fit {
+            ReaderFitMode::FitWidth => fit_slot,
+            ReaderFitMode::FitPage => self.column_box_w(viewport_h_px).min(fit_slot),
         }
     }
 
@@ -494,4 +538,32 @@ impl ReaderState {
             filename, page_label, self.total_pages, fit_label, zoom_pct, focus_side, sync_status, cover_str
         )
     }
+}
+
+/// Majority page size of a document: the most common `(w, h)` bucket at
+/// 0.1 pt granularity, ties resolved to the earliest page. Empty documents
+/// fall back to letter.
+fn dominant_page_pt(sizes: &[(f32, f32)]) -> (f32, f32) {
+    if sizes.is_empty() {
+        return (612.0, 792.0);
+    }
+    /// One 0.1 pt size bucket: `(key, count, first index, size)`.
+    struct Bucket {
+        key: (i64, i64),
+        count: usize,
+        first: usize,
+        size: (f32, f32),
+    }
+    let bucket = |(w, h): (f32, f32)| ((w * 10.0).round() as i64, (h * 10.0).round() as i64);
+    let mut acc: Vec<Bucket> = Vec::new();
+    for (i, &size) in sizes.iter().enumerate() {
+        let key = bucket(size);
+        match acc.iter_mut().find(|b| b.key == key) {
+            Some(entry) => entry.count += 1,
+            None => acc.push(Bucket { key, count: 1, first: i, size }),
+        }
+    }
+    // Highest count wins; ties go to the earliest first occurrence.
+    acc.sort_by(|a, b| b.count.cmp(&a.count).then(a.first.cmp(&b.first)));
+    acc[0].size
 }

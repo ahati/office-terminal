@@ -35,6 +35,8 @@ mod reader_boundary_tests;
 #[cfg(test)]
 mod reader_centering_tests;
 #[cfg(test)]
+mod reader_mixed_orientation_tests;
+#[cfg(test)]
 mod reader_focus_marker_tests;
 pub mod reader_types;
 mod scale;

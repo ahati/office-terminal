@@ -160,17 +160,18 @@ pub fn render_reader(
     }
 
     // ─── Vertical Reflow / Spread Mode ───────────────────────────────────────────
-    // Column count from the true anchor's ZOOMED page width; the
-    // lag-compensated render anchor below only moves pane geometry, not the
-    // column plan. Recomputed here every frame, so zoom steps reflow the
-    // row: zooming in drops columns, zooming out packs more panes in
-    // (PRD 14a §6.3).
+    // Column count from the document's DOMINANT page at the current zoom;
+    // the lag-compensated render anchor below only moves pane geometry, not
+    // the column plan. Recomputed here every frame, so zoom steps reflow
+    // the row (PRD 14a §6.3), and the majority basis keeps the grid stable
+    // across mixed-orientation documents (§6.4): a landscape page pairs with
+    // its neighbor instead of claiming a row because it happens to lead.
     let planned_cols = plan_row_columns(
         viewport_area.width,
         viewport_h_px,
         cell_w_px,
-        reader.page_size_pt(reader.anchor),
-        reader.page_view(reader.anchor).zoom,
+        reader.dominant_page_pt(),
+        reader.default_zoom,
     );
 
     let num_cols = match reader.layout {
@@ -188,12 +189,10 @@ pub fn render_reader(
     // Record the computed column count for this frame (P0-2).
     bindings.reader_columns = num_cols;
 
-    let is_multi = num_cols > 1;
-    let slot_w_px = if is_multi {
-        ((viewport_w_px - ((num_cols - 1) as f32 * gutter_px)) / num_cols as f32).max(10.0)
-    } else {
-        viewport_w_px
-    };
+    // Fit slot by layout and fit mode for THIS frame's column plan — the
+    // stored count trails by one publish, and the render must never mix
+    // the two (PRD 14a §6.1).
+    let slot_w_px = reader.slot_width_for(viewport_w_px, viewport_h_px, cell_w_px, num_cols);
 
     // Post-wrap lag compensation. The anchor wraps when the scroll TARGET
     // crosses the row stride, and the wrap shifts the smoothed display by
@@ -366,36 +365,67 @@ struct RowRender<'a> {
 /// Places one row of panes into `placements`. Returns the tallest cell
 /// height the row occupies.
 ///
-/// A row narrower than the viewport is **centered** (PRD 14a §6.2): the
-/// leftover horizontal space splits evenly on both sides instead of piling
-/// up on the right. Rows that overflow it (zoomed in past fit) keep the
-/// flush-left pan origin — their centering offset clamps to zero, and the
-/// horizontal pan window (`row_scroll_x`) behaves exactly as before.
+/// **Stable column grid (PRD 14a §6.4).** A row whose panes all fit their
+/// column boxes (`slot_w_px`) is placed on the document grid: pane *i*
+/// centers in box *i*, boxes are spaced by the gutter and the grid centers
+/// in the viewport. Every row of a document — and the row peeking in from
+/// below during a continuous scroll — therefore sits at identical x
+/// positions, so pages glide straight up and nothing shuffles sideways at
+/// an anchor flip. Uniform rows reduce to the centered row of §6.2.
+///
+/// Rows with a pane that overflows its box (fit-width zoomed past the
+/// slot, per-page zoom with `sync` off) keep the flush-left content walk
+/// and its horizontal pan window (`row_scroll_x`).
 fn render_row(row: &RowRender<'_>, placements: &mut Vec<ReaderSlotPlacement>) -> u16 {
-    let mut total_row_w_px = 0.0f32;
-    for (i, &page) in row.pages.iter().enumerate() {
-        let (base_w_px, _) = row
-            .reader
-            .pane_fit(page, row.ctx.viewport_h_px, row.slot_w_px);
-        total_row_w_px += base_w_px * row.reader.page_view(page).zoom;
-        if i + 1 < row.pages.len() {
-            total_row_w_px += row.gutter_px;
-        }
-    }
-    let row_start_px = ((row.viewport_w_px - total_row_w_px) / 2.0).max(0.0);
+    let pane_widths: Vec<f32> = row
+        .pages
+        .iter()
+        .map(|&page| {
+            let (base_w_px, _) = row
+                .reader
+                .pane_fit(page, row.ctx.viewport_h_px, row.slot_w_px);
+            base_w_px * row.reader.page_view(page).zoom
+        })
+        .collect();
 
-    let mut cur_row_px = row_start_px - row.row_scroll_x as f32;
+    let on_grid = pane_widths.iter().all(|&w| w <= row.slot_w_px + 0.5);
+    // Page start offsets per slot (row scroll applied later, in the tail).
+    let starts: Vec<f32> = if on_grid {
+        let boxes = row.pages.len() as f32;
+        let grid_w = boxes * row.slot_w_px + (boxes - 1.0).max(0.0) * row.gutter_px;
+        let grid_left = ((row.viewport_w_px - grid_w) / 2.0).max(0.0);
+        (0..row.pages.len())
+            .map(|slot| {
+                let box_start = grid_left + slot as f32 * (row.slot_w_px + row.gutter_px);
+                let pane_w = pane_widths[slot];
+                box_start + ((row.slot_w_px - pane_w) / 2.0).max(0.0)
+            })
+            .collect()
+    } else {
+        // Flush-left content walk. A walk narrower than the viewport still
+        // centers (PRD 14a §6.2); an overflowing one keeps the pan origin.
+        let total_row_w: f32 = pane_widths.iter().sum::<f32>()
+            + (row.pages.len().saturating_sub(1)) as f32 * row.gutter_px;
+        let row_start = ((row.viewport_w_px - total_row_w) / 2.0).max(0.0);
+        let mut starts = Vec::with_capacity(row.pages.len());
+        let mut cursor = row_start;
+        for (slot, &pane_w) in pane_widths.iter().enumerate() {
+            starts.push(cursor);
+            cursor += pane_w;
+            if slot + 1 < row.pages.len() {
+                cursor += row.gutter_px;
+            }
+        }
+        starts
+    };
+
     let mut occupied_rows = 0u16;
 
-    for &page in row.pages {
-        let (base_w_px, _) = row
-            .reader
-            .pane_fit(page, row.ctx.viewport_h_px, row.slot_w_px);
-        let pane_w_px = base_w_px * row.reader.page_view(page).zoom;
+    for (slot, &page) in row.pages.iter().enumerate() {
+        let pane_w_px = pane_widths[slot];
 
-        let page_start_px = cur_row_px;
+        let page_start_px = starts[slot] - row.row_scroll_x as f32;
         let page_end_px = page_start_px + pane_w_px;
-        cur_row_px = page_end_px + row.gutter_px;
 
         if page_end_px <= 0.0 || page_start_px >= row.viewport_w_px {
             continue;

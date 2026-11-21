@@ -69,7 +69,7 @@ fn no_focus_line_while_scrolling() {
         let reader = state.reader_state_mut().unwrap();
         let (_, viewport_h_px, cell_w_px, cell_h_px) =
             crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
-        let slot_w = reader.slot_width(WIDTH as f32 * cell_w_px, cell_w_px);
+        let slot_w = reader.slot_width(WIDTH as f32 * cell_w_px, viewport_h_px, cell_w_px);
         let stride = reader.row_stride_px(viewport_h_px, slot_w, cell_w_px, cell_h_px);
         reader.scroll_px = (stride / 2.0) as i64;
         reader.snap_display();

@@ -18,7 +18,7 @@ impl ReaderState {
         if vis.is_empty() {
             return viewport_h_px;
         }
-        let slot_w = self.slot_width(viewport_w_px, cell_w_px);
+        let slot_w = self.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         let mut max_h = 0.0f32;
         for &page in &vis {
             let (_, base_h) = self.pane_fit(page, viewport_h_px, slot_w);
@@ -38,7 +38,7 @@ impl ReaderState {
         cell_w_px: f32,
         cell_h_px: f32,
     ) -> f32 {
-        let slot_w = self.slot_width(viewport_w_px, cell_w_px);
+        let slot_w = self.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         self.row_stride_px(viewport_h_px, slot_w, cell_w_px, cell_h_px)
     }
 
