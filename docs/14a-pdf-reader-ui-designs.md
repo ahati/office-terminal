@@ -2,7 +2,7 @@
 
 > Status: **design proposal** (normative for implementing PRs once accepted).
 > Depends on: [PRD 04](./04-interactive-tui-presenter.md) (TUI state machine, widgets, graphics syncer), [PRD 03a](./03a-kitty-graphics-protocol-driver.md) (driver, placements, ID pools), [PRD 06](./06-component-interface-contracts.md) (seam contracts), [PRD 14](./14-pdf-input-support.md) (PDF substrate: `PageSource`, per-page dimensions, phase plan).
-> Scope: **mode detection** (slide deck vs document), and the **document-reading UI**: focusable, zoomable, scrollable pages displayed side by side, left-aligned. PDF *slide-deck* presenting reuses the existing PRD 04 UX with **zero layout changes** and is specified here only to the extent of detection (§2).
+> Scope: **mode detection** (slide deck vs document), and the **document-reading UI**: focusable, zoomable, scrollable pages displayed side by side, each row centered when narrower than the viewport. PDF *slide-deck* presenting reuses the existing PRD 04 UX with **zero layout changes** and is specified here only to the extent of detection (§2).
 
 ---
 
@@ -13,7 +13,7 @@ The presenter TUI is strictly **page-indexed**: `PresentationState::current_slid
 This PRD specifies the missing interaction layer:
 
 1. **Mode detection (§2)** — a deterministic classification from page geometry alone that decides whether a PDF opens in the existing **slide** UX or the new **reader**.
-2. **Reader mode (§4–§7)** — pages as **focusable panes**: side by side, **left-aligned**, each independently zoomable and scrollable (with optional spread-wide synchronization).
+2. **Reader mode (§4–§7)** — pages as **focusable panes**: side by side, **rows centered when narrower than the viewport** (§6.1), each independently zoomable and scrollable (with optional spread-wide synchronization).
 3. **Fit & zoom correctness (§8)** — `fit-width`, `fit-page`, per-pane zoom ladders on live cell-pixel metrics.
 4. **Driver support (§3)** — sub-rect placements (Kitty source-rect `x,y,w,h`) so scrolling/panning re-places an already-transmitted page without re-encoding or flicker.
 5. **Slot & prefetch generalization (§9)** — windowed page residency with focus-aware priority.
@@ -174,7 +174,7 @@ Zoom and fit changes invalidate that page's raster at the new scale class and re
 **Page rasters are sized to the terminal.** The raster target snaps the pane's zoomed device-pixel width × 1.5 up a coarse class ladder (1280 / 1920 / 2560 / 3840 px; `ReaderState::READER_TARGET_CLASSES`), detected from the terminal's pixel geometry via `TIOCGWINSZ` (the same probe the layout uses). A 600-px pane renders at 1280 px — ~4× faster rasterization and ~4× less wire payload than the old fixed 2560-px target — which is what let boundary transmits land mid-glide and blank the entering pane. Coarse classes keep resize jitter from re-rendering, zoom steps up the ladder, and the 1280-px floor keeps text above the rasterizer's 6-px font floor.
 
 **The anchor flip is lag-compensated.** The anchor wraps when the scroll *target* crosses the row stride, and the wrap shifts the smoothed display by the same stride — so under continuous scrolling the display is still negative under the new anchor (it lags by the remaining glide distance). The renderer draws the previous row with the lag added back while that holds: `(anchor − step, displayed + stride)` is geometrically identical to the pre-wrap frame, so the flip is invisible and the new row slides in exactly as far as the display has actually scrolled. Without it the layout clamped the new row to the viewport top and the whole page jumped up by the lag at every boundary.
-2. **Left-aligned is a policy, not an accident.** The left page always anchors at column 0 and is always fully visible at fit. The reader **never shrinks pages below fit to force both spread pages on screen** — the right page is clipped at the viewport edge when it doesn't fit, and panning reveals it.
+2. **No shrinking, and no one-sided margins.** The reader **never shrinks pages below fit to force both spread pages on screen** — when a row overflows, the left page anchors at column 0 (always fully visible at fit) and the right page is clipped at the viewport edge, with panning to reveal it. When a row *fits*, it is centered (§6.1) so the slack splits evenly instead of piling up on the right.
 3. **Pixel-exact fit.** Pages render at exactly the terminal's pixel metrics for the chosen fit; a 1:1 source-to-screen mapping means scrolling never resamples.
 4. **Focus over modes.** One pane model, one keymap; focus + the `sync` flag compose into book behavior (synced spread) or diff-viewer behavior (independent panes) without separate modes.
 5. **Progressive disclosure under slow renders.** Panes paint placeholders (aspect-correct silhouette + page number) the instant geometry is known; bitmaps arrive when the pipeline delivers (`NotLoaded → Rendering → Ready`).
@@ -182,7 +182,7 @@ Zoom and fit changes invalidate that page's raster at the new scale class and re
 
 ---
 
-## 6. Layout Model — Side-by-Side, Left-Aligned
+## 6. Layout Model — Side-by-Side, Centered Rows
 
 ### 6.1 Pane geometry (Spread)
 
@@ -190,17 +190,21 @@ Zoom and fit changes invalidate that page's raster at the new scale class and re
 viewport_w_px, viewport_h_px   from the live cell probe (§8)
 gutter_cols  = 2
 slot_w_px    = (viewport_w_px − gutter_cols·cell_w_px) / 2      // fit-width basis
-left.x_px    = 0                                                 // LEFT-ALIGNED anchor
-right.x_px   = left.w_px + gutter_cols·cell_w_px
+row_w_px     = Σ pane_w + (panes − 1) · gutter                  // the drawn row
+row.x_px     = max(0, (viewport_w_px − row_w_px) / 2)            // CENTERED anchor
+right.x_px   = left.x_px + left.w_px + gutter_cols·cell_w_px
 ```
 
-- The **left pane is always fully horizontally visible at its fit width**; the pair is never centered, never auto-shrunk.
+- A row **narrower than the viewport is centered as a unit**: the leftover
+  horizontal space splits evenly on both sides instead of piling up on the
+  right. The left pane is always fully horizontally visible at its fit
+  width; panes are never auto-shrunk to fill the gap.
 - The **right page may or may not fit fully** — by policy (§5, pillar 2). When `right.x + right.w > viewport_w`, the right pane is clipped at the viewport edge; `h/l` on the focused right pane pans within its content (the left pane never moves).
 - Row height = `max(left.h, right.h)`; a shorter pane is **top-aligned** within the row (reading flow), leaving blank space below — never stretched.
 
 ### 6.2 Pane geometry (Single)
 
-Same machinery, right slot absent. A page narrower than the viewport (fit-page, or fit-width after zoom-out) is **centered** horizontally; a zoomed page wider than the viewport is **left-anchored** at pan origin.
+Same machinery, right slot absent. A page narrower than the viewport (fit-page, or fit-width after zoom-out) is **centered** horizontally — the row-centering rule of §6.1 with a single pane; a zoomed page wider than the viewport is **left-anchored** at pan origin.
 
 ### 6.3 Overflow, zoom, and pan
 
@@ -234,6 +238,27 @@ scroll_px     = absolute offset into the column; j/k move it; page turns jump to
 ```
 
 `j`/`k` at a pane boundary flow into the next/previous row naturally (the window slides across the column); `n`/`p`/`Space`/`PgDn`/`PgUp` snap to row starts (page turns); per-pane `scroll.y` offsets (§4.3) apply within a row when a pane is taller than the viewport.
+
+### 6.6 Horizontal flow rest insets
+
+The Horizontal slide flow tiles pages edge to edge, so a mid-stream anchor
+always fills the viewport — no inset. Only the two document-rest anchors get
+one, so a page never stares at a wall of empty cells on one side:
+
+```
+center_px   = max(0, (viewport_w_px − anchor_page_w) / 2)
+start (anchor 0):    inset = center_px · (1 − scroll/page_w)     // unwinds to 0 at the first flip
+end   (anchor last): inset = (center_px + page_w) · (scroll/page_w)   // winds up to center at the end clamp
+```
+
+- A **negative anchor scroll is a right shift, not a crop**: while an inset
+  is active the pane moves right instead of its left edge being cut off
+  (`src.x` stays 0).
+- Both insets move **linearly with the slide**, so the frame in which the
+  anchor flips is geometrically identical to the flush-left stream — no
+  boundary jump, and sliding back re-arms the rest symmetrically.
+- `G`/`End` land on the **end clamp** (`scroll = page_w − 1`), not the last
+  page's left edge, so the final page rests centered exactly like the first.
 
 ---
 
@@ -290,7 +315,7 @@ Panes in `Rendering`/`NotLoaded` draw the existing placeholder vocabulary (PRD 0
  report.pdf · spread 6–7/240 · 12% · fit:width 100% · focus:L · sync:on · q:help
 ```
 
-### 9.3 Reader, Spread, zoomed — right page clipped (left-aligned policy)
+### 9.3 Reader, Spread, zoomed — right page clipped (overflow pan policy)
 
 ```
 ┌───────────────────────────────┐  ┌───────────────│
@@ -341,7 +366,7 @@ Find/TOC/help overlays open **over** the reader exactly as over fullscreen (cent
 | `Tab` / `Shift-Tab` / `w` / `\` | — | **cycle pane focus** |
 | `y` | — | re-enable spread-wide `sync` (scroll + zoom) |
 | `PgDn`/`PgUp`, `Space`, `Enter`, `n`, `p` | slide step | **row/page turn** (focus keeps its side, h-scroll preserved) |
-| `g` / `G` | first/last slide | first / last page |
+| `g` / `G` | first/last slide | first / last page — in Horizontal mode the **centered rest positions** (§6.6: start rest / end clamp) |
 | `N` + `Enter` | jump slide | jump to page `N` (its row, top) |
 | `f` | — | cycle fit of focused pane: width → page |
 | `+` / `−` | zoom ladder | zoom ladder, **focused pane** (both if `sync`) |
@@ -377,7 +402,7 @@ Test levels (PRD 07): L1 unit — classifier table (above), pane math (slot boxe
 | :--- | :--- | :--- |
 | **R0** | Driver: `Placement::CellsSubrect`, placement-id emission, probe wiring, fit unit fix | L3 goldens for subrect place/re-place; `fit:width` pixel-exact on live kitty |
 | **R1** | Mode detection (§2) + Single-pane continuous reader (state, column, windowed slots, scroll, status bar) | classifier L1 suite green; NFR table on 240-page portrait fixture; D2 deck opens in **unchanged** slide UX |
-| **R2** | Spread: left-aligned panes, right-clip policy, focus + `sync`, per-page zoom/pan, cover-alone | §9.3/§9.4 goldens; focus/sync L4 suite; uneven-size fixture |
+| **R2** | Spread: centered rows (§6.1) + left-anchored overflow, right-clip policy, focus + `sync`, per-page zoom/pan, cover-alone | §9.3/§9.4 goldens; focus/sync L4 suite; uneven-size fixture |
 | **R3** | Find/TOC/link-picker composition over reader; page-label display | L4 suite |
 | **R4** | Wheel scroll + Ctrl-wheel zoom; scale-class resize reuse | L5 live matrix |
 

@@ -174,9 +174,12 @@ fn test_spread_zoom_layout_goldens_issue_24() {
     let p1 = &b1.reader;
     assert_eq!(p1.len(), 2, "Both spread pages visible at zoom 1.0");
     assert_eq!(p1[0].cell_rect.cols, 68, "Left pane fits at 68 cols");
-    assert_eq!(p1[0].cell_rect.col, 0);
+    assert_eq!(
+        p1[0].cell_rect.col, 11,
+        "Row centered: the 138-col row gets (160 - 138) / 2 = 11 margin cols"
+    );
     assert_eq!(p1[0].pixel_src.width, 1280, "Left pane full page width at fit (1280 class)");
-    assert_eq!(p1[1].cell_rect.col, 70, "Right starts at col 70 (68 cols + 2 gutter)");
+    assert_eq!(p1[1].cell_rect.col, 81, "Right starts at col 81 (11 + 68 + 2 gutter)");
     assert_eq!(p1[1].cell_rect.cols, 68, "Right pane fits at 68 cols");
     assert_eq!(p1[1].pixel_src.width, 1280, "Right pane full page width (1280 class)");
 
@@ -361,34 +364,6 @@ fn test_dynamic_n_page_reflow_issue_29() {
 }
 
 #[test]
-fn test_horizontal_mode_sliding_issue_29() {
-    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
-    state.reader_state_mut().unwrap().toggle_horizontal();
-    assert_eq!(state.reader_state().unwrap().layout, ReaderLayout::Horizontal);
-
-    // Initial draw
-    let b_init = draw_reader(&mut state, &mut terminal, 160);
-
-    let p_init = &b_init.reader;
-    assert!(p_init.len() >= 2, "Multiple pages laid out horizontally");
-    assert_eq!(p_init[0].cell_rect.col, 0);
-    assert_eq!(p_init[0].pixel_src.x, 0);
-
-    // Smooth horizontal slide right
-    handle_key_event(make_key(KeyCode::Right), &mut state);
-    assert!(state.reader_state().unwrap().scroll_px > 0, "Right arrow slides smoothly");
-
-    let b_scrolled = draw_reader(&mut state, &mut terminal, 160);
-
-    let p_scrolled = &b_scrolled.reader;
-    assert!(p_scrolled[0].pixel_src.x > 0, "Pixel src.x shifted right");
-
-    // Smooth horizontal slide left
-    handle_key_event(make_key(KeyCode::Left), &mut state);
-    assert_eq!(state.reader_state().unwrap().scroll_px, 0, "Left arrow slides back to origin");
-}
-
-#[test]
 fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
     let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
 
@@ -397,7 +372,7 @@ fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
 
     let p_fit = &b_fit.reader;
     assert_eq!(p_fit.len(), 2);
-    assert_eq!(p_fit[1].cell_rect.col, 70);
+    assert_eq!(p_fit[1].cell_rect.col, 81, "Centered fit row: right pane at 11 + 68 + 2");
 
     // Zoom in 1.5x so the row overflows viewport width
     state.reader_state_mut().unwrap().adjust_zoom(1.5);

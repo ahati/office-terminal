@@ -3,6 +3,7 @@
 use kitty_pptx_core::RenderTargetSpec;
 use kitty_pptx_display::{CellRect, PixelRect};
 
+use crate::app::reader_state::ReaderState;
 use crate::app::state::PresentationState;
 
 pub const MIN_PANE_COLS: u16 = 10;
@@ -39,6 +40,59 @@ pub struct PaneCropSpan {
     pub crop_left_px: f32,
     pub crop_w_px: f32,
     pub pane_w_px: f32,
+}
+
+/// Lead-in/lead-out inset (px) that centers the horizontal stream's resting
+/// pages when they are narrower than the viewport.
+///
+/// Horizontal mode tiles pages edge to edge, so mid-stream anchors never
+/// need an inset — the stream already fills the viewport. Only the two
+/// document-rest anchors do:
+///
+/// - **Start** (`render_anchor == 0`): the first page rests centered and the
+///   inset unwinds *linearly to zero across the page's own width*, so the
+///   frame in which the anchor flips to page 1 is bit-identical to the
+///   flush-left stream (no boundary jump).
+/// - **End** (`render_anchor == last`): the mirror image — the inset winds up
+///   from zero across the final page's scroll range, leaving the page
+///   centered exactly at the end clamp (`scroll_px == page_w - 1`).
+///
+/// `displayed_px` is the smoothed scroll offset relative to `render_anchor`
+/// (already lag-compensated and clamped `>= 0` by the caller). A negative
+/// result never occurs; anchors whose page fills the viewport get `0.0`.
+pub fn horizontal_rest_inset_px(
+    reader: &ReaderState,
+    render_anchor: usize,
+    displayed_px: f32,
+    viewport_w_px: f32,
+    viewport_h_px: f32,
+) -> f32 {
+    let total = reader.total_pages();
+    if total == 0 {
+        return 0.0;
+    }
+    let zoom = reader.page_view(render_anchor).zoom;
+    let (pt_w, pt_h) = reader.page_size_pt(render_anchor);
+    let ar = (pt_w / pt_h).max(0.1);
+    let pane_w_px = (viewport_h_px * zoom * ar).max(1.0);
+    let center_px = ((viewport_w_px - pane_w_px) / 2.0).max(0.0);
+    if center_px <= 0.0 {
+        return 0.0;
+    }
+
+    if render_anchor == 0 {
+        // Single-page documents use start semantics: the end clamp is just
+        // the last stretch of the same (only) page.
+        let unwind = (displayed_px / pane_w_px).clamp(0.0, 1.0);
+        center_px * (1.0 - unwind)
+    } else if render_anchor == total - 1 {
+        // Winds from 0 at the flip-in to `center + pane_w` at the clamp, so
+        // the pane's left edge lands at `center_px` when fully scrolled.
+        let wind = (displayed_px / pane_w_px).clamp(0.0, 1.0);
+        (center_px + pane_w_px) * wind
+    } else {
+        0.0
+    }
 }
 
 pub fn compute_horizontal_pane_metrics(
