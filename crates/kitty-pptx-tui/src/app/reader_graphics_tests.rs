@@ -183,27 +183,27 @@ fn test_spread_zoom_layout_goldens_issue_24() {
     assert_eq!(p1[1].cell_rect.cols, 68, "Right pane fits at 68 cols");
     assert_eq!(p1[1].pixel_src.width, 1280, "Right pane full page width (1280 class)");
 
-    // 2. Zoom 1.5 (Grows)
+    // 2. Zoom 1.5 (Reflows to a Single Column)
     state.reader_state_mut().unwrap().adjust_zoom(1.5);
     let b15 = draw_reader(&mut state, &mut terminal, 160);
 
     let p15 = &b15.reader;
-    assert_eq!(p15[0].cell_rect.cols, 102, "Left pane grows to 102 cols");
+    assert_eq!(p15.len(), 1, "Zoom reflows the 2-up row to one column");
+    assert_eq!(p15[0].cell_rect.cols, 102, "Pane keeps its zoomed size (68 x 1.5)");
+    assert_eq!(p15[0].cell_rect.col, 29, "Reflowed pane centers: (160 - 102) / 2");
     assert_eq!(p15[0].pixel_src.width, 1920, "zoom 1.5 snaps up to the 1920 class");
-    assert_eq!(p15.len(), 2, "Partner still placed with remaining cols");
-    assert_eq!(p15[1].cell_rect.col, 104, "Right starts at col 104");
-    assert_eq!(p15[1].cell_rect.cols, 56, "Right gets 160 - 104 = 56 cols");
 
-    // 3. Zoom 2.0 (Owns Row in FitWidth)
+    // 3. Zoom 2.0 (FitWidth, Single Column)
     state.reader_state_mut().unwrap().reset_view();
-    state.reader_state_mut().unwrap().cycle_fit(); // FitWidth (slot = 79 cols)
-    state.reader_state_mut().unwrap().adjust_zoom(2.0); // 79 * 2 = 158 cols
+    state.reader_state_mut().unwrap().cycle_fit(); // FitWidth
+    state.reader_state_mut().unwrap().adjust_zoom(2.0);
     let b2 = draw_reader(&mut state, &mut terminal, 160);
 
     let p2 = &b2.reader;
-    assert!(p2[0].cell_rect.cols >= 158 && p2[0].cell_rect.cols <= 160);
-    assert_eq!(p2[0].pixel_src.width, 2560, "zoom 2.0 snaps up to the 2560 class");
-    assert_eq!(p2.len(), 1, "Right pane pushed out when left owns row");
+    assert_eq!(p2[0].cell_rect.cols, 160, "Fit-width zoom 2 spans the full viewport");
+    assert_eq!(p2[0].page_target.width_px, 3840, "zoom 2.0 hits the 3840 class cap");
+    assert_eq!(p2[0].pixel_src.width, 1920, "Viewport window is 1600 px x 1.2 scale");
+    assert_eq!(p2.len(), 1, "Zoom reflow keeps a single column");
 
     // 4. Zoom 3.0 (Clamped to Viewport with max_scroll_x > 0)
     state.reader_state_mut().unwrap().adjust_zoom(1.5); // 2.0 * 1.5 = 3.0
@@ -367,21 +367,33 @@ fn test_dynamic_n_page_reflow_issue_29() {
 fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
     let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
 
-    // Initial draw in fit mode (zoom = 1.0)
+    // Fit-page baseline (zoom = 1.0): centered 138-col row.
     let b_fit = draw_reader(&mut state, &mut terminal, 160);
 
     let p_fit = &b_fit.reader;
     assert_eq!(p_fit.len(), 2);
     assert_eq!(p_fit[1].cell_rect.col, 81, "Centered fit row: right pane at 11 + 68 + 2");
 
-    // Zoom in 1.5x so the row overflows viewport width
-    state.reader_state_mut().unwrap().adjust_zoom(1.5);
+    // Fit-width: panes fill their 79-col slots and the row exactly fills
+    // the viewport. The zoom reflow keeps two columns at moderate zoom
+    // (the plan tracks the 68-col fit-page width: 68 * 1.1 = 75 ideal cols).
+    state.reader_state_mut().unwrap().cycle_fit();
+    let b_fw = draw_reader(&mut state, &mut terminal, 160);
+
+    let p_fw = &b_fw.reader;
+    assert_eq!(p_fw.len(), 2);
+    assert_eq!(p_fw[0].cell_rect.col, 0);
+    assert_eq!(p_fw[1].cell_rect.col, 81, "Fit-width pair: 79 + 2 = col 81");
+
+    // Zoom 1.1: the two-column plan holds, but the slot-fit panes
+    // (79 * 1.1 = 87 cols) overflow the viewport — the row pan window opens.
+    state.reader_state_mut().unwrap().adjust_zoom(1.1);
     let b_zoomed = draw_reader(&mut state, &mut terminal, 160);
 
     let p_zoomed = &b_zoomed.reader;
-    assert_eq!(p_zoomed.len(), 2);
+    assert_eq!(p_zoomed.len(), 2, "Zoom 1.1 keeps the two-column plan");
     let right_col_initial = p_zoomed[1].cell_rect.col;
-    assert_eq!(right_col_initial, 104);
+    assert_eq!(right_col_initial, 89, "87 + 2 = col 89; right pane clipped at the edge");
 
     // Press Right arrow key -> should slide row horizontally to reveal right page
     handle_key_event(make_key(KeyCode::Right), &mut state);

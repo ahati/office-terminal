@@ -2,8 +2,9 @@ use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 
 use crate::app::events::AppAction;
 use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
-use crate::app::reader_state::ReaderLayout;
+use crate::app::reader_state::{ReaderLayout, Slot};
 use crate::app::state::PresentationState;
+use crate::app::ui::reader_layout::plan_row_columns;
 
 /// Handles keyboard events when the base mode is [`AppMode::Reader`] (PRD 14a §10).
 pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAction {
@@ -60,30 +61,35 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             if let Some(reader) = state.reader_state_mut() {
                 reader.adjust_zoom(1.1);
             }
+            reflow_row_after_view_change(state);
             AppAction::Redraw
         }
         KeyCode::Char('+') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.adjust_zoom(1.1);
             }
+            reflow_row_after_view_change(state);
             AppAction::Redraw
         }
         KeyCode::Char('-') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.adjust_zoom(0.9);
             }
+            reflow_row_after_view_change(state);
             AppAction::Redraw
         }
         KeyCode::Char('=') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.reset_view();
             }
+            reflow_row_after_view_change(state);
             AppAction::Redraw
         }
         KeyCode::Char('Z') => {
             if let Some(reader) = state.reader_state_mut() {
                 reader.apply_zoom_all();
             }
+            reflow_row_after_view_change(state);
             AppAction::Redraw
         }
 
@@ -418,4 +424,55 @@ fn pan_horizontal(state: &mut PresentationState, dir: i64) -> AppAction {
 fn reader_viewport_metrics(state: &PresentationState) -> (f32, f32, f32, f32) {
     let (cols, rows) = state.layout_size();
     crate::app::reader_types::reader_viewport_metrics(cols, rows)
+}
+
+/// Row reflow check after a zoom-affecting view change (`+`/`-`/`=`/`Z`).
+///
+/// The render path recomputes the column plan from the anchor page's
+/// zoomed width every frame (PRD 14a §6.3), so zooming in can drop columns
+/// and the row the user was reading may no longer hold the focused pane.
+/// When that happens, the focused page becomes the new row lead with a
+/// page-turn snap — the zoom follows the page under the cursor instead of
+/// silently scrolling it off. Zooming out only ever adds columns, so the
+/// anchor is untouched there. `Single`/`Horizontal` rows always hold their
+/// lead pane, and neither needs this check.
+fn reflow_row_after_view_change(state: &mut PresentationState) {
+    let (viewport_w_px, viewport_h_px, cell_w_px, _) = reader_viewport_metrics(state);
+    let viewport_cols = (viewport_w_px / cell_w_px).round() as u16;
+    let (focused, anchor, layout, total) = match state.reader_state() {
+        Some(reader) => (
+            reader.focused_page(),
+            reader.anchor,
+            reader.layout,
+            reader.total_pages(),
+        ),
+        None => return,
+    };
+    if layout != ReaderLayout::Spread || total <= 1 {
+        return;
+    }
+
+    let mut re_anchored = None;
+    if let Some(reader) = state.reader_state_mut() {
+        let planned = plan_row_columns(
+            viewport_cols,
+            viewport_h_px,
+            cell_w_px,
+            reader.page_size_pt(anchor),
+            reader.page_view(anchor).zoom,
+        ) as usize;
+        if focused >= anchor.saturating_add(planned) {
+            // Page-turn snap onto the focused page as the new row lead.
+            reader.anchor = focused;
+            reader.focused_slot = 0;
+            reader.focus = Slot::Left;
+            reader.scroll_px = 0;
+            reader.snap_display();
+            reader.set_row_scroll_x(0);
+            re_anchored = Some(focused);
+        }
+    }
+    if let Some(page) = re_anchored {
+        state.set_current_slide(page);
+    }
 }

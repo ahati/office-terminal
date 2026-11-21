@@ -1,9 +1,12 @@
-//! Row/anchor centering goldens for Reader mode (PRD 14a §6.1/§6.2/§6.6).
+//! Row layout policy goldens for Reader mode (PRD 14a §6.1-§6.3/§6.6):
+//! centering, zoom reflow, and horizontal rest insets.
 //!
 //! Pages narrower than the viewport must not pile their leftover space up
 //! on the right: rows center as a unit (zoomed-in overflow keeps the
-//! flush-left pan origin), and the horizontal stream rests its first and
-//! last pages centered, unwinding the rest insets linearly with the slide.
+//! flush-left pan origin), the column plan re-evaluates on every zoom step
+//! (the focused page surviving the reflow as the row lead), and the
+//! horizontal stream rests its first and last pages centered, unwinding
+//! the rest insets linearly with the slide.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use ratatui::backend::TestBackend;
@@ -240,4 +243,51 @@ fn test_horizontal_rest_centering() {
         b_off.reader[0].pixel_src.x, 0,
         "No crop while the end inset is active"
     );
+}
+
+#[test]
+fn test_zoom_reflow_columns_and_focus() {
+    let mut state = reader_fixture(10);
+    state.set_layout_dimensions(WIDTH, HEIGHT);
+
+    // Baseline: 2-up spread [0, 1].
+    let b = draw_reader(&mut state);
+    assert_eq!(b.reader.len(), 2);
+
+    // Focus the right pane (page 1). A 1.1x step still plans two columns
+    // (68-col pages: two columns hold up to ~1.16x).
+    state.reader_state_mut().unwrap().toggle_focus();
+    assert_eq!(state.reader_state().unwrap().focused_page(), 1);
+    handle_key_event(make_key(KeyCode::Char('+')), &mut state);
+    assert_eq!(
+        draw_reader(&mut state).reader.len(),
+        2,
+        "1.1x keeps the two-column plan"
+    );
+
+    // The second 1.1x step (1.21x) reflows to a single column: the focused
+    // page becomes the row lead instead of scrolling off.
+    handle_key_event(make_key(KeyCode::Char('+')), &mut state);
+    {
+        let reader = state.reader_state().unwrap();
+        assert_eq!(reader.anchor, 1, "Focused page re-anchors the row");
+        assert_eq!(reader.focused_page(), 1);
+        assert_eq!(reader.scroll_px, 0, "The reflow snaps like a page turn");
+    }
+    let b_z2 = draw_reader(&mut state);
+    assert_eq!(b_z2.reader.len(), 1, "Zoom reflows the row to one column");
+    assert_eq!(b_z2.reader[0].page, 1);
+    assert_eq!(b_z2.reader[0].cell_rect.cols, 82, "68 x 1.21 = 82 cols");
+    assert_eq!(
+        b_z2.reader[0].cell_rect.col, 39,
+        "Reflowed single-pane row centers: (160 - 82) / 2"
+    );
+
+    // Zooming back out regains the partner column without losing the page.
+    handle_key_event(make_key(KeyCode::Char('-')), &mut state);
+    let b_out = draw_reader(&mut state);
+    assert_eq!(b_out.reader.len(), 2, "A 0.9 step packs two columns again");
+    assert_eq!(b_out.reader[0].page, 1);
+    assert_eq!(b_out.reader[1].page, 2);
+    assert_eq!(state.reader_state().unwrap().anchor, 1, "Anchor holds the focused page");
 }
