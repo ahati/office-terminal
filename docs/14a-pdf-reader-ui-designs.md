@@ -224,6 +224,8 @@ render_w_px(page) = slot_w_px · zoom(page)        // Spread; Single: viewport b
 
 **The column plan re-evaluates on every zoom step.** The renderer recomputes how many panes fit per row from the document's *dominant* page at the current zoom each frame (same formula as §6.1, `page_w = viewport_h · dom_ar · zoom`, clamped `1..=6`): zooming in reflows to fewer columns — a 2-up row drops to 1-up as soon as the zoomed pair would overflow — and zooming out packs more pages per row. The dominant basis keeps the plan stable across mixed-orientation documents (§6.4): a landscape page never re-plans the row just because it happens to lead. When a reflow would push the focused page out of the narrower row, the focused page becomes the new row lead (page-turn snap), so the zoom always follows the page under the cursor. Zooming out only adds columns, so it never moves the anchor.
 
+**The zoom-out floor is the page sorter.** The reader's flow model renders two rows against a 12-image pool, so a deep zoom-out cannot add rows — it only empties the bottom of the viewport and detaches the capped column grid from the edges. Instead of degrading, `−` stops zooming the moment the next step would leave the two-row window short of the viewport (or shrink panes to sorter-card size — both computed from the dominant page and the sorter's own live card height) and **hands the screen to the sorter grid**, selected on the page being read. The sorter fills the freed space with quota-capped cards in its own id pool; `Enter` returns to the reader re-anchored on the selection, `Esc`/`Tab` return unapplied. `Tab`/`t`/`s` remain manual overrides at any zoom.
+
 - `zoom > 1`: the focused page re-renders at the higher scale class (per [PRD 14](./14-pdf-input-support.md) §3.2 hi-res recompile), the row reflows to fewer columns as above, and the **viewport shows a window into the larger bitmap** — vertical scroll and horizontal pan move the window (`src.x`, `src.y` in §3.1).
 - `zoom < 1`: the page shrinks inside its slot (centered vertically-top, horizontally-center); the spread may then fit both pages with room — fine.
 - Pan/scroll clamp to content bounds; clamped moves are no-ops (no bounce).
@@ -380,7 +382,7 @@ Find/TOC/help overlays open **over** the reader exactly as over fullscreen (cent
 | `g` / `G` | first/last slide | first / last page — in Horizontal mode the **centered rest positions** (§6.6: start rest / end clamp) |
 | `N` + `Enter` | jump slide | jump to page `N` (its row, top) |
 | `f` | — | cycle fit of focused pane: width → page |
-| `+` / `−` | zoom ladder | zoom ladder, **focused pane** (both if `sync`) — every step **reflows the column plan** (§6.3) |
+| `+` / `−` | zoom ladder | zoom ladder, **focused pane** (both if `sync`) — every step **reflows the column plan** (§6.3); the last `−` **hands off to the sorter** at the floor |
 | `=` | — | reset focused pane to fit + top (resets h-scroll) |
 | `Z` | — | apply focused zoom to all pages (new default) |
 | `2` | — | toggle Spread ↔ Single |

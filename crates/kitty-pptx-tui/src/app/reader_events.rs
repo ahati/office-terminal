@@ -72,11 +72,36 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             AppAction::Redraw
         }
         KeyCode::Char('-') => {
-            if let Some(reader) = state.reader_state_mut() {
-                reader.adjust_zoom(0.9);
+            // Zoom-out floor (PRD 14a §6.3): once the next step would
+            // degrade the view into what the page sorter does better —
+            // the two-row window stops filling the viewport, or the panes
+            // reach sorter-card size — hand the screen to the sorter
+            // instead of zooming. The reader never renders thumbnail-sized
+            // pages or the voids its two-row window would leave behind.
+            let hits_floor = state.reader_state().is_some_and(|reader| {
+                let (_, viewport_h_px, _, cell_h_px) = reader_viewport_metrics(state);
+                let grid_rows = state.layout_size().1.saturating_sub(3);
+                let card_height =
+                    crate::app::ui::sorter::sorter_card_height(grid_rows);
+                let next_zoom = (reader.default_zoom * 0.9).max(0.1);
+                crate::app::sorter_state::reader_zoom_hits_sorter_floor(
+                    next_zoom,
+                    reader.dominant_page_pt(),
+                    viewport_h_px,
+                    cell_h_px,
+                    card_height,
+                )
+            });
+            if hits_floor {
+                state.open_sorter();
+                AppAction::Redraw
+            } else {
+                if let Some(reader) = state.reader_state_mut() {
+                    reader.adjust_zoom(0.9);
+                }
+                reflow_row_after_view_change(state);
+                AppAction::Redraw
             }
-            reflow_row_after_view_change(state);
-            AppAction::Redraw
         }
         KeyCode::Char('=') => {
             if let Some(reader) = state.reader_state_mut() {

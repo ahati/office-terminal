@@ -190,6 +190,41 @@ impl SorterState {
     }
 }
 
+/// Whether a reader zoom-out to `zoom` would degrade into what the page
+/// sorter does better — the reader's zoom-out floor (PRD 14a §6.3).
+///
+/// Whichever comes first:
+/// - the reader's **two-row render window stops filling the viewport**
+///   (`2·pane_h + gutter < viewport_h`): the reader cannot place a third
+///   row, so a further zoom-out only turns the freed space into voids —
+///   while the sorter grid fills it with cards; or
+/// - the zoomed pane itself has shrunk to **sorter-card scale**
+///   (`pane_h <= card_height·cell_h`).
+///
+/// `pane_h` is the dominant page's pane height at `zoom` on the same fit
+/// basis the column plan uses (contained in the column box, height-limited
+/// by the viewport), so the floor self-adapts to the terminal and the
+/// document instead of hard-coding a zoom constant.
+pub fn reader_zoom_hits_sorter_floor(
+    zoom: f32,
+    dom_pt: (f32, f32),
+    viewport_h_px: f32,
+    cell_h_px: f32,
+    card_height_rows: u16,
+) -> bool {
+    let (w, h) = dom_pt;
+    let ar = (w / h).max(0.1);
+    // The dominant pane at `zoom`: contained in its column box
+    // (`viewport_h · ar · zoom`, the plan's own basis), height-limited by
+    // the viewport — `pane_fit`'s formula evaluated on the dominant page.
+    let box_w = viewport_h_px * ar * zoom;
+    let pane_h_px = (box_w / ar).min(viewport_h_px);
+    let gutter_px = crate::app::reader_scroll::VERTICAL_GUTTER_ROWS as f32 * cell_h_px;
+    let two_row_window_px = 2.0 * pane_h_px + gutter_px;
+    let card_px = card_height_rows as f32 * cell_h_px;
+    two_row_window_px < viewport_h_px || pane_h_px <= card_px
+}
+
 /// PresentationState extensions for Sorter Grid.
 impl PresentationState {
     pub fn selected_sorter_index(&self) -> usize {
