@@ -1111,6 +1111,7 @@ dependencies = [
  "kitty-pptx-tui",
  "pptx-model",
  "pptx-parser",
+ "ratatui",
  "serde",
  "serde_json",
  "sha2",
