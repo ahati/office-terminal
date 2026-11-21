@@ -259,7 +259,13 @@ fn scroll_vertical(state: &mut PresentationState, delta_px: i64, idle: AppAction
         let slot_w_px = reader.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         let row_stride = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
         let base_h = row_stride - (VERTICAL_GUTTER_ROWS as f32) * cell_h_px;
-        let (ach, mv) = reader.scroll_column_detailed(delta_px, row_stride, base_h);
+        let geo = crate::app::reader_scroll::RowGeometry {
+            viewport_h_px,
+            slot_w_px,
+            cell_w_px,
+            cell_h_px,
+        };
+        let (ach, mv) = reader.scroll_column_detailed(delta_px, row_stride, base_h, geo);
         anchor_changed = ach;
         moved = mv;
     }
@@ -283,7 +289,13 @@ fn half_page_scroll(state: &mut PresentationState, dir: i64) -> AppAction {
         let row_stride = reader.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
         let base_h = row_stride - (VERTICAL_GUTTER_ROWS as f32) * cell_h_px;
         let step = ((viewport_h_px / 2.0).round() as i64).max(1);
-        reader.scroll_column(dir * step, row_stride, base_h);
+        let geo = crate::app::reader_scroll::RowGeometry {
+            viewport_h_px,
+            slot_w_px,
+            cell_w_px,
+            cell_h_px,
+        };
+        reader.scroll_column(dir * step, row_stride, base_h, geo);
     }
     AppAction::Redraw
 }

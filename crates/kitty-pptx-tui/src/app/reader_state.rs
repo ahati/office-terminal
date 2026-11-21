@@ -193,11 +193,27 @@ impl ReaderState {
         &self,
         viewport_h_px: f32,
         slot_w_px: f32,
+        cell_w_px: f32,
+        cell_h_px: f32,
+    ) -> f32 {
+        self.row_stride_for_anchor(self.anchor, viewport_h_px, slot_w_px, cell_w_px, cell_h_px)
+    }
+
+    /// [`Self::row_stride_px`] for an explicit row lead. Every stride
+    /// re-base — the advance wrap, the retreat wrap and the render's
+    /// lag-compensated walks — must consume the stride of the row it steps
+    /// into or out of, which only a per-anchor stride can express in
+    /// documents whose rows differ in height (PRD 14a §6.4).
+    pub fn row_stride_for_anchor(
+        &self,
+        anchor: usize,
+        viewport_h_px: f32,
+        slot_w_px: f32,
         _cell_w_px: f32,
         cell_h_px: f32,
     ) -> f32 {
         let mut max_h = 0.0f32;
-        for page in self.visible_pages() {
+        for page in self.visible_pages_for(anchor) {
             let (_, base_h) = self.pane_fit(page, viewport_h_px, slot_w_px);
             let h = base_h * self.page_view(page).zoom;
             if h > max_h {
@@ -264,24 +280,30 @@ impl ReaderState {
     }
 
     pub fn visible_pages(&self) -> Vec<usize> {
+        self.visible_pages_for(self.anchor)
+    }
+
+    /// [`Self::visible_pages`] for an explicit row lead — the lag-compensated
+    /// render path uses it for rows other than the state anchor's.
+    pub fn visible_pages_for(&self, anchor: usize) -> Vec<usize> {
         if self.total_pages == 0 {
             return Vec::new();
         }
         match self.layout {
-            ReaderLayout::Single => vec![self.anchor.min(self.total_pages - 1)],
+            ReaderLayout::Single => vec![anchor.min(self.total_pages - 1)],
             ReaderLayout::Spread => {
                 let cols = self.effective_columns();
-                if self.cover_alone && self.anchor == 0 {
+                if self.cover_alone && anchor == 0 {
                     vec![0]
                 } else {
                     let mut pages = Vec::with_capacity(cols);
                     for i in 0..cols {
-                        if self.anchor + i < self.total_pages {
-                            pages.push(self.anchor + i);
+                        if anchor + i < self.total_pages {
+                            pages.push(anchor + i);
                         }
                     }
                     if pages.is_empty() {
-                        vec![self.anchor.min(self.total_pages - 1)]
+                        vec![anchor.min(self.total_pages - 1)]
                     } else {
                         pages
                     }
@@ -291,12 +313,12 @@ impl ReaderState {
                 let cols = self.effective_columns();
                 let mut pages = Vec::with_capacity(cols + 1);
                 for i in 0..=cols {
-                    if self.anchor + i < self.total_pages {
-                        pages.push(self.anchor + i);
+                    if anchor + i < self.total_pages {
+                        pages.push(anchor + i);
                     }
                 }
                 if pages.is_empty() {
-                    vec![self.anchor.min(self.total_pages - 1)]
+                    vec![anchor.min(self.total_pages - 1)]
                 } else {
                     pages
                 }

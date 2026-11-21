@@ -32,6 +32,7 @@ const HEIGHT: u16 = 45;
 fn reader_state(pages: usize) -> PresentationState {
     let mut state = PresentationState::new(pages, vec![None; pages]);
     state.enable_reader_mode(pages, vec![(612.0, 792.0)]);
+    state.set_layout_dimensions(WIDTH, HEIGHT);
     state
 }
 
@@ -172,4 +173,223 @@ fn page_targets_snap_to_device_pixel_classes() {
     // Degenerate panes still produce a sane target.
     let fallback = reader.page_render_target(0, 0.0);
     assert_eq!(fallback.width_px, 1280);
+}
+
+/// A reader state over `sizes` with one frame published, exactly like the
+/// run loop: the stored column count matches the renderer's plan.
+fn published_state(sizes: &[(f32, f32)]) -> PresentationState {
+    let total = sizes.len();
+    let mut state = PresentationState::new(total, vec![None; total]);
+    state.enable_reader_mode(total, sizes.to_vec());
+    state.set_layout_dimensions(WIDTH, HEIGHT);
+    pane_geometry(&mut state);
+    state
+}
+
+/// Letter pages with a short landscape row (two consecutive landscape
+/// pages) between tall portrait rows: row strides differ, which is where
+/// stride re-bases can flicker.
+fn mixed_height_sizes() -> Vec<(f32, f32)> {
+    let p = (612.0, 792.0); // portrait: 880 px tall at this size
+    // A page wider than the viewport's aspect (1200/880 ~ 1.36) so the
+    // one-column slot contains it to 600 px — a genuinely short row.
+    let w = (1200.0, 600.0);
+    let mut sizes = vec![p; 30];
+    sizes[10] = w;
+    sizes[11] = w;
+    sizes
+}
+
+#[test]
+fn every_lag_renders_the_pre_wrap_geometry() {
+    // A held key sweeps the whole lag range, not just one pinned value: for
+    // every lag the post-wrap frame (anchor advanced by the published step,
+    // display shifted by the stride) must render exactly the pre-wrap
+    // geometry.
+    let sizes = vec![(612.0_f32, 792.0_f32); 30];
+    let mut sync = published_state(&sizes);
+    let stride = event_stride(&mut sync);
+    let step = sync.reader_state().unwrap().effective_columns();
+    let cell_h = reader_viewport_metrics(WIDTH, HEIGHT).3;
+    let anchor = 6;
+
+    let mut failures = Vec::new();
+    let mut lag_px = 0.0f32;
+    while lag_px < stride {
+        let lag = lag_px.round() as i64;
+
+        let mut pre = published_state(&sizes);
+        {
+            let reader = pre.reader_state_mut().unwrap();
+            reader.anchor = anchor;
+            set_scroll(reader, stride as i64, stride - lag as f32);
+        }
+        let mut post = published_state(&sizes);
+        {
+            let reader = post.reader_state_mut().unwrap();
+            reader.anchor = anchor + step;
+            set_scroll(reader, 0, -(lag as f32));
+        }
+
+        if pane_geometry(&mut pre) != pane_geometry(&mut post) {
+            failures.push(lag);
+        }
+        lag_px += cell_h;
+    }
+    assert!(
+        failures.is_empty(),
+        "anchor flips broke continuity at lags {failures:?} of stride {stride}"
+    );
+}
+
+#[test]
+fn every_lag_renders_the_pre_wrap_geometry_on_retreat() {
+    // The mirror sweep for scrolling up: the anchor retreats by the
+    // published step and target/display shift by +stride; every lag must
+    // stay continuous.
+    let sizes = vec![(612.0_f32, 792.0_f32); 30];
+    let mut sync = published_state(&sizes);
+    let stride = event_stride(&mut sync);
+    let step = sync.reader_state().unwrap().effective_columns();
+    let cell_h = reader_viewport_metrics(WIDTH, HEIGHT).3;
+    let anchor = 8;
+
+    let mut failures = Vec::new();
+    let mut lag_px = 0.0f32;
+    while lag_px < stride {
+        let lag = lag_px.round() as i64;
+
+        // Pre-retreat: anchor 8, display one pixel above the target.
+        let mut pre = published_state(&sizes);
+        {
+            let reader = pre.reader_state_mut().unwrap();
+            reader.anchor = anchor;
+            set_scroll(reader, lag, lag as f32 + 1.0);
+        }
+        // Post-retreat: the anchor walked back one step; both target and
+        // display shifted by +stride.
+        let mut post = published_state(&sizes);
+        {
+            let reader = post.reader_state_mut().unwrap();
+            reader.anchor = anchor - step;
+            set_scroll(reader, stride as i64 + lag, stride + lag as f32 + 1.0);
+        }
+
+        if pane_geometry(&mut pre) != pane_geometry(&mut post) {
+            failures.push(lag);
+        }
+        lag_px += cell_h;
+    }
+    assert!(
+        failures.is_empty(),
+        "anchor retreats broke continuity at lags {failures:?} of stride {stride}"
+    );
+}
+
+#[test]
+fn flips_stay_continuous_across_rows_of_different_heights() {
+    // The user-visible case: a short landscape row between tall portrait
+    // rows. Row strides differ, so every stride re-base — the advance
+    // wrap, the retreat wrap, and the render's lag-compensated walk-back —
+    // must use the stride of the row it steps INTO, not the row it leaves.
+    let sizes = mixed_height_sizes();
+    let cell_h = reader_viewport_metrics(WIDTH, HEIGHT).3;
+
+    // Flips into, inside, and out of the short landscape row [10, 11].
+    let mut failures = Vec::new();
+    for &(pre_anchor, post_anchor) in &[(8usize, 9usize), (9, 10), (10, 11), (11, 12)] {
+        let mut pre = published_state(&sizes);
+        {
+            let reader = pre.reader_state_mut().unwrap();
+            reader.anchor = pre_anchor;
+        }
+        let pre_stride = event_stride(&mut pre);
+
+        let mut post = published_state(&sizes);
+        {
+            let reader = post.reader_state_mut().unwrap();
+            reader.anchor = post_anchor;
+        }
+
+        let mut lag_px = 0.0f32;
+        while lag_px < pre_stride {
+            let lag = lag_px.round() as i64;
+            {
+                let reader = pre.reader_state_mut().unwrap();
+                set_scroll(reader, pre_stride as i64, pre_stride - lag as f32);
+            }
+            {
+                let reader = post.reader_state_mut().unwrap();
+                set_scroll(reader, 0, -(lag as f32));
+            }
+            if pane_geometry(&mut pre) != pane_geometry(&mut post) {
+                if failures.is_empty() {
+                    let pre_geom = pane_geometry(&mut pre);
+                    let post_geom = pane_geometry(&mut post);
+                    eprintln!("MIXED first-failing ({pre_anchor}->{post_anchor}) lag {lag}:");
+                    eprintln!("  pre:  {pre_geom:?}");
+                    eprintln!("  post: {post_geom:?}");
+                }
+                failures.push((pre_anchor, post_anchor, lag));
+            }
+            lag_px += cell_h;
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "flips across rows of different heights broke continuity: {failures:?}"
+    );
+}
+
+#[test]
+fn a_retreat_consumes_the_stride_of_the_row_it_steps_into() {
+    // Scrolling up out of a tall row into a short one: the re-based scroll
+    // target must land inside the SHORT row's range (its own stride minus
+    // the overshoot), not the tall row's — the same per-row rule the
+    // render walks follow (PRD 14a §6.4).
+    let sizes = mixed_height_sizes();
+    let mut state = published_state(&sizes);
+    {
+        let reader = state.reader_state_mut().unwrap();
+        reader.anchor = 12; // the portrait row after the short landscape rows
+    }
+    let short_stride = {
+        let reader = state.reader_state().unwrap();
+        let (_, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(WIDTH, HEIGHT);
+        let slot_w = reader.slot_width(WIDTH as f32 * cell_w_px, viewport_h_px, cell_w_px);
+        reader.row_stride_for_anchor(11, viewport_h_px, slot_w, cell_w_px, cell_h_px)
+    };
+    let tall_stride = {
+        let reader = state.reader_state().unwrap();
+        let (_, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(WIDTH, HEIGHT);
+        let slot_w = reader.slot_width(WIDTH as f32 * cell_w_px, viewport_h_px, cell_w_px);
+        reader.row_stride_for_anchor(12, viewport_h_px, slot_w, cell_w_px, cell_h_px)
+    };
+    assert!(short_stride < tall_stride, "the fixture must mix row heights");
+
+    // 10 px above row 12's top: retreating into the short row 11.
+    let (_, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(WIDTH, HEIGHT);
+    let geo = crate::app::reader_scroll::RowGeometry {
+        viewport_h_px,
+        slot_w_px: state
+            .reader_state()
+            .unwrap()
+            .slot_width(WIDTH as f32 * cell_w_px, viewport_h_px, cell_w_px),
+        cell_w_px,
+        cell_h_px,
+    };
+    state.reader_state_mut().unwrap().scroll_px = -10;
+    let _ = state
+        .reader_state_mut()
+        .unwrap()
+        .scroll_column_detailed(0, tall_stride, tall_stride - 20.0, geo);
+    {
+        let reader = state.reader_state().unwrap();
+        assert_eq!(reader.anchor, 11, "the anchor retreats into the short row");
+        assert_eq!(
+            reader.scroll_px,
+            short_stride as i64 - 10,
+            "the retreat consumes the short row's own stride"
+        );
+    }
 }

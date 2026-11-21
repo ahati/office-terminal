@@ -6,6 +6,18 @@ use crate::app::reader_types::{ReaderFitMode, ReaderLayout};
 
 pub const VERTICAL_GUTTER_ROWS: u16 = 1;
 
+/// The row geometry a wrap/retreat re-base needs beyond the caller's
+/// precomputed stride: rows may differ in height in mixed-orientation
+/// documents (PRD 14a §6.4), so a retreat must look up the stride of the
+/// row it steps INTO, which only the raw inputs can express.
+#[derive(Clone, Copy, Debug)]
+pub struct RowGeometry {
+    pub viewport_h_px: f32,
+    pub slot_w_px: f32,
+    pub cell_w_px: f32,
+    pub cell_h_px: f32,
+}
+
 impl ReaderState {
     /// Compute maximum height in pixels among visible pages in the primary row.
     pub fn current_row_height_px(
@@ -44,8 +56,15 @@ impl ReaderState {
 
     /// Vertical column continuous scroll with anchor advance on row boundary.
     /// Returns `true` if position or anchor moved.
-    pub fn scroll_column(&mut self, delta_px: i64, row_stride_px: f32, base_h_px: f32) -> bool {
-        let (anchor_changed, moved) = self.scroll_column_detailed(delta_px, row_stride_px, base_h_px);
+    pub fn scroll_column(
+        &mut self,
+        delta_px: i64,
+        row_stride_px: f32,
+        base_h_px: f32,
+        geo: RowGeometry,
+    ) -> bool {
+        let (anchor_changed, moved) =
+            self.scroll_column_detailed(delta_px, row_stride_px, base_h_px, geo);
         anchor_changed || moved
     }
 
@@ -55,6 +74,7 @@ impl ReaderState {
         delta_px: i64,
         row_stride_px: f32,
         base_h_px: f32,
+        geo: RowGeometry,
     ) -> (bool, bool) {
         if self.total_pages() == 0 || row_stride_px <= 0.0 {
             return (false, false);
@@ -109,8 +129,12 @@ impl ReaderState {
             self.scroll_px = (base_h_px as i64).saturating_sub(1);
         }
 
-        // Retreat anchor when scrolled past top of current row (same
-        // stride lockstep as the advance wrap above).
+        // Retreat anchor when scrolled past top of current row. The stride
+        // consumed here is the one the retreat steps INTO — the previous
+        // row's own height — not the row being left: rows may differ in
+        // height in mixed-orientation documents, and the advance/retreat
+        // re-bases must stay symmetric with the render's lag-compensated
+        // walks (PRD 14a §6.4).
         while self.scroll_px < 0 {
             if self.anchor > 0 {
                 let prev = match self.layout {
@@ -124,9 +148,16 @@ impl ReaderState {
                     }
                     ReaderLayout::Horizontal => self.anchor.saturating_sub(1),
                 };
+                let prev_stride = self.row_stride_for_anchor(
+                    prev,
+                    geo.viewport_h_px,
+                    geo.slot_w_px,
+                    geo.cell_w_px,
+                    geo.cell_h_px,
+                );
                 self.anchor = prev;
-                self.scroll_px += row_stride_px as i64;
-                self.shift_displayed_scroll_px(row_stride_px);
+                self.scroll_px += prev_stride as i64;
+                self.shift_displayed_scroll_px(prev_stride);
             } else {
                 self.scroll_px = 0;
                 break;

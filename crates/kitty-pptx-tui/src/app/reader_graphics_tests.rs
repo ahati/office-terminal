@@ -283,7 +283,24 @@ fn test_fractional_column_scroll_goldens_issue_26() {
     }
 
     // At step 8 (row_h), advance to next row
-    let advanced = state.reader_state_mut().unwrap().scroll_column((row_h / 8.0).round() as i64, row_h, row_h);
+    let geo = {
+        let metrics = kitty_pptx_display::probe_cell_pixel_size();
+        let cell_w_px = metrics.width_px.max(4.0) as f32;
+        let cell_h_px = metrics.height_px.max(8.0) as f32;
+        crate::app::reader_scroll::RowGeometry {
+            viewport_h_px: 44.0 * cell_h_px,
+            slot_w_px: state
+                .reader_state()
+                .unwrap()
+                .slot_width(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px),
+            cell_w_px,
+            cell_h_px,
+        }
+    };
+    let advanced = state
+        .reader_state_mut()
+        .unwrap()
+        .scroll_column((row_h / 8.0).round() as i64, row_h, row_h, geo);
     assert!(advanced);
     assert_eq!(state.reader_state().unwrap().anchor, 2);
     assert_eq!(state.reader_state().unwrap().scroll_px, 0);
@@ -530,10 +547,22 @@ fn test_row_transition_zero_restage_stable_ids() {
     // Cross the row boundary exactly like the j handler does: pages 2,3
     // become the primary row with the SAME stable ids.
     state.reader_state_mut().unwrap().scroll_px = (row_stride + 4.0).round() as i64;
+    let geo = {
+        let metrics = kitty_pptx_display::probe_cell_pixel_size();
+        let cell_w_px = metrics.width_px.max(4.0) as f32;
+        let cell_h_px = metrics.height_px.max(8.0) as f32;
+        let reader = state.reader_state().unwrap();
+        crate::app::reader_scroll::RowGeometry {
+            viewport_h_px: 44.0 * cell_h_px,
+            slot_w_px: reader.slot_width(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px),
+            cell_w_px,
+            cell_h_px,
+        }
+    };
     let _ = state
         .reader_state_mut()
         .unwrap()
-        .scroll_column_detailed(0, row_stride, base_h);
+        .scroll_column_detailed(0, row_stride, base_h, geo);
     assert_eq!(state.reader_state().unwrap().anchor, 2, "Anchor advanced to the next row");
 
     let bindings = draw_reader(&mut state, &mut terminal, 160);

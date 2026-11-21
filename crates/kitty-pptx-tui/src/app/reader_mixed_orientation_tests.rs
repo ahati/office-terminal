@@ -98,10 +98,23 @@ fn test_flip_continuity_across_orientation_change() {
     // Cross the boundary exactly like continuous scrolling does, and let the
     // smoothed display converge onto the new anchor.
     state.reader_state_mut().unwrap().scroll_px = stride as i64;
+    let geo = {
+        let (_, viewport_h_px, cell_w_px, cell_h_px) =
+            crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
+        crate::app::reader_scroll::RowGeometry {
+            viewport_h_px,
+            slot_w_px: state
+                .reader_state()
+                .unwrap()
+                .slot_width(WIDTH as f32 * cell_w_px, viewport_h_px, cell_w_px),
+            cell_w_px,
+            cell_h_px,
+        }
+    };
     let _ = state
         .reader_state_mut()
         .unwrap()
-        .scroll_column_detailed(0, stride, stride - 40.0);
+        .scroll_column_detailed(0, stride, stride - 40.0, geo);
     assert_eq!(state.reader_state().unwrap().anchor, 2);
     while state.reader_state().unwrap().advance_display() {}
     let b_flipped = draw_reader(&mut state);

@@ -7,8 +7,9 @@
 //! transmit + decode window — the same defect class the slide/sorter views
 //! fixed in [`super::graphics_swap_tests`]. These tests pin the reader
 //! syncer's half: swap into a spare pool id, present, then release; reuse a
-//! swapped bitmap without re-sending it; and still release a stale page while
-//! the next one renders (P1-2), wherever the swap left it.
+//! swapped bitmap without re-sending it; and keep the displayed image while
+//! the next one renders (the keep-until-Ready rule the slide views follow),
+//! swapping atomically once the raster lands.
 
 use kitty_pptx_core::RenderTargetSpec;
 use kitty_pptx_display::{CellRect, PixelRect, READER_IMAGE_ID_BASE};
@@ -147,10 +148,17 @@ fn a_swapped_page_is_reused_without_retransmission() {
 }
 
 #[test]
-fn a_rendering_page_releases_whatever_the_pane_still_displays() {
-    // P1-2: while the next page renders, the pane must not keep showing the
-    // previous page — including when that page lives under a swapped id.
-    let pipeline = ScriptedPipeline::ready(&[(5, CARD_RASTER), (17, CARD_RASTER)]);
+fn a_rendering_page_keeps_the_displayed_image_until_the_raster_lands() {
+    // Page turns keep the previous image on screen while the next raster
+    // renders — including when that image lives under a swapped id — and
+    // swap atomically once it lands: present first, release after. The
+    // release-into-a-blank discipline flickered at every transition when a
+    // held key outran the rasterizer.
+    let pipeline = ScriptedPipeline::ready(&[
+        (5, CARD_RASTER),
+        (17, CARD_RASTER),
+        (29, CARD_RASTER),
+    ]);
     let (mut driver, log) = LoggingDriver::new();
     let mut syncer = GraphicsSyncer::new();
     let mut state = reader_state(30);
@@ -164,36 +172,61 @@ fn a_rendering_page_releases_whatever_the_pane_still_displays() {
         .sync(&mut state, &pipeline, &mut driver, &CANVAS, &second)
         .unwrap();
 
-    // Page 29 (third collision on the same stable id) is still rendering.
+    // Page 29 (third collision on the same stable id) is still rendering:
+    // the pane keeps showing page 17's bitmap — nothing is released.
     pipeline.set_rendering(29);
     let third = single_pane(29);
     syncer
         .sync(&mut state, &pipeline, &mut driver, &CANVAS, &third)
         .unwrap();
+    {
+        let log = log.lock().unwrap();
+        let first_swap_release = log
+            .position(&format!("release id={}", page_image_id(5).0))
+            .expect("the first pane swap released the stable id");
+        let releases_after_swap = log
+            .calls
+            .iter()
+            .enumerate()
+            .filter(|(pos, call)| *pos > first_swap_release && call.starts_with("release id="))
+            .count();
+        assert_eq!(
+            releases_after_swap, 0,
+            "the rendering pane keeps the displayed image: {:?}",
+            log.calls
+        );
+    }
 
+    // The raster lands: the new bitmap is presented BEFORE the displayed
+    // one is released — an atomic swap, never a blank frame.
+    pipeline.set_size(29, CARD_RASTER);
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &CANVAS, &third)
+        .unwrap();
     let log = log.lock().unwrap();
-    let first_swap_release = log
-        .position(&format!("release id={}", page_image_id(5).0))
-        .expect("the first pane swap released the stable id");
-    let stale_release = log
+    let present = log
+        .calls
+        .iter()
+        .rposition(|call| call.starts_with("present id="))
+        .expect("the new bitmap is presented");
+    let releases_after_present = log
         .calls
         .iter()
         .enumerate()
-        .filter(|(pos, call)| *pos > first_swap_release && call.starts_with("release id="))
+        .filter(|(pos, call)| *pos > present && call.starts_with("release id="))
         .count();
     assert!(
-        stale_release >= 1,
-        "the swapped bitmap the pane displays is released while page 29 renders: {:?}",
+        releases_after_present >= 1,
+        "the displayed image is released after the swap: {:?}",
         log.calls
     );
 }
 
 #[test]
-fn a_page_released_while_rendering_restages_when_it_returns() {
-    // P1-2 releases the bitmap a pane displays while the next page renders.
-    // The released image is gone from the terminal, so its staged record
-    // must go too: scrolling back to that page used to find the stale record
-    // and place the deleted image — a permanently blank pane.
+fn a_page_kept_while_rendering_returns_instantly() {
+    // With the pane keeping its displayed image through the raster window,
+    // scrolling back to that page must re-place the resident bitmap without
+    // re-transmitting anything — the image never left the terminal.
     let pipeline = ScriptedPipeline::ready(&[(5, CARD_RASTER), (17, CARD_RASTER)]);
     let (mut driver, log) = LoggingDriver::new();
     let mut syncer = GraphicsSyncer::new();
@@ -212,20 +245,19 @@ fn a_page_released_while_rendering_restages_when_it_returns() {
     );
 
     // The pane moves to a colliding page that is still rendering: the
-    // displayed bitmap is released so stale content is not shown (P1-2).
+    // displayed bitmap is kept, not released.
     pipeline.set_rendering(17);
     let second = single_pane(17);
     syncer
         .sync(&mut state, &pipeline, &mut driver, &CANVAS, &second)
         .unwrap();
     assert!(
-        log.lock().unwrap().position(&format!("release id={id}")).is_some(),
-        "P1-2 released the displayed bitmap"
+        log.lock().unwrap().position(&format!("release id={id}")).is_none(),
+        "the displayed bitmap is kept while page 17 renders"
     );
 
-    // Scrolling back to page 5 must transmit it again: the released image no
-    // longer exists on the terminal, so placing its id alone would blank the
-    // pane.
+    // Scrolling back to page 5 re-places the resident bitmap — no second
+    // transmission, no blank window.
     let third = single_pane(5);
     syncer
         .sync(&mut state, &pipeline, &mut driver, &CANVAS, &third)
@@ -233,19 +265,12 @@ fn a_page_released_while_rendering_restages_when_it_returns() {
     let log = log.lock().unwrap();
     assert_eq!(
         log.count_prefix(&format!("stage id={id} ")),
-        2,
-        "page 5 re-transmits after its release: {:?}",
+        1,
+        "page 5 never re-transmits: {:?}",
         log.calls
     );
-    let restage = log
-        .calls
-        .iter()
-        .rposition(|call| call.starts_with(&format!("stage id={id} ")))
-        .expect("the re-transmit is logged");
-    let replace = log
-        .calls
-        .iter()
-        .rposition(|call| call.starts_with(&format!("present id={id}")))
-        .expect("the pane is placed");
-    assert!(restage < replace, "stage precedes place: {:?}", log.calls);
+    assert!(
+        log.calls.iter().any(|call| call.starts_with(&format!("present id={id}"))),
+        "the pane is placed from the resident bitmap"
+    );
 }
