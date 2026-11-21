@@ -8,6 +8,14 @@ use crate::app::bindings::FrameBindings;
 use crate::app::state::PresentationState;
 use crate::widget::SlideWidget;
 
+/// Sorter card height in cell rows for a grid area of `grid_rows` rows:
+/// one third of the grid, clamped to a readable 5..=12. Shared with the
+/// reader's zoom-out floor (PRD 14a §6.3) so the handoff threshold and the
+/// grid the handoff opens can never drift apart.
+pub fn sorter_card_height(grid_rows: u16) -> u16 {
+    (grid_rows / 3).clamp(5, 12)
+}
+
 /// Render the interactive thumbnail slide sorter grid.
 pub fn render_sorter(
     state: &PresentationState,
@@ -64,7 +72,7 @@ pub fn render_sorter(
     }
 
     let cols = state.sorter_cols().max(1);
-    let card_height = (grid_area.height / 3).clamp(5, 12);
+    let card_height = sorter_card_height(grid_area.height);
 
     // Never plan more cards than the terminal image quota and image-id pool can keep resident; the
     // graphics syncer would otherwise leave the overflow blank. Capacity is computed against the
