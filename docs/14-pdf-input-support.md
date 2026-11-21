@@ -24,7 +24,7 @@ The seam below `VectorSlide` is clean (rasterizer, SVG serializer, metafile, con
 ### 1.2 Goals
 
 1. **PDF slide decks** (landscape, uniform pages — beamer, PowerPoint-exported decks) present through the **existing UX unchanged**: fullscreen, presenter console, sorter, TOC, blank, export.
-2. **PDF documents** (portrait-majority, mixed-orientation, mixed-size pages) open in a new **Reader mode**: focusable, zoomable, scrollable page panes displayed side by side and **left-aligned** (the right page may be clipped by policy), with slide-vs-document mode detection derived from page geometry — interaction layer specified in [PRD 14a](./14a-pdf-reader-ui-designs.md). This PRD covers the data/pipeline substrate it needs (per-page dimensions, windowed prefetch, text corpus).
+2. **PDF documents** (portrait-majority, mixed-orientation, mixed-size pages) open in a new **Reader mode**: focusable, zoomable, scrollable page panes displayed side by side, **rows centered when narrower than the viewport** (overflowing rows stay left-anchored and the right page may be clipped by policy), with slide-vs-document mode detection derived from page geometry — interaction layer specified in [PRD 14a](./14a-pdf-reader-ui-designs.md). This PRD covers the data/pipeline substrate it needs (per-page dimensions, windowed prefetch, text corpus).
 3. **Format auto-detection** by magic bytes (`%PDF-`), with a user override (`--mode slides|reader|auto`).
 4. **Vector-first discipline preserved**: PDF pages compile into `VectorSlide`; the raster bridge is an explicit, labeled approximation phase, not the end state.
 5. **Export parity**: `export --format png,svg` and `dump` work for PDFs. Phase R SVG wraps an embedded raster; Phase V emits native vector SVG.

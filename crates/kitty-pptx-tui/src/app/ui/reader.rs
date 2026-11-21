@@ -6,8 +6,8 @@ use ratatui::Frame;
 
 pub use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
 pub use crate::app::ui::reader_layout::{
-    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, PaneCellArea, PaneCropSpan,
-    PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
+    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, horizontal_rest_inset_px,
+    PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
 };
 use crate::app::bindings::FrameBindings;
 use crate::app::reader_state::ReaderState;
@@ -80,25 +80,40 @@ pub fn render_reader(
         if displayed < 0.0 {
             displayed = 0.0;
         }
+        // Document-rest centering: the stream's first (and, past the last
+        // flip, final) page rests centered when narrower than the viewport.
+        // The inset unwinds linearly with the slide, so the frame where the
+        // anchor flips is geometrically identical to the flush-left stream.
+        let rest_inset_px = horizontal_rest_inset_px(
+            reader,
+            render_anchor,
+            displayed,
+            viewport_w_px,
+            viewport_h_px,
+        );
         let mut col_x = viewport_area.x;
         let mut p = render_anchor;
-        // The smoothed value drives placement so horizontal slides glide.
-        let anchor_scroll_x = displayed as i64;
+        // The smoothed value drives placement so horizontal slides glide. A
+        // negative anchor scroll is the active rest inset: the pane shifts
+        // right instead of its left edge being cropped.
+        let anchor_scroll_x = (displayed - rest_inset_px) as i64;
 
         while p < reader.total_pages() && col_x < viewport_area.right() {
-            let avail_cols = viewport_area.right().saturating_sub(col_x);
+            let is_anchor_pane = p == render_anchor;
+            let scroll_x = if is_anchor_pane { anchor_scroll_x } else { 0 };
+            let pane_col_x = col_x.saturating_add(if is_anchor_pane {
+                ((-(scroll_x)).max(0) as f32 / cell_w_px).round() as u16
+            } else {
+                0
+            });
+            let avail_cols = viewport_area.right().saturating_sub(pane_col_x);
             if avail_cols < MIN_PANE_COLS && p > reader.anchor {
                 break;
             }
-            let scroll_x = if p == render_anchor {
-                anchor_scroll_x
-            } else {
-                0
-            };
             if let Some(m) = compute_horizontal_pane_metrics(
                 &ctx,
                 p,
-                col_x,
+                pane_col_x,
                 avail_cols,
                 viewport_area.y,
                 viewport_area.height,
@@ -116,7 +131,9 @@ pub fn render_reader(
                     is_primary: true,
                 });
 
-                col_x = col_x.saturating_add(m.cell_rect.cols).saturating_add(gutter_cols);
+                col_x = pane_col_x
+                    .saturating_add(m.cell_rect.cols)
+                    .saturating_add(gutter_cols);
                 p += 1;
             } else {
                 break;
@@ -342,8 +359,26 @@ struct RowRender<'a> {
 
 /// Places one row of panes into `placements`. Returns the tallest cell
 /// height the row occupies.
+///
+/// A row narrower than the viewport is **centered** (PRD 14a §6.2): the
+/// leftover horizontal space splits evenly on both sides instead of piling
+/// up on the right. Rows that overflow it (zoomed in past fit) keep the
+/// flush-left pan origin — their centering offset clamps to zero, and the
+/// horizontal pan window (`row_scroll_x`) behaves exactly as before.
 fn render_row(row: &RowRender<'_>, placements: &mut Vec<ReaderSlotPlacement>) -> u16 {
-    let mut cur_row_px = -(row.row_scroll_x as f32);
+    let mut total_row_w_px = 0.0f32;
+    for (i, &page) in row.pages.iter().enumerate() {
+        let (base_w_px, _) = row
+            .reader
+            .pane_fit(page, row.ctx.viewport_h_px, row.slot_w_px);
+        total_row_w_px += base_w_px * row.reader.page_view(page).zoom;
+        if i + 1 < row.pages.len() {
+            total_row_w_px += row.gutter_px;
+        }
+    }
+    let row_start_px = ((row.viewport_w_px - total_row_w_px) / 2.0).max(0.0);
+
+    let mut cur_row_px = row_start_px - row.row_scroll_x as f32;
     let mut occupied_rows = 0u16;
 
     for &page in row.pages {

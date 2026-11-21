@@ -152,9 +152,27 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
         }
         KeyCode::Char('G') | KeyCode::End => {
             state.clear_digits();
+            // Horizontal streams rest their final page at the end clamp,
+            // where it sits centered when narrower than the viewport — not
+            // at the page's left edge (PRD 14a §6.6). Computed before the
+            // mutable borrow below.
+            let horizontal_end_scroll = state
+                .reader_state()
+                .filter(|r| r.layout == ReaderLayout::Horizontal && r.total_pages() > 1)
+                .map(|r| {
+                    let last = r.total_pages() - 1;
+                    let (_, viewport_h_px, _, _) = reader_viewport_metrics(state);
+                    let (pt_w, pt_h) = r.page_size_pt(last);
+                    let ar = (pt_w / pt_h).max(0.1);
+                    ((viewport_h_px * ar).max(50.0) as i64).saturating_sub(1)
+                });
             if let Some(reader) = state.reader_state_mut() {
                 let total = reader.total_pages();
                 reader.jump_to_page(total.saturating_sub(1));
+                if let Some(end_scroll) = horizontal_end_scroll {
+                    reader.scroll_px = end_scroll;
+                    reader.snap_display();
+                }
             }
             if let Some(reader) = state.reader_state() {
                 state.set_current_slide(reader.focused_page());

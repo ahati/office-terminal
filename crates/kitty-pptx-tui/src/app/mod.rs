@@ -33,6 +33,8 @@ pub mod reader_state;
 #[cfg(test)]
 mod reader_boundary_tests;
 #[cfg(test)]
+mod reader_centering_tests;
+#[cfg(test)]
 mod reader_focus_marker_tests;
 pub mod reader_types;
 mod scale;
