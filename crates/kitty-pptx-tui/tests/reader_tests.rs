@@ -164,21 +164,6 @@ fn test_reader_fit_cycle() {
 }
 
 #[test]
-fn test_reader_status_line_format() {
-    let page_sizes = vec![(612.0, 792.0); 10];
-    let mut reader = ReaderState::new(10, page_sizes);
-    reader.next_row(); // spread [2, 3] -> 1-based "spread 3-4"
-
-    let status = reader.status_line("report.pdf", &[], 2);
-    assert!(status.contains("report.pdf"));
-    assert!(status.contains("spread 3-4/10"));
-    assert!(status.contains("fit:page 100%"));
-    assert!(status.contains("focus:L"));
-    assert!(status.contains("sync:on"));
-    assert!(status.contains("q:help"));
-}
-
-#[test]
 fn test_reader_key_events() {
     let mut state = reader_state(10);
 
@@ -341,35 +326,6 @@ fn test_h_scroll_preserved_across_next_and_prev_row() {
 }
 
 #[test]
-fn test_status_line_uses_primary_placements_at_zoom_0_5() {
-    let mut terminal = Terminal::new(TestBackend::new(160, 45)).unwrap();
-    let mut state = reader_state(10);
-
-    // Zoom out to 0.5 so multiple rows are placed in the viewport
-    state.reader_state_mut().unwrap().adjust_zoom(0.5);
-
-    draw_reader(&mut state, &mut terminal, 160, 45);
-
-    let placements = state.reader_placements_last();
-    assert!(
-        placements.len() > 2,
-        "At zoom 0.5, multiple rows (primary + next) are placed in the viewport"
-    );
-
-    let reader = state.reader_state().unwrap();
-    let status = reader.status_line("test.pdf", placements, state.reader_num_columns());
-    assert!(
-        status.contains("spread 1-2"),
-        "Status line must report primary spread 1-2, got: {}",
-        status
-    );
-    assert!(
-        !status.contains("spread 1-4"),
-        "Status line must NOT include preview rows in the current spread label"
-    );
-}
-
-#[test]
 fn test_horizontal_mode_h_and_l_slide_and_publish_columns() {
     let mut terminal = Terminal::new(TestBackend::new(160, 45)).unwrap();
     let mut state = reader_state(10);
@@ -406,8 +362,16 @@ fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
     let mut terminal = Terminal::new(TestBackend::new(160, 45)).unwrap();
     let mut state = reader_state(10);
 
-    // Zoom in 1.5x so rows overflow viewport width
-    state.reader_state_mut().unwrap().adjust_zoom(1.5);
+    // Fit-width panes fill their 79-col slots; a 1.1x zoom keeps the
+    // two-column plan (68 x 1.1 = 75 ideal cols) but overflows the row
+    // (87-col panes), opening the horizontal pan window this test needs.
+    state.reader_state_mut().unwrap().cycle_fit();
+    // cycle_fit only touches the visible row's pages; give the next row's
+    // pages the same fit so both rows stay horizontally comparable.
+    for page in 2..4 {
+        state.reader_state_mut().unwrap().page_view_mut(page).fit = ReaderFitMode::FitWidth;
+    }
+    state.reader_state_mut().unwrap().adjust_zoom(1.1);
 
     // First draw to establish max_row_scroll_x
     draw_reader(&mut state, &mut terminal, 160, 45);

@@ -7,7 +7,7 @@ use ratatui::Frame;
 pub use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
 pub use crate::app::ui::reader_layout::{
     compute_horizontal_pane_metrics, compute_pane_metrics_cropped, horizontal_rest_inset_px,
-    PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
+    plan_row_columns, PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
 };
 use crate::app::bindings::FrameBindings;
 use crate::app::reader_state::ReaderState;
@@ -160,12 +160,18 @@ pub fn render_reader(
     }
 
     // ─── Vertical Reflow / Spread Mode ───────────────────────────────────────────
-    // Column count from the true anchor; the lag-compensated render anchor
-    // below only moves pane geometry, not the column plan.
-    let (pt_w, pt_h) = reader.page_size_pt(reader.anchor);
-    let ar = (pt_w / pt_h).max(0.1);
-    let page_w_px = viewport_h_px * ar;
-    let ideal_cols = ((page_w_px / cell_w_px).round() as u16).max(MIN_PANE_COLS);
+    // Column count from the true anchor's ZOOMED page width; the
+    // lag-compensated render anchor below only moves pane geometry, not the
+    // column plan. Recomputed here every frame, so zoom steps reflow the
+    // row: zooming in drops columns, zooming out packs more panes in
+    // (PRD 14a §6.3).
+    let planned_cols = plan_row_columns(
+        viewport_area.width,
+        viewport_h_px,
+        cell_w_px,
+        reader.page_size_pt(reader.anchor),
+        reader.page_view(reader.anchor).zoom,
+    );
 
     let num_cols = match reader.layout {
         ReaderLayout::Single => 1,
@@ -173,7 +179,7 @@ pub fn render_reader(
             if reader.total_pages() <= 1 {
                 1
             } else {
-                ((viewport_area.width + gutter_cols) / (ideal_cols + gutter_cols)).clamp(1, 6) as usize
+                planned_cols as usize
             }
         }
         ReaderLayout::Horizontal => 1,

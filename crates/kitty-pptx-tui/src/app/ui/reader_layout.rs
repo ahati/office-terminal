@@ -42,6 +42,28 @@ pub struct PaneCropSpan {
     pub pane_w_px: f32,
 }
 
+/// Column plan for the vertical reflow: how many anchor-sized panes fit
+/// across the viewport at the anchor page's current zoom (PRD 14a §6.1/§6.3).
+///
+/// Recomputed every frame from the *zoomed* pane width, so every zoom step
+/// re-evaluates the decision — zooming in reflows to fewer columns, zooming
+/// out packs more pages per row. Clamped to `1..=6` columns; `Single` and
+/// `Horizontal` layouts ignore it (they always show one pane per row lead).
+pub fn plan_row_columns(
+    viewport_cols: u16,
+    viewport_h_px: f32,
+    cell_w_px: f32,
+    page_pt: (f32, f32),
+    zoom: f32,
+) -> u16 {
+    let (pt_w, pt_h) = page_pt;
+    let ar = (pt_w / pt_h).max(0.1);
+    let page_w_px = viewport_h_px * ar * zoom;
+    let ideal_cols = ((page_w_px / cell_w_px).round() as u16).max(MIN_PANE_COLS);
+    let cols_per_pane = ideal_cols.saturating_add(GUTTER_COLS);
+    (viewport_cols.saturating_add(GUTTER_COLS) / cols_per_pane).clamp(1, 6)
+}
+
 /// Lead-in/lead-out inset (px) that centers the horizontal stream's resting
 /// pages when they are narrower than the viewport.
 ///
