@@ -118,7 +118,7 @@ pub fn render_app(state: &PresentationState, f: &mut Frame, bindings: &mut Frame
 
     // Render active overlay on top of base views
     match state.mode() {
-        AppMode::HelpModal => render_help_modal(f, area),
+        AppMode::HelpModal => render_help_modal(f, area, base_mode),
         AppMode::CommentsDrawer => render_comments_drawer(state, f, area),
         AppMode::WarningDrawer => render_warning_drawer(state, f, area),
         AppMode::TocSearchModal => render_search_modal(state, f, area),

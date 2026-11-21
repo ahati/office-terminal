@@ -433,12 +433,24 @@ fn test_help_modal_opaque_edge_to_edge() {
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
 
-    let popup = Rect::new((100 - 70) / 2, (32 - 27) / 2, 70, 27);
+    // The slides help table is 24 body rows tall (+2 border); the popup
+    // centers in the 32-row terminal.
+    let popup_height = 26u16;
+    let popup = Rect::new(
+        (100 - 70) / 2,
+        (32 - popup_height) / 2,
+        70,
+        popup_height,
+    );
     let backend = TestBackend::new(100, 32);
     let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
     terminal
         .draw(|f| {
-            kitty_pptx_tui::app::ui::render_help_modal(f, f.area());
+            kitty_pptx_tui::app::ui::render_help_modal(
+                f,
+                f.area(),
+                kitty_pptx_tui::app::mode::AppMode::Fullscreen,
+            );
         })
         .expect("draw");
 
