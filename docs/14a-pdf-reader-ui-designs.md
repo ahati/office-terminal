@@ -372,6 +372,13 @@ Find/TOC/help overlays open **over** the reader exactly as over fullscreen (cent
 
 ## 10. Keymap (mode-local; conflicts resolved)
 
+The help modal is mode-aware: it renders the keybindings of the base
+view that opened it, sourced from that view's own handler — the reader
+table from `handle_reader_key`, the sorter table from
+`handle_sorter_key`, the slides table from the base handler — so no
+view ever advertises a key that does not work there (`h` pans in the
+reader; `Ctrl+F` opens the find modal, not the TOC search).
+
 | Key | Fullscreen (today) | Reader (new) |
 | :--- | :--- | :--- |
 | `j` / `↓` | next slide | **continuous column scroll** (1/8 row stride; next row enters smoothly) |
