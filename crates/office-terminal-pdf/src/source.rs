@@ -108,6 +108,10 @@ impl PageSource for PdfPageSource {
         self.engine.outline()
     }
 
+    fn page_labels(&self) -> Option<Vec<String>> {
+        self.engine.page_labels()
+    }
+
     fn search_corpus(&self) -> Arc<dyn SearchCorpus> {
         Arc::clone(&self.corpus)
     }

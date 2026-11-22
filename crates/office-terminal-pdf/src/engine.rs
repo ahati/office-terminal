@@ -24,6 +24,8 @@ pub trait PdfEngine: Send + Sync {
     fn compile_raster(&self, page: usize) -> Result<VectorSlide, PdfError>;
     fn compile_vector(&self, page: usize) -> Result<VectorSlide, PdfError>;
     fn outline(&self) -> Vec<TocEntry>;
+    /// Logical page labels from `/PageLabels`, index-aligned with pages.
+    fn page_labels(&self) -> Option<Vec<String>>;
     fn links(&self, page: usize) -> Vec<SlideLink>;
     fn extract_text(&self, page: usize) -> Result<Vec<TextLine>, PdfError>;
 }
@@ -228,6 +230,11 @@ impl PdfEngine for HayroEngine {
         }
 
         entries
+    }
+
+    fn page_labels(&self) -> Option<Vec<String>> {
+        let root = self.pdf.xref().get::<Dict<'_>>(self.pdf.xref().root_id())?;
+        crate::page_labels::parse_page_labels(&root, self.pdf.xref(), self.page_count())
     }
 
     fn links(&self, page: usize) -> Vec<SlideLink> {

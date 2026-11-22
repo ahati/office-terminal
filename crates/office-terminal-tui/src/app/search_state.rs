@@ -10,6 +10,9 @@ pub struct SlideSearchEntry {
     pub title: String,
     /// Hierarchical outline number (`2.1`); empty for flat decks and page rows.
     pub number: String,
+    /// Logical page label (PDF `/PageLabels`); empty when the document has
+    /// none, in which case `slide_number` is displayed.
+    pub page_label: String,
     pub notes: String,
     pub level: usize,
     pub expanded: bool,
@@ -214,6 +217,7 @@ impl SearchState {
                 slide_number,
                 title,
                 number: String::new(),
+                page_label: String::new(),
                 notes: note_text,
                 level: 0,
                 expanded: true,
@@ -224,7 +228,12 @@ impl SearchState {
     }
 
     /// Populate TOC entries from document outlines / bookmarks.
-    pub fn sync_from_toc(&mut self, toc: &[office_terminal_core::TocEntry], total_pages: usize) {
+    pub fn sync_from_toc(
+        &mut self,
+        toc: &[office_terminal_core::TocEntry],
+        total_pages: usize,
+        page_labels: &[String],
+    ) {
         let existing_expanded: std::collections::HashMap<(usize, String), bool> = self
             .entries
             .iter()
@@ -247,6 +256,7 @@ impl SearchState {
                     slide_number: i + 1,
                     title,
                     number: String::new(),
+                    page_label: page_labels.get(i).cloned().unwrap_or_default(),
                     notes: String::new(),
                     level: 0,
                     expanded,
@@ -275,6 +285,7 @@ impl SearchState {
                     slide_number: t.page_index + 1,
                     title: clean_title,
                     number: numbers[idx].clone(),
+                    page_label: page_labels.get(t.page_index).cloned().unwrap_or_default(),
                     notes: String::new(),
                     level,
                     expanded,
@@ -457,8 +468,15 @@ fn outline_numbers(toc: &[office_terminal_core::TocEntry]) -> (Vec<String>, Vec<
 }
 
 /// Calculate relevance score for matching query against slide number, title, and notes.
-fn calculate_match_score(query: &str, entry: &SlideSearchEntry) -> u32 {
-    let num_str = entry.slide_number.to_string();
+pub(crate) fn calculate_match_score(query: &str, entry: &SlideSearchEntry) -> u32 {
+    // Documents with logical page labels (PDF `/PageLabels`) display the
+    // label as the page number, so the label replaces the physical number
+    // as the primary page identity for queries.
+    let num_str = if entry.page_label.is_empty() {
+        entry.slide_number.to_string()
+    } else {
+        entry.page_label.clone()
+    };
     if num_str == query {
         return 1000;
     }

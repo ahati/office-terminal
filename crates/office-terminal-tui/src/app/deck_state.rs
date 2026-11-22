@@ -36,6 +36,9 @@ pub struct DeckState {
     pub(crate) aspect_ratio: f32,
     /// Document table of contents (fuzzy TOC search source).
     pub(crate) toc: Vec<TocEntry>,
+    /// Logical page labels (PDF `/PageLabels`), index-aligned with pages;
+    /// empty when the document defines none.
+    pub(crate) page_labels: Vec<String>,
     /// Human-readable presentation or document title.
     pub(crate) deck_title: Option<String>,
 }
@@ -51,6 +54,7 @@ impl Default for DeckState {
             slide_height_emu: DEFAULT_SLIDE_HEIGHT_EMU,
             aspect_ratio: DEFAULT_ASPECT_RATIO,
             toc: Vec::new(),
+            page_labels: Vec::new(),
             deck_title: None,
         }
     }
@@ -130,6 +134,16 @@ impl DeckState {
     /// Document table of contents.
     pub fn toc(&self) -> &[TocEntry] {
         &self.toc
+    }
+
+    /// Replace the logical page labels (PDF `/PageLabels`).
+    pub fn set_page_labels(&mut self, labels: Vec<String>) {
+        self.page_labels = labels;
+    }
+
+    /// Logical page labels, index-aligned with pages (empty when absent).
+    pub fn page_labels(&self) -> &[String] {
+        &self.page_labels
     }
 
     /// Set the human-readable presentation or document title.

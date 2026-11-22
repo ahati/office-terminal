@@ -45,6 +45,9 @@ mod scale;
 mod scale_tests;
 pub mod search_state;
 #[cfg(test)]
+#[path = "search_label_tests.rs"]
+mod search_label_tests;
+#[cfg(test)]
 mod sorter_graphics_tests;
 pub mod sorter_state;
 #[cfg(test)]
@@ -192,6 +195,13 @@ impl PresentationApp {
     /// Attach a document table of contents for fuzzy search.
     pub fn with_toc(mut self, toc: Vec<office_terminal_core::TocEntry>) -> Self {
         self.state.set_toc(&toc);
+        self
+    }
+
+    /// Attach logical page labels (PDF `/PageLabels`) for display in the
+    /// fuzzy search and reader status bar.
+    pub fn with_page_labels(mut self, labels: Vec<String>) -> Self {
+        self.state.set_page_labels(labels);
         self
     }
 

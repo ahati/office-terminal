@@ -110,6 +110,7 @@ pub fn run_interactive(
         DeckSource::Pdf(pdf_source) => {
             let total = pdf_source.len();
             let toc = pdf_source.toc();
+            let page_labels = pdf_source.page_labels().unwrap_or_default();
             let mut page_sizes = Vec::with_capacity(total);
             for i in 0..total {
                 let (w_emu, h_emu) = pdf_source.page_size_emu(i);
@@ -151,7 +152,8 @@ pub fn run_interactive(
                 .with_presenter_mode(presenter)
                 .with_slide_dimensions(first_w_emu, first_h_emu)
                 .with_deck_title(doc_title)
-                .with_toc(toc);
+                .with_toc(toc)
+                .with_page_labels(page_labels);
             if let Some(rx) = render_events {
                 a = a.with_render_events(rx);
             }

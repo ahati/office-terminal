@@ -42,17 +42,17 @@ impl ReaderState {
         let page_label = if active_pages.len() > 1 {
             format!(
                 "spread {}-{}",
-                active_pages[0] + 1,
-                active_pages[active_pages.len() - 1] + 1
+                self.page_label(active_pages[0]),
+                self.page_label(active_pages[active_pages.len() - 1])
             )
         } else if let Some(&p) = active_pages.first() {
-            format!("p.{}", p + 1)
+            format!("p.{}", self.page_label(p))
         } else {
             let vis = self.visible_pages();
             if columns > 1 && vis.len() > 1 {
-                format!("spread {}-{}", vis[0] + 1, vis[1] + 1)
+                format!("spread {}-{}", self.page_label(vis[0]), self.page_label(vis[1]))
             } else if !vis.is_empty() {
-                format!("p.{}", vis[0] + 1)
+                format!("p.{}", self.page_label(vis[0]))
             } else {
                 "p.0".to_string()
             }

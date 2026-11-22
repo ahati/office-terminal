@@ -37,6 +37,9 @@ pub struct ReaderState {
     pub(crate) views: HashMap<usize, PageView>,
     total_pages: usize,
     page_sizes: Vec<(f32, f32)>,
+    /// Logical page labels (PDF `/PageLabels`), index-aligned with pages;
+    /// `None` falls back to 1-based physical numbers in the status bar.
+    page_labels: Option<Vec<String>>,
     /// Dominant page size in points (post-rotation): the majority size of
     /// the document, the basis of the stable column grid (PRD 14a §6.4).
     dominant_pt: (f32, f32),
@@ -61,11 +64,26 @@ impl ReaderState {
             total_pages,
             dominant_pt: dominant_page_pt(&page_sizes),
             page_sizes,
+            page_labels: None,
         }
     }
 
     pub fn total_pages(&self) -> usize {
         self.total_pages
+    }
+
+    /// Replace the logical page labels shown in the status bar.
+    pub fn set_page_labels(&mut self, labels: Vec<String>) {
+        self.page_labels = Some(labels);
+    }
+
+    /// Display label of `page`: the document's logical label when defined,
+    /// else the 1-based physical page number.
+    pub fn page_label(&self, page: usize) -> String {
+        match self.page_labels.as_ref().and_then(|l| l.get(page)) {
+            Some(label) if !label.is_empty() => label.clone(),
+            _ => (page + 1).to_string(),
+        }
     }
 
     pub fn page_size_pt(&self, page: usize) -> (f32, f32) {

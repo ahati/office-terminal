@@ -105,6 +105,15 @@ pub trait PageSource: Send + Sync {
         Vec::new()
     }
 
+    /// Logical page labels (PDF `/PageLabels`), index-aligned with pages.
+    ///
+    /// `None` when the document defines no explicit labels; consumers then
+    /// fall back to 1-based physical page numbers. Navigation keeps using
+    /// physical indexes — labels are display-only.
+    fn page_labels(&self) -> Option<Vec<String>> {
+        None
+    }
+
     /// Extracted text corpus for in-document search and indexing.
     fn search_corpus(&self) -> Arc<dyn SearchCorpus> {
         Arc::new(EmptySearchCorpus)

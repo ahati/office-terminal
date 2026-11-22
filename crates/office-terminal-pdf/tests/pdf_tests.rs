@@ -238,6 +238,10 @@ impl PdfEngine for LazyCorpusEngine {
         Vec::new()
     }
 
+    fn page_labels(&self) -> Option<Vec<String>> {
+        None
+    }
+
     fn links(&self, _page: usize) -> Vec<office_terminal_core::SlideLink> {
         Vec::new()
     }
@@ -394,6 +398,65 @@ fn test_named_destination_resolution_in_outline() {
     // Inline dictionary value (the already-working shape).
     assert_eq!(toc[2].title, "Inline dict dest");
     assert_eq!(toc[2].page_index, 0);
+}
+
+/// Build a four-page PDF whose catalog declares `/PageLabels` with the
+/// classic front-matter/body split: pages 1-2 numbered in lowercase roman,
+/// pages 3-4 in decimal starting at 3 with a `P-` prefix.
+fn build_page_labels_pdf() -> Vec<u8> {
+    let objects: Vec<&str> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /PageLabels << /Nums [0 << /S /r >> 2 << /S /D /St 3 /P (P-) >>] >> >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 7 0 R >>",
+        "<< /Length 0 >>\nstream\nendstream",
+    ];
+
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{}\nendobj\n", i + 1, body).as_bytes());
+    }
+
+    let xref_offset = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in &offsets {
+        out.extend_from_slice(format!("{:010} 00000 n \n", offset).as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+            objects.len() + 1,
+            xref_offset
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+#[test]
+fn test_page_labels_parse_from_catalog() {
+    let bytes: Arc<[u8]> = Arc::from(build_page_labels_pdf().into_boxed_slice());
+    let source = PdfPageSource::open(bytes).expect("open synthetic PDF");
+
+    let labels = source.page_labels().expect("/PageLabels must produce labels");
+    assert_eq!(labels.len(), 4);
+    assert_eq!(labels[0], "i");
+    assert_eq!(labels[1], "ii");
+    // The decimal range restarts at /St 3 and carries the /P prefix.
+    assert_eq!(labels[2], "P-3");
+    assert_eq!(labels[3], "P-4");
+}
+
+#[test]
+fn test_page_labels_absent_returns_none() {
+    let bytes: Arc<[u8]> = Arc::from(build_named_dest_pdf().into_boxed_slice());
+    let source = PdfPageSource::open(bytes).expect("open synthetic PDF");
+    assert!(source.page_labels().is_none());
 }
 
 
