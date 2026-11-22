@@ -5,6 +5,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use ratatui::backend::TestBackend;
+use ratatui::style::Color;
 use ratatui::Terminal;
 
 use office_terminal_tui::app::bindings::FrameBindings;
@@ -160,4 +161,43 @@ fn test_toc_search_selects_section_number_match() {
     let action = handle_key_event(make_key(KeyCode::Enter), &mut state);
     assert_eq!(action, AppAction::SlideChanged);
     assert_eq!(state.current_slide(), 63);
+}
+
+#[test]
+fn test_toc_modal_highlights_fuzzy_match_as_direct_match() {
+    let mut state = PresentationState::new(120, vec![]);
+    state.set_toc(&three_level_toc());
+    state.open_search();
+    // Fuzzy query "sc" matches "Sub Chapter"
+    state.search_push_char('s');
+    state.search_push_char('c');
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    let mut bindings = FrameBindings::default();
+    terminal
+        .draw(|frame| render_app(&state, frame, &mut bindings))
+        .expect("draw TOC modal");
+
+    let buffer = terminal.backend().buffer();
+    let mut found = false;
+    for y in 0..24 {
+        for x in 0..70 {
+            let cell = buffer.cell((x, y)).unwrap();
+            if cell.symbol() == "S" {
+                let cell_next = buffer.cell((x + 1, y)).unwrap();
+                let cell_next2 = buffer.cell((x + 2, y)).unwrap();
+                if cell_next.symbol() == "u" && cell_next2.symbol() == "b" {
+                    // "Sub Chapter" matched via fuzzy search, so it must NOT be styled as dimmed ancestor node (DarkGray).
+                    assert_ne!(
+                        cell.fg,
+                        Color::DarkGray,
+                        "Fuzzy match must be rendered as direct match, not dimmed context"
+                    );
+                    found = true;
+                }
+            }
+        }
+    }
+    assert!(found, "Sub Chapter row must be rendered");
 }
