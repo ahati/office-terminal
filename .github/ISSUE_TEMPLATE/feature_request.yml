@@ -1,0 +1,23 @@
+name: Feature Request
+description: Propose an idea or enhancement for kitty-pptx
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A concise description of the limitation or use case.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the Solution You'd Like
+      description: A clear and concise description of the desired behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Additional Context or Alternatives Considered
+      description: Any alternative solutions or mockups.

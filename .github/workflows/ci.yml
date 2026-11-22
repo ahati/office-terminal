@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    name: Test & Lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace
+        run: cargo check --workspace
+
+      - name: Clippy (zero warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run workspace tests
+        run: cargo test --workspace
+
+      - name: Enforce < 600 lines per file
+        run: |
+          oversized=$(find crates/kitty-pptx-* -name "*.rs" -exec wc -l {} + | awk '$1 > 600 {print $2, "(" $1 " lines)"}')
+          if [ -n "$oversized" ]; then
+            echo "Error: The following source files exceed the 600-line limit:"
+            echo "$oversized"
+            exit 1
+          fi
