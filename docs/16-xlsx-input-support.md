@@ -90,9 +90,9 @@ Both surfaces call a **single canvas compiler**. There is no second renderer and
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`calamine`** | ✅ thorough, lazy per-sheet | ⚠️ partial (font/alignment basics), no theme resolution | ❌ not exposed | ❌ none | ❌ none | **Rejected** — supplies ~20 % of what the feature needs, and would still force a parallel style/drawing parser |
 | **`umya-spreadsheet`** | ✅ | ✅ | ✅ | ⚠️ model-level only, no rendering semantics | ⚠️ model-level | **Rejected** — whole-workbook eager model, write-oriented, large trait surface, no line-budget separation from our fidelity policy |
-| **In-house SpreadsheetML on `ooxml-common`** | ✅ | ✅ | ✅ | ✅ (charts mapped onto core `Chart`) | ✅ | **Selected** — `ooxml-common` already provides OPC/relationships/XML utilities used by the vendored parsers; the required subset is a few thousand well-understood lines, gated behind `< 600`-line modules |
+| **Upstream SpreadsheetML (`packages/xlsx/parser` from `office-open-xml-viewer`) on `ooxml-common`** | ✅ | ✅ | ✅ | ✅ (charts mapped onto core `Chart`) | ✅ | **Selected** — reuses proven pure-Rust SpreadsheetML parser and AST from the upstream monorepo (`yukiyokotani/office-open-xml-viewer`), sharing `ooxml-common`, partitioned into `< 600`-line submodules under `crates/office-terminal-xlsx/src/package/` |
 
-**Dependency policy.** No additions to `[workspace.dependencies]`. The crate uses `ooxml-common` (vendored), `quick-xml`/`roxmltree`, `image`, `resvg`, `office-terminal-core`. `zip = "=9.0.4"` remains the single archive backend ([AGENTS.md](../AGENTS.md) §E).
+**Dependency policy.** No additions to `[workspace.dependencies]`. The crate reuses `ooxml-common` (vendored from upstream), `quick-xml`/`roxmltree`, `image`, `resvg`, `office-terminal-core`. `zip = "=9.0.4"` remains the single archive backend ([AGENTS.md](../AGENTS.md) §E).
 
 ---
 
@@ -288,7 +288,7 @@ Detection is content-driven; the file extension is never authoritative.
 ## 6. Grid Geometry & Metrics
 
 ### 6.1 Metrics profile
-`MetricsProfile` is resolved once per workbook from the Normal style font (`cellStyles[xfId=0]` → `cellXfs[0]@fontId` → `fonts[i]`), then cached:
+`MetricsProfile` is resolved once per workbook from the Normal style font (`cellStyles[xfId=0]` → `cellXfs[0]@fontId` → `fonts[i]`), adapting the verified geometry algorithms from upstream `packages/xlsx/src/grid-geometry.ts`, then cached:
 
 | Field | Resolution |
 | :--- | :--- |
@@ -359,7 +359,7 @@ Text spills into empty neighbouring cells when: alignment is `general` or `left`
 ## 8. Value Formatting (Number Format Engine)
 
 ### 8.1 Scope
-`numFmtId` resolves through `styles.xml`: built-in ids 0–49 are hard-coded per ECMA-376 §18.8.30, ids ≥ 164 resolve to `numFmts/numFmt@formatCode`. Custom codes are parsed into an AST and formatted against the cell value.
+`numFmtId` resolves through `styles.xml`: built-in ids 0–49 are hard-coded per ECMA-376 §18.8.30, ids ≥ 164 resolve to `numFmts/numFmt@formatCode`. Custom codes are parsed into an AST and formatted against the cell value. The grammar parser and formatting algorithms in `src/value/numfmt_*.rs` adapt the battle-tested, spec-compliant reference implementation from upstream `packages/xlsx/src/value/numfmt.ts` in `yukiyokotani/office-open-xml-viewer`, ensuring exact parity on edge cases without trial-and-error.
 
 ### 8.2 Grammar (fully implemented)
 - **Four sections** `positive;negative;zero;text` with Excel's fallbacks (1 section → all; 2 → positive+zero, negative; 3 → text from `@` elsewhere). Empty trailing sections hide the value (`;;;` renders nothing).
@@ -454,6 +454,7 @@ Primary source is the chart part's own cache (`numCache`/`strCache`) — no shee
 ## 11. Drawings: Pictures, Shapes & Objects
 
 ### 11.1 Anchor → EMU
+Adapts the coordinate resolution formulas from upstream `packages/xlsx/src/drawings/anchor.ts`:
 ```
 x_emu = col_prefix(from.col) + from.colOff
 y_emu = row_prefix(from.row) + from.rowOff
