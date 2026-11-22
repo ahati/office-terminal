@@ -6,6 +6,7 @@ pub mod engine;
 pub mod error;
 pub mod limits;
 pub mod links;
+pub mod page_labels;
 pub mod raster_bridge;
 pub mod source;
 pub mod text;

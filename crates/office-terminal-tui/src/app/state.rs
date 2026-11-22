@@ -404,7 +404,8 @@ impl PresentationState {
     /// Rebuild the search index, excluding hidden slides while in `skip` mode.
     pub(crate) fn sync_search_entries(&mut self) {
         if !self.deck.toc().is_empty() {
-            self.search.sync_from_toc(self.deck.toc(), self.total_slides);
+            let labels = self.deck.page_labels().to_vec();
+            self.search.sync_from_toc(self.deck.toc(), self.total_slides, &labels);
         } else {
             let hidden: Vec<bool> = (0..self.total_slides)
                 .map(|index| self.nav.is_hidden(index))

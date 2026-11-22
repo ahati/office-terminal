@@ -110,16 +110,23 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
 
         // Numbered outlines (PDF bookmarks) lead with the tree number and trail
         // a right-aligned page column; flat decks keep the leading `[page]`
-        // prefix so their rows are unchanged.
+        // prefix so their rows are unchanged. The page column shows the
+        // document's logical label (PDF `/PageLabels`) when defined, else the
+        // 1-based physical page number.
         let numbered = search.entries().iter().any(|entry| !entry.number.is_empty());
+        let page_text = |entry: &crate::app::search_state::SlideSearchEntry| -> String {
+            if entry.page_label.is_empty() {
+                entry.slide_number.to_string()
+            } else {
+                entry.page_label.clone()
+            }
+        };
         let page_width = search
             .entries()
             .iter()
-            .map(|entry| entry.slide_number)
+            .map(|entry| page_text(entry).chars().count())
             .max()
-            .unwrap_or(1)
-            .to_string()
-            .len();
+            .unwrap_or(1);
 
         for row in 0..visible_count {
             let item_idx = scroll_top + row;
@@ -143,13 +150,15 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                     } else {
                         format!("{} ", entry.number)
                     };
+                    let page = page_text(entry);
                     (
                         format!("{lead}{indent}{icon}{number}"),
-                        format!(" [{:>width$}]", entry.slide_number, width = page_width),
+                        format!(" [{:>width$}]", page, width = page_width),
                     )
                 } else {
+                    let page = page_text(entry);
                     (
-                        format!("{lead}{indent}{icon}[{:>3}] ", entry.slide_number),
+                        format!("{lead}{indent}{icon}[{:>width$}] ", page, width = page_width.max(3)),
                         String::new(),
                     )
                 };
@@ -160,7 +169,10 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                 let is_direct_match = q.is_empty() || {
                     let title_lower = entry.title.to_lowercase();
                     let num_str = entry.slide_number.to_string();
-                    title_lower.contains(&q) || num_str.contains(&q) || entry.number.contains(&q)
+                    title_lower.contains(&q)
+                        || num_str.contains(&q)
+                        || entry.number.contains(&q)
+                        || entry.page_label.contains(&q)
                 };
 
                 let notes_span_text = if !entry.notes.is_empty() {

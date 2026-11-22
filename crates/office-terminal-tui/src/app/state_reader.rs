@@ -17,6 +17,13 @@ impl PresentationState {
             self.set_slide_dimensions(w_emu, h_emu);
         }
         self.reader_state = Some(ReaderState::new(total_pages, page_sizes));
+        // Documents with logical page labels carry them into the fresh
+        // reader state for status-bar display.
+        if !self.deck.page_labels().is_empty() {
+            if let Some(reader) = self.reader_state.as_mut() {
+                reader.set_page_labels(self.deck.page_labels().to_vec());
+            }
+        }
         // Reader is a persistent base view: switch the mode stack's base so
         // overlays (find modal, help) remember it underneath.
         self.mode_stack.switch_base(BaseView::Reader);
@@ -62,6 +69,21 @@ impl PresentationState {
     pub fn set_toc(&mut self, toc: &[office_terminal_core::TocEntry]) {
         self.deck.set_toc(toc);
         let total = self.total_slides;
-        self.search.sync_from_toc(toc, total);
+        let labels = self.deck.page_labels().to_vec();
+        self.search.sync_from_toc(toc, total, &labels);
+    }
+
+    /// Replace the logical page labels (PDF `/PageLabels`) and re-sync the
+    /// TOC search index so entries carry the fresh labels.
+    pub fn set_page_labels(&mut self, labels: Vec<String>) {
+        self.deck.set_page_labels(labels);
+        let labels = self.deck.page_labels().to_vec();
+        if let Some(reader) = self.reader_state.as_mut() {
+            reader.set_page_labels(labels);
+        }
+        if !self.deck.toc().is_empty() {
+            let toc = self.deck.toc().to_vec();
+            self.set_toc(&toc);
+        }
     }
 }
