@@ -11,7 +11,9 @@
 use std::sync::Arc;
 
 use office_terminal_core::contracts::{EmuRect, SearchCorpus, TextLine};
-use oxml_layout::{GlyphRun, MultilingualGlyphRun, PageFrame, Point, PositionedElement};
+use oxml_layout::{
+    GlyphRun, MultilingualGlyphRun, PageFrame, Point, PositionedElement, Transform,
+};
 
 use crate::limits::DocxLimits;
 
@@ -169,17 +171,28 @@ fn collect_run_candidates(
     elements: &[PositionedElement],
     candidates: &mut Vec<RunCandidate>,
 ) {
+    collect_run_candidates_transformed(elements, Transform::IDENTITY, candidates);
+}
+
+fn collect_run_candidates_transformed(
+    elements: &[PositionedElement],
+    acc: Transform,
+    candidates: &mut Vec<RunCandidate>,
+) {
     for element in elements {
         match element {
-            PositionedElement::Text(run) => push_candidate(candidates, project_glyph_run(run)),
+            PositionedElement::Text(run) => {
+                push_candidate(candidates, project_glyph_run(run, acc));
+            }
             PositionedElement::MultilingualText(run) => {
-                push_candidate(candidates, project_multilingual(run))
+                push_candidate(candidates, project_multilingual(run, acc));
             }
             PositionedElement::Group(group) => {
-                collect_run_candidates(&group.children, candidates);
+                let child_acc = group.transform.then(acc);
+                collect_run_candidates_transformed(&group.children, child_acc, candidates);
             }
             PositionedElement::MarkedContent { children, .. } => {
-                collect_run_candidates(children, candidates);
+                collect_run_candidates_transformed(children, acc, candidates);
             }
             _ => {}
         }
@@ -194,25 +207,49 @@ fn push_candidate(candidates: &mut Vec<RunCandidate>, candidate: Option<RunCandi
     }
 }
 
-fn project_glyph_run(run: &GlyphRun) -> Option<RunCandidate> {
-    let advance: f64 = run.advances.iter().sum();
+fn project_glyph_run(run: &GlyphRun, acc: Transform) -> Option<RunCandidate> {
+    let unscaled_advance: f64 = run.advances.iter().sum();
+    let p0 = acc.apply(run.origin);
+    let p1 = acc.apply(Point {
+        x: run.origin.x + unscaled_advance,
+        y: run.origin.y,
+    });
+    let advance = (p1.x - p0.x).abs();
+    let scale_y = (acc.b * acc.b + acc.d * acc.d).sqrt();
+    let font_size = if scale_y.is_finite() && scale_y > 0.0 {
+        run.font_size * scale_y
+    } else {
+        run.font_size
+    };
     Some(RunCandidate {
         node: run.source.map(|span| span.node.get()),
         char_start: run.source.map(|span| span.char_start).unwrap_or(0),
-        origin: run.origin,
-        font_size: run.font_size,
+        origin: p0,
+        font_size,
         advance,
         text: run.text.clone(),
     })
 }
 
-fn project_multilingual(run: &MultilingualGlyphRun) -> Option<RunCandidate> {
-    let advance: f64 = run.x_advances.iter().sum();
+fn project_multilingual(run: &MultilingualGlyphRun, acc: Transform) -> Option<RunCandidate> {
+    let unscaled_advance: f64 = run.x_advances.iter().sum();
+    let p0 = acc.apply(run.origin);
+    let p1 = acc.apply(Point {
+        x: run.origin.x + unscaled_advance,
+        y: run.origin.y,
+    });
+    let advance = (p1.x - p0.x).abs();
+    let scale_y = (acc.b * acc.b + acc.d * acc.d).sqrt();
+    let font_size = if scale_y.is_finite() && scale_y > 0.0 {
+        run.font_size * scale_y
+    } else {
+        run.font_size
+    };
     Some(RunCandidate {
         node: run.source.map(|span| span.node.get()),
         char_start: run.source.map(|span| span.char_start).unwrap_or(0),
-        origin: run.origin,
-        font_size: run.font_size,
+        origin: p0,
+        font_size,
         advance,
         text: run.logical_text.clone(),
     })
@@ -421,5 +458,32 @@ mod tests {
             },
         );
         assert_eq!(capped.len(), 10);
+    }
+
+    #[test]
+    fn transformed_group_text_positions_are_in_page_space() {
+        let group = oxml_layout::GroupElement {
+            transform: Transform {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                e: 100.0,
+                f: 200.0,
+            },
+            clip: None,
+            opacity: 1.0,
+            effects: Vec::new(),
+            children: vec![PositionedElement::Text(glyph_run(
+                "group text",
+                Point { x: 10.0, y: 20.0 },
+                None,
+            ))],
+        };
+        let elements = vec![PositionedElement::Group(group)];
+        let lines = build_page_lines(&elements, &DocxLimits::default());
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text, "group text");
+        assert_eq!(lines[0].rect.x, pt_to_emu(110.0));
     }
 }

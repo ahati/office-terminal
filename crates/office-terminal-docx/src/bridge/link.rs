@@ -6,7 +6,7 @@
 //! links drop with a warning — never silently, never as a URL.
 
 use office_terminal_core::contracts::{
-    HyperlinkTarget, RectF32, SlideLink, WarningEvent,
+    AffineTransform, HyperlinkTarget, RectF32, SlideLink, WarningEvent,
 };
 use office_terminal_core::sanitize_hyperlink_url;
 use oxml_layout::Rect;
@@ -14,16 +14,40 @@ use oxml_layout::Rect;
 use super::{pt_to_emu, BridgeContext};
 
 /// Map one link annotation onto the slide's hyperlink list.
-pub(crate) fn map_link(rect: &Rect, url: &str, slide: &mut office_terminal_core::contracts::VectorSlide, ctx: &BridgeContext<'_>) {
+pub(crate) fn map_link(
+    rect: &Rect,
+    url: &str,
+    acc: &AffineTransform,
+    slide: &mut office_terminal_core::contracts::VectorSlide,
+    ctx: &BridgeContext<'_>,
+) {
     if rect.width <= 0.0 || rect.height <= 0.0 {
         return;
     }
+    let x0 = pt_to_emu(rect.x);
+    let y0 = pt_to_emu(rect.y);
+    let x1 = pt_to_emu(rect.x + rect.width);
+    let y1 = pt_to_emu(rect.y + rect.height);
+
+    let (p0_x, p0_y) = acc.transform_point(x0, y0);
+    let (p1_x, p1_y) = acc.transform_point(x1, y0);
+    let (p2_x, p2_y) = acc.transform_point(x1, y1);
+    let (p3_x, p3_y) = acc.transform_point(x0, y1);
+
+    let min_x = p0_x.min(p1_x).min(p2_x).min(p3_x);
+    let max_x = p0_x.max(p1_x).max(p2_x).max(p3_x);
+    let min_y = p0_y.min(p1_y).min(p2_y).min(p3_y);
+    let max_y = p0_y.max(p1_y).max(p2_y).max(p3_y);
+
     let bounds = RectF32::new(
-        pt_to_emu(rect.x),
-        pt_to_emu(rect.y),
-        pt_to_emu(rect.width),
-        pt_to_emu(rect.height),
+        min_x,
+        min_y,
+        (max_x - min_x).max(0.0),
+        (max_y - min_y).max(0.0),
     );
+    if bounds.w <= 0.0 || bounds.h <= 0.0 {
+        return;
+    }
 
     let target = match sanitize_hyperlink_url(url) {
         Ok(clean) => HyperlinkTarget::ExternalUri(clean),
@@ -150,5 +174,32 @@ mod tests {
         let (slide, warnings) = compile(&page, &engine);
         assert!(slide.hyperlinks.is_empty());
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn transformed_group_links_have_page_space_bounds() {
+        let group = oxml_layout::GroupElement {
+            transform: oxml_layout::Transform {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                e: 50.0,
+                f: 100.0,
+            },
+            clip: None,
+            opacity: 1.0,
+            effects: Vec::new(),
+            children: vec![link("https://example.com/target")],
+        };
+        let page = letter_page(vec![PositionedElement::Group(group)]);
+        let engine = FixtureEngine::new(Vec::new());
+        let (slide, warnings) = compile(&page, &engine);
+        assert!(warnings.is_empty());
+        assert_eq!(slide.hyperlinks.len(), 1);
+        assert_eq!(slide.hyperlinks[0].bounds_emu.x, 60.0 * 12_700.0);
+        assert_eq!(slide.hyperlinks[0].bounds_emu.y, 110.0 * 12_700.0);
+        assert_eq!(slide.hyperlinks[0].bounds_emu.w, 100.0 * 12_700.0);
+        assert_eq!(slide.hyperlinks[0].bounds_emu.h, 12.0 * 12_700.0);
     }
 }

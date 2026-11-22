@@ -85,6 +85,11 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
             if !toc.is_empty() {
                 println!("TOC Entries:    {} headings", toc.len());
             }
+            if let Some(store) = docx_source.asset_store() {
+                let count = store.entry_count();
+                let mb = store.raw_bytes_total() as f64 / (1024.0 * 1024.0);
+                println!("Media Assets:   {} images ({:.1} MB)", count, mb);
+            }
         }
         DeckSource::Pdf(pdf_source) => {
             let total = pdf_source.len();

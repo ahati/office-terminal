@@ -163,14 +163,18 @@ impl AssetStore for DocxAssetStore {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *clock += 1;
 
-            let current_bytes: usize = cache.values().map(|e| e.image.pixels.len()).sum();
-            if current_bytes + decoded.pixels.len() > self.max_cache_bytes && !cache.is_empty() {
+            let mut current_bytes: usize = cache.values().map(|e| e.image.pixels.len()).sum();
+            while current_bytes + decoded.pixels.len() > self.max_cache_bytes && !cache.is_empty() {
                 let oldest_key = cache
                     .iter()
                     .min_by_key(|(_, entry)| entry.access_counter)
                     .map(|(key, _)| key.clone());
                 if let Some(key) = oldest_key {
-                    cache.remove(&key);
+                    if let Some(removed) = cache.remove(&key) {
+                        current_bytes = current_bytes.saturating_sub(removed.image.pixels.len());
+                    }
+                } else {
+                    break;
                 }
             }
 
@@ -212,6 +216,14 @@ impl AssetStore for DocxAssetStore {
             cached_entries: cache.len(),
             cached_bytes: cache.values().map(|e| e.image.pixels.len()).sum(),
         }
+    }
+
+    fn entry_count(&self) -> usize {
+        self.entry_count()
+    }
+
+    fn raw_bytes_total(&self) -> usize {
+        self.raw_bytes_total()
     }
 }
 
@@ -339,5 +351,56 @@ mod tests {
         assert_eq!(media_rel_id(MediaId(0)), "docx-media-0000000000000000");
         assert_eq!(media_rel_id(MediaId(u64::MAX)), "docx-media-ffffffffffffffff");
         assert!(media_rel_id(MediaId(1)).starts_with("docx-media-"));
+    }
+
+    #[test]
+    fn cache_evicts_multiple_entries_when_byte_budget_exceeded() {
+        let store = DocxAssetStore {
+            entries: HashMap::new(),
+            cache: Mutex::new(HashMap::new()),
+            access_clock: Mutex::new(0),
+            max_cache_bytes: 100,
+            raw_bytes_served: Mutex::new(0),
+        };
+        let dummy_image = |size: usize| DecodedImage {
+            width: 1,
+            height: 1,
+            pixels: Arc::from(vec![0u8; size].into_boxed_slice()),
+        };
+        {
+            let mut cache = store.cache.lock().unwrap();
+            cache.insert(
+                "key1".to_string(),
+                CacheEntry {
+                    image: dummy_image(40),
+                    access_counter: 1,
+                },
+            );
+            cache.insert(
+                "key2".to_string(),
+                CacheEntry {
+                    image: dummy_image(40),
+                    access_counter: 2,
+                },
+            );
+        }
+        let mut cache = store.cache.lock().unwrap();
+        let decoded = dummy_image(70);
+        let mut current_bytes: usize = cache.values().map(|e| e.image.pixels.len()).sum();
+        while current_bytes + decoded.pixels.len() > store.max_cache_bytes && !cache.is_empty() {
+            let oldest_key = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.access_counter)
+                .map(|(key, _)| key.clone());
+            if let Some(key) = oldest_key {
+                if let Some(removed) = cache.remove(&key) {
+                    current_bytes = current_bytes.saturating_sub(removed.image.pixels.len());
+                }
+            } else {
+                break;
+            }
+        }
+        assert!(cache.is_empty(), "both entries had to be evicted");
+        assert!(current_bytes + decoded.pixels.len() <= store.max_cache_bytes);
     }
 }
