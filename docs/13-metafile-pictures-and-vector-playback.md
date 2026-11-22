@@ -518,7 +518,7 @@ Measurements follow [PRD 07](./07-quality-and-testing.md) §5 (release profile, 
 1. Resolve the effective path (`svg_image_path` first, then `image_path`).
 2. If raster or SVG → existing `DrawImage` behaviour (unchanged).
 3. If metafile (`emf`, `wmf`, `emz`, `wmz`, or MIME `image/x-emf`, `image/x-wmf`, case-insensitive) → emit `VectorCommand::DrawMetafile { … }` inside the existing silhouette clip and background fill; **do not read bytes**.
-4. Unknown/undecodable formats → `compile_metafile_placeholder(pic)` + placeholder warning (shared with [issue #5](https://github.com/ahati/kitty-pptx/issues/5) Phase 1).
+4. Unknown/undecodable formats → `compile_metafile_placeholder(pic)` + placeholder warning (shared with [issue #5](https://github.com/ahati/office-terminal/issues/5) Phase 1).
 
 **Expansion** (`expand_metafiles`) runs immediately after compilation, where both the scene and the `AssetStore` exist:
 
@@ -676,4 +676,4 @@ Implemented in **M0** (`crates/office-terminal-core/tests/warning_plumbing_tests
 - [PRD 02d](./02d-element-renderers-and-fidelity-policy.md) — placeholder language and fidelity governance.
 - [PRD 06](./06-component-interface-contracts.md) — display-list invariants (`VectorSlide`, `VectorCommand`).
 - [PRD 13a](./13a-metafile-fidelity-and-validation.md) — fidelity matrix, diagnostics taxonomy, goldens and NFRs.
-- [Issue #5](https://github.com/ahati/kitty-pptx/issues/5) — silent-drop defect and the placeholder fallback this PRD builds on.
+- [Issue #5](https://github.com/ahati/office-terminal/issues/5) — silent-drop defect and the placeholder fallback this PRD builds on.
