@@ -51,6 +51,11 @@ fn resolve_dest_value(
     if let Some(str_val) = dict.get::<PdfString<'_>>(key) {
         return resolve_named_dest(str_val.as_bytes(), page_map, root, xref);
     }
+    if let Some(dest_dict) = dict.get::<Dict<'_>>(key) {
+        if let Some(arr) = dest_dict.get::<Array<'_>>(b"D") {
+            return resolve_array_dest(&arr, page_map);
+        }
+    }
     None
 }
 
@@ -79,6 +84,28 @@ fn resolve_name_tree_node(
 ) -> Option<usize> {
     if depth > 10 {
         return None;
+    }
+
+    // Prune subtree using /Limits [least greatest] when present (ISO 32000-1 §7.7.4)
+    if let Some(limits) = node.get::<Array<'_>>(b"Limits") {
+        let mut lim_iter = limits.raw_iter();
+        if let (Some(min_elem), Some(max_elem)) = (lim_iter.next(), lim_iter.next()) {
+            let min_bytes = match &min_elem {
+                MaybeRef::NotRef(Object::String(s)) => Some(s.as_bytes()),
+                MaybeRef::NotRef(Object::Name(n)) => Some(n.as_ref()),
+                _ => None,
+            };
+            let max_bytes = match &max_elem {
+                MaybeRef::NotRef(Object::String(s)) => Some(s.as_bytes()),
+                MaybeRef::NotRef(Object::Name(n)) => Some(n.as_ref()),
+                _ => None,
+            };
+            if let (Some(min_b), Some(max_b)) = (min_bytes, max_bytes) {
+                if name < min_b || name > max_b {
+                    return None;
+                }
+            }
+        }
     }
 
     // Leaf node: /Names array

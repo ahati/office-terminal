@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use hayro::RenderCache;
 use hayro_syntax::object::String as PdfString;
@@ -13,6 +14,9 @@ use crate::links::extract_page_links;
 use crate::raster_bridge::{compile_page_raster, render_page_rgba};
 use crate::text::extract_page_text;
 use crate::vector_bridge::compile_page_vector;
+
+const MAX_OUTLINE_DEPTH: usize = 64;
+const MAX_TOC_ENTRIES: usize = 10_000;
 
 /// Abstract engine interface for PDF interpretation and rendering (PRD 14 §2.3).
 pub trait PdfEngine: Send + Sync {
@@ -74,22 +78,64 @@ impl HayroEngine {
         &self.pdf
     }
 
+    fn resolve_item_destination(
+        &self,
+        item: &Dict<'_>,
+        page_map: &std::collections::HashMap<ObjectIdentifier, usize>,
+        root: &Dict<'_>,
+    ) -> Option<usize> {
+        if let Some(idx) = crate::dest::resolve_destination(item, page_map, root, self.pdf.xref()) {
+            return Some(idx);
+        }
+
+        // Parent grouping nodes in PDF outlines may omit direct /Dest and /A.
+        // Inherit the destination from the first descendant in the /First chain.
+        let mut curr = item.get_ref(b"First").map(|r| r.into());
+        let mut depth = 0;
+        while let Some(cid) = curr {
+            depth += 1;
+            if depth > MAX_OUTLINE_DEPTH {
+                break;
+            }
+            if let Some(child_dict) = self.pdf.xref().get::<Dict<'_>>(cid) {
+                if let Some(idx) =
+                    crate::dest::resolve_destination(&child_dict, page_map, root, self.pdf.xref())
+                {
+                    return Some(idx);
+                }
+                curr = child_dict.get_ref(b"First").map(|r| r.into());
+            } else {
+                break;
+            }
+        }
+
+        None
+    }
+
     fn traverse_outlines(
         &self,
         first_id: ObjectIdentifier,
         level: usize,
         page_map: &std::collections::HashMap<ObjectIdentifier, usize>,
         root: &Dict<'_>,
+        visited: &mut HashSet<ObjectIdentifier>,
         out: &mut Vec<TocEntry>,
     ) {
+        if level > MAX_OUTLINE_DEPTH || out.len() >= MAX_TOC_ENTRIES {
+            return;
+        }
+
         let mut curr_id = Some(first_id);
-        let mut visited = 0;
 
         while let Some(id) = curr_id {
-            if visited > 1000 {
+            if out.len() >= MAX_TOC_ENTRIES {
                 break;
             }
-            visited += 1;
+
+            // Cycle detection: avoid infinite loops and duplicate entries on circular graphs
+            if !visited.insert(id) {
+                break;
+            }
 
             let Some(item) = self.pdf.xref().get::<Dict<'_>>(id) else {
                 break;
@@ -100,8 +146,9 @@ impl HayroEngine {
                 .map(|s| crate::text_encoding::decode_pdf_text_string(s.as_bytes()))
                 .unwrap_or_else(|| format!("Section {}", out.len() + 1));
 
-            let page_idx =
-                crate::dest::resolve_destination(&item, page_map, root, self.pdf.xref()).unwrap_or(0);
+            let page_idx = self
+                .resolve_item_destination(&item, page_map, root)
+                .unwrap_or(0);
 
             out.push(TocEntry {
                 title,
@@ -111,7 +158,14 @@ impl HayroEngine {
 
             // Recurse into children
             if let Some(first_child) = item.get_ref(b"First") {
-                self.traverse_outlines(first_child.into(), level + 1, page_map, root, out);
+                self.traverse_outlines(
+                    first_child.into(),
+                    level + 1,
+                    page_map,
+                    root,
+                    visited,
+                    out,
+                );
             }
 
             // Advance to next sibling
@@ -225,7 +279,8 @@ impl PdfEngine for HayroEngine {
 
         if let Some(outlines) = root.get::<Dict<'_>>(b"Outlines") {
             if let Some(first_ref) = outlines.get_ref(b"First") {
-                self.traverse_outlines(first_ref.into(), 0, &page_map, &root, &mut entries);
+                let mut visited = HashSet::new();
+                self.traverse_outlines(first_ref.into(), 0, &page_map, &root, &mut visited, &mut entries);
             }
         }
 

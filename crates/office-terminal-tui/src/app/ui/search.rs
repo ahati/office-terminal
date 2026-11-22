@@ -166,14 +166,8 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                 let suffix_len = suffix.chars().count();
 
                 let q = search.query().trim().to_lowercase();
-                let is_direct_match = q.is_empty() || {
-                    let title_lower = entry.title.to_lowercase();
-                    let num_str = entry.slide_number.to_string();
-                    title_lower.contains(&q)
-                        || num_str.contains(&q)
-                        || entry.number.contains(&q)
-                        || entry.page_label.contains(&q)
-                };
+                let is_direct_match = q.is_empty()
+                    || crate::app::search_state::calculate_match_score(&q, entry) > 0;
 
                 let notes_span_text = if !entry.notes.is_empty() {
                     let budget = 20.min(inner_width.saturating_sub(prefix_len + 15));
