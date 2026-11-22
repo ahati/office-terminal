@@ -322,4 +322,78 @@ fn test_pdf_text_string_decoding() {
     assert_eq!(decode_pdf_text_string(&dirty), "ABC D");
 }
 
+/// Build a two-page PDF whose outline uses named destinations stored in a
+/// `/Names /Dests` name tree with all three value shapes seen in the wild:
+/// an indirect reference to a bare dest array, an indirect reference to a
+/// `<< /D [...] >>` dictionary (FrameMaker/Qualcomm style), and an inline
+/// dictionary.
+fn build_named_dest_pdf() -> Vec<u8> {
+    let objects: Vec<&str> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 3 0 R /Names << /Dests 9 0 R >> >>",
+        "<< /Type /Pages /Kids [4 0 R 5 0 R] /Count 2 >>",
+        "<< /Type /Outlines /First 6 0 R /Last 8 0 R /Count 3 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 10 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 11 0 R >>",
+        "<< /Title (Indirect dict dest) /Dest (TgtDict) /Parent 3 0 R /Next 7 0 R >>",
+        "<< /Title (Indirect array dest) /Dest (TgtArr) /Parent 3 0 R /Prev 6 0 R /Next 8 0 R >>",
+        "<< /Title (Inline dict dest) /Dest (TgtInline) /Parent 3 0 R /Prev 7 0 R >>",
+        // Keys must be sorted lexicographically for binary-search readers.
+        "<< /Names [(TgtArr) 12 0 R (TgtDict) 13 0 R (TgtInline) << /D [4 0 R /Fit] >>] >>",
+        "<< /Length 0 >>\nstream\nendstream",
+        "<< /Length 0 >>\nstream\nendstream",
+        "[5 0 R /Fit]",
+        "<< /D [5 0 R /XYZ null null null] >>",
+    ];
+
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{}\nendobj\n", i + 1, body).as_bytes());
+    }
+
+    let xref_offset = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in &offsets {
+        out.extend_from_slice(format!("{:010} 00000 n \n", offset).as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+            objects.len() + 1,
+            xref_offset
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+#[test]
+fn test_named_destination_resolution_in_outline() {
+    let bytes: Arc<[u8]> = Arc::from(build_named_dest_pdf().into_boxed_slice());
+    let engine = HayroEngine::open(Arc::clone(&bytes)).expect("open synthetic PDF");
+    assert_eq!(engine.page_count(), 2);
+
+    let toc = engine.outline();
+    assert_eq!(toc.len(), 3, "all three outline items must be traversed");
+
+    // FrameMaker style: the name tree value is an indirect reference to a
+    // `<< /D [...] >>` dictionary. This is the shape that previously fell
+    // through to `None` and collapsed every TOC entry onto page 1.
+    assert_eq!(toc[0].title, "Indirect dict dest");
+    assert_eq!(
+        toc[0].page_index, 1,
+        "indirect dict named dest must resolve to the second page"
+    );
+
+    // Indirect reference to a bare destination array.
+    assert_eq!(toc[1].title, "Indirect array dest");
+    assert_eq!(toc[1].page_index, 1);
+
+    // Inline dictionary value (the already-working shape).
+    assert_eq!(toc[2].title, "Inline dict dest");
+    assert_eq!(toc[2].page_index, 0);
+}
+
 

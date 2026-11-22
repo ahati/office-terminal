@@ -93,9 +93,17 @@ fn resolve_name_tree_node(
             if let Some(val) = iter.next() {
                 if is_match {
                     match val {
-                        MaybeRef::Ref(r) => {
-                            if let Some(dest_arr) = xref.get::<Array<'_>>(r.into()) {
+                        MaybeRef::Ref(obj_ref) => {
+                            let id: ObjectIdentifier = obj_ref.into();
+                            if let Some(dest_arr) = xref.get::<Array<'_>>(id) {
                                 return resolve_array_dest(&dest_arr, page_map);
+                            }
+                            // FrameMaker-style producers store named destinations
+                            // as indirect `<< /D [page /XYZ ...] >>` dictionaries.
+                            if let Some(dest_dict) = xref.get::<Dict<'_>>(id) {
+                                if let Some(arr) = dest_dict.get::<Array<'_>>(b"D") {
+                                    return resolve_array_dest(&arr, page_map);
+                                }
                             }
                         }
                         MaybeRef::NotRef(Object::Array(arr)) => {
