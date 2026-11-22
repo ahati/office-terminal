@@ -167,6 +167,48 @@ impl ReaderState {
         base_w * self.page_view(page).zoom
     }
 
+    /// [`Self::pane_width_px`] for an explicit column plan — prefetching
+    /// must size targets with the plan the renderer will lay out with, not
+    /// the stored effective count, or the staged raster misses the
+    /// placement lookup and the pane stays blank.
+    pub fn pane_width_px_for(
+        &self,
+        page: usize,
+        viewport_w_px: f32,
+        viewport_h_px: f32,
+        cell_w_px: f32,
+        cols: usize,
+    ) -> f32 {
+        let slot_w = self.slot_width_for(viewport_w_px, viewport_h_px, cell_w_px, cols);
+        let (base_w, _) = self.pane_fit(page, viewport_h_px, slot_w);
+        base_w * self.page_view(page).zoom
+    }
+
+    /// The column count the renderer plans for this frame (PRD 14a §6.1):
+    /// `Single`/`Horizontal` show one pane per row; `Spread` re-plans from
+    /// the dominant page width. Event-side and prefetch-side geometry must
+    /// use this same plan — the stored effective count only converges to it
+    /// one frame later, and targets computed from the stale plan never
+    /// match the placement lookups.
+    pub fn planned_columns(&self, viewport_cols: u16, viewport_h_px: f32, cell_w_px: f32) -> usize {
+        match self.layout {
+            ReaderLayout::Single | ReaderLayout::Horizontal => 1,
+            ReaderLayout::Spread => {
+                if self.total_pages <= 1 {
+                    1
+                } else {
+                    crate::app::ui::reader_layout::plan_row_columns(
+                        viewport_cols,
+                        viewport_h_px,
+                        cell_w_px,
+                        self.dominant_page_pt(),
+                        self.default_zoom,
+                    ) as usize
+                }
+            }
+        }
+    }
+
     /// Raster target for `page`, sized to the pane it is shown in.
     ///
     /// `pane_w_px` is the pane's zoomed device-pixel width (from the pane
