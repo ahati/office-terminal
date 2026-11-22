@@ -39,9 +39,19 @@ enum EntryState {
 struct CountingPipeline {
     state: EntryState,
     renders: Mutex<Vec<(usize, RenderTargetSpec)>>,
+    /// Pages handed to `prefetch_window` (reader first-window warm-up).
+    window_pages: Mutex<Vec<usize>>,
 }
 
 impl CountingPipeline {
+    fn new(state: EntryState) -> Self {
+        Self {
+            state,
+            renders: Mutex::new(Vec::new()),
+            window_pages: Mutex::new(Vec::new()),
+        }
+    }
+
     fn entry(&self) -> PipelineEntry {
         match self.state {
             EntryState::NotLoaded => PipelineEntry::NotLoaded,
@@ -51,10 +61,20 @@ impl CountingPipeline {
             },
         }
     }
+
+    fn window_pages(&self) -> Vec<usize> {
+        self.window_pages.lock().expect("window log lock").clone()
+    }
 }
 
 impl RenderPipeline for CountingPipeline {
     fn prefetch(&self, _plan: &PrefetchPlan, _target: &RenderTargetSpec) {}
+
+    fn prefetch_window(&self, plan: &PrefetchPlan, targets: &[(usize, RenderTargetSpec)]) {
+        let mut log = self.window_pages.lock().expect("window log lock");
+        log.push(plan.center);
+        log.extend(targets.iter().map(|(idx, _)| *idx));
+    }
     fn entry(&self, _index: usize) -> PipelineEntry {
         self.entry()
     }
@@ -147,10 +167,7 @@ fn decision_helper_syncs_for_everything_but_ready() {
 
 #[test]
 fn cold_pipeline_paints_first_frame_exactly_once() {
-    let pipeline = Arc::new(CountingPipeline {
-        state: EntryState::NotLoaded,
-        renders: Mutex::new(Vec::new()),
-    });
+    let pipeline = Arc::new(CountingPipeline::new(EntryState::NotLoaded));
     let mut app = app_with(&pipeline);
 
     // Same sequence as run(): resize establishes the target, then the paint.
@@ -168,10 +185,7 @@ fn cold_pipeline_paints_first_frame_exactly_once() {
 
 #[test]
 fn warm_pipeline_skips_the_first_frame_sync_render() {
-    let pipeline = Arc::new(CountingPipeline {
-        state: EntryState::Ready,
-        renders: Mutex::new(Vec::new()),
-    });
+    let pipeline = Arc::new(CountingPipeline::new(EntryState::Ready));
     let mut app = app_with(&pipeline);
 
     app.handle_resize(80, 24);
@@ -188,10 +202,7 @@ fn warm_pipeline_skips_the_first_frame_sync_render() {
 /// work idempotently and stages as soon as it lands.
 #[test]
 fn midflight_pipeline_still_paints_first_frame() {
-    let pipeline = Arc::new(CountingPipeline {
-        state: EntryState::Rendering,
-        renders: Mutex::new(Vec::new()),
-    });
+    let pipeline = Arc::new(CountingPipeline::new(EntryState::Rendering));
     let mut app = app_with(&pipeline);
 
     app.handle_resize(80, 24);
@@ -205,10 +216,7 @@ fn midflight_pipeline_still_paints_first_frame() {
 
 #[test]
 fn reader_deck_paints_first_frame_at_the_reader_target() {
-    let pipeline = Arc::new(CountingPipeline {
-        state: EntryState::NotLoaded,
-        renders: Mutex::new(Vec::new()),
-    });
+    let pipeline = Arc::new(CountingPipeline::new(EntryState::NotLoaded));
     let dyn_pipeline: Arc<dyn RenderPipeline> = Arc::clone(&pipeline) as Arc<dyn RenderPipeline>;
     // Reader mode from page sizes in points (4:3), mirroring how the CLI
     // builder wires `with_reader_mode` after `with_slide_dimensions`.
@@ -232,4 +240,57 @@ fn reader_deck_paints_first_frame_at_the_reader_target() {
         renders[0].1, expected,
         "uniform deck: the painted target is exactly the reader pane target"
     );
+}
+
+/// The reader first paint must warm the following pages on the worker pool
+/// *before* the synchronous anchor render: an immediate scroller reaches the
+/// first page boundary while the UI thread is still busy, and without the
+/// warm-up the next page's raster only starts after that paint — the peek
+/// pane stays blank until the anchor flips.
+#[test]
+fn reader_first_paint_warms_the_next_pages() {
+    let pipeline = Arc::new(CountingPipeline::new(EntryState::NotLoaded));
+    let dyn_pipeline: Arc<dyn RenderPipeline> = Arc::clone(&pipeline) as Arc<dyn RenderPipeline>;
+    let mut app = PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 4, vec![])
+        .with_reader_mode(true, 4, vec![(612.0, 792.0); 4]);
+
+    // Same sequence as run(): resize first (establishes the target and the
+    // layout size the warm-up reads), then the paint under test.
+    app.handle_resize(120, 45);
+    app.paint_first_frame();
+
+    // The warm-up schedules every page after the anchor at the pane targets
+    // the peek layout will look up.
+    let warm = pipeline.window_pages();
+    assert!(
+        warm.contains(&0),
+        "warm-up plan centers on the anchor page, got {warm:?}"
+    );
+    assert_eq!(
+        warm.iter().filter(|&&p| p == 1).count(),
+        1,
+        "page 2 (index 1) must be scheduled for raster while the first frame paints"
+    );
+    assert!(warm.contains(&2) && warm.contains(&3), "whole window warmed: {warm:?}");
+
+    // The synchronous anchor paint is unchanged.
+    let renders = render_log(&pipeline);
+    assert_eq!(renders.len(), 1);
+    assert_eq!(renders[0].0, 0);
+}
+
+/// Non-reader decks keep the old contract: no reader window warm-up.
+#[test]
+fn slide_deck_first_paint_does_not_warm_a_reader_window() {
+    let pipeline = Arc::new(CountingPipeline::new(EntryState::NotLoaded));
+    let mut app = app_with(&pipeline);
+
+    app.handle_resize(80, 24);
+    app.paint_first_frame();
+
+    assert!(
+        pipeline.window_pages().is_empty(),
+        "slide decks never issue a reader window warm-up"
+    );
+    assert_eq!(render_log(&pipeline).len(), 1);
 }
