@@ -72,15 +72,6 @@ impl GraphicsSyncer {
         *self = Self::default();
     }
 
-    /// Forgets staging/placement bookkeeping after a resize but keeps the
-    /// sorter's downscaled-card cache: the sorter target is aspect-derived, so
-    /// a resize never invalidates the cached cards.
-    pub(crate) fn reset_preserving_thumbnail_cache(&mut self) {
-        let cache = std::mem::take(&mut self.thumbnails.downscale_cache);
-        *self = Self::default();
-        self.thumbnails.downscale_cache = cache;
-    }
-
     /// Synchronizes staged images and placements with the current frame.
     /// A failed background render is recorded on the state (canvas note +
     /// warning entry) instead of silently leaving the slide blank.
@@ -255,7 +246,7 @@ impl GraphicsSyncer {
     /// Releases all staged thumbnails (leaving the sorter). The downscaled-card
     /// cache is kept: the deck is unchanged, so re-entering the sorter restages
     /// from cache instead of re-rendering every visible slide.
-    fn release_thumbnails(
+    pub(crate) fn release_thumbnails(
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {

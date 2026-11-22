@@ -2,6 +2,7 @@ pub mod bindings;
 mod deck_state;
 pub mod events;
 mod find_state;
+mod first_frame;
 #[cfg(test)]
 #[path = "first_frame_tests.rs"]
 mod first_frame_tests;
@@ -78,7 +79,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use office_terminal_core::{
-    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
+    InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec,
 };
 use office_terminal_display::TerminalGraphicsDriver;
 
@@ -95,6 +96,9 @@ pub use sorter_state::SorterState;
 pub use state::PresentationState;
 pub use ui::render_app;
 pub use warnings_state::{SlideWarning, WarningsState};
+
+#[cfg(test)]
+pub(crate) use first_frame::first_frame_needs_sync;
 
 use graphics::GraphicsSyncer;
 use terminal_guard::TerminalGuard;
@@ -325,21 +329,14 @@ impl PresentationApp {
         self.recompute_target(cols, rows);
         self.state.update_layout_dimensions(cols, rows);
         self.pipeline.invalidate(InvalidateCause::Resize);
-        // Re-stage at the new target resolution and re-place at the new rect.
-        self.restage_graphics();
+        // Only sorter thumbnail cards use dynamic free-list placement IDs and
+        // need placement teardown on layout reflow. Fullscreen slide and reader
+        // panes use stable/dedicated ID slots and smoothly reposition their
+        // resident images via Kitty protocol without blanking the terminal.
+        if self.state.base_mode() == AppMode::Sorter {
+            let _ = self.graphics.release_thumbnails(self.driver.as_mut());
+        }
         self.trigger_prefetch();
-    }
-
-    /// Drops every placement before re-staging on a new target.
-    ///
-    /// Forgetting the bookkeeping alone is not enough: sorter thumbnails are
-    /// re-allocated from a free-list, so a card that moves to a lower image id
-    /// would otherwise leave its old placement behind at the previous geometry.
-    /// The sorter's downscaled-card cache survives the reset: its target is
-    /// aspect-derived, so a resize never invalidates the cached cards.
-    fn restage_graphics(&mut self) {
-        let _ = self.driver.release_all();
-        self.graphics.reset_preserving_thumbnail_cache();
     }
 
     /// Stages and places terminal graphics for the frame that was just drawn,
@@ -425,6 +422,13 @@ impl PresentationApp {
 
             // ── Frame pass ────────────────────────────────────────
             if tracker.needs_redraw() {
+                // Bracket the entire frame update (ratatui text diffs + Kitty
+                // graphics placement) within DEC mode 2026 synchronized updates.
+                // The terminal renders the text and graphics atomically in one
+                // single vsync swap, eliminating display tearing and blank flashes.
+                let mut stdout = std::io::stdout();
+                let _ = crossterm::execute!(stdout, crossterm::terminal::BeginSynchronizedUpdate);
+
                 // The render pass is pure: it fills a fresh FrameBindings
                 // value instead of mutating state during the draw.
                 let mut bindings = FrameBindings::default();
@@ -442,6 +446,8 @@ impl PresentationApp {
                 // Publish the drawn geometry so input-side queries (link
                 // hit-testing, reader pan bounds) see what is on screen.
                 self.state.publish_frame_bindings(bindings);
+
+                let _ = crossterm::execute!(stdout, crossterm::terminal::EndSynchronizedUpdate);
 
                 tracker.mark_drawn(&self.state);
                 // Work that surfaced during the sync and only becomes
@@ -480,6 +486,7 @@ impl PresentationApp {
 
             if event::poll(timeout)? {
                 let mut ev_opt = Some(event::read()?);
+                let mut pending_resize = None;
                 while let Some(e) = ev_opt {
                     match e {
                         Event::Key(key) => {
@@ -487,8 +494,7 @@ impl PresentationApp {
                             tracker.mark_dirty();
                         }
                         Event::Resize(cols, rows) => {
-                            self.handle_resize(cols, rows);
-                            tracker.mark_dirty();
+                            pending_resize = Some((cols, rows));
                         }
                         Event::Mouse(mouse) => {
                             self.handle_mouse(mouse);
@@ -501,6 +507,10 @@ impl PresentationApp {
                     } else {
                         ev_opt = None;
                     }
+                }
+                if let Some((cols, rows)) = pending_resize {
+                    self.handle_resize(cols, rows);
+                    tracker.mark_dirty();
                 }
             }
         }
@@ -541,48 +551,7 @@ impl PresentationApp {
 
     /// One-shot synchronous first paint, issued once from `run()` right
     /// after `handle_resize` computed the target and scheduled the prefetch.
-    ///
-    /// The readiness check resolves the initial slide against the exact
-    /// `current_target` (`entry_at`, not `entry`): reader mode hands scheduling
-    /// to `ReaderSyncer` without latching the pipeline's last target, so a
-    /// plain `entry` could consult a stale latch here. `recompute_target`'s
-    /// reader branch has just set `current_target` to the canonical
-    /// 2560-px-wide target the reader panes render at, and `current_slide`
-    /// mirrors the focused page, so this one code path covers reader decks
-    /// too. A worker that already won the race answers `Ready` and the sync
-    /// render is skipped.
-    ///
-    /// `trigger_prefetch` scheduled the same slide at top priority during
-    /// `handle_resize`; when the sync render wins instead, the worker's
-    /// later result hits the raster-cache fast path (idempotent, cheap) —
-    /// acceptable duplicate work for exactly one slide. A render failure is
-    /// deliberately dropped: the syncer's failure-note path reports it on the
-    /// first frame exactly like a failed worker render would.
-    fn paint_first_frame(&self) {
-        let initial = self.state.current_slide();
-        // Reader: warm the next pages on the workers BEFORE the synchronous
-        // anchor paint — otherwise they idle through the anchor's whole
-        // raster and the next page's peek scrolls into view blank (see
-        // `reader::warmup`).
-        if self.state.base_mode() == AppMode::Reader {
-            reader::warmup::prefetch_first_window(&self.state, self.pipeline.as_ref(), initial);
-        }
-        let entry = self.pipeline.entry_at(initial, &self.current_target);
-        if first_frame_needs_sync(&entry) {
-            let _ = self.pipeline.render(initial, &self.current_target);
-        }
+    pub fn paint_first_frame(&self) {
+        first_frame::paint_first_frame(&self.state, self.pipeline.as_ref(), &self.current_target);
     }
-}
-
-/// Whether the bounded first-frame paint needs a synchronous render.
-///
-/// Only `Ready` skips it — a cached raster (or a worker result that won the
-/// race against the first paint) can be staged directly, so the deck opens
-/// without paying any pause. `Rendering` still renders: the deck must not
-/// open blank while a worker is mid-flight, and the duplicate result is
-/// idempotent. `Failed` still renders: the retry either clears the failure
-/// latch or re-latches it, and the syncer's failure-note path surfaces the
-/// outcome on the first frame either way.
-fn first_frame_needs_sync(entry: &PipelineEntry) -> bool {
-    !matches!(entry, PipelineEntry::Ready { .. })
 }

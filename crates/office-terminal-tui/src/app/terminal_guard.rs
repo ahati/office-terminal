@@ -35,6 +35,7 @@ pub(crate) fn restore_terminal_once() {
     let mut stdout = std::io::stdout();
     let _ = execute!(
         stdout,
+        terminal::EndSynchronizedUpdate,
         event::DisableMouseCapture,
         terminal::LeaveAlternateScreen,
         cursor::Show
