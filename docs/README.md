@@ -28,7 +28,7 @@ Welcome to the design documentation and Product Requirements Documents (PRDs) fo
 15. **[13a-metafile-fidelity-and-validation.md](./13a-metafile-fidelity-and-validation.md)** — Metafile fidelity matrix, diagnostics taxonomy, golden corpus specification, differential oracle strategy and NFR budgets.
 16. **[14-pdf-input-support.md](./14-pdf-input-support.md)** — PDF Input Support: Slide Decks & Documents (`%PDF-` magic dispatch, `PageSource` deck contract, pure-Rust `hayro` engine with phased raster → vector bridges, CLI/export/dump parity, PDF fidelity policy, resource limits, milestones).
 17. **[14a-pdf-reader-ui-designs.md](./14a-pdf-reader-ui-designs.md)** — PDF Reader UI Designs (slide-vs-document mode detection from page geometry, focusable/zoomable/scrollable page panes, left-aligned side-by-side spread with right-pane clipping, fit modes over Kitty source-rect placements, reader keymap, windowed graphics-syncer slots & prefetch, wireframes, NFRs).
-18. **[15-docx-input-support.md](./15-docx-input-support.md)** — DOCX Input Support: WordprocessingML Documents & Vector Layout Bridge (OPC content sniffing, pluggable `DocxEngine` trait, `rdocx`/`oxml-layout` pagination engine, `PageFrame` $\to$ `VectorSlide` bridge, reader mode integration, vector SVG export with selectable text, honest degradation matrix, milestones).
+18. **[15-docx-input-support.md](./15-docx-input-support.md)** — DOCX Input Support: WordprocessingML Documents & Vector Layout Bridge (OPC content sniffing, pluggable `DocxEngine` trait, `rdocx`/`oxml-layout` pagination engine, `PageFrame` $\to$ `VectorSlide` bridge, reader mode integration, vector SVG export with selectable text, honest degradation matrix, scope boundaries).
 
 ---
 
