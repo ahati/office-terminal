@@ -34,6 +34,14 @@ pub trait AssetStore: Send + Sync {
         None
     }
     fn stats(&self) -> AssetStoreStats;
+    /// Number of distinct stored media entries, when known.
+    fn entry_count(&self) -> usize {
+        0
+    }
+    /// Total uncompressed or raw bytes of all media entries, when known.
+    fn raw_bytes_total(&self) -> usize {
+        0
+    }
 }
 
 /// Empty asset store returning NotFound for all lookups.

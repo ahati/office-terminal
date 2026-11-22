@@ -92,7 +92,9 @@ pub(crate) fn map_group(
     if let Some(unused) = state.pending_shadow.take() {
         // No path child consumed the shadow: re-attach to the last path on
         // the page rather than losing it (issue #40 §7.7.6 fallback).
-        attach_shadow_to_last_path(slide, unused);
+        if !attach_shadow_to_last_path(slide, unused) {
+            ctx.warn_once("docx-shadow-unattached", "group".to_string());
+        }
     }
 
     if pushed_clip {
@@ -168,13 +170,14 @@ fn pretransformed_clip(
 }
 
 /// Fold a group shadow onto the most recently emitted path.
-fn attach_shadow_to_last_path(slide: &mut VectorSlide, shadow: VectorOuterShadow) {
+fn attach_shadow_to_last_path(slide: &mut VectorSlide, shadow: VectorOuterShadow) -> bool {
     for command in slide.commands.iter_mut().rev() {
         if let VectorCommand::DrawPath { effects, .. } = command {
             effects.outer_shadow = Some(shadow);
-            return;
+            return true;
         }
     }
+    false
 }
 
 #[cfg(test)]

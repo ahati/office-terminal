@@ -182,7 +182,7 @@ pub(crate) fn map_elements(
                 image::map_image(rect, content_type, *media_id, acc, opacity, slide, ctx);
             }
             PositionedElement::LinkAnnotation { rect, url } => {
-                link::map_link(rect, url, slide, ctx);
+                link::map_link(rect, url, acc, slide, ctx);
             }
             PositionedElement::Path(path_element) => {
                 path::map_path(path_element, acc, opacity, slide, ctx, state);
