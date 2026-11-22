@@ -277,22 +277,19 @@ fn test_search_corpus_builds_lazily() {
 }
 
 #[test]
-fn test_opencv_toc() {
-    let path = "/workspace/Learning OpenCV 3 Computer Vision with Python.pdf";
-    if let Ok(data) = std::fs::read(path) {
-        let source = PdfPageSource::open(Arc::from(data.into_boxed_slice())).expect("open pdf");
-        let toc = source.toc();
-        assert_eq!(toc.len(), 171, "OpenCV PDF must have 171 TOC entries");
-        for entry in &toc {
-            assert!(
-                !entry.title.contains('\0') && !entry.title.contains('\u{FFFD}'),
-                "TOC title must not contain NUL or replacement chars: {:?}",
-                entry.title
-            );
+fn test_external_pdf_toc() {
+    if let Ok(path) = std::env::var("KITTY_PPTX_TEST_PDF") {
+        if let Ok(data) = std::fs::read(&path) {
+            let source = PdfPageSource::open(Arc::from(data.into_boxed_slice())).expect("open pdf");
+            let toc = source.toc();
+            for entry in &toc {
+                assert!(
+                    !entry.title.contains('\0') && !entry.title.contains('\u{FFFD}'),
+                    "TOC title must not contain NUL or replacement chars: {:?}",
+                    entry.title
+                );
+            }
         }
-        assert_eq!(toc[7].title, "Preface");
-        assert_eq!(toc[8].title, "Chapter 1: Setting Up OpenCV");
-        assert_eq!(toc[9].title, "Choosing and using the right setup tools");
     }
 }
 

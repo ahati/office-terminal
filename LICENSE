@@ -24,9 +24,23 @@ SOFTWARE.
 
 ### Upstream and Third-Party Components
 
-This repository vendors certain upstream crates located under the `crates/` directory:
-- `crates/ooxml-common`
-- `crates/pptx-model`
-- `crates/pptx-parser`
+This repository vendors or bundles certain upstream and third-party components under `crates/`:
 
-All upstream and vendored components carry their own respective licenses and copyright notices from their upstream authors. For details, provenance, and repository references, see [`crates/VENDORED.md`](crates/VENDORED.md).
+1. **OOXML & PowerPoint Parser Stack** (MIT License, Copyright © 2026 Yuki Yokotani):
+   - `crates/ooxml-common`
+   - `crates/pptx-model`
+   - `crates/pptx-parser`
+
+2. **Metafile Playback Crates** (Apache License 2.0, Copyright © metafile-rs contributors):
+   - `crates/metafile-core`
+   - `crates/metafile-dib`
+   - `crates/metafile-emf`
+   - `crates/metafile-emfplus`
+   - `crates/metafile-wmf`
+   Each crate directory contains its respective Apache-2.0 `LICENSE` and original `NOTICE`. Local modifications are documented in `crates/patches/`.
+
+3. **Bundled Typography Assets** (SIL Open Font License 1.1):
+   - `crates/kitty-pptx-core/assets/fonts/` (Carlito, Caladea, and Nunito Sans).
+   See `crates/kitty-pptx-core/assets/fonts/NOTICE.md` for upstream author credits and license terms.
+
+All upstream and vendored components carry their own respective licenses and copyright notices from their upstream authors. For details, provenance, and pinned commit references, see [`crates/VENDORED.md`](crates/VENDORED.md).

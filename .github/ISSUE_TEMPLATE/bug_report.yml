@@ -1,0 +1,41 @@
+name: Bug Report
+description: Create a report to help reproduce and fix a bug
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting an issue in kitty-pptx!
+  - type: input
+    id: version
+    attributes:
+      label: kitty-pptx Version
+      description: What version or git commit of kitty-pptx are you running?
+      placeholder: "e.g. 0.1.0 (commit abc1234)"
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal Emulator & OS
+      description: Which terminal emulator and operating system are you using?
+      placeholder: "e.g. Kitty 0.35 on Linux, Ghostty 1.0 on macOS"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear description of what went wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps or minimal sample presentation to reproduce the issue.
+      placeholder: |
+        1. Run `kitty-pptx sample.pptx`
+        2. Press `p` to open presenter view
+        3. Observe error
+    validations:
+      required: true

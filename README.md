@@ -1,5 +1,9 @@
 # kitty-pptx
 
+[![CI](https://github.com/ahati/kitty-pptx/actions/workflows/ci.yml/badge.svg)](https://github.com/ahati/kitty-pptx/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![MSRV: 1.75](https://img.shields.io/badge/MSRV-1.75-orange.svg)](#prerequisites)
+
 > High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`) and PDF documents.
 
 `kitty-pptx` renders presentations and documents directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, visual slide sorting, and headless SVG/PNG export.
@@ -46,12 +50,13 @@
 
 - **Rust**: Version 1.75 or later with Cargo ([rustup.rs](https://rustup.rs/))
 - **Terminal Emulator**: A terminal implementing the Kitty graphics protocol (Kitty, Ghostty, WezTerm, or an Alacritty fork with Kitty graphics support).
+- **tmux Users**: If running inside `tmux`, ensure graphics pass-through is enabled by adding `set -g allow-passthrough on` to your `~/.tmux.conf`.
 
 ### Building from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/kitty-pptx.git
+git clone https://github.com/ahati/kitty-pptx.git
 cd kitty-pptx
 
 # Build the release binary
@@ -127,6 +132,36 @@ kitty-pptx dump presentation.pptx --notes --markdown
 
 # Dump slide hierarchy as JSON
 kitty-pptx dump presentation.pptx --json
+```
+
+### 5. PDF Presentation & Reader Mode
+
+Open PDF documents directly with automatic aspect detection:
+
+```bash
+# Open a PDF (auto-detects slide vs document format)
+kitty-pptx document.pdf
+
+# Force document reader mode (multi-page spread, continuous scroll)
+kitty-pptx document.pdf --mode reader
+
+# Force presentation slide mode
+kitty-pptx document.pdf --mode slides
+```
+
+### 6. Shell Completions
+
+Generate shell completions directly to stdout for your preferred shell:
+
+```bash
+# Bash
+kitty-pptx --generate-completions bash > ~/.local/share/bash-completion/completions/kitty-pptx
+
+# Zsh
+kitty-pptx --generate-completions zsh > ~/.zsh/completion/_kitty-pptx
+
+# Fish
+kitty-pptx --generate-completions fish > ~/.config/fish/completions/kitty-pptx.fish
 ```
 
 ---
