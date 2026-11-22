@@ -86,16 +86,16 @@ Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pict
 
 ## Bundled test/parity assets (not vendored crates)
 
-- `crates/kitty-pptx-core/assets/fonts/` — Carlito, Caladea and Nunito Sans (SIL OFL 1.1), bundled so
+- `crates/office-terminal-core/assets/fonts/` — Carlito, Caladea and Nunito Sans (SIL OFL 1.1), bundled so
   layout, rasterisation and SVG outlines resolve the same faces in a headless container. Sources and
   weights are listed in `assets/fonts/NOTICE.md`.
-- `crates/kitty-pptx-core/src/compiler/shapes/presets.json` — ECMA-376 `presetShapeDefinitions.xml`
+- `crates/office-terminal-core/src/compiler/shapes/presets.json` — ECMA-376 `presetShapeDefinitions.xml`
   content, copied verbatim from upstream `packages/core/src/shape/preset-geometry/presets.json`
   (MIT, © Yuki Yokotani). Evaluated, never translated by hand.
-- `crates/kitty-pptx-core/tests/fixtures/parity/sample-1.pptx` and
+- `crates/office-terminal-core/tests/fixtures/parity/sample-1.pptx` and
   `.../reference/sample-1/slide-*.png` — the reference repo's demo deck (MIT, © Yuki Yokotani; the
   deck embeds eight unattributed JPEGs) and its committed VRT renders. The renders are adopted
   renderer outputs, not Office exports, so they are used as a drift oracle only; see
   `tests/fixtures/parity/README.md`.
-- `crates/kitty-pptx-core/tests/fixtures/presets/` — an independent Python oracle
+- `crates/office-terminal-core/tests/fixtures/presets/` — an independent Python oracle
   (`gen_presets.py`) and its 6138-case guide-value JSON, generated from `presets.json`.

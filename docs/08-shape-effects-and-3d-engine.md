@@ -50,7 +50,7 @@ $$\text{Reflection} \;\longrightarrow\; \text{Outer Shadow} \;\longrightarrow\; 
 
 ## 2. Vector Intermediate Representation (`ShapeEffects`)
 
-`ShapeEffects` is defined in `kitty-pptx-core::contracts::effects` and embedded into `VectorCommand`:
+`ShapeEffects` is defined in `office-terminal-core::contracts::effects` and embedded into `VectorCommand`:
 
 ```rust
 #[derive(Clone, Debug, Default, PartialEq)]

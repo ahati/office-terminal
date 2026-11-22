@@ -1,0 +1,17 @@
+[package]
+name = "office-terminal-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+office-terminal-core = { workspace = true }
+office-terminal-display = { workspace = true }
+pptx-model = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+signal-hook = { workspace = true }
+thiserror = { workspace = true }
+crossbeam-channel = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

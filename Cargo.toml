@@ -4,11 +4,11 @@ members = [
     "crates/ooxml-common",
     "crates/pptx-model",
     "crates/pptx-parser",
-    "crates/kitty-pptx-core",
-    "crates/kitty-pptx-display",
-    "crates/kitty-pptx-pdf",
-    "crates/kitty-pptx-tui",
-    "crates/kitty-pptx-cli",
+    "crates/office-terminal-core",
+    "crates/office-terminal-display",
+    "crates/office-terminal-pdf",
+    "crates/office-terminal-tui",
+    "crates/office-terminal-cli",
 ]
 # Locally patched metafile-rs crates (Apache-2.0). The rest of the family is
 # consumed from crates.io; these two are overridden via [patch.crates-io]
@@ -22,7 +22,7 @@ exclude = [
     "crates/metafile-wmf",
     "fuzz",
 ]
-default-members = ["crates/kitty-pptx-cli"]
+default-members = ["crates/office-terminal-cli"]
 
 # Release profile: thin LTO. Without it, the final link kept prebuilt
 # dependency objects whose libm references carried the build host's glibc
@@ -54,10 +54,10 @@ console_error_panic_hook = "0.1"
 ooxml-common = { path = "crates/ooxml-common" }
 pptx-model = { path = "crates/pptx-model" }
 pptx-parser = { path = "crates/pptx-parser", default-features = false }
-kitty-pptx-core = { path = "crates/kitty-pptx-core" }
-kitty-pptx-display = { path = "crates/kitty-pptx-display" }
-kitty-pptx-pdf = { path = "crates/kitty-pptx-pdf" }
-kitty-pptx-tui = { path = "crates/kitty-pptx-tui" }
+office-terminal-core = { path = "crates/office-terminal-core" }
+office-terminal-display = { path = "crates/office-terminal-display" }
+office-terminal-pdf = { path = "crates/office-terminal-pdf" }
+office-terminal-tui = { path = "crates/office-terminal-tui" }
 
 # PDF engine dependencies (PRD 14)
 hayro = "=0.9.0"

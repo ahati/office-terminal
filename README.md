@@ -1,12 +1,12 @@
-# kitty-pptx
+# Office Terminal (`ot`)
 
 [![CI](https://github.com/ahati/kitty-pptx/actions/workflows/ci.yml/badge.svg)](https://github.com/ahati/kitty-pptx/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![MSRV: 1.75](https://img.shields.io/badge/MSRV-1.75-orange.svg)](#prerequisites)
 
-> High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`) and PDF documents.
+> **kitty-pptx-pdf-reader**: High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`) and PDF documents.
 
-`kitty-pptx` renders presentations and documents directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, visual slide sorting, and headless SVG/PNG export.
+**Office Terminal** (`ot`, also accessible as `office-terminal`) renders presentations and documents directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, visual slide sorting, and headless SVG/PNG export.
 
 ---
 
@@ -59,11 +59,12 @@
 git clone https://github.com/ahati/kitty-pptx.git
 cd kitty-pptx
 
-# Build the release binary
+# Build the release binaries (`ot` and `office-terminal`)
 cargo build --release
 
-# The compiled binary will be located at:
-# target/release/kitty-pptx
+# The compiled binaries will be located at:
+# target/release/ot
+# target/release/office-terminal
 ```
 
 ### Installing Locally
@@ -71,14 +72,15 @@ cargo build --release
 Install the binary directly into your Cargo binary directory (`~/.cargo/bin`):
 
 ```bash
-cargo install --path crates/kitty-pptx-cli
+cargo install --path crates/office-terminal-cli
 ```
 
 Verify the installation:
 
 ```bash
-kitty-pptx --version
-kitty-pptx --help
+ot --version
+office-terminal --version
+ot --help
 ```
 
 ---
@@ -87,10 +89,10 @@ kitty-pptx --help
 
 ### 1. Interactive Presentation (TUI)
 
-Launch the interactive presenter:
+Launch the interactive presenter with `ot`:
 
 ```bash
-kitty-pptx presentation.pptx
+ot presentation.pptx
 ```
 
 Press `p` to toggle **Presenter View** with speaker notes and a next-slide preview, or `?` to display the keyboard shortcuts modal.
@@ -101,10 +103,10 @@ Render a single slide to the terminal and exit:
 
 ```bash
 # View slide 3
-kitty-pptx view presentation.pptx --slide 3
+ot view presentation.pptx --slide 3
 
 # View all slides in sequence
-kitty-pptx view presentation.pptx --all
+ot view presentation.pptx --all
 ```
 
 ### 3. Batch Export to SVG or PNG
@@ -113,10 +115,10 @@ Export presentation slides without a terminal interface:
 
 ```bash
 # Export all slides to standalone SVGs
-kitty-pptx export presentation.pptx --format svg -o ./output/
+ot export presentation.pptx --format svg -o ./output/
 
 # Export slides 1 through 5 to high-resolution PNGs at 300 DPI
-kitty-pptx export presentation.pptx --format png --dpi 300 --slides 1-5 -o ./output/
+ot export presentation.pptx --format png --dpi 300 --slides 1-5 -o ./output/
 ```
 
 ### 4. Inspect Presentation Structure & Speaker Notes
@@ -125,13 +127,13 @@ Extract metadata, slide dimensions, and speaker notes:
 
 ```bash
 # Display presentation metadata and slide count
-kitty-pptx info presentation.pptx
+ot info presentation.pptx
 
 # Dump speaker notes formatted as Markdown
-kitty-pptx dump presentation.pptx --notes --markdown
+ot dump presentation.pptx --notes --markdown
 
 # Dump slide hierarchy as JSON
-kitty-pptx dump presentation.pptx --json
+ot dump presentation.pptx --json
 ```
 
 ### 5. PDF Presentation & Reader Mode
@@ -140,13 +142,13 @@ Open PDF documents directly with automatic aspect detection:
 
 ```bash
 # Open a PDF (auto-detects slide vs document format)
-kitty-pptx document.pdf
+ot document.pdf
 
 # Force document reader mode (multi-page spread, continuous scroll)
-kitty-pptx document.pdf --mode reader
+ot document.pdf --mode reader
 
 # Force presentation slide mode
-kitty-pptx document.pdf --mode slides
+ot document.pdf --mode slides
 ```
 
 ### 6. Shell Completions
@@ -155,13 +157,13 @@ Generate shell completions directly to stdout for your preferred shell:
 
 ```bash
 # Bash
-kitty-pptx --generate-completions bash > ~/.local/share/bash-completion/completions/kitty-pptx
+ot --generate-completions bash > ~/.local/share/bash-completion/completions/ot
 
 # Zsh
-kitty-pptx --generate-completions zsh > ~/.zsh/completion/_kitty-pptx
+ot --generate-completions zsh > ~/.zsh/completion/_ot
 
 # Fish
-kitty-pptx --generate-completions fish > ~/.config/fish/completions/kitty-pptx.fish
+ot --generate-completions fish > ~/.config/fish/completions/ot.fish
 ```
 
 ---
@@ -228,17 +230,17 @@ kitty-pptx --generate-completions fish > ~/.config/fish/completions/kitty-pptx.f
 
 ### Workspace Crates
 
-- **`kitty-pptx-cli`**: Command-line interface, configuration loading, and subcommand routing.
-- **`kitty-pptx-core`**: Core engine containing the `VectorSlide` intermediate representation, shape compilers, `tiny-skia` rasterizer, and SVG serializer.
-- **`kitty-pptx-display`**: Kitty graphics driver, capability probe, and cell aspect ratio mapper.
-- **`kitty-pptx-tui`**: Ratatui presentation application, dual-mode layout widgets, keyboard handler, and speaker notes display.
+- **`office-terminal-cli`**: Command-line interface, configuration loading, and subcommand routing.
+- **`office-terminal-core`**: Core engine containing the `VectorSlide` intermediate representation, shape compilers, `tiny-skia` rasterizer, and SVG serializer.
+- **`office-terminal-display`**: Kitty graphics driver, capability probe, and cell aspect ratio mapper.
+- **`office-terminal-tui`**: Ratatui presentation application, dual-mode layout widgets, keyboard handler, and speaker notes display.
 - **`pptx-parser` & `pptx-model`**: Upstream OOXML PowerPoint DOM parser and data model (vendored for build reproducibility).
 
 ---
 
 ## Configuration
 
-`kitty-pptx` supports optional configuration via `kitty-pptx.toml` (searched in `./kitty-pptx.toml` or `~/.config/kitty-pptx/config.toml`):
+`ot` supports optional configuration via `ot.toml` (searched in `./ot.toml`, `~/.config/ot/config.toml`, or `~/.config/office-terminal/config.toml`):
 
 ```toml
 # Default presentation view ('normal' or 'presenter')
@@ -265,7 +267,7 @@ cargo check --workspace
 cargo test --workspace
 
 # Enforce strict source file size limit (< 600 lines)
-find crates/kitty-pptx-* -name "*.rs" | xargs wc -l | sort -nr
+find crates/office-terminal-* -name "*.rs" | xargs wc -l | sort -nr
 ```
 
 For developer conventions, coordinate math (EMUs), and architectural guidelines, see [`AGENTS.md`](./AGENTS.md).

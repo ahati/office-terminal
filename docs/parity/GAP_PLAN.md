@@ -20,7 +20,7 @@ Two port scopes, disjoint test trees:
 
 | scope | reference files | cases | Rust home |
 | :--- | --: | --: | :--- |
-| **render parity** (`COVERAGE.md`) | 88 | **728** | `crates/kitty-pptx-core/tests/parity_*.rs` |
+| **render parity** (`COVERAGE.md`) | 88 | **728** | `crates/office-terminal-core/tests/parity_*.rs` |
 | **platform** (`platform.md` §A–F) | 72 (+14 PW) | 461 vitest + 25 PW blocks | `core/tests/{navigation,selection,find,hyperlink,part_failure,prefetch_pipeline}_tests.rs`, `tui/tests/*`, `display/tests/*`, `cli/tests/*` |
 
 ### 1.2 Ported today **(measured)**
@@ -325,7 +325,7 @@ Fate totals: **61 enable** (7 of them immediately, in the next commit that touch
 
 ### 5.3 Enforcement
 
-New target `crates/kitty-pptx-core/tests/parity_ledger_tests.rs`:
+New target `crates/office-terminal-core/tests/parity_ledger_tests.rs`:
 
 - `no_ignored_parity_tests` — `include_str!`s every `parity_*.rs` (explicit macro list, no new dep)
   and asserts none contains `#[ignore`.
@@ -430,18 +430,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 find crates -name '*.rs' -not -path '*/target/*' | xargs wc -l | awk '$1 >= 600 && $2 != "total"'
 
 # 4. parity ledger consistency + zero-ignore
-cargo test -p kitty-pptx-core --test parity_ledger_tests
+cargo test -p office-terminal-core --test parity_ledger_tests
 
 # 5. per-target parity sweep (0 ignored expected)
-for t in $(ls crates/kitty-pptx-core/tests/parity_*.rs | xargs -n1 basename | sed 's/\.rs$//');
-  do cargo test -p kitty-pptx-core --test "$t" || break; done
+for t in $(ls crates/office-terminal-core/tests/parity_*.rs | xargs -n1 basename | sed 's/\.rs$//');
+  do cargo test -p office-terminal-core --test "$t" || break; done
 
 # 6. fidelity ratchet (pixelmatch 0.20, fail >20 %, ratchet 0.5 pt)
-cargo test -p kitty-pptx-core --test parity_fidelity_tests
+cargo test -p office-terminal-core --test parity_fidelity_tests
 
 # 7. external corpus: 418 compared, 4/4 strict, diagnostics not regressed
-cargo test -p kitty-pptx-core --test external_fixture_tests -- --nocapture
-#    (opt-in cache fill: python3 crates/kitty-pptx-core/tests/golden/external/run.py --offline)
+cargo test -p office-terminal-core --test external_fixture_tests -- --nocapture
+#    (opt-in cache fill: python3 crates/office-terminal-core/tests/golden/external/run.py --offline)
 ```
 
 Exit criteria: steps 1–7 green on the reference machine (cache populated). On a clean clone without

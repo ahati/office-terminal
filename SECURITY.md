@@ -2,7 +2,7 @@
 
 ## Reporting Security Issues
 
-If you discover a potential security vulnerability in **kitty-pptx**, please do not open a public issue.
+If you discover a potential security vulnerability in **Office Terminal** (`ot` / `office-terminal`), please do not open a public issue.
 
 Instead, please send an email with the details, steps to reproduce, and any proof-of-concept files to:
 

@@ -1,0 +1,12 @@
+[package]
+name = "office-terminal-display"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+office-terminal-core = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+crossterm = { workspace = true }
+rustix = { workspace = true }
+image = { workspace = true }

@@ -81,7 +81,7 @@ Idle Time (Pipeline Worker)                 Flip Time (UI Thread)
 ```
 
 ### 5.1 The Partitioned Image ID Pool
-The driver partitions the terminal's image namespace into disjoint ranges so that releasing one class of images can never delete another ([`driver.rs`](../crates/kitty-pptx-display/src/driver.rs)):
+The driver partitions the terminal's image namespace into disjoint ranges so that releasing one class of images can never delete another ([`driver.rs`](../crates/office-terminal-display/src/driver.rs)):
 
 | Range | Class | Slots | Notes |
 | :--- | :--- | :--- | :--- |
@@ -124,7 +124,7 @@ There is no fallback renderer. Startup must fail with `DisplayError::NoCapableTe
 
 ### 6.1 Pixel-Geometry Resolution
 
-Raster targets follow the terminal's real device pixels, resolved in layers ([`probe/geometry.rs`](../crates/kitty-pptx-display/src/probe/geometry.rs)):
+Raster targets follow the terminal's real device pixels, resolved in layers ([`probe/geometry.rs`](../crates/office-terminal-display/src/probe/geometry.rs)):
 
 1. `KITTY_PPTX_CELL=WxH` env override;
 2. `TIOCGWINSZ` pixel fields ÷ grid — correct on kitty/xterm/iTerm2/Alacritty, locally and over SSH (RFC 4254 §6.7 window-change carries pixel dims);

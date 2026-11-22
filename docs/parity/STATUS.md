@@ -8,10 +8,10 @@ the current tree actually contains.
 
 | crate | tests |
 | :--- | --: |
-| `kitty-pptx-core` | 972 |
-| `kitty-pptx-tui` | 117 |
-| `kitty-pptx-display` | 12 |
-| `kitty-pptx-cli` | 28 |
+| `office-terminal-core` | 972 |
+| `office-terminal-tui` | 117 |
+| `office-terminal-display` | 12 |
+| `office-terminal-cli` | 28 |
 | **total** | **1129** |
 
 `cargo test --workspace` is green; `cargo clippy --workspace --all-targets --
@@ -95,7 +95,7 @@ the current tree actually contains.
   **418 decks / 543 slides compared, 4/4 strict pass, 414 diagnostics,
   0 errors, 1 known unrenderable** (`tdf148478_transitionMusic`, non-ASCII ZIP
   member). Per-slide metrics are recorded in
-  `crates/kitty-pptx-core/tests/parity/scores/external.json`; diagnostic runs
+  `crates/office-terminal-core/tests/parity/scores/external.json`; diagnostic runs
   now ratchet at −0.05 cell-pass / +2.0 global-diff and fail on regression.
   `UPDATE_EXTERNAL_SCORES=1` regenerates the baseline.
 - **L0 ledger guard** — `parity_ledger_tests.rs`: zero `#[ignore]`,
@@ -113,5 +113,5 @@ the current tree actually contains.
 
 The full S7a/S7b multi-light rig/shading and rear-plane bevel compositor (#15/#16),
 and the 19 residual owner-assigned blocked cases tracked in `COVERAGE.md` and
-`crates/kitty-pptx-core/tests/parity/pending/*.txt`. The external corpus itself is
+`crates/office-terminal-core/tests/parity/pending/*.txt`. The external corpus itself is
 verified: 418 decks, 4/4 strict, 543 slide metrics recorded in `scores/external.json`.

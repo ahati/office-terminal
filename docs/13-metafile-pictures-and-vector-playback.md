@@ -55,7 +55,7 @@ PRD 02d currently classifies EMF/WMF as `PLACEHOLDER` with "PNG fallback used if
 - **Patched crates** (`metafile-emfplus`, `metafile-dib`) live under `crates/` and are selected via `[patch.crates-io]`. They are listed in `crates/VENDORED.md` with upstream revision, license and patch references, following [AGENTS.md](../AGENTS.md) §E.
 - Every behavioural change to a patched crate is a minimal diff in `crates/patches/` (currently `0003-metafile-clamp-bitmap-crops.patch`), never an undocumented edit.
 - Once the clamp fixes are released upstream, delete the two local copies, drop the `[patch.crates-io]` entries and consume the new pinned version from crates.io.
-- Both patched crates are excluded from `cargo clippy --workspace`/`cargo test --workspace` so upstream code is not held to first-party lints; `-p kitty-pptx-core` still compiles them as dependencies.
+- Both patched crates are excluded from `cargo clippy --workspace`/`cargo test --workspace` so upstream code is not held to first-party lints; `-p office-terminal-core` still compiles them as dependencies.
 - Apache-2.0 is compatible with this project's MIT license; each local crate keeps its LICENSE and `crates/VENDORED.md` records the NOTICE.
 - **Supply-chain audit (pinned revision):** no `unsafe` blocks, no `build.rs` scripts, no C bindings; transitive dependencies are `serde`, `thiserror`, `encoding_rs`, `png`, `jpeg-decoder`. The audit result is recorded in `crates/VENDORED.md` and re-run on every version bump.
 
@@ -112,7 +112,7 @@ VectorSlide.commands  ──►  tiny-skia raster   /   SVG serializer
 
 The metafile is **never** rasterized at compile time and never re-parsed per render target.
 
-### 3.2 Module layout (`crates/kitty-pptx-core/src/metafile/`)
+### 3.2 Module layout (`crates/office-terminal-core/src/metafile/`)
 
 | File | Responsibility | Budget |
 | :--- | :--- | :--- |
@@ -513,7 +513,7 @@ Measurements follow [PRD 07](./07-quality-and-testing.md) §5 (release profile, 
 
 ### 10.1 Compiler
 
-**Compiler** (`compile_picture_element`, [`compiler/pictures.rs`](../crates/kitty-pptx-core/src/compiler/pictures.rs)) gains only a classification step:
+**Compiler** (`compile_picture_element`, [`compiler/pictures.rs`](../crates/office-terminal-core/src/compiler/pictures.rs)) gains only a classification step:
 
 1. Resolve the effective path (`svg_image_path` first, then `image_path`).
 2. If raster or SVG → existing `DrawImage` behaviour (unchanged).
@@ -535,7 +535,7 @@ Expansion emits every `FidelityDegraded`/`MediaFailed`/`ResourceLimitHit` warnin
 ### 10.2 TUI
 
 - Warnings appear in the existing `W` drawer with element labels (`slide N · picture <id> · EMF`).
-- The render-failure note ([`ui/mod.rs`](../crates/kitty-pptx-tui/src/app/ui/mod.rs)) is **not** used for per-picture diagnostics; pictures degrade in place.
+- The render-failure note ([`ui/mod.rs`](../crates/office-terminal-tui/src/app/ui/mod.rs)) is **not** used for per-picture diagnostics; pictures degrade in place.
 - Sorter thumbnails inherit the compiled `VectorSlide`; no extra playback per card.
 
 ### 10.3 CLI & export
@@ -548,9 +548,9 @@ Expansion emits every `FidelityDegraded`/`MediaFailed`/`ResourceLimitHit` warnin
 
 ### 10.4 Feature flag & rollout
 
-- Cargo feature `metafile` in `kitty-pptx-core`, default **on**.
+- Cargo feature `metafile` in `office-terminal-core`, default **on**.
 - With the feature off, the engine module and its `metafile-*` dependencies are not built; every marker becomes the §3 placeholder with no diagnostic (documented degradation).
-- Rollout completed in M6: the engine is default-on, the flag exists for build-size/regression bisection, and `cargo check -p kitty-pptx-core --no-default-features --tests` is clean.
+- Rollout completed in M6: the engine is default-on, the flag exists for build-size/regression bisection, and `cargo check -p office-terminal-core --no-default-features --tests` is clean.
 
 ### 10.5 Warning plumbing prerequisite (M0)
 
@@ -567,7 +567,7 @@ Every `WarningEvent` produced by the compiler today (font substitution, unsuppor
 4. The CLI `export` path drains and prints warnings unless `--quiet`; `dump` includes them in its JSON envelope.
 5. A test asserts that a fixture with a substituted font produces exactly one drawer entry through the real pipeline.
 
-Implemented in **M0** (`crates/kitty-pptx-core/tests/warning_plumbing_tests.rs`): the pipeline owns the buffer, flushes it before publishing a cached scene, and `WarningsState` deduplicates entries per `(slide, event)`. The CLI export prints drained warnings to stderr.
+Implemented in **M0** (`crates/office-terminal-core/tests/warning_plumbing_tests.rs`): the pipeline owns the buffer, flushes it before publishing a cached scene, and `WarningsState` deduplicates entries per `(slide, event)`. The CLI export prints drained warnings to stderr.
 
 ---
 
