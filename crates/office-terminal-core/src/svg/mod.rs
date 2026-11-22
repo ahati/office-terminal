@@ -1,5 +1,6 @@
 mod background_image;
 mod defs;
+mod document_text;
 mod filters;
 mod image;
 mod path;

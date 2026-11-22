@@ -15,6 +15,8 @@ pub type EmuRect = RectF32;
 pub enum SourceFormat {
     Pptx,
     Pdf,
+    /// WordprocessingML package (`.docx` / `.dotx` / `.docm`).
+    Docx,
 }
 
 /// A Table of Contents or PDF outline entry.
@@ -129,4 +131,8 @@ pub trait PageSource: Send + Sync {
 pub enum DeckSource {
     Pptx(pptx_model::Presentation, Arc<dyn AssetStore>),
     Pdf(Arc<dyn PageSource>),
+    /// WordprocessingML document opened through a registered DOCX engine
+    /// (PRD 15). Carries the same page-source surface as [`DeckSource::Pdf`]
+    /// so reader mode, search, thumbnails and export treat both identically.
+    Docx(Arc<dyn PageSource>),
 }

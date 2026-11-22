@@ -219,7 +219,9 @@ impl AssetStore for DefaultAssetStore {
     }
 }
 
-fn decode_raster(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetError> {
+/// Decode raw raster bytes (PNG/JPEG/WebP/GIF/BMP/TIFF) into a
+/// [`DecodedImage`], honouring an `AtMost` decode hint.
+pub fn decode_raster(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetError> {
     let img = image::load_from_memory(data).map_err(|e| AssetError::DecodeFailed(e.to_string()))?;
 
     let (orig_w, orig_h) = (img.width(), img.height());
@@ -246,7 +248,9 @@ const SVG_MAX_SIDE: u32 = 8192;
 /// Aggregate pixel ceiling for one SVG surface (32 MP / 128 MiB RGBA).
 const SVG_MAX_PIXELS: u64 = 1 << 25;
 
-fn decode_svg(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetError> {
+/// Rasterize SVG bytes through `resvg` at the caller's device-pixel hint,
+/// under the SVG pixel budget below.
+pub fn decode_svg(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetError> {
     let opt = resvg::usvg::Options::default();
     let tree = resvg::usvg::Tree::from_data(data, &opt)
         .map_err(|e| AssetError::DecodeFailed(format!("SVG parse error: {}", e)))?;

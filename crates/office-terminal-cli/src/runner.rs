@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 pub fn run() -> ExitCode {
     office_terminal_pdf::register();
+    #[cfg(feature = "docx")]
+    office_terminal_docx::register();
     let args = Cli::parse();
 
     if let Some(shell) = args.generate_completions {

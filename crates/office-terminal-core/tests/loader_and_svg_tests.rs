@@ -96,6 +96,7 @@ fn test_svg_export_modes_and_image_embedding() {
                     strike: None,
                 },
                 single_face: false,
+                face: None,
                 warp: None,
                 reflection: None,
             },

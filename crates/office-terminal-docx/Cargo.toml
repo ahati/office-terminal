@@ -1,0 +1,36 @@
+[package]
+name = "office-terminal-docx"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+office-terminal-core = { workspace = true }
+ooxml-common = { workspace = true }
+# Backend-neutral page/font/media IR produced by the layout engine (PRD 15 §3.2).
+oxml-layout = { workspace = true }
+# WordprocessingML DOM + error types of the selected engine.
+oxml-opc = { workspace = true }
+rdocx = { workspace = true, optional = true }
+# Layout result type of the selected engine (same pin as `rdocx`).
+rdocx-layout = { workspace = true, optional = true }
+thiserror = { workspace = true }
+crossbeam-channel = { workspace = true }
+image = { workspace = true }
+
+[features]
+default = ["rdocx-backend"]
+# The `rdocx` 0.17 layout engine (issue #40 §6 decision). Optional so a
+# future native engine, or mock-driven tests, can build without the
+# third-party dependency tree.
+rdocx-backend = ["dep:rdocx", "dep:rdocx-layout"]
+
+[[example]]
+name = "docx_probe"
+required-features = ["rdocx-backend"]
+
+[dev-dependencies]
+zip = { workspace = true }
+
+[[test]]
+name = "engine_roundtrip_tests"
+required-features = ["rdocx-backend"]

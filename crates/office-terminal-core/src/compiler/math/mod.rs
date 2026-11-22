@@ -325,6 +325,7 @@ fn glyph_run_to_placed(run: &MathGlyphRun, x: f32, up: f32) -> PositionedGlyphRu
         glyphs,
         decorations: Default::default(),
         single_face: false,
+        face: None,
         warp: None,
         reflection: None,
     }

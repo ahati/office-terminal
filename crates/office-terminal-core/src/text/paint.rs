@@ -536,6 +536,7 @@ fn emit_run_at(
         glyphs,
         decorations: super::run_decorations::resolve(def),
         single_face,
+        face: None,
         warp: None,
         reflection: def.reflection.clone(),
     });
