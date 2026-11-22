@@ -136,13 +136,13 @@ impl ReaderGraphicsSyncer {
                     targets.push((placement.page, placement.page_target));
                 }
             }
-            // Column count of the drawn frame; fall back to the published
-            // mirror when this frame laid out no reader panes (e.g. a
+            // Column count of the drawn frame; fall back to the renderer's
+            // own plan when this frame laid out no reader panes (e.g. a
             // viewport too small for a pane).
             let cols = if bindings.reader_columns > 0 {
                 bindings.reader_columns
             } else {
-                state.reader_num_columns()
+                reader.planned_columns(cols, viewport_h_px, cell_w_px)
             }
             .max(1);
             let next_anchor = if reader.cover_alone && reader.anchor == 0 {
@@ -153,17 +153,25 @@ impl ReaderGraphicsSyncer {
             for i in 0..cols {
                 let page = next_anchor + i;
                 if page < reader.total_pages() && !targets.iter().any(|&(p, _)| p == page) {
-                    let pane_w = reader.pane_width_px(
-                        page,
-                        viewport_w_px,
-                        viewport_h_px,
-                        cell_w_px,
-                    );
+                    let pane_w = reader
+                        .pane_width_px_for(page, viewport_w_px, viewport_h_px, cell_w_px, cols);
                     targets.push((page, reader.page_render_target(page, pane_w)));
                 }
             }
 
-            if self.last_prefetch.as_ref() != Some(&targets) {
+            // A placement whose exact-target raster is neither cached nor in
+            // flight re-fires the window even when the target list is
+            // otherwise unchanged: `prefetch_window` skips pages that are
+            // in flight (keyed by page, not target), so a stale-class job
+            // would otherwise suppress the correct one and the pane would
+            // stay `NotLoaded` (blank) forever.
+            let placement_unscheduled = placements.iter().any(|p| {
+                matches!(
+                    pipeline.entry_at(p.page, &p.page_target),
+                    PipelineEntry::NotLoaded
+                )
+            });
+            if self.last_prefetch.as_ref() != Some(&targets) || placement_unscheduled {
                 let center_target = reader.page_render_target(center, reader.pane_width_px(
                     center,
                     viewport_w_px,

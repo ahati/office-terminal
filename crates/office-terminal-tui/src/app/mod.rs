@@ -29,6 +29,9 @@ pub mod reader_events;
 #[cfg(test)]
 mod reader_graphics_tests;
 pub mod reader_scroll;
+#[cfg(test)]
+#[path = "reader_prefetch_tests.rs"]
+mod reader_prefetch_tests;
 pub mod reader_state;
 #[cfg(test)]
 mod reader_boundary_tests;
