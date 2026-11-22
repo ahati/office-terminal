@@ -560,6 +560,13 @@ impl PresentationApp {
     /// first frame exactly like a failed worker render would.
     fn paint_first_frame(&self) {
         let initial = self.state.current_slide();
+        // Reader: warm the next pages on the workers BEFORE the synchronous
+        // anchor paint — otherwise they idle through the anchor's whole
+        // raster and the next page's peek scrolls into view blank (see
+        // `reader::warmup`).
+        if self.state.base_mode() == AppMode::Reader {
+            reader::warmup::prefetch_first_window(&self.state, self.pipeline.as_ref(), initial);
+        }
         let entry = self.pipeline.entry_at(initial, &self.current_target);
         if first_frame_needs_sync(&entry) {
             let _ = self.pipeline.render(initial, &self.current_target);
