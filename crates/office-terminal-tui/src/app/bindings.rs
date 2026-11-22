@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 
 use crate::app::reader_state::ReaderSlotPlacement;
 use crate::widget::layout::{rect_to_cell_rect, DEFAULT_CELL_ASPECT_RATIO};
-use crate::widget::zoom_fit::{compute_zoomed_slide_fit, NormalizedCrop};
+use crate::widget::zoom_fit::{compute_zoomed_slide_fit, NormalizedCrop, ZoomFit};
 
 /// What the render pass produced for one drawn frame: consumed by the
 /// graphics syncer and published to state for input-side queries.
@@ -52,6 +52,30 @@ pub struct SlidePlacement {
 }
 
 impl FrameBindings {
+    /// Converts a precomputed [`ZoomFit`] into a [`SlidePlacement`].
+    pub fn fit_to_placement(fit: &ZoomFit, zoom: f32) -> Option<SlidePlacement> {
+        if fit.rect.width == 0 || fit.rect.height == 0 {
+            return None;
+        }
+        Some(SlidePlacement {
+            rect: rect_to_cell_rect(fit.rect),
+            crop: fit.crop,
+            zoom,
+            overflow_cols: fit.overflow_cols,
+            overflow_rows: fit.overflow_rows,
+        })
+    }
+
+    /// Records a precomputed zoom-aware placement of the full-screen current slide.
+    pub fn record_current_fit(&mut self, fit: &ZoomFit, zoom: f32) {
+        self.current = Self::fit_to_placement(fit, zoom);
+    }
+
+    /// Records a precomputed fitted placement of the presenter next-slide preview.
+    pub fn record_preview_fit(&mut self, fit: &ZoomFit) {
+        self.preview = Self::fit_to_placement(fit, 1.0);
+    }
+
     /// Zoom-aware placement for `area`, replicating the [`SlideWidget`]'s fit
     /// exactly (default terminal cell aspect, zero-area guard).
     fn fitted_placement(
@@ -71,13 +95,7 @@ impl FrameBindings {
             pan.0,
             pan.1,
         );
-        Some(SlidePlacement {
-            rect: rect_to_cell_rect(fit.rect),
-            crop: fit.crop,
-            zoom,
-            overflow_cols: fit.overflow_cols,
-            overflow_rows: fit.overflow_rows,
-        })
+        Self::fit_to_placement(&fit, zoom)
     }
 
     /// Records the zoom-aware placement of the full-screen current slide.
