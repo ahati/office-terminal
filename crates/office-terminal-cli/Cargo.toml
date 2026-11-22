@@ -16,6 +16,7 @@ office-terminal-core = { workspace = true }
 crossterm = { workspace = true }
 office-terminal-display = { workspace = true }
 office-terminal-pdf = { workspace = true }
+office-terminal-docx = { workspace = true, optional = true }
 office-terminal-tui = { workspace = true }
 pptx-parser = { workspace = true }
 pptx-model = { workspace = true }
@@ -32,6 +33,14 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+office-terminal-docx = { workspace = true }
 zip = { workspace = true }
 tempfile = { workspace = true }
 ratatui = { workspace = true }
+
+[features]
+# DOCX input (PRD 15). On by default so the documented release opens Word
+# documents; `cargo run --no-default-features` keeps PPTX/PDF-only
+# development builds free of the engine's dependency tree.
+default = ["docx"]
+docx = ["dep:office-terminal-docx"]

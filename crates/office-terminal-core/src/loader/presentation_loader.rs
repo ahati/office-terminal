@@ -20,6 +20,18 @@ pub fn register_pdf_loader(loader: PdfLoaderFn) {
     let _ = PDF_LOADER.set(loader);
 }
 
+/// Loader hook for WordprocessingML documents (PRD 15). The DOCX engine
+/// lives in `office-terminal-docx`, which depends on this crate, so the
+/// pipeline stays engine-agnostic: the CLI registers the concrete
+/// implementation at startup and the loader only sees `Arc<dyn PageSource>`.
+pub type DocxLoaderFn = fn(Arc<[u8]>) -> Result<Arc<dyn PageSource>, ParseError>;
+static DOCX_LOADER: OnceLock<DocxLoaderFn> = OnceLock::new();
+
+/// Registers a DOCX engine loader hook.
+pub fn register_docx_loader(loader: DocxLoaderFn) {
+    let _ = DOCX_LOADER.set(loader);
+}
+
 pub trait PresentationLoader: Send + Sync {
     fn load(
         &self,
@@ -46,6 +58,18 @@ pub trait PresentationLoader: Send + Sync {
                 } else {
                     Err(ParseError::ArchiveError(
                         "PDF engine is not registered or linked".to_string(),
+                    ))
+                }
+            }
+            SourceFormat::Docx => {
+                if let Some(loader) = DOCX_LOADER.get() {
+                    let page_source = loader(bytes)?;
+                    Ok(DeckSource::Docx(page_source))
+                } else {
+                    Err(ParseError::ArchiveError(
+                        "DOCX engine is not registered or linked \
+                         (build office-terminal-cli with the `docx` feature)"
+                            .to_string(),
                     ))
                 }
             }
@@ -167,11 +191,11 @@ fn utf16le_contains(haystack: &[u8], needle: &str) -> bool {
 }
 
 /// Sniffs the document format from magic bytes.
+///
+/// ZIP magic is checked before the `%PDF-` scan so a stored PDF entry inside
+/// an OOXML package cannot misclassify the container, and an OOZIP is
+/// classified by its OPC main part rather than presumed to be a presentation.
 pub fn sniff_container_format(bytes: &[u8]) -> Result<SourceFormat, ParseError> {
-    let check_len = bytes.len().min(1024);
-    if bytes[..check_len].windows(5).any(|w| w == b"%PDF-") {
-        return Ok(SourceFormat::Pdf);
-    }
     if bytes.starts_with(&CFB_MAGIC) {
         if utf16le_contains(bytes, "EncryptedPackage") {
             return Err(ParseError::PasswordProtected);
@@ -179,6 +203,12 @@ pub fn sniff_container_format(bytes: &[u8]) -> Result<SourceFormat, ParseError> 
         if utf16le_contains(bytes, "PowerPoint Document") {
             return Err(ParseError::ArchiveError(
                 "legacy binary PowerPoint (.ppt) is not an OOXML package; convert the deck to .pptx"
+                    .to_string(),
+            ));
+        }
+        if utf16le_contains(bytes, "WordDocument") {
+            return Err(ParseError::ArchiveError(
+                "legacy binary Word (.doc) is not an OOXML package; convert the document to .docx"
                     .to_string(),
             ));
         }
@@ -190,10 +220,15 @@ pub fn sniff_container_format(bytes: &[u8]) -> Result<SourceFormat, ParseError> 
         || bytes.starts_with(b"PK\x05\x06")
         || bytes.starts_with(b"PK\x07\x08")
     {
-        return Ok(SourceFormat::Pptx);
+        return super::ooxml_detect::detect_ooxml_format(bytes);
+    }
+    let check_len = bytes.len().min(1024);
+    if bytes[..check_len].windows(5).any(|w| w == b"%PDF-") {
+        return Ok(SourceFormat::Pdf);
     }
     Err(ParseError::ArchiveError(
-        "not an OOXML ZIP package (expected .pptx/.pptm OPC container) or PDF document".to_string(),
+        "not an OOXML ZIP package (expected .pptx/.docx OPC container) or PDF document"
+            .to_string(),
     ))
 }
 
@@ -204,6 +239,9 @@ pub fn sniff_container(bytes: &[u8]) -> Result<(), ParseError> {
         SourceFormat::Pptx => Ok(()),
         SourceFormat::Pdf => Err(ParseError::ArchiveError(
             "PDF document passed to OOXML ZIP parser".to_string(),
+        )),
+        SourceFormat::Docx => Err(ParseError::ArchiveError(
+            "Word document (.docx) passed to OOXML presentation parser".to_string(),
         )),
     }
 }

@@ -60,6 +60,32 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
             let mb = stats.cached_bytes as f64 / (1024.0 * 1024.0);
             println!("Media Assets:   {} images ({:.1} MB)", count, mb);
         }
+        DeckSource::Docx(docx_source) => {
+            println!("Format:         WordprocessingML (ECMA-376)");
+            let total = docx_source.len();
+            println!("Pages:          {} pages", total);
+            if total > 0 {
+                let (w_emu, h_emu) = docx_source.page_size_emu(0);
+                let pt_w = w_emu as f64 / f64::from(EMU_PER_PT);
+                let pt_h = h_emu as f64 / f64::from(EMU_PER_PT);
+                let orientation = if pt_w > pt_h { "Landscape" } else { "Portrait" };
+                println!(
+                    "Dimensions:     {:.1} x {:.1} pt ({:.0} x {:.0} mm, {}, {})",
+                    pt_w,
+                    pt_h,
+                    pt_w * 25.4 / 72.0,
+                    pt_h * 25.4 / 72.0,
+                    paper_size_name(pt_w, pt_h),
+                    orientation
+                );
+                let ratio_str = format_aspect_ratio(w_emu, h_emu);
+                println!("Aspect Ratio:   {}", ratio_str);
+            }
+            let toc = docx_source.toc();
+            if !toc.is_empty() {
+                println!("TOC Entries:    {} headings", toc.len());
+            }
+        }
         DeckSource::Pdf(pdf_source) => {
             let total = pdf_source.len();
             println!("Pages:          {} pages", total);
@@ -114,6 +140,25 @@ fn print_terminal_geometry() {
             resolved.source.label()
         ),
     }
+}
+
+/// Recognized paper sizes (pt) within a 1 pt tolerance; anything else is
+/// reported by its explicit dimensions.
+fn paper_size_name(pt_w: f64, pt_h: f64) -> &'static str {
+    const KNOWN: &[(&str, f64, f64)] = &[
+        ("Letter", 612.0, 792.0),
+        ("A4", 595.0, 842.0),
+        ("Legal", 612.0, 1008.0),
+        ("Executive", 522.0, 756.0),
+        ("A5", 420.0, 595.0),
+        ("Tabloid", 792.0, 1224.0),
+    ];
+    for (name, w, h) in KNOWN {
+        if (pt_w - w).abs() <= 1.0 && (pt_h - h).abs() <= 1.0 {
+            return name;
+        }
+    }
+    "custom"
 }
 
 fn format_aspect_ratio(w: i64, h: i64) -> String {

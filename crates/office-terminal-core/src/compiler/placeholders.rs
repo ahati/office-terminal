@@ -276,6 +276,7 @@ fn make_simple_run(text: &str, sz_pt: f32, color: [u8; 4], x_start: f32, y: f32)
         glyphs,
         decorations: Default::default(),
         single_face: false,
+        face: None,
         warp: None,
         reflection: None,
     }

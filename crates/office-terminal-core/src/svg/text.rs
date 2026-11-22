@@ -300,7 +300,7 @@ fn decoration_style(line: DecorationLine) -> Option<&'static str> {
 
 /// Vector-glyph mode cannot rely on CSS decoration: emit the same geometry the
 /// rasterizer paints.
-fn decoration_rects(run: &PositionedGlyphRun, transform_attr: &str, out: &mut String) {
+pub(super) fn decoration_rects(run: &PositionedGlyphRun, transform_attr: &str, out: &mut String) {
     let (x, baseline_y) = run_origin(run);
     let (width, _) = run_advances(run);
     if width <= 0.0 {
@@ -440,6 +440,16 @@ fn serialize_vector_glyphs(
     with_face_db(|db| {
         for run in runs {
             if run.text.is_empty() {
+                continue;
+            }
+
+            // Exact-face outlines first (PRD 15 §5.5): glyph IDs from a
+            // document engine are only valid for its registered face bytes.
+            // An unresolvable handle falls through to family outlining.
+            if run.face.is_some()
+                && super::document_text::serialize_document_glyphs(run, transform_attr, out)
+            {
+                any_rendered = true;
                 continue;
             }
 

@@ -9,10 +9,10 @@ use std::path::PathBuf;
     about = "Office Terminal (ot) / kitty-pptx-pdf-reader: High-fidelity terminal presentation & document reader"
 )]
 pub struct Cli {
-    #[arg(help = "Path to presentation (.pptx) or document (.pdf), or '-' for stdin")]
+    #[arg(help = "Path to presentation (.pptx), document (.pdf), or Word document (.docx), or '-' for stdin")]
     pub file: Option<PathBuf>,
 
-    #[arg(short, long, help = "Start on specific slide number (1-based)")]
+    #[arg(short, long, help = "Start on specific slide/page number (1-based)")]
     pub slide: Option<usize>,
 
     #[arg(short, long, help = "Start in split-pane presenter mode")]
@@ -22,7 +22,7 @@ pub struct Cli {
         long = "mode",
         value_enum,
         default_value = "auto",
-        help = "Display mode for PDF/presentations: auto|slides|reader"
+        help = "Display mode: auto|slides|reader (PDF classifies by geometry, DOCX defaults to reader)"
     )]
     pub mode: DeckModeArg,
 
@@ -85,7 +85,7 @@ pub enum Commands {
             help = "Explicit PNG width in pixels; height follows the slide aspect. Takes precedence over --dpi"
         )]
         width: Option<u32>,
-        #[arg(short, long, help = "Slide range (e.g. '1-3,5,10-')")]
+        #[arg(short, long, help = "Slide/page range (e.g. '1-3,5,10-')")]
         slides: Option<String>,
         #[arg(
             long,

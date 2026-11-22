@@ -317,6 +317,7 @@ fn run_with_glyphs(
         glyphs,
         decorations: decorations_for(source, size_emu),
         single_face: false,
+        face: None,
         warp: None,
         reflection: None,
     }

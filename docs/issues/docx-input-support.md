@@ -976,7 +976,7 @@ Licensing: `rdocx` is MIT (`LICENSE`; Cargo metadata `MIT OR Apache-2.0`), compa
 | Group opacity / linear opacity masks | Low–medium | Approximate with warning; future IR commands. |
 | Variable font axes / synthetic bold+italic | Medium | Exact-face default instance + warning; extend `DocumentFace`/raster cache. |
 | EMF/WMF pictures | Medium | Convert through the existing metafile engine or placeholder. |
-| Internal bookmark hyperlinks | Low | `bookmark_page` mapping; drop unresolved with warning. |
+| Internal bookmark hyperlinks | Low–medium | **Confirmed during implementation**: `rdocx` 0.17 projects external relationship hyperlinks as `LinkAnnotation` elements but not `w:anchor` internal links, so the bridge's `bookmark_page` resolution currently has no annotation to consume (bridge code and tests are in place for the day the engine projects them). External links resolve and sanitize correctly. |
 | Comments/margin annotations | Low | Out of scope for rendering; `dump` only. |
 | Tracked changes | Low | Engine supports accepted/tracked; CLI option optional. |
 | Vertical text / East Asian specifics | Unknown | rdocx has coverage; test with fixtures. Do not assume parity. |
