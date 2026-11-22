@@ -3,8 +3,8 @@
 Reference: `/tmp/oooxml` @ `1f5c6e1d` (read-only). Counts: `tests/parity/COVERAGE.md` + `tests/parity/coverage/*.md`,
 re-verified against code and `#[ignore]` stubs (Wave-2 landed `text/{bullets,paragraphs,decor,stacked}` and
 `StyleDef::letter_spacing_emu`, so several COVERAGE rows are stale). Verify per agent:
-`CARGO_TARGET_DIR=/workspace/kitty-pptx/target/agent-<name> cargo test -p kitty-pptx-core --test <target>` and
-`cargo clippy -p kitty-pptx-core --lib -- -D warnings`. Every file < 600 lines, no `unwrap()` in production.
+`CARGO_TARGET_DIR=/workspace/kitty-pptx/target/agent-<name> cargo test -p office-terminal-core --test <target>` and
+`cargo clippy -p office-terminal-core --lib -- -D warnings`. Every file < 600 lines, no `unwrap()` in production.
 
 ## 0. Snapshot — remaining BLOCKED text cases (160; 94 still open, 19 landed uncommitted)
 

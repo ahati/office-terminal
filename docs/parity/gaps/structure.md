@@ -1,6 +1,6 @@
 # Structural parity gaps — implementation spec
 
-Reference `/tmp/oooxml` @ `1f5c6e1d` (read-only). Baseline `crates/kitty-pptx-core/tests/parity/COVERAGE.md` (378 tests, 284 pass, 94 ignored). Gap codes `R1`–`R9` as used in `tests/parity/coverage/elements.md`. Scope: **structural** gaps only — new IR, new seams, new algorithms.
+Reference `/tmp/oooxml` @ `1f5c6e1d` (read-only). Baseline `crates/office-terminal-core/tests/parity/COVERAGE.md` (378 tests, 284 pass, 94 ignored). Gap codes `R1`–`R9` as used in `tests/parity/coverage/elements.md`. Scope: **structural** gaps only — new IR, new seams, new algorithms.
 
 ```
 G1 typed limits ─┬─> G6 image fills ──> G7 charts ──> G11 EMF/WMF (label only)
@@ -33,9 +33,9 @@ flattens it to a string before any caller: `ResourceGovernor::first_error() -> O
     pub resource: &'static str, pub metric: &'static str, pub part: Option<String>,
     pub limit: u64, pub observed: u64, pub configurable: bool, pub usage: ResourceUsage }
 impl HardResourceLimitKind { pub fn violation(self, limit: u64, observed: u64, usage: ResourceUsage) -> ResourceViolation; }
-// kitty-pptx-core/src/error.rs — replaces ResourceLimitHit
+// office-terminal-core/src/error.rs — replaces ResourceLimitHit
 ParseError::ResourceLimit(ResourceViolation)     AssetError::ResourceLimit(ResourceViolation)
-// kitty-pptx-core/src/loader/embedded_fonts.rs (new)
+// office-terminal-core/src/loader/embedded_fonts.rs (new)
 pub fn load_embedded_fonts(refs: &[pptx_model::PptxEmbeddedFontRef],
     read: &dyn Fn(&str) -> Result<Vec<u8>, AssetError>) -> Result<Vec<LoadedFont>, AssetError>;
 // pptx-parser: `pub enum PptxError { Resource(ResourceViolation), Format(String) }`

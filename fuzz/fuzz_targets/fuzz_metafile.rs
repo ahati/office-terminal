@@ -3,15 +3,15 @@
 //! Invariants: no panic/abort, bounded input via [`MetafileLimits`], balanced
 //! clip push/pop, finite transforms. Run with `cargo +nightly fuzz run
 //! fuzz_metafile`; the deterministic smoke lives in
-//! `crates/kitty-pptx-core/tests/metafile_robustness_tests.rs`.
+//! `crates/office-terminal-core/tests/metafile_robustness_tests.rs`.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use kitty_pptx_core::contracts::{AffineTransform, VectorCommand};
-use kitty_pptx_core::metafile::engine_metafile_rs::MetafileRsEngine;
-use kitty_pptx_core::metafile::recorder::MetafileRecorder;
-use kitty_pptx_core::metafile::{classify_bytes, MetafileEngine, MetafileLimits};
+use office_terminal_core::contracts::{AffineTransform, VectorCommand};
+use office_terminal_core::metafile::engine_metafile_rs::MetafileRsEngine;
+use office_terminal_core::metafile::recorder::MetafileRecorder;
+use office_terminal_core::metafile::{classify_bytes, MetafileEngine, MetafileLimits};
 
 fuzz_target!(|data: &[u8]| {
     let limits = MetafileLimits {

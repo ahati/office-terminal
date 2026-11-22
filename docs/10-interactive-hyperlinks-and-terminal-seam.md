@@ -1,7 +1,7 @@
 # PRD 10: Interactive Hyperlinks & Terminal Interactivity Seam
 
 > **Normative Architectural Specification & Product Requirements Document**  
-> **Status**: Approved · **Applies to**: `kitty-pptx-core`, `kitty-pptx-display`, `kitty-pptx-tui`, `kitty-pptx-cli`  
+> **Status**: Approved · **Applies to**: `office-terminal-core`, `office-terminal-display`, `office-terminal-tui`, `office-terminal-cli`  
 > **Upstream Contracts**: [PRD 01](./01-parser-and-data-model.md) §3, [PRD 02d](./02d-element-renderers-and-fidelity-policy.md) §2, [PRD 03a](./03a-kitty-graphics-protocol-driver.md) §4, [PRD 04](./04-interactive-tui-presenter.md) §2, [PRD 06](./06-component-interface-contracts.md) §2
 
 ---
@@ -103,7 +103,7 @@ When `a:hlinkClick` contains an `@action` attribute, it indicates an internal Po
 
 ## 3. Vector IR Representation (`VectorSlide`)
 
-The intermediate display list in `kitty-pptx-core` ([PRD 06](./06-component-interface-contracts.md) §2.1) is enriched to retain semantic hyperlink metadata and bounding geometries.
+The intermediate display list in `office-terminal-core` ([PRD 06](./06-component-interface-contracts.md) §2.1) is enriched to retain semantic hyperlink metadata and bounding geometries.
 
 ### 3.1 Type Definitions
 

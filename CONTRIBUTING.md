@@ -1,6 +1,6 @@
-# Contributing to kitty-pptx
+# Contributing to Office Terminal (`ot`)
 
-Thank you for your interest in contributing to **kitty-pptx**! We welcome bug reports, feature proposals, documentation improvements, and code contributions.
+Thank you for your interest in contributing to **Office Terminal** (`ot` / `office-terminal`)! We welcome bug reports, feature proposals, documentation improvements, and code contributions.
 
 Please take a moment to review this guide to ensure a smooth contribution process.
 
@@ -17,7 +17,7 @@ All contributors and maintainers are expected to follow our [Code of Conduct](./
 Before submitting code, please be aware of our core design tenets (detailed in [`AGENTS.md`](./AGENTS.md)):
 
 ### 1. Strict File Size Limit (< 600 Lines)
-- **Hard Rule**: No Rust source file (`*.rs`) in `crates/kitty-pptx-*` may exceed **600 lines**.
+- **Hard Rule**: No Rust source file (`*.rs`) in `crates/office-terminal-*` may exceed **600 lines**.
 - Proactively split modules when approaching 400–500 lines into logically coherent submodules.
 
 ### 2. Strict Zero-Warning Policy
@@ -66,7 +66,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
 # Verify file line counts
-find crates/kitty-pptx-* -name "*.rs" | xargs wc -l | sort -nr | head -n 20
+find crates/office-terminal-* -name "*.rs" | xargs wc -l | sort -nr | head -n 20
 ```
 
 > [!NOTE]

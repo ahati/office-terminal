@@ -1,7 +1,7 @@
 # PRD 11: Extended & Tier 3 Shape Presets (Obscure Presets & Extended Geometry Library)
 
 > **Normative Architectural Specification & Product Requirements Document**  
-> **Status**: Approved · **Applies to**: `kitty-pptx-core::compiler::shapes`  
+> **Status**: Approved · **Applies to**: `office-terminal-core::compiler::shapes`  
 > **Companion Documents**: [PRD 02b](./02b-vector-style-and-geometry-engine.md), [PRD 02b Appendix](./02b-appendix-preset-geometries.md), [PRD 02d](./02d-element-renderers-and-fidelity-policy.md), [PRD 06](./06-component-interface-contracts.md), [PRD 07](./07-quality-and-testing.md)
 
 ---
@@ -50,7 +50,7 @@ Every preset geometry maps deterministically to one of three fidelity tiers:
 
 ### 1.3 Architectural Pipeline Integration
 
-Shape compilation executes inside `kitty-pptx-core::compiler::shapes` as a pure, stateless vector generator. It accepts local pixel dimensions $(w, h)$ and raw adjustment values, producing a resolution-independent `VectorPath`:
+Shape compilation executes inside `office-terminal-core::compiler::shapes` as a pure, stateless vector generator. It accepts local pixel dimensions $(w, h)$ and raw adjustment values, producing a resolution-independent `VectorPath`:
 
 ```mermaid
 flowchart TD
@@ -276,10 +276,10 @@ Action buttons compile into a composite two-layer vector structure:
 ## 3. Modular Architecture & Strict File Size Compliance
 
 ### 3.1 Architectural Decomposition (< 600 Lines Enforcement)
-To adhere strictly to the project engineering standard (**no source file may exceed 600 lines**), preset implementations in `crates/kitty-pptx-core/src/compiler/shapes/` are partitioned into dedicated submodules:
+To adhere strictly to the project engineering standard (**no source file may exceed 600 lines**), preset implementations in `crates/office-terminal-core/src/compiler/shapes/` are partitioned into dedicated submodules:
 
 ```
-crates/kitty-pptx-core/src/compiler/shapes/
+crates/office-terminal-core/src/compiler/shapes/
 ├── mod.rs               # Dispatcher facade, fallback routing, warning sink (~150 lines)
 ├── arc.rs               # Sub-arc cubic Bézier decomposition utilities (~80 lines)
 ├── presets_t1.rs        # Core 25 primitives (rect, roundRect, ellipse, triangle, etc.) (~380 lines)

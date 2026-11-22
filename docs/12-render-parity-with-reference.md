@@ -3,7 +3,7 @@
 > Status: analysis + rewrite plan. No production code changed.
 > Reference: [`yukiyokotani/office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer)
 > `main@1f5c6e1df8776c05169b70c8e548bbc5918178fc` (2026-11-12), packages `pptx` (0.89.4) and `core`.
-> Target: this workspace, `crates/kitty-pptx-core` (compiler + rasterizer + SVG).
+> Target: this workspace, `crates/office-terminal-core` (compiler + rasterizer + SVG).
 
 This document answers three questions:
 
@@ -49,7 +49,7 @@ Two facts matter more than the numbers:
 
 ### R1 — There is no text layout engine (dominant, affects every slide)
 
-`compile_text_body` (`crates/kitty-pptx-core/src/compiler/text.rs:68`) shapes one run at a time with
+`compile_text_body` (`crates/office-terminal-core/src/compiler/text.rs:68`) shapes one run at a time with
 `cosmic-text`, `set_size(None, None)` (no width limit, `text.rs:36`) and only splits lines on an explicit
 `<a:br/>` (`text.rs:237`). The reference calls `layoutParagraph(para, maxW, …)`
 (`packages/pptx/src/renderer.ts:5324`) which runs a full UAX#14 + kinsoku + tab + justification engine
@@ -452,15 +452,15 @@ Verified spot checks used in this document:
 ## Appendix B — Pre-existing workspace state
 
 `git status` before this analysis already showed edits in
-`crates/kitty-pptx-core/src/compiler/text.rs` (debug print) and
-`crates/kitty-pptx-core/src/rasterizer/text.rs` (`query_face` fallback chain + debug print).
+`crates/office-terminal-core/src/compiler/text.rs` (debug print) and
+`crates/office-terminal-core/src/rasterizer/text.rs` (`query_face` fallback chain + debug print).
 Those were preserved untouched.
 
 ---
 
 ## 8. Implementation status (this pass)
 
-Landed and verified in `crates/kitty-pptx-core` (all files < 600 lines, clippy clean):
+Landed and verified in `crates/office-terminal-core` (all files < 600 lines, clippy clean):
 
 | area | modules | tests |
 |---|---|---|
@@ -524,10 +524,10 @@ ECMA default `dir = 5400000`), and table cell clipping plus compound (`cmpd`) bo
 ### 8.2 Test entry points
 
 ```sh
-cargo test -p kitty-pptx-core --test parity_text_tests
-cargo test -p kitty-pptx-core --test preset_parity_tests
-cargo test -p kitty-pptx-core --test parity_fidelity_tests -- --nocapture
-cargo test -p kitty-pptx-core --test pixelmatch_tests
+cargo test -p office-terminal-core --test parity_text_tests
+cargo test -p office-terminal-core --test preset_parity_tests
+cargo test -p office-terminal-core --test parity_fidelity_tests -- --nocapture
+cargo test -p office-terminal-core --test pixelmatch_tests
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
@@ -536,7 +536,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 The reference suite is now ported file-for-file: **161 reference files** (the 150
 `packages/pptx/src` specs plus the 14 `tests/visual` Playwright specs, deduped
 across batches) are covered by **33 `parity_*` targets** — 32 under
-`crates/kitty-pptx-core/tests/` and one in `crates/kitty-pptx-tui/tests/` —
+`crates/office-terminal-core/tests/` and one in `crates/office-terminal-tui/tests/` —
 holding 525 test functions, 422 passing, 103 `#[ignore]`d stubs, 0 failing,
 clippy clean. Of **1184 enumerated reference cases**, 214 are EXACT (the
 assertion is the reference's own number), 179 are BEHAVIOURAL (same state
@@ -549,5 +549,5 @@ reflection compositor (48), the viewer platform surface (zoom, hidden slides,
 selection/find, worker pull protocol, container guards — 247), and equation
 fallbacks, decode/placeholder plumbing, `rPr@spc` on the draw IR and the ICU
 Southeast-Asian dictionary break (the remaining 183). Per-batch ledgers live in
-`crates/kitty-pptx-core/tests/parity/COVERAGE.md`.
+`crates/office-terminal-core/tests/parity/COVERAGE.md`.
 

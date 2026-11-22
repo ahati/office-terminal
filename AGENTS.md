@@ -39,10 +39,10 @@ kitty-pptx/
 │   ├── 06-component-interface-contracts.md
 │   └── 07-quality-and-testing.md
 └── crates/
-    ├── kitty-pptx-core/            # Vector IR, compiler, rasterizer, SVG exporter
-    ├── kitty-pptx-display/         # Terminal graphics drivers, probe, cell mapper
-    ├── kitty-pptx-tui/             # Interactive Ratatui presenter application
-    ├── kitty-pptx-cli/             # Command-line interface & subcommands
+    ├── office-terminal-core/            # Vector IR, compiler, rasterizer, SVG exporter
+    ├── office-terminal-display/         # Terminal graphics drivers, probe, cell mapper
+    ├── office-terminal-tui/             # Interactive Ratatui presenter application
+    ├── office-terminal-cli/             # Command-line interface & subcommands
     ├── pptx-parser/                # (Vendored) Low-level OOXML PPTX parser
     ├── pptx-model/                 # (Vendored) Abstract PowerPoint DOM model
     ├── ooxml-common/               # (Vendored) OOXML package, relationship & XML utilities
@@ -53,10 +53,10 @@ kitty-pptx/
 
 | Crate | Role & Key Components |
 | :--- | :--- |
-| **`kitty-pptx-core`** | **Display List & Render Core**: Defines `VectorSlide`, `DrawCommand`, `GeometryPath`, `Paint`, and `TextRun`. Compiles `pptx-model` slides into vector display lists. Rasterizes via `tiny-skia` into RGBA framebuffers. Exports native standalone SVG. Manages embedded media asset extraction (`AssetStore`). |
-| **`kitty-pptx-display`** | **Kitty Graphics Driver**: Implements the `TerminalGraphicsDriver` trait for the Kitty graphics protocol, probes for Kitty support via environment variables and the active graphics query, computes cell-to-pixel aspect ratios, and handles cleanup. |
-| **`kitty-pptx-tui`** | **Interactive Presenter**: Ratatui-based TUI state machine (`PresenterApp`, `PresenterMode`). Handles keyboard navigation (Space/Enter/Arrows, 'p' presenter toggle, 't' thumbnail grid, 'b' blank screen). Manages slide timer, notes, and aspect-ratio-preserving layout widgets. |
-| **`kitty-pptx-cli`** | **CLI Entrypoint**: Implements commands via `clap`: `view`, `present`, `export` (SVG/PNG), `dump` (JSON/AST), and `info`. Loads configuration and coordinates pipeline execution. |
+| **`office-terminal-core`** | **Display List & Render Core**: Defines `VectorSlide`, `DrawCommand`, `GeometryPath`, `Paint`, and `TextRun`. Compiles `pptx-model` slides into vector display lists. Rasterizes via `tiny-skia` into RGBA framebuffers. Exports native standalone SVG. Manages embedded media asset extraction (`AssetStore`). |
+| **`office-terminal-display`** | **Kitty Graphics Driver**: Implements the `TerminalGraphicsDriver` trait for the Kitty graphics protocol, probes for Kitty support via environment variables and the active graphics query, computes cell-to-pixel aspect ratios, and handles cleanup. |
+| **`office-terminal-tui`** | **Interactive Presenter**: Ratatui-based TUI state machine (`PresenterApp`, `PresenterMode`). Handles keyboard navigation (Space/Enter/Arrows, 'p' presenter toggle, 't' thumbnail grid, 'b' blank screen). Manages slide timer, notes, and aspect-ratio-preserving layout widgets. |
+| **`office-terminal-cli`** | **CLI Entrypoint**: Implements commands via `clap`: `view`, `present`, `export` (SVG/PNG), `dump` (JSON/AST), and `info`. Loads configuration and coordinates pipeline execution. |
 | **Vendored Crates** | **Upstream Parser Stack**: `pptx-parser`, `pptx-model`, `ooxml-common`. Kept pristine in `crates/` to provide robust, spec-compliant PPTX parsing without network dependencies. Any essential fixes must be tracked in `crates/patches/` and recorded in `crates/VENDORED.md`. |
 
 ---
@@ -90,7 +90,7 @@ All agents and contributors must strictly follow these engineering conventions:
   - Send graphics cleanup sequences (e.g. Kitty clear: `\x1b_Ga=d,d=a,q=2\x1b\\`).
 
 ### D. Safety and Robustness
-- **Forbid Unsafe**: Library code should adhere to `#![forbid(unsafe_code)]` unless interacting with low-level termios/ioctl for cell dimension probing, which must be strictly encapsulated, audited, and isolated in `kitty-pptx-display`.
+- **Forbid Unsafe**: Library code should adhere to `#![forbid(unsafe_code)]` unless interacting with low-level termios/ioctl for cell dimension probing, which must be strictly encapsulated, audited, and isolated in `office-terminal-display`.
 - **Robust Error Handling**:
   - Library crates use typed errors with `thiserror` (e.g. `RenderError`, `DriverError`).
   - Avoid `.unwrap()` and `.expect()` in non-test production code. Bubble errors using `?` or provide graceful fallback defaults.
@@ -156,15 +156,15 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
 # Check line counts to enforce the < 600 line limit
-find crates/kitty-pptx-* -name "*.rs" | xargs wc -l | sort -nr
+find crates/office-terminal-* -name "*.rs" | xargs wc -l | sort -nr
 
 # Run the CLI
-cargo run -p kitty-pptx-cli -- view presentation.pptx
-cargo run -p kitty-pptx-cli -- export presentation.pptx --format svg -o out/
+cargo run -p office-terminal-cli -- view presentation.pptx
+cargo run -p office-terminal-cli -- export presentation.pptx --format svg -o out/
 ```
 
 - `external_libreoffice_renderer_comparison` is cache-gated, not `#[ignore]`: with `target/external/` populated it renders 418 decks / 543 slides on every `cargo test`.
-- After changing `COMPARE_WIDTH` or re-rendering references, refresh the width-tagged baseline with `UPDATE_EXTERNAL_SCORES=1 cargo test -p kitty-pptx-core --test external_fixture_tests -- --nocapture`.
+- After changing `COMPARE_WIDTH` or re-rendering references, refresh the width-tagged baseline with `UPDATE_EXTERNAL_SCORES=1 cargo test -p office-terminal-core --test external_fixture_tests -- --nocapture`.
 
 ### Git Commit Guidelines & User Approval
 - **Mandatory User Approval**: **Always request and receive explicit approval from the user before committing changes**, presenting the exact proposed commit message and changed files for review.
@@ -182,9 +182,9 @@ cargo run -p kitty-pptx-cli -- export presentation.pptx --format svg -o out/
 
 When working in multi-agent swarms or subagent delegations:
 1. **Assign Clear Domain Ownership**:
-   - Agent 1: Vector Pipeline & Shape Compilers (`kitty-pptx-core`)
-   - Agent 2: Terminal Display Drivers & Probing (`kitty-pptx-display`)
-   - Agent 3: Presenter TUI State & Layout (`kitty-pptx-tui`)
-   - Agent 4: CLI Interface & Subcommands (`kitty-pptx-cli`)
-2. **Respect Component Contracts**: Contracts in `crates/kitty-pptx-core/src/contracts/` are shared ground. If modifying a contract data structure, coordinate with all dependent crates.
+   - Agent 1: Vector Pipeline & Shape Compilers (`office-terminal-core`)
+   - Agent 2: Terminal Display Drivers & Probing (`office-terminal-display`)
+   - Agent 3: Presenter TUI State & Layout (`office-terminal-tui`)
+   - Agent 4: CLI Interface & Subcommands (`office-terminal-cli`)
+2. **Respect Component Contracts**: Contracts in `crates/office-terminal-core/src/contracts/` are shared ground. If modifying a contract data structure, coordinate with all dependent crates.
 3. **Verify Line Counts Proactively**: After adding or expanding features, verify line counts with `wc -l` and split files before marking assignments complete.

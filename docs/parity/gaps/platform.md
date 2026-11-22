@@ -17,8 +17,8 @@ Verdict vocabulary:
 - **N/A** — DOM, canvas-realm, worker-wire or scripting-only; no Rust test should exist.
   `(n)` after the case count = how many cases are portable; the rest are N/A for that file.
 
-Host shorthand: `core` = `crates/kitty-pptx-core`, `tui` = `crates/kitty-pptx-tui`,
-`display` = `crates/kitty-pptx-display`, `cli` = `crates/kitty-pptx-cli`.
+Host shorthand: `core` = `crates/office-terminal-core`, `tui` = `crates/office-terminal-tui`,
+`display` = `crates/office-terminal-display`, `cli` = `crates/office-terminal-cli`.
 
 Totals: 72 files — **EXACT 14**, **BEHAVIOURAL 37**, **N/A 21**. 461 vitest cases + 25 Playwright
 test blocks; roughly 150 vitest cases and 12 Playwright blocks are portable.

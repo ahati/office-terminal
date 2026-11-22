@@ -14,7 +14,7 @@
 
 Every input path assumes PPTX end to end:
 
-- `PresentationLoader::load(Source) -> (pptx_model::Presentation, Arc<dyn AssetStore>)` (`kitty-pptx-core/src/loader/presentation_loader.rs`) — the return type is hardwired to the OOXML model.
+- `PresentationLoader::load(Source) -> (pptx_model::Presentation, Arc<dyn AssetStore>)` (`office-terminal-core/src/loader/presentation_loader.rs`) — the return type is hardwired to the OOXML model.
 - `sniff_container(&bytes)` accepts ZIP unconditionally as PPTX and rejects everything else (`SourceFormat` guard only; no extension or magic dispatch).
 - `DefaultRenderPipeline::new(Arc<pptx_model::Presentation>, …)` (`pipeline/mod.rs`, `pipeline/worker.rs`) indexes `presentation.slides` and reads deck-level `slide_width/slide_height` for every compile.
 - The TUI receives `.with_slides(Vec<pptx_model::Slide>)` for text search, media, comments and hyperlink hit-testing.
@@ -167,7 +167,7 @@ Known trade-off: Phase R is *raster-in-vector's-clothing* — resolution-bound u
 
 Page CTM composes with `initial_transform(true)` so rotated/cropped pages land correctly. Phase V restores full resolution independence and native vector SVG export for PDF pages through the unchanged serializer.
 
-### 3.4 Module layout (new workspace crate `kitty-pptx-pdf`)
+### 3.4 Module layout (new workspace crate `office-terminal-pdf`)
 
 Keeps vendored crates pristine and honors the < 600-line rule ([AGENTS.md](../AGENTS.md) §A):
 
@@ -285,7 +285,7 @@ The classifier is specified **normatively in [PRD 14a](./14a-pdf-reader-ui-desig
 | ID | Scope | Exit criteria |
 | :--- | :--- | :--- |
 | **P0** | Contracts: `PageSource`, `DeckSource`, loader sniff, `PptxPageSource` adapter; pipeline constructor generalization | all existing tests green; zero behavior change for PPTX (goldens byte-identical) |
-| **P1** | Phase R: `kitty-pptx-pdf` crate, `HayroEngine`, raster bridge, slide-mode presenting of landscape decks | beamer deck + PowerPoint-exported deck present fullscreen/presenter/sorter; `< 120 ms` p95 to first page (PRD 00 NFR, warm cache) |
+| **P1** | Phase R: `office-terminal-pdf` crate, `HayroEngine`, raster bridge, slide-mode presenting of landscape decks | beamer deck + PowerPoint-exported deck present fullscreen/presenter/sorter; `< 120 ms` p95 to first page (PRD 00 NFR, warm cache) |
 | **P2** | Reader mode (with [PRD 14a](./14a-pdf-reader-ui-designs.md)) for portrait/mixed documents | scroll/spread/fit NFRs of 14a met |
 | **P3** | Phase V vector bridge + native SVG export; fidelity matrix wired | vector-scene goldens (L2a) for PDF corpus; SVG text selectable where fonts resolve |
 | **P4** | Phase L + T: outline → TOC modal, link annotations → `SlideLink`/link picker, `SearchCorpus` find/search, `dump text/markdown` | parity with PPTX feature surface |

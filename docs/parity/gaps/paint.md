@@ -1,9 +1,9 @@
 # PAINT / IMAGE / STROKE gaps — implementation spec (core)
 
 Reference: `/tmp/oooxml` @ `1f5c6e1d` (read-only). Source of truth for counts:
-`crates/kitty-pptx-core/tests/parity/COVERAGE.md` + `tests/parity/coverage/*.md`.
+`crates/office-terminal-core/tests/parity/COVERAGE.md` + `tests/parity/coverage/*.md`.
 Verify per agent: `CARGO_TARGET_DIR=/workspace/kitty-pptx/target/agent-<name> cargo test -p
-kitty-pptx-core --test <target>` and `cargo clippy -p kitty-pptx-core --lib -- -D warnings`.
+office-terminal-core --test <target>` and `cargo clippy -p office-terminal-core --lib -- -D warnings`.
 Every file < 600 lines. No `unwrap()` in production paths.
 
 ## 0. Snapshot — what is still BLOCKED in this domain

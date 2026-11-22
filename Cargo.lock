@@ -1095,103 +1095,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kitty-pptx-cli"
-version = "0.1.0"
-dependencies = [
- "base64",
- "clap",
- "clap_complete",
- "crossbeam-channel",
- "crossterm",
- "image",
- "indicatif",
- "kitty-pptx-core",
- "kitty-pptx-display",
- "kitty-pptx-pdf",
- "kitty-pptx-tui",
- "pptx-model",
- "pptx-parser",
- "ratatui",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "toml",
- "zip",
-]
-
-[[package]]
-name = "kitty-pptx-core"
-version = "0.1.0"
-dependencies = [
- "base64",
- "cosmic-text",
- "crossbeam-channel",
- "flate2",
- "fontdb 0.16.2",
- "image",
- "metafile-core",
- "metafile-emf",
- "metafile-wmf",
- "ooxml-common",
- "pptx-model",
- "pptx-parser",
- "resvg",
- "rustybuzz 0.14.1",
- "serde",
- "serde_json",
- "sha2",
- "swash",
- "tempfile",
- "thiserror",
- "tiny-skia",
- "zip",
-]
-
-[[package]]
-name = "kitty-pptx-display"
-version = "0.1.0"
-dependencies = [
- "base64",
- "crossterm",
- "image",
- "kitty-pptx-core",
- "rustix 1.1.6",
- "thiserror",
-]
-
-[[package]]
-name = "kitty-pptx-pdf"
-version = "0.1.0"
-dependencies = [
- "base64",
- "crossbeam-channel",
- "hayro",
- "hayro-interpret",
- "hayro-svg",
- "hayro-syntax",
- "image",
- "kitty-pptx-core",
- "thiserror",
-]
-
-[[package]]
-name = "kitty-pptx-tui"
-version = "0.1.0"
-dependencies = [
- "crossbeam-channel",
- "crossterm",
- "kitty-pptx-core",
- "kitty-pptx-display",
- "pptx-model",
- "ratatui",
- "serde_json",
- "signal-hook",
- "thiserror",
-]
-
-[[package]]
 name = "kurbo"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1403,6 +1306,103 @@ name = "number_prefix"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
+
+[[package]]
+name = "office-terminal-cli"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "clap",
+ "clap_complete",
+ "crossbeam-channel",
+ "crossterm",
+ "image",
+ "indicatif",
+ "office-terminal-core",
+ "office-terminal-display",
+ "office-terminal-pdf",
+ "office-terminal-tui",
+ "pptx-model",
+ "pptx-parser",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "zip",
+]
+
+[[package]]
+name = "office-terminal-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cosmic-text",
+ "crossbeam-channel",
+ "flate2",
+ "fontdb 0.16.2",
+ "image",
+ "metafile-core",
+ "metafile-emf",
+ "metafile-wmf",
+ "ooxml-common",
+ "pptx-model",
+ "pptx-parser",
+ "resvg",
+ "rustybuzz 0.14.1",
+ "serde",
+ "serde_json",
+ "sha2",
+ "swash",
+ "tempfile",
+ "thiserror",
+ "tiny-skia",
+ "zip",
+]
+
+[[package]]
+name = "office-terminal-display"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "crossterm",
+ "image",
+ "office-terminal-core",
+ "rustix 1.1.6",
+ "thiserror",
+]
+
+[[package]]
+name = "office-terminal-pdf"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "crossbeam-channel",
+ "hayro",
+ "hayro-interpret",
+ "hayro-svg",
+ "hayro-syntax",
+ "image",
+ "office-terminal-core",
+ "thiserror",
+]
+
+[[package]]
+name = "office-terminal-tui"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "crossterm",
+ "office-terminal-core",
+ "office-terminal-display",
+ "pptx-model",
+ "ratatui",
+ "serde_json",
+ "signal-hook",
+ "thiserror",
+]
 
 [[package]]
 name = "once_cell"

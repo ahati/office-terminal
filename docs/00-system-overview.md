@@ -65,10 +65,10 @@ The architecture decouples layout resolution from backend output using an interm
 - `crates/pptx-model` (vendored AST)
 - `crates/pptx-parser` (vendored OOXML parser)
 - `crates/ooxml-common` (vendored relationships & XML limits)
-- `crates/kitty-pptx-core`: Slide compiler, `VectorSlide` display list, style/geometry/text services, asset store, `tiny-skia` rasterizer, SVG serializer, and pipeline scheduler. Zero display/terminal dependencies.
-- `crates/kitty-pptx-display`: Kitty graphics driver, capability probe, geometry negotiation, and `TtyWriter`.
-- `crates/kitty-pptx-tui`: Ratatui slide widgets, presenter console, sorter grid, and input event loop.
-- `crates/kitty-pptx-cli`: Clap CLI shell, subcommand dispatch, config loader.
+- `crates/office-terminal-core`: Slide compiler, `VectorSlide` display list, style/geometry/text services, asset store, `tiny-skia` rasterizer, SVG serializer, and pipeline scheduler. Zero display/terminal dependencies.
+- `crates/office-terminal-display`: Kitty graphics driver, capability probe, geometry negotiation, and `TtyWriter`.
+- `crates/office-terminal-tui`: Ratatui slide widgets, presenter console, sorter grid, and input event loop.
+- `crates/office-terminal-cli`: Clap CLI shell, subcommand dispatch, config loader.
 
 ### 3.2 Component ↔ PRD Traceability
 

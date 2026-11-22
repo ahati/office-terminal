@@ -37,7 +37,7 @@ jobs:
 
       - name: Enforce < 600 lines per file
         run: |
-          oversized=$(find crates/kitty-pptx-* -name "*.rs" -exec wc -l {} + | awk '$1 > 600 {print $2, "(" $1 " lines)"}')
+          oversized=$(find crates/office-terminal-* -name "*.rs" -exec wc -l {} + | awk '$1 > 600 {print $2, "(" $1 " lines)"}')
           if [ -n "$oversized" ]; then
             echo "Error: The following source files exceed the 600-line limit:"
             echo "$oversized"

@@ -177,7 +177,7 @@ Zoom and fit changes invalidate that page's raster at the new scale class and re
 3. **Pixel-exact fit.** Pages render at exactly the terminal's pixel metrics for the chosen fit; a 1:1 source-to-screen mapping means scrolling never resamples.
 4. **Focus over modes.** One pane model, one keymap; focus marks the current page — the target of jumps, the sorter grid and the zoom-reflow re-anchor.
 5. **Progressive disclosure under slow renders.** Panes paint placeholders (aspect-correct silhouette + page number) the instant geometry is known; bitmaps arrive when the pipeline delivers (`NotLoaded → Rendering → Ready`).
-6. **Nothing new below `RgbaSlide`.** All changes sit in `kitty-pptx-display` (placement), `kitty-pptx-tui` (state/layout/keys), and pipeline *prefetch policy* — render backends untouched.
+6. **Nothing new below `RgbaSlide`.** All changes sit in `office-terminal-display` (placement), `office-terminal-tui` (state/layout/keys), and pipeline *prefetch policy* — render backends untouched.
 
 ---
 
@@ -276,7 +276,7 @@ end   (anchor last): inset = (center_px + page_w) · (scroll/page_w)   // winds 
 
 ## 7. Cell Metrics & Fit Correctness (prerequisite fixes)
 
-1. **Wire the probe.** `kitty-pptx-display` already knows how to measure cell pixels (`CSI 16 t` / `TIOCGWINSZ`); the TUI currently hardcodes `DEFAULT_CELL_ASPECT_RATIO = 0.5`. Reader mode requires real `cell_w_px × cell_h_px`, refreshed on resize. (Slide modes benefit equally; wiring it is a strict improvement.)
+1. **Wire the probe.** `office-terminal-display` already knows how to measure cell pixels (`CSI 16 t` / `TIOCGWINSZ`); the TUI currently hardcodes `DEFAULT_CELL_ASPECT_RATIO = 0.5`. Reader mode requires real `cell_w_px × cell_h_px`, refreshed on resize. (Slide modes benefit equally; wiring it is a strict improvement.)
 2. **Fix the `fit_width` unit bug.** Today `fit_width`/`fit_page` compare EMU-derived pixels against *cell counts*. With live cell metrics, fit-width becomes exact (§6.1) and the currently-unbound `fit_*` methods get the `f` key.
 3. **Render scale classes.** Pages render at `ceil(fit_w_px)` wide snapped to {1×, 1.5×, 2×} classes of the measured grid so resize reuses cached bitmaps across ±1-column jitter; zoom beyond a class boundary triggers the hi-res recompile ([PRD 14](./14-pdf-input-support.md) §3.2), capped at 8,192 px/axis.
 

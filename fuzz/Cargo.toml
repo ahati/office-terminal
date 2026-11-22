@@ -1,5 +1,5 @@
 [package]
-name = "kitty-pptx-fuzz"
+name = "office-terminal-fuzz"
 version = "0.0.0"
 edition = "2021"
 publish = false
@@ -11,7 +11,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-kitty-pptx-core = { path = "../crates/kitty-pptx-core" }
+office-terminal-core = { path = "../crates/office-terminal-core" }
 
 [patch.crates-io]
 metafile-core = { path = "../crates/metafile-core" }
