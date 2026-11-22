@@ -15,3 +15,7 @@ crossbeam-channel = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+
+[[bench]]
+name = "tui_perf_benchmarks"
+harness = false

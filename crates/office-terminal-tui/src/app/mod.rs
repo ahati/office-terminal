@@ -6,7 +6,7 @@ mod first_frame;
 #[cfg(test)]
 #[path = "first_frame_tests.rs"]
 mod first_frame_tests;
-mod graphics;
+pub mod graphics;
 pub(crate) mod graphics_reader;
 pub(crate) mod graphics_slots;
 #[cfg(test)]
@@ -100,7 +100,7 @@ pub use warnings_state::{SlideWarning, WarningsState};
 #[cfg(test)]
 pub(crate) use first_frame::first_frame_needs_sync;
 
-use graphics::GraphicsSyncer;
+pub use graphics::GraphicsSyncer;
 use terminal_guard::TerminalGuard;
 
 /// Full interactive slide presentation runner.

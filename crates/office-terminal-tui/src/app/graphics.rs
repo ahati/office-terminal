@@ -52,7 +52,7 @@ enum StageLookup {
 /// view owns the screen at a time: the full-screen current slide (optionally
 /// with a presenter preview) or the slide-sorter thumbnail grid.
 #[derive(Default)]
-pub(crate) struct GraphicsSyncer {
+pub struct GraphicsSyncer {
     current: SlotState,
     preview: SlotState,
     thumbnails: ThumbnailSyncer,
@@ -63,12 +63,12 @@ pub(crate) struct GraphicsSyncer {
 }
 
 impl GraphicsSyncer {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Forgets all staging/placement bookkeeping (e.g. after a teardown).
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         *self = Self::default();
     }
 
@@ -84,7 +84,7 @@ impl GraphicsSyncer {
     /// `canvas_target` is the resolution the full-screen view is rendered
     /// at: the sorter shares those bitmaps and lets the terminal scale them
     /// into the cards, so both views show the exact same pixels.
-    pub(crate) fn sync(
+    pub fn sync(
         &mut self,
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
