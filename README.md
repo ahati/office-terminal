@@ -1,6 +1,6 @@
 # Office Terminal (`ot`)
 
-[![CI](https://github.com/ahati/kitty-pptx/actions/workflows/ci.yml/badge.svg)](https://github.com/ahati/kitty-pptx/actions/workflows/ci.yml)
+[![CI](https://github.com/ahati/office-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/ahati/office-terminal/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![MSRV: 1.75](https://img.shields.io/badge/MSRV-1.75-orange.svg)](#prerequisites)
 
@@ -56,8 +56,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/ahati/kitty-pptx.git
-cd kitty-pptx
+git clone https://github.com/ahati/office-terminal.git
+cd office-terminal
 
 # Build the release binaries (`ot` and `office-terminal`)
 cargo build --release

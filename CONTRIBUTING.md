@@ -53,8 +53,8 @@ Before submitting code, please be aware of our core design tenets (detailed in [
 
 ```bash
 # Clone the repository
-git clone https://github.com/ahati/kitty-pptx.git
-cd kitty-pptx
+git clone https://github.com/ahati/office-terminal.git
+cd office-terminal
 
 # Check workspace compilation
 cargo check --workspace

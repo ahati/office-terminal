@@ -1,5 +1,6 @@
-# [Feature] DOCX input support: problem statement, crate evaluation, and implementation design
+# [Issue #40] DOCX input support: problem statement, crate evaluation, and implementation design
 
+> **Issue:** [#40](https://github.com/ahati/office-terminal/issues/40)
 > **Status:** design proposal — no implementation yet.
 > **Scope:** read-only DOCX input for `view`, `present`, `export`, `info`, and `dump`.
 > **Estimated effort:** 1–3 day spike; ~4–6 weeks for a vector MVP; multi-month for reference parity.
@@ -9,7 +10,7 @@
 
 ## 1. Summary
 
-Today kitty-pptx opens `.pptx` and `.pdf`. A `.docx` is rejected as a malformed PPTX because the loader treats every OOXML ZIP as a presentation (ZIP magic → `SourceFormat::Pptx`).
+Today Office Terminal (`ot` / `office-terminal`) opens `.pptx` and `.pdf`. A `.docx` is rejected as a malformed PPTX because the loader treats every OOXML ZIP as a presentation (ZIP magic → `SourceFormat::Pptx`).
 
 DOCX support is technically feasible. **Parsing is easy; layout is the hard part.**
 
@@ -27,7 +28,7 @@ A 1–3 day throwaway spike — DOCX → PDF via `rdocx` → existing `PdfPageSo
 
 ### 2.1 Current behavior
 
-`sniff_container_format` in `crates/kitty-pptx-core/src/loader/presentation_loader.rs` accepts any ZIP local-file header as `SourceFormat::Pptx`. A `.docx` therefore reaches `pptx_parser` and fails with an OOXML presentation error such as a missing `ppt/presentation.xml`, or worse, a confusing part-level error.
+`sniff_container_format` in `crates/office-terminal-core/src/loader/presentation_loader.rs` accepts any ZIP local-file header as `SourceFormat::Pptx`. A `.docx` therefore reaches `pptx_parser` and fails with an OOXML presentation error such as a missing `ppt/presentation.xml`, or worse, a confusing part-level error.
 
 `SourceFormat` and `DeckSource` have exactly two variants:
 
@@ -117,10 +118,10 @@ Key seams already present:
 
 | Seam | Location | Relevance |
 |---|---|---|
-| `PageSource` | `crates/kitty-pptx-core/src/contracts/deck.rs` | DOCX plugs in unchanged. |
+| `PageSource` | `crates/office-terminal-core/src/contracts/deck.rs` | DOCX plugs in unchanged. |
 | `DeckSource` | same file | Needs a `Docx` variant. |
 | Loader hook | `loader/presentation_loader.rs` | Same `OnceLock` pattern as PDF. |
-| Reader mode | `crates/kitty-pptx-tui/src/app/reader_*` | DOCX is a document; reuse. |
+| Reader mode | `crates/office-terminal-tui/src/app/reader_*` | DOCX is a document; reuse. |
 | `SearchCorpus` | `contracts/deck.rs` | Extract per-page text from layout. |
 | `TocEntry` | `contracts/deck.rs` | Map DOCX headings. |
 | `AssetStore` | `loader/asset_store.rs` | Back DOCX media from layout bytes. |
@@ -207,7 +208,7 @@ let pages: &[Arc<oxml_layout::PageFrame>] = &layout.layout.pages;
 
 **Root cause found.** The sample section declares `<w:docGrid w:type="lines" w:linePitch="360"/>` and `<w:spacing w:line="840" w:lineRule="auto"/>`. Upstream/Word multiplies automatic spacing against the **grid pitch** (`18 pt × 3.5 ≈ 63 pt`); `rdocx` multiplies against the **natural font line height** (`≈52 pt × 3.5 ≈ 182 pt`, rounded to 11 grid rows `≈198 pt`). This is a genuine layout-rule divergence, fixable upstream, not just font substitution.
 
-**Dependency footprint.** `cargo tree -p rdocx` reports **147 unique normal dependency names**. `fontdb 0.23` and `ttf-parser 0.25` add duplicates next to our `fontdb 0.16.2` and `ttf-parser 0.20/0.21/0.24`; `zip 9.0.3` with `deflate-flate2-zlib-rs` unifies with our `=9.0.4`, so ZIP is not duplicated. Full `rdocx-cli` release binary: ~39 MB (not the incremental cost inside kitty-pptx); release build ~3 minutes. `default-features = false` disables the system-font scan and uses deterministic bundled fonts. No C/C++ observed: pure-Rust `zlib-rs` and `fontconfig-parser`.
+**Dependency footprint.** `cargo tree -p rdocx` reports **147 unique normal dependency names**. `fontdb 0.23` and `ttf-parser 0.25` add duplicates next to our `fontdb 0.16.2` and `ttf-parser 0.20/0.21/0.24`; `zip 9.0.3` with `deflate-flate2-zlib-rs` unifies with our `=9.0.4`, so ZIP is not duplicated. Full `rdocx-cli` release binary: ~39 MB (not the incremental cost inside office-terminal); release build ~3 minutes. `default-features = false` disables the system-font scan and uses deterministic bundled fonts. No C/C++ observed: pure-Rust `zlib-rs` and `fontconfig-parser`.
 
 **Pros:** only candidate producing paginated, positioned output in Rust today; rich coverage (sections, tables, headers/footers, footnotes, floats, fields, bidi, East Asian, VML, charts, math, tracked changes); backend-neutral `oxml-layout` IR maps naturally to `VectorSlide`; deterministic bundled fonts; MIT; no subprocess; resource limits; isolatable behind a trait.
 
@@ -286,11 +287,11 @@ Rationale:
 ### 7.1 Architecture
 
 ```
-                    kitty-pptx-cli
+                    office-terminal-cli
                           │
              DeckSource::Docx(Arc<dyn PageSource>)
                           │
-                kitty-pptx-docx
+                office-terminal-docx
         ┌─────────────────┴─────────────────┐
         │                                   │
   DocxPageSource                     DocxAssetStore
@@ -313,7 +314,7 @@ rdocx 0.17 (external)
   ├─ layout_deterministic
   └─ WordLayoutResult.layout: oxml_layout::LayoutResult
 
-kitty-pptx-core
+office-terminal-core
   ├─ PageSource / VectorSlide / VectorCommand
   ├─ DocumentFace registry (new; exact external faces)
   ├─ rasterizer text/document path (new)
@@ -322,10 +323,10 @@ kitty-pptx-core
 
 ### 7.2 New crate
 
-`crates/kitty-pptx-docx/` — single responsibility: **turn a DOCX package into a `PageSource`**. No CLI logic, no TUI logic, no PPTX types.
+`crates/office-terminal-docx/` — single responsibility: **turn a DOCX package into a `PageSource`**. No CLI logic, no TUI logic, no PPTX types.
 
 ```
-crates/kitty-pptx-docx/
+crates/office-terminal-docx/
 ├── Cargo.toml
 └── src/
     ├── lib.rs              # re-exports + register()
@@ -354,12 +355,12 @@ Every file stays under 600 lines per `AGENTS.md`.
 
 ```toml
 [package]
-name = "kitty-pptx-docx"
+name = "office-terminal-docx"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kitty-pptx-core = { workspace = true }
+office-terminal-core = { workspace = true }
 ooxml-common = { workspace = true }  # ResourceViolation for typed limits
 oxml-layout = "=0.15.0"          # backend-neutral page/font/media types
 rdocx = { version = "=0.17.0", default-features = false, optional = true }
@@ -453,22 +454,22 @@ SourceFormat::Docx => {
 }
 ```
 
-Registration in `crates/kitty-pptx-cli/src/main.rs`:
+Registration in `crates/office-terminal-cli/src/runner.rs`:
 
 ```rust
-fn main() -> ExitCode {
-    kitty_pptx_pdf::register();
+pub fn run() -> ExitCode {
+    office_terminal_pdf::register();
     #[cfg(feature = "docx")]
-    kitty_pptx_docx::register();
+    office_terminal_docx::register();
     // ...
 }
 ```
 
-`kitty_pptx_docx::register()`:
+`office_terminal_docx::register()`:
 
 ```rust
 pub fn register() {
-    kitty_pptx_core::loader::presentation_loader::register_docx_loader(|bytes| {
+    office_terminal_core::loader::presentation_loader::register_docx_loader(|bytes| {
         DocxPageSource::open(bytes)
             .map(|src| Arc::new(src) as Arc<dyn PageSource>)
             .map_err(|e| match e {
@@ -632,7 +633,7 @@ Map to one `PositionedGlyphRun`: `font_family` from `FontData.family`, `font_siz
 
 `PathCommand → PathSegment`:
 
-| `oxml_layout::PathCommand` | `kitty_pptx_core::PathSegment` |
+| `oxml_layout::PathCommand` | `office_terminal_core::PathSegment` |
 |---|---|
 | `MoveTo(p)` | `MoveTo { x, y }` |
 | `LineTo(p)` | `LineTo { x, y }` |
@@ -659,7 +660,7 @@ Map to one `PositionedGlyphRun`: `font_family` from `FontData.family`, `font_siz
 `PositionedElement::Image { rect, data, content_type, media_id }`:
 
 - Register `data` under `rel_id = format!("docx-media-{:016x}", media_id.0)` and emit `DrawImage { rel_id, src_rect: full, dest_rect: rect in EMU, opacity: 1.0, transform: accumulated, effects: empty }`.
-- Metafiles (`image/x-emf`, `image/x-wmf`, `image/emf`, `image/wmf`): route through `kitty_pptx_core::metafile` playback to paths, or the standard placeholder on failure. Do not hand them to `image`.
+- Metafiles (`image/x-emf`, `image/x-wmf`, `image/emf`, `image/wmf`): route through `office_terminal_core::metafile` playback to paths, or the standard placeholder on failure. Do not hand them to `image`.
 - SVG: the core asset path has `resvg` support; decode/render at the size hint.
 - External images: never fetched; placeholder + `WarningEvent::MediaFailed`.
 - Deduplicate by `MediaId`.
@@ -726,7 +727,7 @@ This is the most important non-obvious design point. `rdocx` shapes with its own
 **Design: a document-face registry in core.** The registry is process-global/append-only for v1, which is fine for the single-document CLI; if the TUI gains document reload, add a session-scoped handle and drop it with the source.
 
 ```rust
-// crates/kitty-pptx-core/src/text/document_faces.rs
+// crates/office-terminal-core/src/text/document_faces.rs
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DocumentFaceId(u32);
 
@@ -942,19 +943,19 @@ Defensive handling: consider `std::panic::catch_unwind` around the third-party p
 
 ### 7.17 Feature gating and dependencies
 
-Add a `docx` feature to the CLI and make `kitty-pptx-docx` optional:
+Add a `docx` feature to the CLI and make `office-terminal-docx` optional:
 
 ```toml
-# crates/kitty-pptx-cli/Cargo.toml
+# crates/office-terminal-cli/Cargo.toml
 [features]
 default = []          # development; flip to ["docx"] for the release that documents it
-docx = ["dep:kitty-pptx-docx"]
+docx = ["dep:office-terminal-docx"]
 
 [dependencies]
-kitty-pptx-docx = { workspace = true, optional = true }
+office-terminal-docx = { workspace = true, optional = true }
 ```
 
-Gate the registration call: `#[cfg(feature = "docx")] kitty_pptx_docx::register();`. During development keep `docx` off by default to avoid a 147-crate build for PPTX-only changes; enable it in CI and release builds. If the team prefers a single always-on binary, drop the feature and accept the build cost.
+Gate the registration call: `#[cfg(feature = "docx")] office_terminal_docx::register();`. During development keep `docx` off by default to avoid a 147-crate build for PPTX-only changes; enable it in CI and release builds. If the team prefers a single always-on binary, drop the feature and accept the build cost.
 
 Dependency impact (measured on this machine):
 
@@ -1000,7 +1001,7 @@ Warnings are surfaced once per document in the CLI/TUI diagnostics log, not per 
 
 ## 8. Testing
 
-**Fixtures** (`crates/kitty-pptx-docx/tests/fixtures/`, generated with Word/LibreOffice, not rdocx): minimal paragraph; headings + TOC; table with merges/borders/shading; inline + anchored images; headers/footers + page fields; footnotes/endnotes; multilevel numbering; `w:docGrid` + `lineRule="auto"` regression; floats/wrap; external + internal hyperlinks; vertical text; encrypted; corrupt ZIP/XML. `sample-1.docx` + reference PNGs only if redistribution is licensed; otherwise keep cache-gated.
+**Fixtures** (`crates/office-terminal-docx/tests/fixtures/`, generated with Word/LibreOffice, not rdocx): minimal paragraph; headings + TOC; table with merges/borders/shading; inline + anchored images; headers/footers + page fields; footnotes/endnotes; multilevel numbering; `w:docGrid` + `lineRule="auto"` regression; floats/wrap; external + internal hyperlinks; vertical text; encrypted; corrupt ZIP/XML. `sample-1.docx` + reference PNGs only if redistribution is licensed; otherwise keep cache-gated.
 
 **Unit / golden:** format detection; pt→EMU rounding; text advances/ligatures/multilingual offsets; path/paint/stroke mapping; group transform/clip/opacity; effect warnings; link sanitization; search ordering (paragraphs, table cells, RTL, gaps); warning dedup; error mapping. Snapshot a stable JSON projection of `VectorSlide` per fixture (rounded floats, command counts, key positions), regenerate deliberately per engine version.
 
@@ -1083,18 +1084,18 @@ Stretch: fix docGrid so `sample-1` matches the reference page count; `--revision
 
 ### Code and issues
 
-- `crates/kitty-pptx-core/src/loader/presentation_loader.rs` — format sniffing, PDF hook.
-- `crates/kitty-pptx-core/src/contracts/deck.rs` — `PageSource`, `DeckSource`, `SearchCorpus`, `TocEntry`.
-- `crates/kitty-pptx-core/src/contracts/vector_slide.rs` — `VectorSlide`, `VectorCommand`.
-- `crates/kitty-pptx-core/src/contracts/text.rs` — `PositionedGlyphRun`.
-- `crates/kitty-pptx-core/src/contracts/paint.rs` — `VectorPaint`, `VectorGradient`, `VectorStroke`.
-- `crates/kitty-pptx-core/src/contracts/hyperlink.rs` — URL sanitizer, `SlideLink`.
-- `crates/kitty-pptx-core/src/loader/asset_store.rs` — `AssetStore`.
-- `crates/kitty-pptx-core/src/text/fonts.rs` — existing font runtime (thread-local).
-- `crates/kitty-pptx-core/src/rasterizer/text/` — straight/buffer/affine text paths.
-- `crates/kitty-pptx-core/src/svg/text.rs` — SVG text modes.
-- `crates/kitty-pptx-pdf/src/source.rs` — `PageSource` adapter precedent.
-- `crates/kitty-pptx-cli/src/commands/{view,present,export,info,dump}.rs` — match sites.
+- `crates/office-terminal-core/src/loader/presentation_loader.rs` — format sniffing, PDF hook.
+- `crates/office-terminal-core/src/contracts/deck.rs` — `PageSource`, `DeckSource`, `SearchCorpus`, `TocEntry`.
+- `crates/office-terminal-core/src/contracts/vector_slide.rs` — `VectorSlide`, `VectorCommand`.
+- `crates/office-terminal-core/src/contracts/text.rs` — `PositionedGlyphRun`.
+- `crates/office-terminal-core/src/contracts/paint.rs` — `VectorPaint`, `VectorGradient`, `VectorStroke`.
+- `crates/office-terminal-core/src/contracts/hyperlink.rs` — URL sanitizer, `SlideLink`.
+- `crates/office-terminal-core/src/loader/asset_store.rs` — `AssetStore`.
+- `crates/office-terminal-core/src/text/fonts.rs` — existing font runtime (thread-local).
+- `crates/office-terminal-core/src/rasterizer/text/` — straight/buffer/affine text paths.
+- `crates/office-terminal-core/src/svg/text.rs` — SVG text modes.
+- `crates/office-terminal-pdf/src/source.rs` — `PageSource` adapter precedent.
+- `crates/office-terminal-cli/src/commands/{view,present,export,info,dump}.rs` — match sites.
 - `docs/14-pdf-input-support.md`, `docs/14a-pdf-reader-ui-designs.md` — reader architecture.
 - `docs/02d-element-renderers-and-fidelity-policy.md` — degradation policy.
 - `docs/06-component-interface-contracts.md` — contract conventions.
