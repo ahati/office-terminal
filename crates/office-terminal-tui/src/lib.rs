@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 pub mod widget;
 pub mod app;
+pub mod perf_bench;
 
 pub use widget::*;
 pub use app::*;
