@@ -5,7 +5,7 @@ use office_terminal_core::contracts::{
 };
 use oxml_layout::paint::Paint;
 
-use super::paint::{map_gradient_stops, rgba, rgba_with_opacity};
+use super::paint::{average_color, gradient_angle_deg, map_gradient_stops, rgba};
 use super::BridgeContext;
 
 /// Map the page's optional background paint.
@@ -33,9 +33,10 @@ pub(crate) fn map_background(paint: &Paint, ctx: &BridgeContext<'_>) -> Option<V
         }
         Paint::Grid { colors, .. } => {
             ctx.warn_once("docx-background-grid", "page-background".to_string());
-            Some(VectorBackground::Solid(average_color(
-                colors,
-            )))
+            // An empty grid paints the paper colour rather than ink.
+            Some(VectorBackground::Solid(
+                average_color(colors, 1.0).unwrap_or_else(|| rgba(&oxml_layout::Color::WHITE)),
+            ))
         }
         Paint::Tile { .. } => {
             // The engine's tile paint references a media id whose bytes do
@@ -50,49 +51,24 @@ pub(crate) fn map_background(paint: &Paint, ctx: &BridgeContext<'_>) -> Option<V
     // time and forces a conscious degradation arm here.
 }
 
-/// DrawingML-style angle: degrees clockwise from the positive x-axis with
-/// y pointing down.
-fn gradient_angle_deg(start: &oxml_layout::Point, end: &oxml_layout::Point) -> f32 {
-    let dx = end.x - start.x;
-    let dy = end.y - start.y;
-    let mut degrees = dy.atan2(dx).to_degrees();
-    if degrees < 0.0 {
-        degrees += 360.0;
-    }
-    degrees as f32
-}
-
-/// Mean of a colour grid — the honest flat approximation of a grid paint.
-fn average_color(colors: &[oxml_layout::Color]) -> [u8; 4] {
-    if colors.is_empty() {
-        return rgba(&oxml_layout::Color::WHITE);
-    }
-    let mut r = 0.0;
-    let mut g = 0.0;
-    let mut b = 0.0;
-    let mut a = 0.0;
-    for color in colors {
-        r += color.r;
-        g += color.g;
-        b += color.b;
-        a += color.a;
-    }
-    let count = colors.len() as f64;
-    rgba_with_opacity(
-        r / count,
-        g / count,
-        b / count,
-        a / count,
-        1.0,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::{compile, FixtureEngine};
     use oxml_layout::paint::GradientStop;
     use oxml_layout::{Color, PageFrame, Point};
+
+    #[test]
+    fn background_helpers_are_shared_with_the_paint_module() {
+        let start = Point { x: 0.0, y: 0.0 };
+        let end = Point { x: 0.0, y: 100.0 };
+        assert_eq!(gradient_angle_deg(&start, &end), 90.0);
+        assert_eq!(
+            average_color(&[Color::WHITE, Color::BLACK], 1.0),
+            Some([128, 128, 128, 255])
+        );
+        assert_eq!(average_color(&[], 1.0), None);
+    }
 
     fn page_with(background: Option<Paint>) -> PageFrame {
         let mut page = PageFrame::new(1, 612.0, 792.0, Vec::new());

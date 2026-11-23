@@ -25,9 +25,6 @@ pub enum DocxError {
     /// must never crash with it (PRD 15 §8.2 panic boundary).
     #[error("DOCX layout engine panicked: {0}")]
     LayoutEnginePanic(String),
-    /// A document feature this build deliberately does not support.
-    #[error("unsupported document feature: {0}")]
-    Unsupported(&'static str),
 }
 
 impl From<DocxError> for ParseError {
@@ -40,9 +37,6 @@ impl From<DocxError> for ParseError {
                 ParseError::ArchiveError(format!("document layout failed: {message}"))
             }
             DocxError::LayoutEnginePanic(message) => ParseError::ArchiveError(message),
-            DocxError::Unsupported(feature) => ParseError::ArchiveError(format!(
-                "unsupported document feature: {feature}"
-            )),
         }
     }
 }

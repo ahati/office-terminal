@@ -237,10 +237,11 @@ mod tests {
         }
     }
 
-    // One sequential test: the registry is process-global, so parallel test
-    // functions clearing it would race each other.
+    // The registry is process-global: this test takes the shared registry
+    // guard so a parallel test clearing the registry cannot race it.
     #[test]
     fn document_face_paints_then_stale_handle_degrades() {
+        let _guard = crate::text::document_faces::lock_registry_for_test();
         clear_document_faces();
         let face_id = carlito_face();
         let run = sample_run(face_id);

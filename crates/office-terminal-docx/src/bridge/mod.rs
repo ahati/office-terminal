@@ -81,12 +81,9 @@ pub fn compile_page(
     emitted: Arc<Mutex<HashSet<&'static str>>>,
 ) -> Result<VectorSlide, RenderError> {
     let mut slide = VectorSlide::new(page_width_emu(page), page_height_emu(page));
-    {
-        let emitted = emitted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        // The page source already flushed engine diagnostics; the bridge keeps
-        // the shared set so page-level features dedupe across surfaces.
-        let _ = emitted.len();
-    }
+    // The page source already flushed engine diagnostics; the shared dedup
+    // set rides along so page-level features warn once per document across
+    // every surface that re-compiles a page.
     let ctx = BridgeContext {
         engine,
         media,

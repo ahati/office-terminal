@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crossbeam_channel::Sender;
 use office_terminal_core::contracts::{
-    PageSource, SearchCorpus, TocEntry, VectorSlide, WarningEvent, EMU_PER_PT,
+    DocumentMetadata, PageSource, SearchCorpus, TocEntry, VectorSlide, WarningEvent, EMU_PER_PT,
 };
 use office_terminal_core::{AssetStore, RenderError};
-use oxml_layout::{DocumentMetadata, PageFrame};
+use oxml_layout::PageFrame;
 
 use crate::bridge;
 use crate::cache::IrCache;
@@ -32,6 +32,9 @@ pub struct DocxPageSource {
     media: Arc<DocxAssetStore>,
     ir_cache: IrCache,
     corpus: OnceLock<Arc<DocxSearchCorpus>>,
+    /// The limits the document was opened under; every lazy consumer
+    /// (corpus extraction, …) must honour the same bounds as the open path.
+    limits: DocxLimits,
     /// Diagnostics already surfaced through the warning channel; the bridge
     /// re-compiles pages per surface, so each must fire once per document.
     emitted: Arc<Mutex<HashSet<&'static str>>>,
@@ -57,12 +60,16 @@ impl DocxPageSource {
     }
 
     fn from_engine_parts(engine: Arc<dyn DocxEngine>, limits: &DocxLimits) -> Self {
-        let media = Arc::new(DocxAssetStore::from_engine(engine.as_ref()));
+        let media = Arc::new(DocxAssetStore::from_engine_with_budget(
+            engine.as_ref(),
+            limits.image_cache_bytes,
+        ));
         Self {
             engine,
             media,
             ir_cache: IrCache::new(limits.ir_cache_entries, limits.ir_cache_bytes),
             corpus: OnceLock::new(),
+            limits: *limits,
             emitted: Arc::new(Mutex::new(HashSet::new())),
         }
     }
@@ -77,17 +84,22 @@ impl DocxPageSource {
             return;
         }
         for message in self.engine.diagnostics() {
-            let _ = warnings.send(WarningEvent::FidelityDegraded {
-                element_id: "docx-engine".to_string(),
-                feature: feature_tag(message),
-                class: office_terminal_core::contracts::FidelityClass::Degraded,
-            });
+            // A soft-deadline crossing is a resource observation, not a
+            // rendering approximation: it must not pollute the fidelity
+            // warning tally.
+            let event = if message.starts_with(crate::engine::LAYOUT_DEADLINE_PREFIX) {
+                WarningEvent::ResourceLimitHit {
+                    limit: "docx-layout-deadline",
+                }
+            } else {
+                WarningEvent::FidelityDegraded {
+                    element_id: "docx-engine".to_string(),
+                    feature: feature_tag(message),
+                    class: office_terminal_core::contracts::FidelityClass::Degraded,
+                }
+            };
+            let _ = warnings.send(event);
         }
-    }
-
-    /// Raw engine metadata (title, author, …), when declared.
-    pub fn metadata(&self) -> Option<&DocumentMetadata> {
-        self.engine.metadata()
     }
 }
 
@@ -135,7 +147,10 @@ impl PageSource for DocxPageSource {
             office_terminal_core::metafile::expand_metafiles(&mut slide, media.as_ref(), warnings);
             Ok(slide)
         })?;
-        Ok(Arc::try_unwrap(slide).unwrap_or_else(|arc| (*arc).clone()))
+        // `PageSource::compile_page` hands out an owned display list, and the
+        // cache keeps its own handle, so the clone here is unavoidable; what
+        // the cache saves is the page-frame → IR bridging, not this copy.
+        Ok(slide.as_ref().clone())
     }
 
     fn notes(&self, _index: usize) -> Option<String> {
@@ -179,16 +194,29 @@ impl PageSource for DocxPageSource {
 
     fn search_corpus(&self) -> Arc<dyn SearchCorpus> {
         let corpus = self.corpus.get_or_init(|| {
-                let limits = DocxLimits::default();
-                let pages: Vec<Arc<PageFrame>> =
-                    (0..self.engine.page_count()).filter_map(|i| self.engine.page(i)).collect();
-                Arc::new(DocxSearchCorpus::build(&pages, &limits))
-            });
+            let pages: Vec<Arc<PageFrame>> =
+                (0..self.engine.page_count()).filter_map(|i| self.engine.page(i)).collect();
+            Arc::new(DocxSearchCorpus::build(&pages, &self.limits))
+        });
         Arc::clone(corpus) as Arc<dyn SearchCorpus>
     }
 
     fn asset_store(&self) -> Option<Arc<dyn AssetStore>> {
         Some(Arc::clone(&self.media) as Arc<dyn AssetStore>)
+    }
+
+    fn metadata(&self) -> Option<DocumentMetadata> {
+        // Map the engine's record onto the engine-agnostic contract so the
+        // type-erased `DeckSource` arms can print it (issue #40 §7.11).
+        let meta = self.engine.metadata()?;
+        let meta = DocumentMetadata {
+            title: meta.title.clone(),
+            author: meta.author.clone(),
+            subject: meta.subject.clone(),
+            keywords: meta.keywords.clone(),
+            creator: meta.creator.clone(),
+        };
+        (meta != DocumentMetadata::default()).then_some(meta)
     }
 }
 
@@ -212,10 +240,11 @@ fn feature_tag(message: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::FixtureEngine;
     use oxml_layout::PositionedElement;
 
-    fn engine_with(diagnostics: Vec<String>, pages: Vec<Arc<PageFrame>>) -> Arc<crate::test_support::FixtureEngine> {
-        let engine = crate::test_support::FixtureEngine::new(Vec::new())
+    fn engine_with(diagnostics: Vec<String>, pages: Vec<Arc<PageFrame>>) -> Arc<FixtureEngine> {
+        let engine = FixtureEngine::new(Vec::new())
             .with_font(0, "Carlito");
         // Rebuild with real pages: FixtureEngine::new takes owned frames.
         let mut engine = engine;
@@ -300,6 +329,51 @@ mod tests {
         assert_eq!(feature_tag("image relationship missing"), "docx-engine-media");
         assert_eq!(feature_tag("docGrid spacing divergence"), "docx-engine-spacing");
         assert_eq!(feature_tag("something else"), "docx-engine");
+    }
+
+    #[test]
+    fn soft_deadline_diagnostics_are_resource_events_not_fidelity_losses() {
+        let engine = engine_with(
+            vec![format!("{} 31.0s (soft deadline 30s)", crate::engine::LAYOUT_DEADLINE_PREFIX)],
+            vec![text_page(1, "a")],
+        );
+        let source = DocxPageSource::from_engine(engine);
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let _ = source.compile_page(0, &tx);
+        let events: Vec<_> = rx.try_iter().collect();
+        assert!(matches!(
+            events.as_slice(),
+            [WarningEvent::ResourceLimitHit { limit: "docx-layout-deadline" }]
+        ));
+    }
+
+    #[test]
+    fn declared_metadata_reaches_the_page_source_contract() {
+        let mut metadata = oxml_layout::DocumentMetadata {
+            title: None,
+            author: None,
+            subject: None,
+            keywords: None,
+            creator: None,
+        };
+        metadata.title = Some("Quarterly report".to_string());
+        metadata.author = Some("A. Writer".to_string());
+        let mut engine = FixtureEngine::new(Vec::new());
+        engine.pages = vec![text_page(1, "a")];
+        engine.metadata = Some(metadata);
+
+        let source = DocxPageSource::from_engine(Arc::new(engine));
+        let meta = source.metadata().expect("declared metadata surfaces");
+        assert_eq!(meta.title.as_deref(), Some("Quarterly report"));
+        assert_eq!(meta.author.as_deref(), Some("A. Writer"));
+        assert_eq!(meta.subject, None);
+
+        // An entirely empty record reads as "no metadata".
+        let mut blank = FixtureEngine::new(Vec::new());
+        blank.pages = vec![text_page(1, "a")];
+        blank.metadata = Some(oxml_layout::DocumentMetadata::default());
+        let blank = Arc::new(blank);
+        assert!(DocxPageSource::from_engine(blank).metadata().is_none());
     }
 
     #[test]

@@ -108,6 +108,9 @@ fn build_page_lines(elements: &[PositionedElement], limits: &DocxLimits) -> Vec<
     ordered.append(&mut remaining);
 
     // Concatenate into lines, splitting whenever the grouping key changes.
+    // Both corpus caps are per page: a page stops producing lines once its
+    // line count or its extracted text bytes reach the limit (the line that
+    // crosses the byte cap is still emitted whole, since a line is atomic).
     let mut lines: Vec<TextLine> = Vec::new();
     let mut bytes_on_page = 0usize;
     let mut current: Option<LineBuilder> = None;
@@ -116,43 +119,29 @@ fn build_page_lines(elements: &[PositionedElement], limits: &DocxLimits) -> Vec<
             node: run.node,
             band: (run.origin.y / BASELINE_TOLERANCE_PT).round() as i64,
         };
-        let builder = current.take();
-        let mut builder = match builder {
-            Some(builder) if builder.key == key && builder.node_continuous(&run) => builder,
-            Some(builder) => {
-                if let Some(line) = builder.finish() {
-                    bytes_on_page += line.text.len();
-                    if lines.len() < limits.max_corpus_lines_per_page {
-                        lines.push(line);
-                    }
-                }
-                LineBuilder::new(key)
-            }
-            None => LineBuilder::new(key),
-        };
-        builder.push(run);
-        if builder.bytes > limits.max_corpus_bytes_per_page
-            || lines.len() >= limits.max_corpus_lines_per_page
-        {
-            if let Some(line) = builder.finish() {
+        let continued = matches!(
+            &current,
+            Some(builder) if builder.key == key && builder.node_continuous(&run)
+        );
+        if !continued {
+            if let Some(line) = current.take().and_then(LineBuilder::finish) {
                 bytes_on_page += line.text.len();
-                if lines.len() < limits.max_corpus_lines_per_page {
-                    lines.push(line);
-                }
-            }
-            break;
-        }
-        current = Some(builder);
-    }
-    if let Some(builder) = current {
-        if let Some(line) = builder.finish() {
-            bytes_on_page += line.text.len();
-            if lines.len() < limits.max_corpus_lines_per_page {
                 lines.push(line);
             }
+            if lines.len() >= limits.max_corpus_lines_per_page
+                || bytes_on_page >= limits.max_corpus_bytes_per_page
+            {
+                return lines;
+            }
+            current = Some(LineBuilder::new(key));
+        }
+        if let Some(builder) = current.as_mut() {
+            builder.push(run);
         }
     }
-    let _ = bytes_on_page;
+    if let Some(line) = current.take().and_then(LineBuilder::finish) {
+        lines.push(line);
+    }
     lines
 }
 
@@ -264,7 +253,6 @@ struct LineKey {
 struct LineBuilder {
     key: LineKey,
     text: String,
-    bytes: usize,
     x_min: f64,
     x_max: f64,
     y_min: f64,
@@ -278,7 +266,6 @@ impl LineBuilder {
         Self {
             key,
             text: String::new(),
-            bytes: 0,
             x_min: f64::INFINITY,
             x_max: f64::NEG_INFINITY,
             y_min: f64::INFINITY,
@@ -306,7 +293,6 @@ impl LineBuilder {
                 && !run.text.starts_with(char::is_whitespace)
             {
                 self.text.push(' ');
-                self.bytes += 1;
             }
         }
         self.last_end_x = Some(run_end);
@@ -318,7 +304,6 @@ impl LineBuilder {
         self.y_min = self.y_min.min(ascent);
         self.y_max = self.y_max.max(descent);
         self.text.push_str(&run.text);
-        self.bytes += run.text.len();
     }
 
     fn finish(self) -> Option<TextLine> {
@@ -458,6 +443,41 @@ mod tests {
             },
         );
         assert_eq!(capped.len(), 10);
+    }
+
+    #[test]
+    fn byte_cap_is_per_page_not_per_line() {
+        // 50 lines of 4 bytes each (200 bytes): a 50-byte page budget must
+        // stop well short of 50 lines, while no single line exceeds it.
+        let elements: Vec<_> = (0..50)
+            .map(|index| {
+                PositionedElement::Text(glyph_run(
+                    "line",
+                    Point {
+                        x: 0.0,
+                        y: index as f64 * 20.0,
+                    },
+                    None,
+                ))
+            })
+            .collect();
+        let capped = build_page_lines(
+            &elements,
+            &DocxLimits {
+                max_corpus_bytes_per_page: 50,
+                ..DocxLimits::default()
+            },
+        );
+        let total: usize = capped.iter().map(|line| line.text.len()).sum();
+        assert!(
+            capped.len() < 50,
+            "the page byte budget must cut the page short, got {} lines",
+            capped.len()
+        );
+        assert!(
+            total <= 50 + "line".len(),
+            "at most the crossing line may exceed the budget, got {total} bytes"
+        );
     }
 
     #[test]

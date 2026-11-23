@@ -29,6 +29,28 @@ fn letter_target() -> RenderTargetSpec {
     }
 }
 
+/// Reading-order text of one page, lines joined by single spaces.
+fn page_text(source: &DocxPageSource, index: usize) -> String {
+    let corpus = source.search_corpus();
+    corpus
+        .page_text(index)
+        .iter()
+        .map(|line| line.text.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn declared_core_properties_surface_through_the_page_source() {
+    let source = open(common::simple_docx());
+    let meta = source.metadata().expect("core properties are declared");
+    assert_eq!(meta.title.as_deref(), Some("Integration Report"));
+    assert_eq!(meta.author.as_deref(), Some("A. Writer"));
+    assert_eq!(meta.subject.as_deref(), Some("DOCX engine roundtrip"));
+    assert_eq!(meta.keywords.as_deref(), Some("docx, bridge"));
+}
+
 #[test]
 fn simple_document_paginates_into_letter_pages() {
     let source = open(common::simple_docx());
@@ -216,4 +238,133 @@ fn repeat_compiles_are_served_from_the_ir_cache() {
     // Diagnostics dedupe per document: at most one firing per feature even
     // across two compiles.
     assert!(rx.try_iter().count() <= 3);
+}
+
+#[test]
+fn table_grid_spans_merges_borders_and_shading_survive_the_bridge() {
+    let source = open(common::table_docx());
+    assert_eq!(source.len(), 1, "a three-row table fits one page");
+
+    // Every cell's text reaches the corpus in reading order: row by row,
+    // left to right, with the merged column's restart cell once only.
+    let text = page_text(&source, 0);
+    let position = |needle: &str| {
+        text.find(needle)
+            .unwrap_or_else(|| panic!("corpus lacks {needle:?}: {text:?}"))
+    };
+    let ordered = [
+        "Before the table.",
+        "Spanning header",
+        "Third column",
+        "Merged cell",
+        "B2",
+        "C2",
+        "B3",
+        "C3",
+        "After the table.",
+    ];
+    let mut last = 0;
+    for needle in ordered {
+        let at = position(needle);
+        assert!(at >= last, "{needle:?} must follow the previous cell");
+        last = at;
+    }
+
+    // Borders arrive as stroked paths and the shaded header cell as a solid
+    // fill of the authored `D9E2F3`.
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let slide = source.compile_page(0, &tx).expect("compile");
+    let strokes = slide
+        .commands
+        .iter()
+        .filter(|command| {
+            matches!(
+                command,
+                VectorCommand::DrawPath { stroke: Some(stroke), .. } if stroke.width_emu > 0
+            )
+        })
+        .count();
+    assert!(strokes >= 4, "a bordered table draws stroked paths, got {strokes}");
+    let shading = slide.commands.iter().any(|command| {
+        matches!(
+            command,
+            VectorCommand::DrawPath {
+                fill: Some(office_terminal_core::contracts::VectorPaint::Solid(color)),
+                ..
+            } if *color == [0xD9, 0xE2, 0xF3, 255]
+        )
+    });
+    assert!(shading, "the shaded cell keeps its authored fill colour");
+}
+
+#[test]
+fn headers_and_footers_with_page_fields_land_on_every_page() {
+    let source = open(common::header_footer_docx());
+    assert!(source.len() >= 2, "the page break yields a second page");
+
+    let first = page_text(&source, 0);
+    assert!(first.contains("Running header"), "header on page 1: {first:?}");
+    assert!(first.contains("Footer page 1"), "PAGE field on page 1: {first:?}");
+    assert!(first.contains("First page body"));
+
+    let second = page_text(&source, 1);
+    assert!(second.contains("Running header"), "header on page 2: {second:?}");
+    assert!(
+        second.contains("Footer page 2"),
+        "PAGE field must be re-evaluated for page 2: {second:?}"
+    );
+    assert!(second.contains("Second page body"));
+}
+
+#[test]
+fn inline_png_pictures_become_draw_image_served_by_the_asset_store() {
+    let source = open(common::image_docx());
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let slide = source.compile_page(0, &tx).expect("compile");
+
+    let rel_id = slide
+        .commands
+        .iter()
+        .find_map(|command| match command {
+            VectorCommand::DrawImage {
+                rel_id, dest_rect, ..
+            } => {
+                assert!(dest_rect.w > 0.0 && dest_rect.h > 0.0, "placed box");
+                Some(rel_id.clone())
+            }
+            _ => None,
+        })
+        .expect("the inline picture becomes a DrawImage command");
+    assert!(rel_id.starts_with("docx-media-"), "content-addressed key");
+
+    let store = source.asset_store().expect("media surface");
+    let decoded = store
+        .get(&rel_id, office_terminal_core::SizeHint::Native)
+        .expect("the registered PNG decodes");
+    assert_eq!((decoded.width, decoded.height), (2, 1), "SAMPLE_PNG dimensions");
+    assert_eq!(store.entry_count(), 1);
+    assert!(store.raw_bytes_total() > 0);
+}
+
+#[test]
+fn omml_equations_lay_out_as_text_runs() {
+    let source = open(common::math_docx());
+    assert_eq!(source.len(), 1);
+
+    let text = page_text(&source, 0);
+    for fragment in ["E=m", "c", "2"] {
+        assert!(text.contains(fragment), "math fragment {fragment:?} in {text:?}");
+    }
+
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let slide = source.compile_page(0, &tx).expect("compile");
+    let runs: usize = slide
+        .commands
+        .iter()
+        .map(|command| match command {
+            VectorCommand::DrawText { runs, .. } => runs.len(),
+            _ => 0,
+        })
+        .sum();
+    assert!(runs >= 3, "base, superscript base and exponent each emit a run");
 }

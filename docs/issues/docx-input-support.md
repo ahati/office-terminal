@@ -881,10 +881,15 @@ pub enum DocxError {
     Encrypted,
     #[error("resource limit exceeded: {0}")]
     ResourceLimit(Box<ResourceViolation>),
-    #[error("unsupported document feature: {0}")]
-    Unsupported(&'static str),
+    /// Caught third-party panic (adopted below; see "Defensive handling").
+    #[error("DOCX layout engine panicked: {0}")]
+    LayoutEnginePanic(String),
 }
 ```
+
+As shipped. The first draft also listed `Unsupported(&'static str)`; it was
+dropped because every unsupported construct degrades to a warning or
+placeholder per §7.19, so no code path ever produced it.
 
 Mapping:
 

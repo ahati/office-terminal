@@ -58,8 +58,9 @@ pub(crate) fn map_gradient_stops(stops: &[GradientStop], opacity: f32) -> Vec<(f
         .collect()
 }
 
-/// DrawingML-style angle (degrees clockwise from east, y down).
-fn gradient_angle_deg(start: &oxml_layout::Point, end: &oxml_layout::Point) -> f32 {
+/// DrawingML-style angle (degrees clockwise from east, y down). Shared by
+/// fill/stroke paints and the page background.
+pub(crate) fn gradient_angle_deg(start: &oxml_layout::Point, end: &oxml_layout::Point) -> f32 {
     let dx = end.x - start.x;
     let dy = end.y - start.y;
     let mut degrees = dy.atan2(dx).to_degrees();
@@ -97,7 +98,9 @@ pub(crate) fn map_paint(
         }
         Paint::Grid { colors, .. } => {
             ctx.warn_once("docx-paint-grid", element_id.to_string());
-            Some(VectorPaint::Solid(average_color(colors, opacity)))
+            Some(VectorPaint::Solid(
+                average_color(colors, opacity).unwrap_or_else(|| rgba_scaled(&oxml_layout::Color::BLACK, opacity)),
+            ))
         }
         Paint::Tile { .. } => {
             ctx.warn_once("docx-paint-tile", element_id.to_string());
@@ -190,10 +193,15 @@ fn first_solid_color(paint: &VectorPaint) -> Option<[u8; 4]> {
     }
 }
 
-/// Mean colour of a grid paint with folded opacity.
-fn average_color(colors: &[oxml_layout::Color], opacity: f32) -> [u8; 4] {
+/// Mean colour of a grid paint with folded opacity; `None` for an empty grid
+/// (unreachable through `Paint::grid`, which requires `columns * rows`
+/// colours), so each caller supplies its own fallback.
+pub(crate) fn average_color(
+    colors: &[oxml_layout::Color],
+    opacity: f32,
+) -> Option<[u8; 4]> {
     if colors.is_empty() {
-        return rgba_scaled(&oxml_layout::Color::BLACK, opacity);
+        return None;
     }
     let mut r = 0.0;
     let mut g = 0.0;
@@ -206,7 +214,7 @@ fn average_color(colors: &[oxml_layout::Color], opacity: f32) -> [u8; 4] {
         a += color.a;
     }
     let count = colors.len() as f64;
-    rgba_with_opacity(r / count, g / count, b / count, a / count, opacity)
+    Some(rgba_with_opacity(r / count, g / count, b / count, a / count, opacity))
 }
 
 #[cfg(test)]
