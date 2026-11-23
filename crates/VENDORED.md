@@ -93,8 +93,10 @@ Pagination engine behind the DOCX input track ([PRD 15](../docs/15-docx-input-su
 - **License**: MIT OR Apache-2.0; the package ships no license text, so `crates/rdocx-layout/LICENSE`
   is the upstream `LICENSE` at tag `v0.17.0` (MIT, © 2025 tensorbee).
 - **Local patched copy** (overridden via `[patch.crates-io]`, excluded from workspace lints/tests):
-  `crates/rdocx-layout`. The package's own tests reference monorepo-only paths
-  (`../../oxml-layout/fonts`, `scripts/officemath_oracle_manifest.json`) and are not built here.
+  `crates/rdocx-layout`. The package's own test suite is not built by the workspace; run it from a
+  scratch copy with `[workspace]` added to its `Cargo.toml` and `../../oxml-layout` symlinked to the
+  `oxml-layout-0.15.0` package (two tests `include_bytes!` its bundled fonts). Patch 0010 removes the
+  one monorepo-only file dependency that could not be satisfied that way.
 - The rest of the `rdocx` family (`rdocx`, `rdocx-layout`'s siblings, `oxml-*`) is consumed from crates.io.
 
 ### Applied Patches
@@ -109,15 +111,22 @@ Pagination engine behind the DOCX input track ([PRD 15](../docs/15-docx-input-su
      (`sample3.docx`, Word 2-page render) the two-column section begins under its heading on the
      same page; upstream rendered the heading stranded on one page and the section — stacked in
      column 1 only — on the next.
-   - Verified against the engine's own suite: 421 passed / 1 failed / 1 ignored, the failure being
-     `officemath_…_pinned_word_pdf_oracle`, which needs the unpublished monorepo manifest.
+   - Verified against the engine's own suite run outside the monorepo (see above): 422 passed /
+     0 failed / 1 ignored (the engine's own pre-existing `#[ignore]`).
    - Still open upstream and **not** addressed by this patch: columns are never balanced when a
      section ends mid-page (Word splits 8 lines 4 / 4; the engine fills column 1 first), and column
      breaks (`<w:br w:type="column"/>`) are not modelled (`paginator.rs`: "F-269 does not model
      it"). Both are tracked as `#[ignore]`d tests in `engine_roundtrip_tests.rs`.
-   - To upgrade: copy the new package over `crates/rdocx-layout`, re-apply with
-     `patch -p1 < crates/patches/0009-*.patch`, re-run `cargo test -p office-terminal-docx`, and
+   - To upgrade: copy the new package over `crates/rdocx-layout`, re-apply 0009 and 0010 in order with
+     `patch -p1 < crates/patches/00NN-*.patch`, re-run `cargo test -p office-terminal-docx`, and
      drop the copy and the `[patch.crates-io]` entry once a release carries the fix (PR to follow).
+10. `crates/patches/0010-rdocx-layout-drop-monorepo-oracle-manifest-assert.patch`:
+   - `math.rs`: the Word-oracle OMML test keeps its 13 geometry assertions but no longer
+     `include_str!`s the monorepo's `scripts/officemath_oracle_manifest.json` to assert provenance
+     bindings (Word build, poppler version, source SHA-256). The published package does not carry
+     that file, so outside the monorepo the test suite could not compile without a stub and this one
+     test failed on `missing oracle binding`; the provenance check guards nothing about layout and
+     remains in place upstream.
 
 ## Bundled test/parity assets (not vendored crates)
 

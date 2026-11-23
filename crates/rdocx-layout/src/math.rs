@@ -3422,25 +3422,12 @@ mod tests {
             );
         }
 
-        let manifest = include_str!("../../../scripts/officemath_oracle_manifest.json");
-        for binding in [
-            r#""word_identity": "Microsoft Word 16.104 build 16.104.25121423""#,
-            r#""poppler_identity": "pdftoppm version 26.01.0""#,
-            r#""dpi": 150"#,
-            r#""geometry_tolerance_pt": 1.0"#,
-            r#""source_sha256": "961f6c30011e922d334487e6f94be5f0021e1586be21df2a03c3f4783b7a795f""#,
-            r#""page_size_pt": [612.0, 792.0]"#,
-            r#""word_pdf_math_bbox_pt": [208.25, 93.28, 403.44, 132.80]"#,
-            r#""word_expression_glyph_indices""#,
-            r#""rust_expression_glyph_indices""#,
-            r#""raster_expression_windows_pt""#,
-        ] {
-            assert!(
-                manifest.contains(binding),
-                "missing oracle binding {binding}"
-            );
-        }
-        assert!(!manifest.contains("word_normalized_geometry_pt"));
+        // Upstream this test also asserts the provenance bindings of the Word
+        // oracle (Word build, poppler version, source SHA-256) against the
+        // monorepo's `scripts/officemath_oracle_manifest.json`. The published
+        // package does not carry that file, so the check cannot compile or
+        // hold outside the monorepo; the geometry assertions above are the
+        // layout contract (crates/patches/0010).
     }
 
     #[test]
