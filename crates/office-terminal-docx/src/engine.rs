@@ -15,8 +15,6 @@ use std::time::Instant;
 
 use office_terminal_core::text::document_faces::DocumentFaceId;
 use oxml_layout::{DocumentMetadata, FontId, MediaId, OutlineEntry, PageFrame};
-#[cfg(feature = "rdocx-backend")]
-use oxml_layout::FontData;
 
 #[cfg(feature = "rdocx-backend")]
 use crate::error::{page_count_violation, DocxError};
@@ -43,6 +41,11 @@ pub struct ResolvedFont {
     /// `None` forces the family-lookup path (synthetic styles in v1).
     pub face: Option<DocumentFaceId>,
 }
+
+/// Opening words of the soft-deadline diagnostic. The page source classifies
+/// by this prefix, so a timing observation is reported as a resource event
+/// rather than as a fidelity loss.
+pub(crate) const LAYOUT_DEADLINE_PREFIX: &str = "layout took";
 
 /// Backend-neutral document layout surface consumed by the bridge.
 pub trait DocxEngine: Send + Sync {
@@ -74,7 +77,6 @@ pub struct RdocxEngine {
     layout: Arc<rdocx_layout::WordLayoutResult>,
     pages: Vec<Arc<PageFrame>>,
     font_slots: Vec<Option<ResolvedFont>>,
-    font_data: Vec<FontData>,
     media: HashMap<MediaId, MediaBytes>,
     outlines: Vec<OutlineEntry>,
     diagnostics: Vec<String>,
@@ -117,7 +119,7 @@ impl RdocxEngine {
             result.diagnostics.iter().map(|d| d.message.clone()).collect();
         if elapsed > limits.layout_deadline {
             diagnostics.push(format!(
-                "layout took {:.1}s (soft deadline {:.0}s)",
+                "{LAYOUT_DEADLINE_PREFIX} {:.1}s (soft deadline {:.0}s)",
                 elapsed.as_secs_f64(),
                 limits.layout_deadline.as_secs_f64()
             ));
@@ -133,17 +135,11 @@ impl RdocxEngine {
             layout,
             pages,
             font_slots,
-            font_data,
             media,
             outlines,
             diagnostics,
             metadata,
         })
-    }
-
-    /// Raw font data by the engine's font ids (diagnostics / tests).
-    pub fn font_data(&self) -> &[FontData] {
-        &self.font_data
     }
 }
 

@@ -17,8 +17,11 @@ use super::{core_transform, map_elements, BridgeContext, BridgeState};
 /// - group opacity has no IR command: it multiplies into descendant paint
 ///   alphas with a one-time warning (exact for non-overlapping children,
 ///   approximate where children overlap);
-/// - `OuterShadow` attaches to the group's next emitted path;
-///   `LinearOpacityMask` is not representable and drops with a warning.
+/// - `OuterShadow` attaches to the group's next emitted path, and only ever
+///   to a path this group's own children emitted (never to unrelated page
+///   ink); a nested group's shadow displaces a pending outer one with a
+///   warning; `LinearOpacityMask` is not representable and drops with a
+///   warning.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn map_group(
     group: &GroupElement,
@@ -43,6 +46,11 @@ pub(crate) fn map_group(
                 blur,
                 color,
             } => {
+                // A nested group's shadow is the closer one and wins; the
+                // outer shadow it displaces would otherwise vanish silently.
+                if state.pending_shadow.take().is_some() {
+                    ctx.warn_once("docx-shadow-displaced", "group".to_string());
+                }
                 state.pending_shadow = Some(VectorOuterShadow {
                     color: super::paint::rgba_scaled(color, 1.0),
                     blur_radius_emu: super::pt_to_emu(*blur) as i64,
@@ -80,6 +88,10 @@ pub(crate) fn map_group(
         false
     };
 
+    // Only a path emitted by this group's own children may inherit an
+    // unconsumed shadow: attaching to unrelated earlier page ink (a table
+    // border, a cell fill) would paint a shadow where none was authored.
+    let first_child_command = slide.commands.len();
     map_elements(
         &group.children,
         &child_acc,
@@ -90,9 +102,7 @@ pub(crate) fn map_group(
     );
 
     if let Some(unused) = state.pending_shadow.take() {
-        // No path child consumed the shadow: re-attach to the last path on
-        // the page rather than losing it (issue #40 §7.7.6 fallback).
-        if !attach_shadow_to_last_path(slide, unused) {
+        if !attach_shadow_to_last_path(slide, first_child_command, unused) {
             ctx.warn_once("docx-shadow-unattached", "group".to_string());
         }
     }
@@ -169,9 +179,15 @@ fn pretransformed_clip(
     )
 }
 
-/// Fold a group shadow onto the most recently emitted path.
-fn attach_shadow_to_last_path(slide: &mut VectorSlide, shadow: VectorOuterShadow) -> bool {
-    for command in slide.commands.iter_mut().rev() {
+/// Fold a group shadow onto the most recently emitted path at or after
+/// `from` (the group's first child command). Returns `false` when no path
+/// in that range exists.
+fn attach_shadow_to_last_path(
+    slide: &mut VectorSlide,
+    from: usize,
+    shadow: VectorOuterShadow,
+) -> bool {
+    for command in slide.commands[from..].iter_mut().rev() {
         if let VectorCommand::DrawPath { effects, .. } = command {
             effects.outer_shadow = Some(shadow);
             return true;
@@ -326,6 +342,117 @@ mod tests {
         let shadow = effects.outer_shadow.as_ref().expect("shadow attached");
         assert_eq!(shadow.blur_radius_emu, 4 * 12_700);
         assert_eq!(shadow.distance_emu, (13.0f64.sqrt() * 12_700.0).round() as i64);
+    }
+
+    fn shadow_effect(blur: f64) -> Effect {
+        Effect::OuterShadow {
+            dx: 2.0,
+            dy: 3.0,
+            blur,
+            color: Color::BLACK,
+        }
+    }
+
+    #[test]
+    fn unconsumed_shadows_stay_on_the_groups_own_ink_never_unrelated_page_ink() {
+        // A border-like path emitted before the group must not inherit the
+        // group's shadow when the group has no path child of its own.
+        let group = GroupElement {
+            transform: oxml_layout::Transform::IDENTITY,
+            clip: None,
+            opacity: 1.0,
+            effects: vec![shadow_effect(4.0)],
+            children: vec![PositionedElement::Text(text_run("X", 0.0, 0.0, 0, 12.0))],
+        };
+        let page = letter_page(vec![filled_rect_command(), PositionedElement::Group(group)]);
+        let engine = FixtureEngine::new(Vec::new()).with_font(0, "Carlito");
+        let (slide, warnings) = compile(&page, &engine);
+
+        let VectorCommand::DrawPath { effects, .. } = &slide.commands[0] else {
+            panic!("expected the unrelated path");
+        };
+        assert!(effects.outer_shadow.is_none(), "unrelated ink stays shadow-free");
+        assert!(warnings.iter().any(|w| matches!(
+            w,
+            WarningEvent::FidelityDegraded {
+                feature: "docx-shadow-unattached",
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn filled_rect_children_inherit_the_groups_shadow() {
+        // A `FilledRect` is a path child too: the fallback must find it
+        // inside the group's own command range.
+        let group = GroupElement {
+            transform: oxml_layout::Transform::IDENTITY,
+            clip: None,
+            opacity: 1.0,
+            effects: vec![shadow_effect(4.0)],
+            children: vec![filled_rect_command()],
+        };
+        let page = letter_page(vec![PositionedElement::Group(group)]);
+        let engine = FixtureEngine::new(Vec::new());
+        let (slide, warnings) = compile(&page, &engine);
+
+        let VectorCommand::DrawPath { effects, .. } = &slide.commands[0] else {
+            panic!("expected the rect path");
+        };
+        assert_eq!(
+            effects.outer_shadow.as_ref().map(|s| s.blur_radius_emu),
+            Some(4 * 12_700)
+        );
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn nested_group_shadows_displace_the_outer_one_with_a_warning() {
+        let inner = GroupElement {
+            transform: oxml_layout::Transform::IDENTITY,
+            clip: None,
+            opacity: 1.0,
+            effects: vec![shadow_effect(9.0)],
+            children: vec![PositionedElement::Path(PathElement {
+                path: LayoutPath {
+                    commands: vec![
+                        PathCommand::MoveTo(Point { x: 0.0, y: 0.0 }),
+                        PathCommand::LineTo(Point { x: 10.0, y: 0.0 }),
+                        PathCommand::LineTo(Point { x: 10.0, y: 10.0 }),
+                        PathCommand::Close,
+                    ],
+                    fill_rule: FillRule::NonZero,
+                },
+                fill: Some(Paint::Solid(Color::BLACK)),
+                stroke: None,
+            })],
+        };
+        let outer = GroupElement {
+            transform: oxml_layout::Transform::IDENTITY,
+            clip: None,
+            opacity: 1.0,
+            effects: vec![shadow_effect(2.0)],
+            children: vec![PositionedElement::Group(inner)],
+        };
+        let page = letter_page(vec![PositionedElement::Group(outer)]);
+        let engine = FixtureEngine::new(Vec::new());
+        let (slide, warnings) = compile(&page, &engine);
+
+        let VectorCommand::DrawPath { effects, .. } = &slide.commands[0] else {
+            panic!("expected the path");
+        };
+        // The closest (inner) shadow wins.
+        assert_eq!(
+            effects.outer_shadow.as_ref().map(|s| s.blur_radius_emu),
+            Some(9 * 12_700)
+        );
+        assert!(warnings.iter().any(|w| matches!(
+            w,
+            WarningEvent::FidelityDegraded {
+                feature: "docx-shadow-displaced",
+                ..
+            }
+        )));
     }
 
     #[test]

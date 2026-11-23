@@ -19,6 +19,8 @@
 //! many documents in one process.
 
 use std::sync::{Arc, OnceLock, RwLock};
+#[cfg(test)]
+use std::sync::Mutex;
 
 /// Handle to one registered document face.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -42,11 +44,21 @@ pub struct DocumentFace {
     pub variations: Vec<([u8; 4], f32)>,
 }
 
-impl DocumentFace {
-    /// Whether any non-default variation axis is selected.
-    pub fn has_variations(&self) -> bool {
-        !self.variations.is_empty()
-    }
+/// Serialises tests that mutate the process-global registry.
+///
+/// Every test that calls [`clear_document_faces`] or registers faces must
+/// hold this guard for its whole body: the registry is shared by all test
+/// threads in the binary, so an unguarded clear in one test would wipe the
+/// faces another test is resolving (intermittent, order-dependent failures).
+#[cfg(test)]
+pub(crate) static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Acquire the shared registry guard for a test.
+#[cfg(test)]
+pub(crate) fn lock_registry_for_test() -> std::sync::MutexGuard<'static, ()> {
+    REGISTRY_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn registry() -> &'static RwLock<Vec<Arc<DocumentFace>>> {
@@ -107,6 +119,7 @@ mod tests {
 
     #[test]
     fn registered_faces_resolve_by_handle() {
+        let _guard = lock_registry_for_test();
         clear_document_faces();
         let ids = register_document_faces(vec![face("Carlito"), face("Caladea")]);
         assert_eq!(ids.len(), 2);
@@ -121,6 +134,7 @@ mod tests {
 
     #[test]
     fn clearing_invalidates_handles_and_restarts_at_zero() {
+        let _guard = lock_registry_for_test();
         clear_document_faces();
         let ids = register_document_faces(vec![face("Temp")]);
         clear_document_faces();

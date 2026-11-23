@@ -155,7 +155,8 @@ ot document.pdf --mode slides
 ### 5b. Word Documents (DOCX)
 
 `.docx` documents open in Reader Mode by default with the heading outline
-(`/`), continuous scrolling and zoom, and full export parity:
+(`t`), full-text search (`/`), continuous scrolling and zoom, and full
+export parity:
 
 ```bash
 # Read a Word document (reader mode by default)
@@ -174,9 +175,11 @@ ot dump report.docx --markdown
 
 Supported: paragraphs, lists, tables with merges and borders, headers and
 footers with page-number fields, footnotes, images (including EMF/WMF
-vector playback and OMML equations), hyperlinks, and multi-section mixed
-page sizes. Out of scope: editing/saving, macro execution (`.docm` renders
-its document body only), and encrypted packages.
+vector playback; equations are laid out by the engine and painted as
+vector text), hyperlinks, and multi-section mixed page sizes. `ot info`
+reports the title/author declared in the document's core properties. Out of
+scope: editing/saving, macro execution (`.docm` renders its document body
+only), encrypted packages, and comments (neither rendered nor extracted).
 
 ### 6. Shell Completions
 

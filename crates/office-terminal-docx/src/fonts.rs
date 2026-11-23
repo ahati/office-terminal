@@ -73,8 +73,26 @@ pub(crate) fn register_engine_fonts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use office_terminal_core::text::document_faces::clear_document_faces;
-    use std::sync::Arc;
+    use office_terminal_core::text::document_faces::{
+        clear_document_faces, with_document_face,
+    };
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    /// The face registry is process-global and shared by every test thread
+    /// in this binary; tests that clear or register hold this guard.
+    static REGISTRY_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_registry() -> MutexGuard<'static, ()> {
+        REGISTRY_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Resolve a handle back to its registered family (proves the slot's
+    /// handle points at the face registered for it, not merely `Some`).
+    fn family_of(handle: office_terminal_core::text::document_faces::DocumentFaceId) -> String {
+        with_document_face(handle, |face| face.family.clone()).expect("handle resolves")
+    }
 
     fn font(id: u32, family: &str) -> FontData {
         FontData {
@@ -92,6 +110,7 @@ mod tests {
 
     #[test]
     fn fonts_resolve_by_id_with_exact_face_handles() {
+        let _guard = lock_registry();
         clear_document_faces();
         let fonts = vec![font(0, "Carlito"), font(2, "Caladea")];
         let mut diagnostics = Vec::new();
@@ -99,16 +118,24 @@ mod tests {
 
         assert!(diagnostics.is_empty());
         assert_eq!(slots.len(), 3);
-        assert!(slots[0].as_ref().is_some_and(|f| f.face.is_some()));
+        let carlito = slots[0].as_ref().expect("dense slot");
+        assert_eq!(
+            family_of(carlito.face.expect("exact face handle")),
+            "Carlito"
+        );
         assert!(slots[1].is_none());
         let caladea = slots[2].as_ref().expect("dense slot");
         assert_eq!(caladea.family, "Caladea");
-        assert!(caladea.face.is_some());
+        assert_eq!(
+            family_of(caladea.face.expect("exact face handle")),
+            "Caladea"
+        );
         clear_document_faces();
     }
 
     #[test]
     fn synthetic_styles_fall_back_to_the_family_path_with_one_warning() {
+        let _guard = lock_registry();
         clear_document_faces();
         let mut synthetic = font(0, "Carlito");
         synthetic.synthetic_bold = true;

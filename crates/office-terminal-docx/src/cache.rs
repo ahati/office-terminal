@@ -65,11 +65,21 @@ impl IrCache {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.clock += 1;
         let tick = inner.clock;
-        inner.entries.insert(index, (Arc::clone(&slide), tick));
-        inner.bytes += cost;
+        insert(&mut inner, index, Arc::clone(&slide), tick, cost);
         evict(&mut inner, self.max_entries, self.max_bytes);
         Ok(slide)
     }
+}
+
+/// Insert (or replace) a compiled page. Two threads may compile the same
+/// index concurrently (no single-flight); when the second insert replaces
+/// the first, the replaced entry's cost must leave the ledger before the new
+/// one enters, or `bytes` drifts upward and evicts too eagerly.
+fn insert(inner: &mut Inner, index: usize, slide: Arc<VectorSlide>, tick: u64, cost: usize) {
+    if let Some((replaced, _)) = inner.entries.insert(index, (slide, tick)) {
+        inner.bytes = inner.bytes.saturating_sub(estimate_slide_bytes(&replaced));
+    }
+    inner.bytes += cost;
 }
 
 fn evict(inner: &mut Inner, max_entries: usize, max_bytes: usize) {
@@ -182,5 +192,27 @@ mod tests {
         assert!(first.is_err());
         let second = cache.get_or_compile(0, || Ok(slide(0)));
         assert!(second.is_ok());
+    }
+
+    #[test]
+    fn replacing_an_entry_keeps_the_byte_accounting_exact() {
+        let mut inner = Inner {
+            entries: HashMap::new(),
+            clock: 0,
+            bytes: 0,
+        };
+        let first = Arc::new(slide(1));
+        let cost = estimate_slide_bytes(&first);
+        insert(&mut inner, 0, Arc::clone(&first), 1, cost);
+        assert_eq!(inner.bytes, cost);
+
+        // A concurrent compile of the same index overwrites the entry: the
+        // replaced cost must leave the ledger before the new one enters.
+        let second = Arc::new(slide(2));
+        let second_cost = estimate_slide_bytes(&second);
+        insert(&mut inner, 0, Arc::clone(&second), 2, second_cost);
+        assert_eq!(inner.bytes, second_cost);
+        assert_eq!(inner.entries.len(), 1);
+        assert_eq!(inner.entries[&0].1, 2, "the newest clock wins");
     }
 }

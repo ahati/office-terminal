@@ -27,6 +27,19 @@ pub struct TocEntry {
     pub level: usize,
 }
 
+/// Document-level metadata a paged document declares about itself
+/// (`docProps/core.xml` for WordprocessingML, the document info dictionary
+/// for PDF). Every field is optional; consumers print what is present.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DocumentMetadata {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub keywords: Option<String>,
+    /// Creator application.
+    pub creator: Option<String>,
+}
+
 /// An extracted line of text with its bounding box on the page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextLine {
@@ -113,6 +126,13 @@ pub trait PageSource: Send + Sync {
     /// fall back to 1-based physical page numbers. Navigation keeps using
     /// physical indexes — labels are display-only.
     fn page_labels(&self) -> Option<Vec<String>> {
+        None
+    }
+
+    /// Document-level metadata (title, author, …), when the document
+    /// declares any. Rides on the page source so the type-erased
+    /// `DeckSource` arms can surface it without knowing the engine.
+    fn metadata(&self) -> Option<DocumentMetadata> {
         None
     }
 

@@ -21,6 +21,7 @@ use oxml_layout::{PageFrame, PositionedElement};
 use oxml_layout::MediaId;
 
 use crate::engine::MediaBytes;
+use crate::limits::DocxLimits;
 
 /// `rel_id` for one media id: content-addressed, never an archive path.
 pub fn media_rel_id(id: MediaId) -> String {
@@ -80,19 +81,33 @@ pub struct DocxAssetStore {
 }
 
 impl DocxAssetStore {
-    /// Build the store from the engine's media inventory.
+    /// Build the store from the engine's media inventory under the default
+    /// decoded-image budget.
     pub fn from_engine(engine: &dyn crate::engine::DocxEngine) -> Self {
+        Self::from_engine_with_budget(engine, DocxLimits::default().image_cache_bytes)
+    }
+
+    /// Build the store from the engine's media inventory with an explicit
+    /// decoded-image LRU byte budget (`DocxLimits::image_cache_bytes`).
+    pub fn from_engine_with_budget(
+        engine: &dyn crate::engine::DocxEngine,
+        max_cache_bytes: usize,
+    ) -> Self {
         let mut entries = HashMap::new();
         for id in engine.media_ids() {
             if let Some(bytes) = engine.media(id) {
                 entries.insert(media_rel_id(id), bytes);
             }
         }
+        Self::new(entries, max_cache_bytes)
+    }
+
+    fn new(entries: HashMap<String, MediaBytes>, max_cache_bytes: usize) -> Self {
         Self {
             entries,
             cache: Mutex::new(HashMap::new()),
             access_clock: Mutex::new(0),
-            max_cache_bytes: 64 * 1024 * 1024,
+            max_cache_bytes,
             raw_bytes_served: Mutex::new(0),
         }
     }
@@ -355,52 +370,80 @@ mod tests {
 
     #[test]
     fn cache_evicts_multiple_entries_when_byte_budget_exceeded() {
-        let store = DocxAssetStore {
-            entries: HashMap::new(),
-            cache: Mutex::new(HashMap::new()),
-            access_clock: Mutex::new(0),
-            max_cache_bytes: 100,
-            raw_bytes_served: Mutex::new(0),
-        };
-        let dummy_image = |size: usize| DecodedImage {
-            width: 1,
-            height: 1,
-            pixels: Arc::from(vec![0u8; size].into_boxed_slice()),
-        };
-        {
-            let mut cache = store.cache.lock().unwrap();
-            cache.insert(
-                "key1".to_string(),
-                CacheEntry {
-                    image: dummy_image(40),
-                    access_counter: 1,
-                },
-            );
-            cache.insert(
-                "key2".to_string(),
-                CacheEntry {
-                    image: dummy_image(40),
-                    access_counter: 2,
+        // A budget that fits two 1x1 decodes (4 bytes each) but not a third.
+        let store = DocxAssetStore::new(store_with_pngs(), 8);
+
+        store.get("a", SizeHint::Native).expect("a decodes");
+        store.get("b", SizeHint::Native).expect("b decodes");
+        assert_eq!(cached_keys(&store), ["a", "b"]);
+        assert_eq!(store.stats().cached_bytes, 8);
+
+        // The 2x1 decode (8 bytes) cannot share the budget with either
+        // entry, so both are evicted before it is inserted: the production
+        // `get` path must loop, not evict just one.
+        let wide = store.get("wide", SizeHint::Native).expect("wide decodes");
+        assert_eq!((wide.width, wide.height), (2, 1));
+        assert_eq!(cached_keys(&store), ["wide"]);
+        assert_eq!(store.stats().cached_bytes, 8);
+    }
+
+    #[test]
+    fn cache_hits_refresh_recency_so_eviction_is_least_recently_used() {
+        let store = DocxAssetStore::new(store_with_pngs(), 8);
+
+        store.get("a", SizeHint::Native).expect("a decodes");
+        store.get("b", SizeHint::Native).expect("b decodes");
+        // Touch "a" so "b" becomes the least recently used entry.
+        store.get("a", SizeHint::Native).expect("a again");
+        store.get("c", SizeHint::Native).expect("c decodes");
+
+        assert_eq!(cached_keys(&store), ["a", "c"]);
+        assert_eq!(store.stats().cached_entries, 2);
+        // Re-requesting the evicted key decodes again rather than failing.
+        store.get("b", SizeHint::Native).expect("b decodes after eviction");
+        assert_eq!(cached_keys(&store), ["b", "c"]);
+    }
+
+    /// Four PNG entries: `a`, `b`, `c` decode to 4 bytes (1x1 RGBA), `wide`
+    /// to 8 bytes (2x1 RGBA). The LRU is keyed by rel id, so identical pixel
+    /// content across entries is irrelevant.
+    fn store_with_pngs() -> HashMap<String, MediaBytes> {
+        let mut entries = HashMap::new();
+        for (name, png) in [("a", png(1, 1)), ("b", png(1, 1)), ("c", png(1, 1)), ("wide", png(2, 1))] {
+            entries.insert(
+                name.to_string(),
+                MediaBytes {
+                    data: Arc::from(png.as_slice()),
+                    content_type: "image/png".to_string(),
                 },
             );
         }
-        let mut cache = store.cache.lock().unwrap();
-        let decoded = dummy_image(70);
-        let mut current_bytes: usize = cache.values().map(|e| e.image.pixels.len()).sum();
-        while current_bytes + decoded.pixels.len() > store.max_cache_bytes && !cache.is_empty() {
-            let oldest_key = cache
-                .iter()
-                .min_by_key(|(_, entry)| entry.access_counter)
-                .map(|(key, _)| key.clone());
-            if let Some(key) = oldest_key {
-                if let Some(removed) = cache.remove(&key) {
-                    current_bytes = current_bytes.saturating_sub(removed.image.pixels.len());
-                }
-            } else {
-                break;
-            }
-        }
-        assert!(cache.is_empty(), "both entries had to be evicted");
-        assert!(current_bytes + decoded.pixels.len() <= store.max_cache_bytes);
+        entries
+    }
+
+    /// Encode a real PNG of `width x height` pixels through the `image`
+    /// crate so the production decoder path is exercised.
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        use image::{ImageFormat, RgbImage};
+        let image = RgbImage::from_pixel(width, height, image::Rgb([0x40, 0x80, 0xC0]));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut bytes, ImageFormat::Png)
+            .expect("encode png");
+        bytes.into_inner()
+    }
+
+    /// Sorted cache keys currently resident in the decoded-image LRU, with
+    /// the `SizeHint::Native` prefix `get` adds stripped for readability.
+    fn cached_keys(store: &DocxAssetStore) -> Vec<String> {
+        let mut keys: Vec<String> = store
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .map(|key| key.strip_prefix("native:").unwrap_or(key).to_string())
+            .collect();
+        keys.sort();
+        keys
     }
 }
