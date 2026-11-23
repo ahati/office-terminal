@@ -15,12 +15,15 @@ members = [
 # consumed from crates.io; these two are overridden via [patch.crates-io]
 # because they carry crop-clamping fixes (crates/patches/0003). Excluded from
 # workspace lints/tests so upstream code is not held to first-party rules.
+# `crates/rdocx-layout` is the pinned DOCX layout engine carrying the
+# continuous-column band fix (crates/patches/0009); same exclusion rule.
 exclude = [
     "crates/metafile-core",
     "crates/metafile-dib",
     "crates/metafile-emf",
     "crates/metafile-emfplus",
     "crates/metafile-wmf",
+    "crates/rdocx-layout",
     "fuzz",
 ]
 default-members = ["crates/office-terminal-cli"]
@@ -101,6 +104,10 @@ metafile-dib = { path = "crates/metafile-dib" }
 metafile-emf = { path = "crates/metafile-emf" }
 metafile-emfplus = { path = "crates/metafile-emfplus" }
 metafile-wmf = { path = "crates/metafile-wmf" }
+
+# DOCX layout engine 0.17.0 with the continuous-column band fix (PRD 15 §9,
+# crates/patches/0009). Drop once an rdocx release carries the fix upstream.
+rdocx-layout = { path = "crates/rdocx-layout" }
 
 [profile.dev]
 opt-level = 3

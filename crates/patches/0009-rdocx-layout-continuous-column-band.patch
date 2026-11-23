@@ -1,0 +1,97 @@
+--- a/crates/rdocx-layout/src/paginator.rs
++++ b/crates/rdocx-layout/src/paginator.rs
+@@ -1249,19 +1249,14 @@
+ }
+ 
+ fn continuous_geometry_matches(left: &PageGeometry, right: &PageGeometry) -> bool {
++    // Only the page itself must match. Word keeps a continuous section on the
++    // current page when its margins or column tracks differ: the page keeps
++    // the geometry it was started with, the new column tracks begin below the
++    // content already placed (`Pager::begin_band`), and the member's own
++    // margins take effect from its next page (`select_empty_page_member`).
+     left.page_width == right.page_width
+         && left.page_height == right.page_height
+-        && left.margin_left == right.margin_left
+-        && left.margin_right == right.margin_right
+-        && left.margin_top == right.margin_top
+-        && left.margin_bottom == right.margin_bottom
+         && left.body_rotation == right.body_rotation
+-        && left.columns.len() == right.columns.len()
+-        && left
+-            .columns
+-            .iter()
+-            .zip(&right.columns)
+-            .all(|(left, right)| left.width == right.width && left.x == right.x)
+ }
+ 
+ pub(crate) fn paginate_shared_single_section_recorded(
+@@ -1654,6 +1649,9 @@
+                     block_idx < end
+                 })
+                 .unwrap_or(sections.len() - 1);
++            if pager.active_member != previous_member && pager.page_member.is_some() {
++                pager.begin_band(&sections[pager.active_member]);
++            }
+             if pager.active_member != previous_member
+                 && !pager.page_note_ids.is_empty()
+                 && !sections[pager.active_member].modern_footnote_layout
+@@ -2651,6 +2649,51 @@
+         lines.len()
+     }
+ 
++    /// Start the body band of a continuous member on a page that already
++    /// carries content, as Word does for a continuous section whose column
++    /// tracks differ from the member above it: the new tracks begin below the
++    /// content already placed and reach to the same bottom margin. Members
++    /// with the same tracks keep flowing in the current band untouched.
++    fn begin_band(&mut self, member: &'a SharedSection) {
++        let same_tracks = self.section_geometry.columns.len() == member.geometry.columns.len()
++            && self
++                .section_geometry
++                .columns
++                .iter()
++                .zip(&member.geometry.columns)
++                .all(|(left, right)| left.width == right.width && left.x == right.x);
++        if same_tracks {
++            return;
++        }
++        let page_bottom = self.page_geometry.margin_top + self.content_height;
++        let band_top = (self.page_geometry.margin_top + self.cursor_y.max(self.ink_bottom))
++            .min(page_bottom);
++        self.header_footer = member.header_footer.as_ref();
++        self.header_footer_semantics = member.header_footer_semantics.as_ref();
++        self.title_pg = member.title_pg;
++        self.footnotes_beneath_text = member.footnotes_beneath_text;
++        self.line_number_style = member.line_number_style;
++        self.section_geometry = member.geometry.clone();
++        let shift = band_top - self.page_geometry.margin_top;
++        self.page_geometry.margin_top = band_top;
++        self.content_height = (page_bottom - band_top).max(0.0);
++        self.ink_bottom -= shift;
++        let margin_shift = self.page_geometry.margin_left - self.section_geometry.margin_left;
++        self.tracks = self
++            .section_geometry
++            .columns
++            .iter()
++            .map(|track| ColumnTrack {
++                x: track.x + margin_shift,
++                width: track.width,
++            })
++            .collect();
++        self.track_index = 0;
++        self.cursor_y = 0.0;
++        self.has_content_flag = true;
++        self.apply_active_track();
++    }
++
+     fn select_empty_page_member(&mut self) {
+         if self.page_member.is_some() {
+             return;
+@@ -5231,7 +5274,6 @@
+     // the next page, and its notes must move with it.
+     let total_needed = space_before + para.content_height();
+     let remaining = pager.available_height_for(&para.lines) - pager.cursor_y;
+-
+     if total_needed > remaining && pager.has_content() {
+         // Paragraph doesn't fit. Decide: move whole or split.
+         if para.keep_lines || para.lines.len() <= 2 {

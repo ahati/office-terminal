@@ -324,28 +324,68 @@ pub fn math_docx() -> Vec<u8> {
     ])
 }
 
+/// Options for [`columns_docx_with`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ColumnOpts {
+    /// Bottom margin (twips) of the single-column section above the columns,
+    /// to exercise a continuous section whose page margins differ from the
+    /// member above it (the shape of `sample3.docx`).
+    pub first_section_bottom_margin: Option<u32>,
+    /// Unequal tracks: a 2in first column and a 4.5in second column instead
+    /// of two equal 3in columns.
+    pub unequal: bool,
+    /// Draw the vertical rule between the tracks (`<w:cols w:sep="1"/>`).
+    pub separator: bool,
+    /// End the paragraph with this index with a column break
+    /// (`<w:br w:type="column"/>`).
+    pub column_break_after: Option<usize>,
+}
+
 /// A document whose final section is a **continuous two-column section**
 /// (`<w:cols w:num="2">`): one short single-column intro paragraph, a
 /// continuous section end, then `paragraphs` one-line paragraphs that flow
 /// down column 1 (x = 72 pt), then column 2 (x = 324 pt), then the next page.
 /// Letter portrait, one-inch margins, 0.5in column gap.
 pub fn columns_docx(paragraphs: usize) -> Vec<u8> {
-    let sect = |kind: &str, cols: &str| {
+    columns_docx_with(paragraphs, ColumnOpts::default())
+}
+
+/// [`columns_docx`] with explicit column and section variants.
+pub fn columns_docx_with(paragraphs: usize, opts: ColumnOpts) -> Vec<u8> {
+    let pg_mar = |bottom: u32| {
         format!(
-            "{kind}<w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\"/>{cols}"
+            "<w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"{bottom}\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\"/>"
         )
     };
-    let single = sect("", "<w:cols w:space=\"720\"/>");
-    let double = sect(
-        "<w:type w:val=\"continuous\"/>",
-        "<w:cols w:num=\"2\" w:space=\"720\"/>",
+    let single = format!(
+        "<w:pgSz w:w=\"12240\" w:h=\"15840\"/>{}<w:cols w:space=\"720\"/>",
+        pg_mar(opts.first_section_bottom_margin.unwrap_or(1440))
+    );
+    let tracks = if opts.unequal {
+        // Explicit column list: 2880 twips + 720 space, then the remainder.
+        "<w:cols w:num=\"2\" w:space=\"720\"><w:col w:w=\"2880\" w:space=\"720\"/><w:col w:w=\"6480\"/></w:cols>"
+    } else if opts.separator {
+        "<w:cols w:num=\"2\" w:space=\"720\" w:sep=\"1\"/>"
+    } else {
+        "<w:cols w:num=\"2\" w:space=\"720\"/>"
+    };
+    let double = format!(
+        "<w:type w:val=\"continuous\"/><w:pgSz w:w=\"12240\" w:h=\"15840\"/>{}{tracks}",
+        pg_mar(1440)
     );
     let mut body = format!(
         "{}<w:p><w:pPr><w:sectPr>{single}</w:sectPr></w:pPr></w:p>",
         paragraph_xml(&paragraph("Single-column intro paragraph."))
     );
     for index in 0..paragraphs {
-        body.push_str(&paragraph_xml(&paragraph(&format!("Column line {index}"))));
+        body.push_str(&format!(
+            "<w:p><w:r><w:t>Column line {index}</w:t></w:r>{}</w:p>",
+            if opts.column_break_after == Some(index) {
+                "<w:r><w:br w:type=\"column\"/></w:r>"
+            } else {
+                ""
+            }
+        ));
     }
     let document = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

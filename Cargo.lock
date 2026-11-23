@@ -2214,8 +2214,6 @@ dependencies = [
 [[package]]
 name = "rdocx-layout"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d394d5a2cf86c10d446da5fdf1ed4a6490c03d6aa5c948067e57c4726293c77"
 dependencies = [
  "oxml-chart",
  "oxml-drawing",
