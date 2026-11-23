@@ -69,6 +69,13 @@ pub trait DocxEngine: Send + Sync {
     fn diagnostics(&self) -> &[String];
     /// Document metadata (title, author, …), when the package declares it.
     fn metadata(&self) -> Option<&DocumentMetadata>;
+    /// Logical structure tree (paragraph / table / cell roles) the engine
+    /// attached to the positioned elements, when it produces one. The
+    /// default `None` keeps fixture engines and engines without source
+    /// semantics on the purely geometric reading-order heuristics.
+    fn structure(&self) -> Option<&oxml_layout::DocumentStructure> {
+        None
+    }
 }
 
 /// The `rdocx` 0.17 layout engine adapter (issue #40 §6 decision).
@@ -81,6 +88,7 @@ pub struct RdocxEngine {
     outlines: Vec<OutlineEntry>,
     diagnostics: Vec<String>,
     metadata: Option<DocumentMetadata>,
+    structure: Option<oxml_layout::DocumentStructure>,
 }
 
 #[cfg(feature = "rdocx-backend")]
@@ -130,6 +138,7 @@ impl RdocxEngine {
         let media = collect_page_media(&pages);
         let outlines = result.outlines.clone();
         let metadata = result.metadata.clone();
+        let structure = result.structure.clone();
 
         Ok(Self {
             layout,
@@ -139,6 +148,7 @@ impl RdocxEngine {
             outlines,
             diagnostics,
             metadata,
+            structure,
         })
     }
 }
@@ -185,6 +195,10 @@ impl DocxEngine for RdocxEngine {
 
     fn metadata(&self) -> Option<&DocumentMetadata> {
         self.metadata.as_ref()
+    }
+
+    fn structure(&self) -> Option<&oxml_layout::DocumentStructure> {
+        self.structure.as_ref()
     }
 }
 

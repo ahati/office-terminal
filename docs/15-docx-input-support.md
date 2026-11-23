@@ -379,6 +379,8 @@ Conforming to [PRD 02d: Fidelity Policy](./02d-element-renderers-and-fidelity-po
 | Footnotes & Endnotes | **FULL** | Positioned at bottom of page frame above footer with separator rule. |
 | Shapes & Textboxes (DrawingML) | **FULL / DEGRADED** | Geometric shapes mapped to `DrawPath`. Complex 3D effects flattened to 2D approximation + `WarningEvent`. |
 | Section Page Size/Orientation Changes | **FULL** | Dynamic page dimensions passed directly to `VectorSlide`. |
+| Multi-column sections (`w:cols`) | **DEGRADED** | Column tracks flow left-to-right and the search corpus reads column by column (tables stay row-major via the structure tree). Known engine gap: a *continuous* section that changes the column count starts on a new page instead of under the preceding content, and columns are never balanced (issue #40 §7.18). |
+| List labels in the search corpus | **FULL** | Unattributed label runs (`1.`, `•`) attach to their item line, so `dump`/search read `1. Headings`. |
 | `w:docGrid` with `w:spacing lineRule="auto"` | **DEGRADED** | Known `rdocx` pitch divergence; renders with standard font line height. Emits diagnostic warning. |
 | Embedded Charts (ChartML) | **DEGRADED** | Fallback to cached chart image part if present; otherwise placeholder box + warning. |
 | Tracked Changes & Comments | **DEGRADED** | Renders accepted text view; comments omitted from layout, surfaced in `ot dump --comments`. |
@@ -404,7 +406,7 @@ Conforming to [PRD 02d: Fidelity Policy](./02d-element-renderers-and-fidelity-po
 - **L2 Scene Goldens**: Stable JSON AST snapshots of compiled `VectorSlide` structures for standard DOCX fixtures (headings, lists, 5x5 table, floating image, multi-column section, OMML math).
 - **L3 Visual Comparison**: Automated DSSIM difference threshold ($\le 0.05$) against rendered LibreOffice / Microsoft Word PDF export baselines.
 
-**Status (v1):** L1 is in place at both levels — hand-authored `PageFrame` unit tests for every bridge module, and in-process package fixtures (headings, hyperlinks, a `gridSpan`/`vMerge`/bordered/shaded table, header + footer with a `PAGE` field, an inline PNG, OMML, declared core properties) driven through the real engine, rasterizer and SVG serializer in `engine_roundtrip_tests.rs` and `docx_cli_tests.rs`. L2 goldens and L3 visual comparison are deferred until licensed real-world fixtures are available (issue #40 §8); the shared fixture module lives in `crates/office-terminal-docx/tests/common/` and is reused by the CLI tests via `#[path]`.
+**Status (v1):** L1 is in place at both levels — hand-authored `PageFrame` unit tests for every bridge module, and in-process package fixtures (headings, hyperlinks, a `gridSpan`/`vMerge`/bordered/shaded table, header + footer with a `PAGE` field, an inline PNG, OMML, a continuous two-column section, declared core properties) driven through the real engine, rasterizer and SVG serializer in `engine_roundtrip_tests.rs` and `docx_cli_tests.rs`. L2 goldens and L3 visual comparison are deferred until licensed real-world fixtures are available (issue #40 §8); the shared fixture module lives in `crates/office-terminal-docx/tests/common/` and is reused by the CLI tests via `#[path]`.
 
 ---
 

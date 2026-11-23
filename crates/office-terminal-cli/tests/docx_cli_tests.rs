@@ -128,6 +128,7 @@ fn docx_export_handles_tables_headers_images_and_math() {
         ("header_footer", common::header_footer_docx()),
         ("image", common::image_docx()),
         ("math", common::math_docx()),
+        ("columns", common::columns_docx(60)),
     ] {
         let path = temp_dir.path().join(format!("{name}.docx"));
         std::fs::write(&path, bytes).unwrap();

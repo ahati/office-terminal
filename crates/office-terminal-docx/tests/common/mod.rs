@@ -324,6 +324,40 @@ pub fn math_docx() -> Vec<u8> {
     ])
 }
 
+/// A document whose final section is a **continuous two-column section**
+/// (`<w:cols w:num="2">`): one short single-column intro paragraph, a
+/// continuous section end, then `paragraphs` one-line paragraphs that flow
+/// down column 1 (x = 72 pt), then column 2 (x = 324 pt), then the next page.
+/// Letter portrait, one-inch margins, 0.5in column gap.
+pub fn columns_docx(paragraphs: usize) -> Vec<u8> {
+    let sect = |kind: &str, cols: &str| {
+        format!(
+            "{kind}<w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\"/>{cols}"
+        )
+    };
+    let single = sect("", "<w:cols w:space=\"720\"/>");
+    let double = sect(
+        "<w:type w:val=\"continuous\"/>",
+        "<w:cols w:num=\"2\" w:space=\"720\"/>",
+    );
+    let mut body = format!(
+        "{}<w:p><w:pPr><w:sectPr>{single}</w:sectPr></w:pPr></w:p>",
+        paragraph_xml(&paragraph("Single-column intro paragraph."))
+    );
+    for index in 0..paragraphs {
+        body.push_str(&paragraph_xml(&paragraph(&format!("Column line {index}"))));
+    }
+    let document = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr>{double}</w:sectPr></w:body></w:document>"#
+    );
+    build_docx(&[
+        ("[Content_Types].xml", &content_types("")),
+        ("_rels/.rels", PACKAGE_RELS),
+        ("word/document.xml", &document),
+    ])
+}
+
 /// A package whose main part is missing: valid ZIP, not a Word document.
 pub fn main_part_missing_docx() -> Vec<u8> {
     build_docx(&[
