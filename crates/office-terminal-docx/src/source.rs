@@ -196,7 +196,7 @@ impl PageSource for DocxPageSource {
         let corpus = self.corpus.get_or_init(|| {
             let pages: Vec<Arc<PageFrame>> =
                 (0..self.engine.page_count()).filter_map(|i| self.engine.page(i)).collect();
-            Arc::new(DocxSearchCorpus::build(&pages, &self.limits))
+            Arc::new(DocxSearchCorpus::build(&pages, &self.limits, self.engine.structure()))
         });
         Arc::clone(corpus) as Arc<dyn SearchCorpus>
     }

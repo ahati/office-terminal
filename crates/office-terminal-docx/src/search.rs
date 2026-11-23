@@ -1,24 +1,22 @@
 //! Reading-order text corpus for in-document search and `dump` (issue #40
 //! §7.10).
 //!
-//! Glyph runs are grouped back into visual lines. Primary grouping follows
-//! the source node (paragraph / cell), concatenating in `char_start` order so
-//! logical order survives tables, columns and RTL. Without source
-//! attribution, runs on the same baseline within a tolerance sort by pen x.
-//! A space is inserted at a wide join; the line rect is the union of the run
-//! boxes; field results (page numbers) are visible text and stay in.
+//! Glyph runs are grouped back into visual lines and ordered per page by
+//! [`search_order`]: paragraphs in char order, column sections column by
+//! column, tables row by row, list labels attached to their item. A space is
+//! inserted at a wide join; the line rect is the union of the run boxes;
+//! field results (page numbers) are visible text and stay in.
 
 use std::sync::Arc;
 
 use office_terminal_core::contracts::{EmuRect, SearchCorpus, TextLine};
 use oxml_layout::{
-    GlyphRun, MultilingualGlyphRun, PageFrame, Point, PositionedElement, Transform,
+    DocumentStructure, GlyphRun, MultilingualGlyphRun, PageFrame, Point, PositionedElement, Transform,
 };
 
 use crate::limits::DocxLimits;
+use crate::search_order::{reading_order, RunCandidate, TableStructure};
 
-/// Baseline grouping tolerance in typographic points.
-const BASELINE_TOLERANCE_PT: f64 = 0.5;
 /// A horizontal gap larger than this fraction of the font size reads as a
 /// word boundary.
 const SPACE_JOIN_FACTOR: f64 = 0.25;
@@ -30,10 +28,17 @@ pub struct DocxSearchCorpus {
 
 impl DocxSearchCorpus {
     /// Walk laid-out pages into reading-order lines under the corpus limits.
-    pub fn build(pages: &[Arc<PageFrame>], limits: &DocxLimits) -> Self {
+    /// `structure` is the engine's logical structure tree, which decides
+    /// which lines are table content (row-major) rather than body flow.
+    pub fn build(
+        pages: &[Arc<PageFrame>],
+        limits: &DocxLimits,
+        structure: Option<&DocumentStructure>,
+    ) -> Self {
+        let tables = TableStructure::index(structure);
         let pages = pages
             .iter()
-            .map(|page| build_page_lines(&page.elements, limits))
+            .map(|page| build_page_lines(&page.elements, limits, page.width, &tables))
             .collect();
         Self { pages }
     }
@@ -57,131 +62,79 @@ impl SearchCorpus for DocxSearchCorpus {
     }
 }
 
-/// One candidate run with its reading-order keys.
-struct RunCandidate {
-    node: Option<u32>,
-    char_start: u32,
-    origin: Point,
-    font_size: f64,
-    advance: f64,
-    text: String,
-}
-
-fn build_page_lines(elements: &[PositionedElement], limits: &DocxLimits) -> Vec<TextLine> {
+fn build_page_lines(
+    elements: &[PositionedElement],
+    limits: &DocxLimits,
+    page_width: f64,
+    tables: &TableStructure,
+) -> Vec<TextLine> {
     let mut candidates = Vec::new();
-    collect_run_candidates(elements, &mut candidates);
+    collect_run_candidates(elements, tables, &mut candidates);
 
-    // Group candidates into lines. With source attribution, a node is one
-    // line fragment; without it, the baseline band is the line.
-    let mut ordered: Vec<RunCandidate> = Vec::with_capacity(candidates.len());
-    let mut remaining: Vec<RunCandidate> = candidates;
-
-    // Node groups first, ordered by their first run's (y, x).
-    let mut node_groups: Vec<(u32, Vec<RunCandidate>)> = Vec::new();
-    remaining.retain_mut(|candidate| {
-        let Some(node) = candidate.node else {
-            return true;
-        };
-        match node_groups.iter_mut().find(|(id, _)| *id == node) {
-            Some((_, runs)) => runs.push(take_candidate(candidate)),
-            None => node_groups.push((node, vec![take_candidate(candidate)])),
-        }
-        false
-    });
-    node_groups.sort_by(|(_, a), (_, b)| {
-        let ka = (a.first().map(|r| r.origin.y).unwrap_or(0.0), a.first().map(|r| r.origin.x).unwrap_or(0.0));
-        let kb = (b.first().map(|r| r.origin.y).unwrap_or(0.0), b.first().map(|r| r.origin.x).unwrap_or(0.0));
-        ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
-    });
-    for (_, mut runs) in node_groups {
-        runs.sort_by_key(|run| run.char_start);
-        ordered.append(&mut runs);
-    }
-
-    // Baseline-band fallback for unattributed runs.
-    remaining.sort_by(|a, b| {
-        let band = |run: &RunCandidate| (run.origin.y / BASELINE_TOLERANCE_PT).round();
-        let ka = (band(a), a.origin.x);
-        let kb = (band(b), b.origin.x);
-        ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
-    });
-    ordered.append(&mut remaining);
-
-    // Concatenate into lines, splitting whenever the grouping key changes.
     // Both corpus caps are per page: a page stops producing lines once its
     // line count or its extracted text bytes reach the limit (the line that
     // crosses the byte cap is still emitted whole, since a line is atomic).
     let mut lines: Vec<TextLine> = Vec::new();
     let mut bytes_on_page = 0usize;
-    let mut current: Option<LineBuilder> = None;
-    for run in ordered {
-        let key = LineKey {
-            node: run.node,
-            band: (run.origin.y / BASELINE_TOLERANCE_PT).round() as i64,
-        };
-        let continued = matches!(
-            &current,
-            Some(builder) if builder.key == key && builder.node_continuous(&run)
-        );
-        if !continued {
-            if let Some(line) = current.take().and_then(LineBuilder::finish) {
-                bytes_on_page += line.text.len();
-                lines.push(line);
-            }
-            if lines.len() >= limits.max_corpus_lines_per_page
-                || bytes_on_page >= limits.max_corpus_bytes_per_page
-            {
-                return lines;
-            }
-            current = Some(LineBuilder::new(key));
+    for group in reading_order(candidates, page_width) {
+        if lines.len() >= limits.max_corpus_lines_per_page
+            || bytes_on_page >= limits.max_corpus_bytes_per_page
+        {
+            break;
         }
-        if let Some(builder) = current.as_mut() {
+        let mut builder = LineBuilder::new();
+        for run in group {
             builder.push(run);
         }
-    }
-    if let Some(line) = current.take().and_then(LineBuilder::finish) {
-        lines.push(line);
+        if let Some(line) = builder.finish() {
+            bytes_on_page += line.text.len();
+            lines.push(line);
+        }
     }
     lines
 }
 
-fn take_candidate(candidate: &mut RunCandidate) -> RunCandidate {
-    RunCandidate {
-        node: candidate.node,
-        char_start: candidate.char_start,
-        origin: candidate.origin,
-        font_size: candidate.font_size,
-        advance: candidate.advance,
-        text: std::mem::take(&mut candidate.text),
-    }
-}
-
 fn collect_run_candidates(
     elements: &[PositionedElement],
+    tables: &TableStructure,
     candidates: &mut Vec<RunCandidate>,
 ) {
-    collect_run_candidates_transformed(elements, Transform::IDENTITY, candidates);
+    collect_run_candidates_transformed(elements, Transform::IDENTITY, tables, false, candidates);
 }
 
+/// Walk the page, projecting every run into page space. `in_table` is
+/// inherited from the enclosing `MarkedContent` structure ancestry.
 fn collect_run_candidates_transformed(
     elements: &[PositionedElement],
     acc: Transform,
+    tables: &TableStructure,
+    in_table: bool,
     candidates: &mut Vec<RunCandidate>,
 ) {
     for element in elements {
         match element {
             PositionedElement::Text(run) => {
-                push_candidate(candidates, project_glyph_run(run, acc));
+                push_candidate(candidates, project_glyph_run(run, acc, in_table));
             }
             PositionedElement::MultilingualText(run) => {
-                push_candidate(candidates, project_multilingual(run, acc));
+                push_candidate(candidates, project_multilingual(run, acc, in_table));
             }
             PositionedElement::Group(group) => {
                 let child_acc = group.transform.then(acc);
-                collect_run_candidates_transformed(&group.children, child_acc, candidates);
+                collect_run_candidates_transformed(
+                    &group.children,
+                    child_acc,
+                    tables,
+                    in_table,
+                    candidates,
+                );
             }
-            PositionedElement::MarkedContent { children, .. } => {
-                collect_run_candidates_transformed(children, acc, candidates);
+            PositionedElement::MarkedContent {
+                structure,
+                children,
+            } => {
+                let in_table = in_table || structure.is_some_and(|id| tables.contains(id));
+                collect_run_candidates_transformed(children, acc, tables, in_table, candidates);
             }
             _ => {}
         }
@@ -196,62 +149,59 @@ fn push_candidate(candidates: &mut Vec<RunCandidate>, candidate: Option<RunCandi
     }
 }
 
-fn project_glyph_run(run: &GlyphRun, acc: Transform) -> Option<RunCandidate> {
+/// Scale of the y axis under an accumulated transform (font size in page
+/// space), falling back to the authored size for degenerate transforms.
+fn page_font_size(acc: &Transform, font_size: f64) -> f64 {
+    let scale_y = (acc.b * acc.b + acc.d * acc.d).sqrt();
+    if scale_y.is_finite() && scale_y > 0.0 {
+        font_size * scale_y
+    } else {
+        font_size
+    }
+}
+
+fn project_glyph_run(run: &GlyphRun, acc: Transform, table: bool) -> Option<RunCandidate> {
     let unscaled_advance: f64 = run.advances.iter().sum();
     let p0 = acc.apply(run.origin);
     let p1 = acc.apply(Point {
         x: run.origin.x + unscaled_advance,
         y: run.origin.y,
     });
-    let advance = (p1.x - p0.x).abs();
-    let scale_y = (acc.b * acc.b + acc.d * acc.d).sqrt();
-    let font_size = if scale_y.is_finite() && scale_y > 0.0 {
-        run.font_size * scale_y
-    } else {
-        run.font_size
-    };
     Some(RunCandidate {
         node: run.source.map(|span| span.node.get()),
         char_start: run.source.map(|span| span.char_start).unwrap_or(0),
         origin: p0,
-        font_size,
-        advance,
+        font_size: page_font_size(&acc, run.font_size),
+        advance: (p1.x - p0.x).abs(),
         text: run.text.clone(),
+        table,
     })
 }
 
-fn project_multilingual(run: &MultilingualGlyphRun, acc: Transform) -> Option<RunCandidate> {
+fn project_multilingual(
+    run: &MultilingualGlyphRun,
+    acc: Transform,
+    table: bool,
+) -> Option<RunCandidate> {
     let unscaled_advance: f64 = run.x_advances.iter().sum();
     let p0 = acc.apply(run.origin);
     let p1 = acc.apply(Point {
         x: run.origin.x + unscaled_advance,
         y: run.origin.y,
     });
-    let advance = (p1.x - p0.x).abs();
-    let scale_y = (acc.b * acc.b + acc.d * acc.d).sqrt();
-    let font_size = if scale_y.is_finite() && scale_y > 0.0 {
-        run.font_size * scale_y
-    } else {
-        run.font_size
-    };
     Some(RunCandidate {
         node: run.source.map(|span| span.node.get()),
         char_start: run.source.map(|span| span.char_start).unwrap_or(0),
         origin: p0,
-        font_size,
-        advance,
+        font_size: page_font_size(&acc, run.font_size),
+        advance: (p1.x - p0.x).abs(),
         text: run.logical_text.clone(),
+        table,
     })
 }
 
-#[derive(PartialEq, Clone, Copy)]
-struct LineKey {
-    node: Option<u32>,
-    band: i64,
-}
-
+/// Accumulates one visual line's text and bounds.
 struct LineBuilder {
-    key: LineKey,
     text: String,
     x_min: f64,
     x_max: f64,
@@ -262,9 +212,8 @@ struct LineBuilder {
 }
 
 impl LineBuilder {
-    fn new(key: LineKey) -> Self {
+    fn new() -> Self {
         Self {
-            key,
             text: String::new(),
             x_min: f64::INFINITY,
             x_max: f64::NEG_INFINITY,
@@ -273,12 +222,6 @@ impl LineBuilder {
             last_end_x: None,
             last_font_size: 0.0,
         }
-    }
-
-    /// Same-node runs continue a line only in char order; different nodes
-    /// always start a new line even on the same band.
-    fn node_continuous(&self, run: &RunCandidate) -> bool {
-        self.key.node.is_none() || self.key.node == run.node
     }
 
     fn push(&mut self, run: RunCandidate) {
@@ -331,7 +274,7 @@ fn pt_to_emu(pt: f64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxml_layout::{Color, FontId, SourceNodeId, SourceSpan};
+    use oxml_layout::{Color, FontId, SourceNodeId, SourceSpan, StructureId};
 
     fn glyph_run(text: &str, origin: Point, source: Option<SourceSpan>) -> GlyphRun {
         GlyphRun {
@@ -357,6 +300,14 @@ mod tests {
         SourceNodeId::new(id).expect("non-zero")
     }
 
+    fn lines(elements: Vec<PositionedElement>) -> Vec<TextLine> {
+        build_page_lines(&elements, &DocxLimits::default(), 612.0, &TableStructure::default())
+    }
+
+    fn texts(elements: Vec<PositionedElement>) -> Vec<String> {
+        lines(elements).into_iter().map(|line| line.text).collect()
+    }
+
     #[test]
     fn same_node_runs_concatenate_in_char_order() {
         let span_a = SourceSpan {
@@ -373,9 +324,7 @@ mod tests {
             PositionedElement::Text(glyph_run("world", Point { x: 30.0, y: 50.0 }, Some(span_b))),
             PositionedElement::Text(glyph_run("Hello ", Point { x: 0.0, y: 50.0 }, Some(span_a))),
         ];
-        let lines = build_page_lines(&elements, &DocxLimits::default());
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].text, "Hello world");
+        assert_eq!(texts(elements), ["Hello world"]);
     }
 
     #[test]
@@ -384,9 +333,7 @@ mod tests {
             PositionedElement::Text(glyph_run("second", Point { x: 200.0, y: 50.0 }, None)),
             PositionedElement::Text(glyph_run("first", Point { x: 0.0, y: 50.0 }, None)),
         ];
-        let lines = build_page_lines(&elements, &DocxLimits::default());
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].text, "first second");
+        assert_eq!(texts(elements), ["first second"]);
     }
 
     #[test]
@@ -395,10 +342,7 @@ mod tests {
             PositionedElement::Text(glyph_run("top", Point { x: 0.0, y: 20.0 }, None)),
             PositionedElement::Text(glyph_run("bottom", Point { x: 0.0, y: 60.0 }, None)),
         ];
-        let lines = build_page_lines(&elements, &DocxLimits::default());
-        assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].text, "top");
-        assert_eq!(lines[1].text, "bottom");
+        assert_eq!(texts(elements), ["top", "bottom"]);
     }
 
     #[test]
@@ -409,7 +353,7 @@ mod tests {
             None,
         ))];
         let pages = vec![Arc::new(PageFrame::new(1, 612.0, 792.0, elements))];
-        let corpus = DocxSearchCorpus::build(&pages, &DocxLimits::default());
+        let corpus = DocxSearchCorpus::build(&pages, &DocxLimits::default(), None);
         assert_eq!(corpus.page_count(), 1);
         assert_eq!(corpus.page_text(0).len(), 1);
         assert_eq!(corpus.page_text(0)[0].text, "word");
@@ -433,14 +377,15 @@ mod tests {
                 ))
             })
             .collect();
-        let lines = build_page_lines(&elements, &DocxLimits::default());
-        assert_eq!(lines.len(), 50);
+        assert_eq!(lines(elements.clone()).len(), 50);
         let capped = build_page_lines(
             &elements,
             &DocxLimits {
                 max_corpus_lines_per_page: 10,
                 ..DocxLimits::default()
             },
+            612.0,
+            &TableStructure::default(),
         );
         assert_eq!(capped.len(), 10);
     }
@@ -467,6 +412,8 @@ mod tests {
                 max_corpus_bytes_per_page: 50,
                 ..DocxLimits::default()
             },
+            612.0,
+            &TableStructure::default(),
         );
         let total: usize = capped.iter().map(|line| line.text.len()).sum();
         assert!(
@@ -501,9 +448,104 @@ mod tests {
             ))],
         };
         let elements = vec![PositionedElement::Group(group)];
-        let lines = build_page_lines(&elements, &DocxLimits::default());
+        let lines = lines(elements);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text, "group text");
         assert_eq!(lines[0].rect.x, pt_to_emu(110.0));
+    }
+
+    #[test]
+    fn unattributed_labels_attach_to_the_adjacent_item_line() {
+        // A numbered list: the label has no source node, the item has one.
+        let item = SourceSpan {
+            node: node(7),
+            char_start: 0,
+            char_end: 7,
+        };
+        let elements = vec![
+            PositionedElement::Text(glyph_run("Headings", Point { x: 108.0, y: 50.0 }, Some(item))),
+            PositionedElement::Text(glyph_run("1.", Point { x: 90.0, y: 50.0 }, None)),
+            PositionedElement::Text(glyph_run("Lists", Point { x: 108.0, y: 70.0 }, Some(SourceSpan { node: node(8), char_start: 0, char_end: 5 }))),
+            PositionedElement::Text(glyph_run("2.", Point { x: 90.0, y: 70.0 }, None)),
+        ];
+        assert_eq!(texts(elements), ["1. Headings", "2. Lists"]);
+    }
+
+    #[test]
+    fn body_text_in_two_column_bands_reads_column_by_column() {
+        // Column 1 (x = 72..280) and column 2 (x = 324..530) share baselines.
+        let para = |node_id: u32, text: &str, x: f64, y: f64| {
+            PositionedElement::Text(glyph_run(
+                text,
+                Point { x, y },
+                Some(SourceSpan { node: node(node_id), char_start: 0, char_end: text.len() as u32 }),
+            ))
+        };
+        let elements = vec![
+            para(1, "left one", 72.0, 50.0),
+            para(2, "right one", 324.0, 50.0),
+            para(3, "left two", 72.0, 70.0),
+            para(4, "right two", 324.0, 70.0),
+        ];
+        assert_eq!(texts(elements), ["left one", "left two", "right one", "right two"]);
+    }
+
+    #[test]
+    fn table_cells_keep_row_major_order_even_with_wide_gaps() {
+        // Same geometry as two columns, but marked as table content through
+        // the structure tree: rows read left to right.
+        let structure = oxml_layout::DocumentStructure {
+            root: StructureId::new(1).expect("non-zero"),
+            nodes: vec![
+                oxml_layout::StructureNode { id: StructureId::new(1).unwrap(), role: oxml_layout::StructureRole::Document, children: vec![StructureId::new(2).unwrap()], alternate_text: None },
+                oxml_layout::StructureNode { id: StructureId::new(2).unwrap(), role: oxml_layout::StructureRole::Table, children: vec![StructureId::new(3).unwrap(), StructureId::new(4).unwrap()], alternate_text: None },
+                oxml_layout::StructureNode { id: StructureId::new(3).unwrap(), role: oxml_layout::StructureRole::TableCell, children: Vec::new(), alternate_text: None },
+                oxml_layout::StructureNode { id: StructureId::new(4).unwrap(), role: oxml_layout::StructureRole::TableCell, children: Vec::new(), alternate_text: None },
+            ],
+        };
+        let tables = TableStructure::index(Some(&structure));
+        let para = |node_id: u32, text: &str, x: f64, y: f64, structure: u32| PositionedElement::MarkedContent {
+            structure: StructureId::new(structure),
+            children: vec![PositionedElement::Text(glyph_run(
+                text,
+                Point { x, y },
+                Some(SourceSpan { node: node(node_id), char_start: 0, char_end: text.len() as u32 }),
+            ))],
+        };
+        let elements = vec![
+            para(1, "A1", 72.0, 50.0, 3),
+            para(2, "B1", 324.0, 50.0, 4),
+            para(3, "A2", 72.0, 70.0, 3),
+            para(4, "B2", 324.0, 70.0, 4),
+        ];
+        let lines = build_page_lines(&elements, &DocxLimits::default(), 612.0, &tables);
+        let texts: Vec<String> = lines.into_iter().map(|line| line.text).collect();
+        assert_eq!(texts, ["A1", "B1", "A2", "B2"]);
+    }
+
+    #[test]
+    fn a_wide_line_splits_column_strips() {
+        // Full-width paragraph between two column bands: each strip is read
+        // on its own, in top-down order.
+        let para = |node_id: u32, text: &str, x: f64, y: f64| {
+            PositionedElement::Text(glyph_run(
+                text,
+                Point { x, y },
+                Some(SourceSpan { node: node(node_id), char_start: 0, char_end: text.len() as u32 }),
+            ))
+        };
+        let mut wide = glyph_run("wide paragraph spanning the page", Point { x: 72.0, y: 90.0 }, None);
+        wide.advances = vec![16.0; wide.glyph_ids.len()];
+        let elements = vec![
+            para(1, "left one", 72.0, 50.0),
+            para(2, "right one", 324.0, 50.0),
+            PositionedElement::Text(wide),
+            para(3, "left two", 72.0, 130.0),
+            para(4, "right two", 324.0, 130.0),
+        ];
+        assert_eq!(
+            texts(elements),
+            ["left one", "right one", "wide paragraph spanning the page", "left two", "right two"]
+        );
     }
 }

@@ -20,6 +20,7 @@ mod fonts;
 mod limits;
 mod media;
 mod search;
+mod search_order;
 mod source;
 #[cfg(test)]
 mod test_support;
