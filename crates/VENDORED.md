@@ -84,6 +84,41 @@ Playback engine for EMF / EMF+ / WMF pictures ([PRD 13](../docs/13-metafile-pict
    - `metafile-emf` maps `ETO_GLYPH_INDEX` records into `TextRun.glyph_indices` and emits non-fatal `glyph_index_text` diagnostic instead of aborting playback.
    - `metafile-emfplus` implements `EmfPlusDrawDriverString` (0x4036), parsing glyph arrays, brush paints, and transform matrices per MS-EMFPLUS §2.3.4.15.
 
+## DOCX Layout Engine (`rdocx-layout`)
+
+Pagination engine behind the DOCX input track ([PRD 15](../docs/15-docx-input-support.md)).
+
+- **Upstream**: [`tensorbee/rdocx`](https://github.com/tensorbee/rdocx), crate `rdocx-layout`
+- **Pinned version**: `0.17.0` (crates.io package `rdocx-layout-0.17.0`, `Cargo.toml.orig` retained)
+- **License**: MIT OR Apache-2.0; the package ships no license text, so `crates/rdocx-layout/LICENSE`
+  is the upstream `LICENSE` at tag `v0.17.0` (MIT, © 2025 tensorbee).
+- **Local patched copy** (overridden via `[patch.crates-io]`, excluded from workspace lints/tests):
+  `crates/rdocx-layout`. The package's own tests reference monorepo-only paths
+  (`../../oxml-layout/fonts`, `scripts/officemath_oracle_manifest.json`) and are not built here.
+- The rest of the `rdocx` family (`rdocx`, `rdocx-layout`'s siblings, `oxml-*`) is consumed from crates.io.
+
+### Applied Patches
+
+9. `crates/patches/0009-rdocx-layout-continuous-column-band.patch`:
+   - `paginator.rs`: a **continuous section whose column tracks or page margins differ from the
+     section above it stays on the current page**, as a new body band below the content already
+     placed (`Pager::begin_band`), with the member's own margins taking effect from its next page.
+     Upstream `continuous_geometry_matches` grouped continuous sections only when tracks *and*
+     margins were identical, and the pager fixes a page's tracks from the first member that places
+     content, so a continuous one-column → two-column change always started a new page. In Word
+     (`sample3.docx`, Word 2-page render) the two-column section begins under its heading on the
+     same page; upstream rendered the heading stranded on one page and the section — stacked in
+     column 1 only — on the next.
+   - Verified against the engine's own suite: 421 passed / 1 failed / 1 ignored, the failure being
+     `officemath_…_pinned_word_pdf_oracle`, which needs the unpublished monorepo manifest.
+   - Still open upstream and **not** addressed by this patch: columns are never balanced when a
+     section ends mid-page (Word splits 8 lines 4 / 4; the engine fills column 1 first), and column
+     breaks (`<w:br w:type="column"/>`) are not modelled (`paginator.rs`: "F-269 does not model
+     it"). Both are tracked as `#[ignore]`d tests in `engine_roundtrip_tests.rs`.
+   - To upgrade: copy the new package over `crates/rdocx-layout`, re-apply with
+     `patch -p1 < crates/patches/0009-*.patch`, re-run `cargo test -p office-terminal-docx`, and
+     drop the copy and the `[patch.crates-io]` entry once a release carries the fix (PR to follow).
+
 ## Bundled test/parity assets (not vendored crates)
 
 - `crates/office-terminal-core/assets/fonts/` — Carlito, Caladea and Nunito Sans (SIL OFL 1.1), bundled so

@@ -103,6 +103,7 @@ All agents and contributors must strictly follow these engineering conventions:
 ### E. Vendored Crates Policy & Licensing
 - The crates `pptx-parser`, `pptx-model`, and `ooxml-common` are vendored from upstream.
 - **Do not make ad-hoc edits** to files in these directories unless creating a documented patch in `crates/patches/`.
+- Locally patched crates.io dependencies (`[patch.crates-io]`): the `metafile-*` playback crates and the DOCX layout engine `rdocx-layout` (`crates/rdocx-layout`, carrying `crates/patches/0009`). They are pristine package copies plus numbered patches, excluded from workspace lints/tests, and must be dropped from the tree and the `[patch]` section as soon as an upstream release carries the fix.
 - Pinned dependency note: `zip = "=9.0.4"` is required in workspace `Cargo.toml` to guarantee compatibility with `ooxml-common` NTFS extra-field parsing tests.
 - **Licensing Notice**: This project is licensed under the **MIT License**. All upstream and vendored components carry their own respective licenses and copyright notices from their upstream authors, as tracked in `crates/VENDORED.md`.
 

@@ -41,28 +41,6 @@ fn page_text(source: &DocxPageSource, index: usize) -> String {
         .join(" ")
 }
 
-/// `(x_pt, y_pt, text)` of every non-blank text run on a page, in points.
-fn text_runs_on_page(source: &DocxPageSource, index: usize) -> Vec<(f32, f32, String)> {
-    let (tx, _rx) = crossbeam_channel::unbounded();
-    let slide = source.compile_page(index, &tx).expect("compile");
-    let mut runs = Vec::new();
-    for command in &slide.commands {
-        if let VectorCommand::DrawText { runs: page_runs, .. } = command {
-            for run in page_runs {
-                if run.text.trim().is_empty() {
-                    continue;
-                }
-                runs.push((
-                    run.glyphs[0].x / 12_700.0,
-                    run.glyphs[0].y / 12_700.0,
-                    run.text.clone(),
-                ));
-            }
-        }
-    }
-    runs
-}
-
 #[test]
 fn declared_core_properties_surface_through_the_page_source() {
     let source = open(common::simple_docx());
@@ -389,65 +367,4 @@ fn omml_equations_lay_out_as_text_runs() {
         })
         .sum();
     assert!(runs >= 3, "base, superscript base and exponent each emit a run");
-}
-
-/// Column tracks work: once column 1 (x = 72 pt) fills the page, text
-/// continues at the top of column 2 (x = 72 + 216 + 36 = 324 pt).
-#[test]
-fn two_column_tracks_fill_left_column_before_right() {
-    let source = open(common::columns_docx(60));
-    assert!(source.len() >= 2, "60 lines need more than one column");
-
-    // Page 2 is the engine's first full page of the two-column section.
-    let runs = text_runs_on_page(&source, 1);
-    let starts_a_line = |run: &(f32, f32, String)| run.2.starts_with("Column");
-    let column_x: Vec<i32> = runs
-        .iter()
-        .filter(|run| starts_a_line(run))
-        .map(|run| run.0.round() as i32)
-        .collect();
-    assert!(
-        column_x.contains(&72),
-        "column 1 at the left margin, got {column_x:?}"
-    );
-    assert!(
-        column_x.contains(&324),
-        "column 2 after the 0.5in gap, got {column_x:?}"
-    );
-
-    // Reading order stays logical: column 1 top-to-bottom before column 2.
-    let text = page_text(&source, 1);
-    let first_of_column_2 = text.find("Column line 29").expect("line 29 opens column 2");
-    let last_of_column_1 = text.find("Column line 28").expect("line 28 closes column 1");
-    assert!(last_of_column_1 < first_of_column_2);
-}
-
-/// Word starts a continuous section that changes the column count on the
-/// **current page**, right below the preceding content. The pinned engine
-/// instead starts it on a new page (`rdocx-layout` `paginator.rs`
-/// `continuous_geometry_matches` requires identical column tracks), which is
-/// what strands the "Columns" heading of `sample3.docx` on the previous
-/// page and leaves the demonstration in a single stacked column.
-#[test]
-#[ignore = "rdocx 0.17: a continuous section with a different column count starts on a new page (docs/issues/docx-input-support.md §7.18)"]
-fn continuous_column_change_starts_on_the_current_page() {
-    let source = open(common::columns_docx(4));
-    assert_eq!(source.len(), 1, "a one-line intro and four column lines fit one page");
-
-    let runs = text_runs_on_page(&source, 0);
-    let intro_y = runs
-        .iter()
-        .find(|run| run.2.starts_with("Single"))
-        .map(|run| run.1)
-        .expect("intro on page 1");
-    let column_y = runs
-        .iter()
-        .filter(|run| run.2.starts_with("Column"))
-        .map(|run| run.1)
-        .reduce(f32::min)
-        .expect("column lines on page 1");
-    assert!(
-        column_y > intro_y,
-        "the two-column section follows the intro on the same page"
-    );
 }

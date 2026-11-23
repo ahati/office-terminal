@@ -123,7 +123,7 @@ The implementation uses `rdocx` 0.17.x and `oxml-layout` 0.15.x:
 - `rdocx-oxml`: Strongly typed OPC and WordprocessingML DOM.
 - `oxml-layout`: Backend-agnostic pagination engine producing `oxml_layout::PageFrame`.
 - Isolated in a dedicated crate (`crates/office-terminal-docx`).
-- Pinned in workspace `Cargo.toml`.
+- Pinned in workspace `Cargo.toml`. `rdocx-layout` 0.17.0 itself is consumed from a local patched copy (`crates/rdocx-layout`, via `[patch.crates-io]`) that carries `crates/patches/0009` — continuous sections with different columns stay on the page — until an upstream release includes the fix (`crates/VENDORED.md`).
 - CLI compilation gated behind `[features] docx = ["dep:office-terminal-docx"]` to allow fast PPTX-only development builds.
 
 ### 3.3 Engine Abstraction Trait (`DocxEngine`)
@@ -379,7 +379,7 @@ Conforming to [PRD 02d: Fidelity Policy](./02d-element-renderers-and-fidelity-po
 | Footnotes & Endnotes | **FULL** | Positioned at bottom of page frame above footer with separator rule. |
 | Shapes & Textboxes (DrawingML) | **FULL / DEGRADED** | Geometric shapes mapped to `DrawPath`. Complex 3D effects flattened to 2D approximation + `WarningEvent`. |
 | Section Page Size/Orientation Changes | **FULL** | Dynamic page dimensions passed directly to `VectorSlide`. |
-| Multi-column sections (`w:cols`) | **DEGRADED** | Column tracks flow left-to-right and the search corpus reads column by column (tables stay row-major via the structure tree). Known engine gap: a *continuous* section that changes the column count starts on a new page instead of under the preceding content, and columns are never balanced (issue #40 §7.18). |
+| Multi-column sections (`w:cols`) | **FULL / DEGRADED** | Column tracks (equal or explicit widths) flow left-to-right and across pages; a continuous section that changes the column count or margins starts a new body band **on the current page** (vendored engine patch `crates/patches/0009`); `w:sep` draws the rule between tracks; the search corpus reads column by column (tables stay row-major via the structure tree). **Degraded:** columns are not balanced when a section ends mid-page (Word splits evenly) and `w:br w:type="column"` is not modelled (issue #40 §7.18). |
 | List labels in the search corpus | **FULL** | Unattributed label runs (`1.`, `•`) attach to their item line, so `dump`/search read `1. Headings`. |
 | `w:docGrid` with `w:spacing lineRule="auto"` | **DEGRADED** | Known `rdocx` pitch divergence; renders with standard font line height. Emits diagnostic warning. |
 | Embedded Charts (ChartML) | **DEGRADED** | Fallback to cached chart image part if present; otherwise placeholder box + warning. |
