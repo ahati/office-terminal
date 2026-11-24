@@ -15,6 +15,8 @@ pub type EmuRect = RectF32;
 pub enum SourceFormat {
     Pptx,
     Pdf,
+    /// WordprocessingML package (`.docx` / `.dotx` / `.docm`).
+    Docx,
 }
 
 /// A Table of Contents or PDF outline entry.
@@ -23,6 +25,19 @@ pub struct TocEntry {
     pub title: String,
     pub page_index: usize,
     pub level: usize,
+}
+
+/// Document-level metadata a paged document declares about itself
+/// (`docProps/core.xml` for WordprocessingML, the document info dictionary
+/// for PDF). Every field is optional; consumers print what is present.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DocumentMetadata {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub keywords: Option<String>,
+    /// Creator application.
+    pub creator: Option<String>,
 }
 
 /// An extracted line of text with its bounding box on the page.
@@ -114,6 +129,13 @@ pub trait PageSource: Send + Sync {
         None
     }
 
+    /// Document-level metadata (title, author, …), when the document
+    /// declares any. Rides on the page source so the type-erased
+    /// `DeckSource` arms can surface it without knowing the engine.
+    fn metadata(&self) -> Option<DocumentMetadata> {
+        None
+    }
+
     /// Extracted text corpus for in-document search and indexing.
     fn search_corpus(&self) -> Arc<dyn SearchCorpus> {
         Arc::new(EmptySearchCorpus)
@@ -129,4 +151,8 @@ pub trait PageSource: Send + Sync {
 pub enum DeckSource {
     Pptx(pptx_model::Presentation, Arc<dyn AssetStore>),
     Pdf(Arc<dyn PageSource>),
+    /// WordprocessingML document opened through a registered DOCX engine
+    /// (PRD 15). Carries the same page-source surface as [`DeckSource::Pdf`]
+    /// so reader mode, search, thumbnails and export treat both identically.
+    Docx(Arc<dyn PageSource>),
 }

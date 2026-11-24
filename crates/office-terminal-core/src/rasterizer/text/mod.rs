@@ -8,6 +8,7 @@ use fontdb::{
 };
 mod affine;
 mod decorations;
+mod document;
 mod reflection;
 mod straight;
 mod warp;
@@ -95,6 +96,16 @@ pub(crate) fn render_single_run(
     swash_cache: &mut SwashCache,
 ) {
     if run.text.is_empty() {
+        return;
+    }
+
+    // Exact-face path (PRD 15 §7.8): a run shaped by a document engine
+    // carries glyph IDs valid only for its registered face bytes. Paint the
+    // outlines by ID through the element transform before any family-based
+    // path; an unresolvable handle falls through to re-shaping.
+    if run.face.is_some()
+        && document::render_document_run(pixmap, run, transform, scale, offset_x, offset_y)
+    {
         return;
     }
 
@@ -406,6 +417,7 @@ mod tests {
             glyphs,
             decorations: Default::default(),
             single_face: false,
+            face: None,
             warp: None,
             reflection: None,
         }

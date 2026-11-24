@@ -111,7 +111,7 @@ pub(super) fn render_affine_run(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn paint_affine_bar(
+pub(super) fn paint_affine_bar(
     pixmap: &mut tiny_skia::Pixmap,
     run: &PositionedGlyphRun,
     transform: &AffineTransform,

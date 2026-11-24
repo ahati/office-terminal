@@ -801,9 +801,11 @@ impl SearchCorpus for DocxSearchCorpus {
 Build strategy:
 
 1. Walk each page's `Text` / `MultilingualText` elements (including groups).
-2. Group runs into visual lines:
-   - Primary: group by `GlyphRun.source.node` (source paragraph/cell) when available; sort by `source.char_start`; concatenate the exact source text. This preserves logical order for tables, columns, and RTL.
-   - Fallback: group by baseline `y` within a tolerance (e.g., 0.5 pt), sort by `x`.
+2. Group runs into visual lines and order them (`search_order.rs`):
+   - Primary: group by `GlyphRun.source.node` (source paragraph/cell) when available, one line per baseline band (a wrapped paragraph spans several), runs sorted by `source.char_start` so logical order survives RTL.
+   - Runs **without** a source node (list labels such as `1.` / `•`, field results) attach to the nearest attributed line on the same baseline when within 2.5 font sizes of it, so `1. Headings` reads as one line; otherwise they form their own line sorted by `x`.
+   - Page order: the engine's logical structure tree (`LayoutResult.structure`, carried on each `MarkedContent`) marks lines below a `Table`/`TableRow`/`TableCell` role; those stay row-major `(y, x)`. Body lines are cut into strips by wide lines (≥ 60 % of the page width) and table lines; inside a strip, text forming two or more horizontally disjoint bands (gap ≥ 24 pt — Word's default column gap is 36 pt, a cell margin gap ≈ 11 pt) reads band by band (column-major), else top-down left-to-right.
+   - **Found with `sample3.docx`:** the first implementation ordered nodes by first-run `(y, x)` only, which read a two-column section row by row and trailed every list label at the end of the page.
 3. Insert a space when the horizontal gap between adjacent runs exceeds a small fraction of the font size and neither side already has whitespace.
 4. Compute the line rect as the union of run bounds (`origin`, advances, font size).
 5. Skip hidden/generated-empty runs; keep field results (page numbers) because they are visible text.
@@ -881,10 +883,15 @@ pub enum DocxError {
     Encrypted,
     #[error("resource limit exceeded: {0}")]
     ResourceLimit(Box<ResourceViolation>),
-    #[error("unsupported document feature: {0}")]
-    Unsupported(&'static str),
+    /// Caught third-party panic (adopted below; see "Defensive handling").
+    #[error("DOCX layout engine panicked: {0}")]
+    LayoutEnginePanic(String),
 }
 ```
+
+As shipped. The first draft also listed `Unsupported(&'static str)`; it was
+dropped because every unsupported construct degrades to a warning or
+placeholder per §7.19, so no code path ever produced it.
 
 Mapping:
 
@@ -976,7 +983,8 @@ Licensing: `rdocx` is MIT (`LICENSE`; Cargo metadata `MIT OR Apache-2.0`), compa
 | Group opacity / linear opacity masks | Low–medium | Approximate with warning; future IR commands. |
 | Variable font axes / synthetic bold+italic | Medium | Exact-face default instance + warning; extend `DocumentFace`/raster cache. |
 | EMF/WMF pictures | Medium | Convert through the existing metafile engine or placeholder. |
-| Internal bookmark hyperlinks | Low | `bookmark_page` mapping; drop unresolved with warning. |
+| Internal bookmark hyperlinks | Low–medium | **Confirmed during implementation**: `rdocx` 0.17 projects external relationship hyperlinks as `LinkAnnotation` elements but not `w:anchor` internal links, so the bridge's `bookmark_page` resolution currently has no annotation to consume (bridge code and tests are in place for the day the engine projects them). External links resolve and sanitize correctly. |
+| Multi-column sections (`w:cols`) | **Low** (was Medium) | **Confirmed with `sample3.docx`** and fixed locally. Column tracks themselves work (text flows down column 1, then column 2, then the next page) and the corpus reads column by column. Upstream `rdocx-layout` `paginator.rs` grouped a *continuous* section onto the current page only when `continuous_geometry_matches` — identical column tracks **and** margins — and fixes a page's tracks from the first member that places content, so a continuous section that changed the column count **started on a new page** (Word: same page, under the preceding content; `sample3.docx` is 2 pages in Word). Carried as `crates/patches/0009` on the vendored engine (`Pager::begin_band`: a member switch on a page with content starts a new body band with the member's tracks and the remaining height; grouping now requires only the same page size and rotation, the member's margins applying from its next page). Engine suite 421/422 green. **Still open:** columns are never balanced when a section ends mid-page (Word splits 8 lines 4 / 4; the engine fills column 1 first), and column breaks (`<w:br w:type="column"/>`) are not modelled ("F-269 does not model it"). Both are `#[ignore]`d tests in `engine_roundtrip_tests.rs`; upstream PR to follow. |
 | Comments/margin annotations | Low | Out of scope for rendering; `dump` only. |
 | Tracked changes | Low | Engine supports accepted/tracked; CLI option optional. |
 | Vertical text / East Asian specifics | Unknown | rdocx has coverage; test with fixtures. Do not assume parity. |

@@ -60,6 +60,48 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
             let mb = stats.cached_bytes as f64 / (1024.0 * 1024.0);
             println!("Media Assets:   {} images ({:.1} MB)", count, mb);
         }
+        DeckSource::Docx(docx_source) => {
+            println!("Format:         WordprocessingML (ECMA-376)");
+            let total = docx_source.len();
+            println!("Pages:          {} pages", total);
+            if total > 0 {
+                let (w_emu, h_emu) = docx_source.page_size_emu(0);
+                let pt_w = w_emu as f64 / f64::from(EMU_PER_PT);
+                let pt_h = h_emu as f64 / f64::from(EMU_PER_PT);
+                let orientation = if pt_w > pt_h { "Landscape" } else { "Portrait" };
+                println!(
+                    "Dimensions:     {:.1} x {:.1} pt ({:.0} x {:.0} mm, {}, {})",
+                    pt_w,
+                    pt_h,
+                    pt_w * 25.4 / 72.0,
+                    pt_h * 25.4 / 72.0,
+                    paper_size_name(pt_w, pt_h),
+                    orientation
+                );
+                let ratio_str = format_aspect_ratio(w_emu, h_emu);
+                println!("Aspect Ratio:   {}", ratio_str);
+            }
+            let toc = docx_source.toc();
+            if !toc.is_empty() {
+                println!("TOC Entries:    {} headings", toc.len());
+            }
+            if let Some(store) = docx_source.asset_store() {
+                let count = store.entry_count();
+                let mb = store.raw_bytes_total() as f64 / (1024.0 * 1024.0);
+                println!("Media Assets:   {} images ({:.1} MB)", count, mb);
+            }
+            if let Some(meta) = docx_source.metadata() {
+                if let Some(title) = meta.title {
+                    println!("Title:          {title}");
+                }
+                if let Some(author) = meta.author {
+                    println!("Author:         {author}");
+                }
+                if let Some(subject) = meta.subject {
+                    println!("Subject:        {subject}");
+                }
+            }
+        }
         DeckSource::Pdf(pdf_source) => {
             let total = pdf_source.len();
             println!("Pages:          {} pages", total);
@@ -116,6 +158,26 @@ fn print_terminal_geometry() {
     }
 }
 
+/// Recognized paper sizes (pt) within a 1 pt tolerance, in either
+/// orientation; anything else is reported by its explicit dimensions.
+fn paper_size_name(pt_w: f64, pt_h: f64) -> &'static str {
+    const KNOWN: &[(&str, f64, f64)] = &[
+        ("Letter", 612.0, 792.0),
+        ("A4", 595.0, 842.0),
+        ("Legal", 612.0, 1008.0),
+        ("Executive", 522.0, 756.0),
+        ("A5", 420.0, 595.0),
+        ("Tabloid", 792.0, 1224.0),
+    ];
+    let near = |a: f64, b: f64| (a - b).abs() <= 1.0;
+    for (name, w, h) in KNOWN {
+        if (near(pt_w, *w) && near(pt_h, *h)) || (near(pt_w, *h) && near(pt_h, *w)) {
+            return name;
+        }
+    }
+    "custom"
+}
+
 fn format_aspect_ratio(w: i64, h: i64) -> String {
     if h == 0 {
         return "0:0".to_string();
@@ -137,5 +199,23 @@ fn format_aspect_ratio(w: i64, h: i64) -> String {
         } else {
             format!("{:.2}:1", ratio)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paper_sizes_match_in_either_orientation_within_tolerance() {
+        assert_eq!(paper_size_name(612.0, 792.0), "Letter");
+        assert_eq!(paper_size_name(792.0, 612.0), "Letter");
+        // A4 is 595.28 x 841.89 pt in exact metric points.
+        assert_eq!(paper_size_name(595.28, 841.89), "A4");
+        assert_eq!(paper_size_name(841.89, 595.28), "A4");
+        assert_eq!(paper_size_name(612.0, 1008.0), "Legal");
+        assert_eq!(paper_size_name(500.0, 700.0), "custom");
+        // More than a point off is no longer the named size.
+        assert_eq!(paper_size_name(614.0, 792.0), "custom");
     }
 }

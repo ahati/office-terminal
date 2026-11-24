@@ -41,6 +41,8 @@ kitty-pptx/
 └── crates/
     ├── office-terminal-core/            # Vector IR, compiler, rasterizer, SVG exporter
     ├── office-terminal-display/         # Terminal graphics drivers, probe, cell mapper
+    ├── office-terminal-pdf/             # PDF document engine (PageSource adapter)
+    ├── office-terminal-docx/            # Word document engine (rdocx-backed PageSource)
     ├── office-terminal-tui/             # Interactive Ratatui presenter application
     ├── office-terminal-cli/             # Command-line interface & subcommands
     ├── pptx-parser/                # (Vendored) Low-level OOXML PPTX parser
@@ -55,6 +57,8 @@ kitty-pptx/
 | :--- | :--- |
 | **`office-terminal-core`** | **Display List & Render Core**: Defines `VectorSlide`, `DrawCommand`, `GeometryPath`, `Paint`, and `TextRun`. Compiles `pptx-model` slides into vector display lists. Rasterizes via `tiny-skia` into RGBA framebuffers. Exports native standalone SVG. Manages embedded media asset extraction (`AssetStore`). |
 | **`office-terminal-display`** | **Kitty Graphics Driver**: Implements the `TerminalGraphicsDriver` trait for the Kitty graphics protocol, probes for Kitty support via environment variables and the active graphics query, computes cell-to-pixel aspect ratios, and handles cleanup. |
+| **`office-terminal-pdf`** | **PDF Document Engine**: Parses and renders PDF input through a `PageSource` adapter (native raster path, vector bridge groundwork), page labels, outlines and the reading-order search corpus. |
+| **`office-terminal-docx`** | **Word Document Engine**: Paginates WordprocessingML packages through the pinned `rdocx`/`oxml-layout` backend behind a `DocxEngine` trait, bridges positioned page frames into `VectorSlide` with exact-face glyph painting, media/metafile routing, search corpus and hyperlinks. |
 | **`office-terminal-tui`** | **Interactive Presenter**: Ratatui-based TUI state machine (`PresenterApp`, `PresenterMode`). Handles keyboard navigation (Space/Enter/Arrows, 'p' presenter toggle, 't' thumbnail grid, 'b' blank screen). Manages slide timer, notes, and aspect-ratio-preserving layout widgets. |
 | **`office-terminal-cli`** | **CLI Entrypoint**: Implements commands via `clap`: `view`, `present`, `export` (SVG/PNG), `dump` (JSON/AST), and `info`. Loads configuration and coordinates pipeline execution. |
 | **Vendored Crates** | **Upstream Parser Stack**: `pptx-parser`, `pptx-model`, `ooxml-common`. Kept pristine in `crates/` to provide robust, spec-compliant PPTX parsing without network dependencies. Any essential fixes must be tracked in `crates/patches/` and recorded in `crates/VENDORED.md`. |
@@ -99,6 +103,7 @@ All agents and contributors must strictly follow these engineering conventions:
 ### E. Vendored Crates Policy & Licensing
 - The crates `pptx-parser`, `pptx-model`, and `ooxml-common` are vendored from upstream.
 - **Do not make ad-hoc edits** to files in these directories unless creating a documented patch in `crates/patches/`.
+- Locally patched crates.io dependencies (`[patch.crates-io]`): the `metafile-*` playback crates and the DOCX layout engine `rdocx-layout` (`crates/rdocx-layout`, carrying `crates/patches/0009`). They are pristine package copies plus numbered patches, excluded from workspace lints/tests, and must be dropped from the tree and the `[patch]` section as soon as an upstream release carries the fix.
 - Pinned dependency note: `zip = "=9.0.4"` is required in workspace `Cargo.toml` to guarantee compatibility with `ooxml-common` NTFS extra-field parsing tests.
 - **Licensing Notice**: This project is licensed under the **MIT License**. All upstream and vendored components carry their own respective licenses and copyright notices from their upstream authors, as tracked in `crates/VENDORED.md`.
 

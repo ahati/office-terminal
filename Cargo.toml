@@ -7,6 +7,7 @@ members = [
     "crates/office-terminal-core",
     "crates/office-terminal-display",
     "crates/office-terminal-pdf",
+    "crates/office-terminal-docx",
     "crates/office-terminal-tui",
     "crates/office-terminal-cli",
 ]
@@ -14,12 +15,15 @@ members = [
 # consumed from crates.io; these two are overridden via [patch.crates-io]
 # because they carry crop-clamping fixes (crates/patches/0003). Excluded from
 # workspace lints/tests so upstream code is not held to first-party rules.
+# `crates/rdocx-layout` is the pinned DOCX layout engine carrying the
+# continuous-column band fix (crates/patches/0009); same exclusion rule.
 exclude = [
     "crates/metafile-core",
     "crates/metafile-dib",
     "crates/metafile-emf",
     "crates/metafile-emfplus",
     "crates/metafile-wmf",
+    "crates/rdocx-layout",
     "fuzz",
 ]
 default-members = ["crates/office-terminal-cli"]
@@ -57,6 +61,7 @@ pptx-parser = { path = "crates/pptx-parser", default-features = false }
 office-terminal-core = { path = "crates/office-terminal-core" }
 office-terminal-display = { path = "crates/office-terminal-display" }
 office-terminal-pdf = { path = "crates/office-terminal-pdf" }
+office-terminal-docx = { path = "crates/office-terminal-docx" }
 office-terminal-tui = { path = "crates/office-terminal-tui" }
 
 # PDF engine dependencies (PRD 14)
@@ -64,6 +69,13 @@ hayro = "=0.9.0"
 hayro-syntax = "=0.9.0"
 hayro-interpret = "=0.9.0"
 hayro-svg = "=0.9.0"
+
+# DOCX engine dependencies (PRD 15, issue #40 §6): `rdocx` is pre-1.0, so
+# every crate is pinned exactly and upgrades re-run the golden tests.
+rdocx = { version = "=0.17.0", default-features = false }
+rdocx-layout = { version = "=0.17.0", default-features = false }
+oxml-layout = "=0.15.0"
+oxml-opc = "=0.15.0"
 
 # Shared utility & display dependencies
 thiserror = "2"
@@ -92,6 +104,10 @@ metafile-dib = { path = "crates/metafile-dib" }
 metafile-emf = { path = "crates/metafile-emf" }
 metafile-emfplus = { path = "crates/metafile-emfplus" }
 metafile-wmf = { path = "crates/metafile-wmf" }
+
+# DOCX layout engine 0.17.0 with the continuous-column band fix (PRD 15 §9,
+# crates/patches/0009). Drop once an rdocx release carries the fix upstream.
+rdocx-layout = { path = "crates/rdocx-layout" }
 
 [profile.dev]
 opt-level = 3

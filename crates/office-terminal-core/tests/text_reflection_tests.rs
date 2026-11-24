@@ -44,6 +44,7 @@ fn make_text_slide(refl: Option<VectorReflection>) -> VectorSlide {
             glyphs,
             decorations: TextDecorations::default(),
             single_face: false,
+            face: None,
             warp: None,
             reflection: refl,
         }],

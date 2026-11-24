@@ -87,6 +87,14 @@ pub struct PositionedGlyphRun {
     /// placeholder and error cards), runs cosmic shaped across fallback
     /// faces, missing families, and metafile ids overwritten from the record.
     pub single_face: bool,
+    /// Exact externally supplied face for these glyph IDs (PRD 15 §7.8).
+    /// Document engines shape with their own font stack and emit ids that
+    /// are only valid for the face they used; this handle lets the raster
+    /// and SVG backends paint the ids from the registered raw bytes instead
+    /// of re-resolving (and possibly mis-resolving) by family name.
+    /// `Some(..)` takes precedence over [`Self::single_face`]; `None` keeps
+    /// the family-resolution paths.
+    pub face: Option<crate::text::document_faces::DocumentFaceId>,
     /// Present when this run is mapped by a WordArt envelope.
     pub warp: Option<std::sync::Arc<RunWarp>>,
     /// Authored run-level reflection effect (`a:rPr/a:effectLst/a:reflection`).

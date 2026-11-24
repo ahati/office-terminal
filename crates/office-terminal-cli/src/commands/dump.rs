@@ -48,8 +48,11 @@ pub fn run_dump(
             json,
             embed_bitmaps,
         ),
-        DeckSource::Pdf(pdf_source) => dump_pdf(
-            pdf_source,
+        // Both document sources share the corpus-based paged dump; DOCX has
+        // no speaker notes or rendered comments, exactly like PDF
+        // (issue #40 §7.12).
+        DeckSource::Pdf(page_source) | DeckSource::Docx(page_source) => dump_paged(
+            page_source,
             notes,
             comments,
             markdown,
@@ -203,15 +206,15 @@ fn dump_pptx(
     ExitCode::SUCCESS
 }
 
-fn dump_pdf(
-    pdf_source: Arc<dyn PageSource>,
+fn dump_paged(
+    page_source: Arc<dyn PageSource>,
     notes: bool,
     comments: bool,
     markdown: bool,
     json: bool,
 ) -> ExitCode {
     let any_flag = notes || comments || markdown || json;
-    let total = pdf_source.len();
+    let total = page_source.len();
     if !any_flag {
         println!(
             "Document has {} pages. Use --notes, --comments, --markdown, or --json.",
@@ -222,20 +225,20 @@ fn dump_pdf(
 
     if notes {
         for i in 0..total {
-            println!("--- Slide {} Notes ---", i + 1);
+            println!("--- Page {} Notes ---", i + 1);
             println!("(No notes)");
         }
     }
 
     if comments {
         for i in 0..total {
-            println!("--- Slide {} Comments ---", i + 1);
+            println!("--- Page {} Comments ---", i + 1);
             println!("(No comments)");
         }
     }
 
     if markdown {
-        let corpus = pdf_source.search_corpus();
+        let corpus = page_source.search_corpus();
         for i in 0..total {
             println!("# Page {}\n", i + 1);
             for line in corpus.page_text(i) {
@@ -246,7 +249,7 @@ fn dump_pdf(
     }
 
     if json {
-        let corpus = pdf_source.search_corpus();
+        let corpus = page_source.search_corpus();
         let mut pages = Vec::with_capacity(total);
         for i in 0..total {
             let lines: Vec<String> = corpus.page_text(i).iter().map(|l| l.text.clone()).collect();

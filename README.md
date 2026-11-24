@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![MSRV: 1.75](https://img.shields.io/badge/MSRV-1.75-orange.svg)](#prerequisites)
 
-> **kitty-pptx-pdf-reader**: High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`) and PDF documents.
+> **kitty-pptx-pdf-reader**: High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`), PDF documents and Word documents (`.docx`).
 
 **Office Terminal** (`ot`, also accessible as `office-terminal`) renders presentations and documents directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, visual slide sorting, and headless SVG/PNG export.
 
@@ -31,7 +31,7 @@
 
 ## What to Expect
 
-- **Native Terminal Presentation**: Present `.pptx` slide decks and PDF documents directly from the command line without opening a heavy office suite.
+- **Native Terminal Presentation**: Present `.pptx` slide decks, read `.pdf` and `.docx` documents directly from the command line without opening a heavy office suite.
 - **Hardware-Accelerated Terminal Graphics**: Uses the Kitty Graphics Protocol with PNG transmission and direct cursor placement for full-resolution slides.
 - **Kitty-Only Display**: Startup fails with a clear error when the terminal does not implement the Kitty graphics protocol. There is no Sixel, iTerm2, or half-block fallback.
 - **Interactive TUI Presenter**:
@@ -41,6 +41,7 @@
   - **Document Reader Mode**: Multi-page side-by-side spread and continuous scroll modes optimized for documents.
 - **Headless Vector & Raster Export**: Batch export presentations to standalone SVG (with selectable text or converted glyph outlines) and high-resolution PNG at custom DPI.
 - **Resolution-Independent Vector Pipeline**: Presentation shapes, gradients, and typography compile to an intermediate vector display list (`VectorSlide`) before rasterization, ensuring crisp rendering at any terminal size or display scale.
+- **Word Document Input**: `.docx` / `.dotx` / `.docm` packages paginate through a pure-Rust WordprocessingML layout engine and render in Reader Mode with headings outline, full-text search, and the same PNG/SVG export parity as decks and PDFs. Macros are never executed; encrypted documents are rejected with a clear error.
 
 ---
 
@@ -150,6 +151,35 @@ ot document.pdf --mode reader
 # Force presentation slide mode
 ot document.pdf --mode slides
 ```
+
+### 5b. Word Documents (DOCX)
+
+`.docx` documents open in Reader Mode by default with the heading outline
+(`t`), full-text search (`/`), continuous scrolling and zoom, and full
+export parity:
+
+```bash
+# Read a Word document (reader mode by default)
+ot report.docx
+
+# Landscape slide-style Word documents can still use slides mode
+ot slides.docx --mode slides
+
+# Headless export to vector SVG / raster PNG
+ot export report.docx --format svg -o ./output/
+
+# Reading-order text and metadata
+ot info report.docx
+ot dump report.docx --markdown
+```
+
+Supported: paragraphs, lists, tables with merges and borders, headers and
+footers with page-number fields, footnotes, images (including EMF/WMF
+vector playback; equations are laid out by the engine and painted as
+vector text), hyperlinks, and multi-section mixed page sizes. `ot info`
+reports the title/author declared in the document's core properties. Out of
+scope: editing/saving, macro execution (`.docm` renders its document body
+only), encrypted packages, and comments (neither rendered nor extracted).
 
 ### 6. Shell Completions
 

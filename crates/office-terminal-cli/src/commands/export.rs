@@ -116,7 +116,7 @@ pub fn run_export_with_options(
         DeckSource::Pptx(presentation, asset_store) => {
             Arc::new(PptxPageSource::new(Arc::new(presentation), asset_store, compiler.clone()))
         }
-        DeckSource::Pdf(pdf_source) => pdf_source,
+        DeckSource::Pdf(page_source) | DeckSource::Docx(page_source) => page_source,
     };
 
     let total = page_source.len();

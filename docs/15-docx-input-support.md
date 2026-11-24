@@ -123,28 +123,31 @@ The implementation uses `rdocx` 0.17.x and `oxml-layout` 0.15.x:
 - `rdocx-oxml`: Strongly typed OPC and WordprocessingML DOM.
 - `oxml-layout`: Backend-agnostic pagination engine producing `oxml_layout::PageFrame`.
 - Isolated in a dedicated crate (`crates/office-terminal-docx`).
-- Pinned in workspace `Cargo.toml`.
+- Pinned in workspace `Cargo.toml`. `rdocx-layout` 0.17.0 itself is consumed from a local patched copy (`crates/rdocx-layout`, via `[patch.crates-io]`) that carries `crates/patches/0009` — continuous sections with different columns stay on the page — until an upstream release includes the fix (`crates/VENDORED.md`).
 - CLI compilation gated behind `[features] docx = ["dep:office-terminal-docx"]` to allow fast PPTX-only development builds.
 
 ### 3.3 Engine Abstraction Trait (`DocxEngine`)
-All document pagination is encapsulated behind a clean trait:
+All document pagination is encapsulated behind a clean trait (the shipped form lives in `crates/office-terminal-docx/src/engine.rs`; it exposes the engine's *output*, so nothing downstream sees an `rdocx` type):
 
 ```rust
 pub trait DocxEngine: Send + Sync {
-    /// Paginate the document into structured page frames.
-    fn paginate(&self, docx_bytes: &[u8]) -> Result<Vec<Arc<oxml_layout::PageFrame>>, DocxError>;
-
-    /// Extract document-level metadata and table of contents.
-    fn table_of_contents(&self) -> Vec<TocEntry>;
-
-    /// Extract plain text search corpus indexed by page.
-    fn search_corpus(&self) -> Arc<dyn SearchCorpus>;
-
-    /// Extract embedded media assets by relationship ID.
-    fn extract_asset(&self, r_id: &str) -> Option<Arc<[u8]>>;
-
-    /// Extract raw OMML math nodes for equation typesetting.
-    fn extract_math_node(&self, math_id: &str) -> Option<ooxml_common::math::MathNode>;
+    fn page_count(&self) -> usize;
+    /// Page frame by 0-based index (`oxml_layout::PageFrame`, backend-neutral).
+    fn page(&self, index: usize) -> Option<Arc<PageFrame>>;
+    /// Font identity by the engine's font id (glyph runs reference it).
+    fn resolve_font(&self, id: FontId) -> Option<&ResolvedFont>;
+    /// Every media id referenced by positioned images (for the asset store).
+    fn media_ids(&self) -> Vec<MediaId>;
+    /// Raw media bytes by id, when the engine can supply them.
+    fn media(&self, id: MediaId) -> Option<MediaBytes>;
+    /// Heading outline entries with 0-based page indices.
+    fn outlines(&self) -> &[OutlineEntry];
+    /// 0-based physical page of a placed bookmark target (internal links).
+    fn bookmark_page(&self, name: &str) -> Option<usize>;
+    /// Rendering approximations collected during layout.
+    fn diagnostics(&self) -> &[String];
+    /// Document metadata (title, author, …), when the package declares it.
+    fn metadata(&self) -> Option<&DocumentMetadata>;
 }
 ```
 
@@ -237,18 +240,19 @@ The compilation bridge converts `oxml_layout::PageFrame` into `office-terminal-c
 | **Paragraph & Cell Borders** | `DrawPath` | Width converted to EMU stroke. Solid, dashed, dotted, double lines mapped to `VectorStroke`. |
 | **Cell Shading / Fills** | `DrawPath` | Cell boundary polygon mapped to `VectorPaint::Solid` with fill color. |
 | **Inline / Floating Image** | `DrawBitmap` | Decoded raster bytes (PNG, JPEG, WebP) wrapped in `Arc<[u8]>`. Placed via `AffineTransform`. |
-| **Embedded Metafile (EMF/WMF)** | Native Vector Expansion | Metafile bytes passed to `office_terminal_core::metafile::playback::play_metafile_record()`, emitting native `VectorCommand::DrawPath` commands. |
-| **OMML Math Equation** | `DrawText` + `DrawPath` | Routed to `office_terminal_core::compiler::math` ([PRD 09](./09-omml-equation-typesetting.md)) for native vector mathematical typesetting. |
+| **Embedded Metafile (EMF/WMF)** | Native Vector Expansion | Detected by content type (`image/x-emf`, `image/x-wmf`, …); the bridge emits a `DrawMetafile` marker keyed by the content-addressed media id, and `office_terminal_core::metafile::expand_metafiles` plays the bytes into native `VectorCommand::DrawPath` commands (format sniffed from the bytes, PRD 13). |
+| **OMML Math Equation** | `DrawText` + `DrawPath` | Laid out by the engine (§5.3); glyphs paint from the exact face handle, rules map to `DrawPath`. |
 | **Header & Footer** | `VectorCommand` sequence | Positioned at top/bottom margins. Page number fields dynamically evaluated during pagination. |
 | **Footnotes & Endnotes** | `DrawText` + `DrawPath` | Positioned at bottom of page frame above footer, separated by standard horizontal rule. |
 
-### 5.3 Live OMML Math Integration (PRD 09)
-Instead of raster fallbacks or plain text degradation, mathematical equations are typeset via `office-terminal-core`'s TeX-style equation engine:
-1. `bridge/math.rs` receives the OMML XML or parsed `MathNode` AST from `rdocx`.
-2. Invokes `office_terminal_core::compiler::math::typeset_equation()`:
-   - Uses OpenType `MATH` table metrics.
-   - Evaluates fraction bars, radical vinculums, limits, and script shifts ($0.70\times$ scale).
-3. Emits native `DrawText` (`PositionedGlyphRun`) for glyphs and `DrawPath` for rules and delimiters onto the page's `VectorSlide`.
+### 5.3 OMML Math Integration
+
+Equations are laid out by the selected engine, not by `office-terminal-core`'s TeX-style engine ([PRD 09](./09-omml-equation-typesetting.md)):
+1. `rdocx-layout` lays out `<m:oMath>` / `<m:oMathPara>` itself (its `math.rs`), because math must participate in line height, baseline and pagination decisions the engine owns.
+2. The result reaches the bridge as ordinary positioned glyph runs carrying the exact face handle (§5.5), so fractions, radicals and scripts paint from the authoritative face bytes on every backend.
+3. Rule lines (fraction bars, radical vinculums) arrive as `PositionedElement::Line`/`Path` and map to `DrawPath`.
+
+PRD 09 remains the typesetting path for PPTX OMML; routing DOCX equations through it would require re-laying out text the engine has already paginated and is deferred to the native-engine parity track (issue #40 Phase 6).
 
 ### 5.4 Native Metafile Playback Integration (PRD 13)
 When an embedded image is identified as a Windows Metafile (`image/x-emf`, `image/x-wmf`, `image/emf`, `image/wmf`):
@@ -313,17 +317,25 @@ ot export document.docx --pages 1-5 --format svg
 # 4. Document introspection
 ot info document.docx
 # Outputs:
-#   Format: WordprocessingML (ECMA-376)
-#   Pages: 14
-#   Page Dimensions: 8.5" x 11.0" (Letter, Portrait)
-#   Sections: 2
-#   TOC Entries: 8 headings
-#   Media Assets: 6 images (4 PNG, 2 EMF)
+#   File:           document.docx
+#   Format:         WordprocessingML (ECMA-376)
+#   Pages:          14 pages
+#   Dimensions:     612.0 x 792.0 pt (216 x 279 mm, Letter, Portrait)
+#   Aspect Ratio:   17:22
+#   TOC Entries:    8 headings
+#   Media Assets:   6 images (1.8 MB)
+#   Title:          Quarterly report        (only when docProps/core.xml declares it)
+#   Author:         A. Writer               (only when docProps/core.xml declares it)
+#   Subject:        …                       (only when docProps/core.xml declares it)
 
 # 5. Text & structure dump
-ot dump document.docx --format markdown > document.md
-ot dump document.docx --format text > document.txt
-ot dump document.docx --format json > ast.json
+ot dump document.docx --format markdown > document.md   # `--markdown`, one "# Page N" section per page
+ot dump document.docx --format json > ast.json         # `--json`, paged reading-order corpus
+# `--notes` / `--comments` print per-page "(No notes)" / "(No comments)" placeholders:
+# WordprocessingML has no speaker notes, and comments are intentionally not
+# rendered or extracted in v1 (issue #40 §7.11).
+# `--ast` is PPTX-only: a DOCX falls through to the paged hint
+# "Document has N pages. Use --notes, --comments, --markdown, or --json."
 ```
 
 ---
@@ -331,16 +343,21 @@ ot dump document.docx --format json > ast.json
 ## 8. Security, Resource Limits & Robustness
 
 ### 8.1 Threat Modeling & Bounds
+
+Bounds are enforced in two places: package reads pass through `oxml_opc::PackageReadLimits` inside the engine, and the engine's output is checked after layout (`DocxLimits`, issue #40 §7.14). None of them is a user-facing knob in v1; `DocxLimits` is a single struct the CLI can expose later.
+
 1. **ZIP Decompression Bombs**:
-   - Limit unpacked archive expansion ratio to at most **50:1**.
-   - Maximum decompressed size capped at **500 MB** total per document.
+    - Maximum OPC entries: **10,000**.
+    - Maximum decompressed size of a single part: **64 MiB**.
+    - Maximum total decompressed size: **512 MiB** per document.
+    - Crossing any of them is a typed `DocxError::ResourceLimit` (stage `docx-package`), never an OOM and never a "corrupt archive" misreport.
 2. **XML Entity Attacks (Billion Laughs)**:
-   - Use secure XML parsing flags disabling external DTD resolution and recursive entity expansion.
+    - Parsing is delegated to the engine's hardened XML stack; no DTD resolution and no external entities.
 3. **Deep Nested Table/Section Recursion**:
-   - Maximum XML element depth capped at **256 levels**.
+    - Bounded by the engine's own recursion limits; a panic is contained by §8.2.
 4. **Layout Loop Starvation**:
-   - Limit layout computation time to **15 seconds** per document.
-   - Limit maximum paginated page count to **1,000 pages** (configurable via `--max-pages`).
+    - **Page cap**: a document paginating past **10,000 pages** is rejected as a typed `DocxError::ResourceLimit` (stage `docx-layout`, metric `pages`). The check runs after layout, because the engine offers no mid-pagination abort; the cap bounds what the pipeline holds in memory, not layout time.
+    - **Soft deadline**: layout longer than **30 s** records a diagnostic surfaced once as `WarningEvent::ResourceLimitHit { limit: "docx-layout-deadline" }` (a resource observation, not a fidelity loss). Pagination is never killed mid-run (issue #40 §7.14).
 
 ### 8.2 Panic Boundary Isolation (`catch_unwind`)
 All pagination execution inside `rdocx`/`oxml-layout` is wrapped in `std::panic::catch_unwind`. Any unexpected panic is intercepted, logged, and translated into a typed `DocxError::LayoutEnginePanic`, guaranteeing that the interactive TUI presenter never crashes on malformed files.
@@ -357,11 +374,13 @@ Conforming to [PRD 02d: Fidelity Policy](./02d-element-renderers-and-fidelity-po
 | Complex Tables (Merged, Borders) | **FULL** | Full table grid resolution, colSpan/rowSpan cells, padding, individual border styles. |
 | Raster Images (PNG, JPEG, WebP) | **FULL** | Placed at calculated layout coordinates with aspect ratio maintained. |
 | Vector Metafiles (EMF, WMF) | **FULL** | Emitted as native vector paths via `office-terminal-core::metafile`. |
-| OMML Math Equations | **FULL** | Emitted as native vector text/paths via `office-terminal-core::compiler::math`. |
+| OMML Math Equations | **FULL** | Laid out by the engine (§5.3); glyphs painted as exact-face vector text, rules as native paths. |
 | Headers, Footers, Page Numbers | **FULL** | Resolved per section and page parity (first-page, odd/even). |
 | Footnotes & Endnotes | **FULL** | Positioned at bottom of page frame above footer with separator rule. |
 | Shapes & Textboxes (DrawingML) | **FULL / DEGRADED** | Geometric shapes mapped to `DrawPath`. Complex 3D effects flattened to 2D approximation + `WarningEvent`. |
 | Section Page Size/Orientation Changes | **FULL** | Dynamic page dimensions passed directly to `VectorSlide`. |
+| Multi-column sections (`w:cols`) | **FULL / DEGRADED** | Column tracks (equal or explicit widths) flow left-to-right and across pages; a continuous section that changes the column count or margins starts a new body band **on the current page** (vendored engine patch `crates/patches/0009`); `w:sep` draws the rule between tracks; the search corpus reads column by column (tables stay row-major via the structure tree). **Degraded:** columns are not balanced when a section ends mid-page (Word splits evenly) and `w:br w:type="column"` is not modelled (issue #40 §7.18). |
+| List labels in the search corpus | **FULL** | Unattributed label runs (`1.`, `•`) attach to their item line, so `dump`/search read `1. Headings`. |
 | `w:docGrid` with `w:spacing lineRule="auto"` | **DEGRADED** | Known `rdocx` pitch divergence; renders with standard font line height. Emits diagnostic warning. |
 | Embedded Charts (ChartML) | **DEGRADED** | Fallback to cached chart image part if present; otherwise placeholder box + warning. |
 | Tracked Changes & Comments | **DEGRADED** | Renders accepted text view; comments omitted from layout, surfaced in `ot dump --comments`. |
@@ -386,6 +405,8 @@ Conforming to [PRD 02d: Fidelity Policy](./02d-element-renderers-and-fidelity-po
 - **L1 Unit Tests**: Detection logic, EMU conversion math, style inheritance, table span calculations.
 - **L2 Scene Goldens**: Stable JSON AST snapshots of compiled `VectorSlide` structures for standard DOCX fixtures (headings, lists, 5x5 table, floating image, multi-column section, OMML math).
 - **L3 Visual Comparison**: Automated DSSIM difference threshold ($\le 0.05$) against rendered LibreOffice / Microsoft Word PDF export baselines.
+
+**Status (v1):** L1 is in place at both levels — hand-authored `PageFrame` unit tests for every bridge module, and in-process package fixtures (headings, hyperlinks, a `gridSpan`/`vMerge`/bordered/shaded table, header + footer with a `PAGE` field, an inline PNG, OMML, a continuous two-column section, declared core properties) driven through the real engine, rasterizer and SVG serializer in `engine_roundtrip_tests.rs` and `docx_cli_tests.rs`. L2 goldens and L3 visual comparison are deferred until licensed real-world fixtures are available (issue #40 §8); the shared fixture module lives in `crates/office-terminal-docx/tests/common/` and is reused by the CLI tests via `#[path]`.
 
 ---
 

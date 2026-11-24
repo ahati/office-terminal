@@ -201,6 +201,7 @@ pub(super) fn compile_text_body_warped(
                 glyphs,
                 decorations: Default::default(),
                 single_face: false,
+                face: None,
                 warp: None,
                 reflection: None,
             });
@@ -271,6 +272,7 @@ pub(super) fn compile_text_body_warped(
                             data.strike_double,
                         ),
                         single_face: false,
+                        face: None,
                         warp: None,
                         reflection: data
                             .reflection

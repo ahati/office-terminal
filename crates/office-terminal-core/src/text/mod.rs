@@ -8,6 +8,7 @@
 pub mod bidi;
 pub mod cmap;
 pub mod columns;
+pub mod document_faces;
 pub mod east_asian_default;
 mod east_asian_coverage;
 pub mod bullets;
