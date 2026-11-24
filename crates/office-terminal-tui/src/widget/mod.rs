@@ -34,6 +34,8 @@ pub struct SlideWidget {
     pub zoom: f32,
     /// Signed cell-space pan from the centered position (cols, rows).
     pub pan: (f32, f32),
+    /// Optional precomputed placement fit, avoiding duplicate layout math.
+    pub fit: Option<ZoomFit>,
 }
 
 impl Default for SlideWidget {
@@ -46,6 +48,7 @@ impl Default for SlideWidget {
             letterbox_bg: Color::Black,
             zoom: 1.0,
             pan: (0.0, 0.0),
+            fit: None,
         }
     }
 }
@@ -87,6 +90,12 @@ impl SlideWidget {
         self.pan = pan;
         self
     }
+
+    /// Precomputed zoom fit, avoiding recalculation during the render pass.
+    pub fn with_fit(mut self, fit: ZoomFit) -> Self {
+        self.fit = Some(fit);
+        self
+    }
 }
 
 impl Widget for SlideWidget {
@@ -101,14 +110,17 @@ impl Widget for &SlideWidget {
             return;
         }
 
-        let fitted = compute_zoomed_slide_fit(
-            area,
-            self.aspect_ratio,
-            self.cell_aspect_ratio,
-            self.zoom,
-            self.pan.0,
-            self.pan.1,
-        );
+        let fitted = match self.fit {
+            Some(fit) => fit,
+            None => compute_zoomed_slide_fit(
+                area,
+                self.aspect_ratio,
+                self.cell_aspect_ratio,
+                self.zoom,
+                self.pan.0,
+                self.pan.1,
+            ),
+        };
         clear_letterbox(buf, area, fitted.rect, self.letterbox_bg);
         emit_direct_canvas(buf, fitted.rect, Color::Reset);
     }

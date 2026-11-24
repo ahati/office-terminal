@@ -52,7 +52,7 @@ enum StageLookup {
 /// view owns the screen at a time: the full-screen current slide (optionally
 /// with a presenter preview) or the slide-sorter thumbnail grid.
 #[derive(Default)]
-pub(crate) struct GraphicsSyncer {
+pub struct GraphicsSyncer {
     current: SlotState,
     preview: SlotState,
     thumbnails: ThumbnailSyncer,
@@ -63,22 +63,13 @@ pub(crate) struct GraphicsSyncer {
 }
 
 impl GraphicsSyncer {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Forgets all staging/placement bookkeeping (e.g. after a teardown).
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         *self = Self::default();
-    }
-
-    /// Forgets staging/placement bookkeeping after a resize but keeps the
-    /// sorter's downscaled-card cache: the sorter target is aspect-derived, so
-    /// a resize never invalidates the cached cards.
-    pub(crate) fn reset_preserving_thumbnail_cache(&mut self) {
-        let cache = std::mem::take(&mut self.thumbnails.downscale_cache);
-        *self = Self::default();
-        self.thumbnails.downscale_cache = cache;
     }
 
     /// Synchronizes staged images and placements with the current frame.
@@ -93,7 +84,7 @@ impl GraphicsSyncer {
     /// `canvas_target` is the resolution the full-screen view is rendered
     /// at: the sorter shares those bitmaps and lets the terminal scale them
     /// into the cards, so both views show the exact same pixels.
-    pub(crate) fn sync(
+    pub fn sync(
         &mut self,
         state: &mut PresentationState,
         pipeline: &dyn RenderPipeline,
@@ -255,7 +246,7 @@ impl GraphicsSyncer {
     /// Releases all staged thumbnails (leaving the sorter). The downscaled-card
     /// cache is kept: the deck is unchanged, so re-entering the sorter restages
     /// from cache instead of re-rendering every visible slide.
-    fn release_thumbnails(
+    pub(crate) fn release_thumbnails(
         &mut self,
         driver: &mut dyn TerminalGraphicsDriver,
     ) -> Result<(), DisplayError> {

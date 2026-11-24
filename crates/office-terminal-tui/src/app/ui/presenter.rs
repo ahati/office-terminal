@@ -7,6 +7,8 @@ use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Wrap};
 use crate::app::bindings::FrameBindings;
 use crate::app::state::PresentationState;
 use crate::app::ui::{current_slide_widget, preview_slide_widget, render_render_failure_note};
+use crate::widget::layout::DEFAULT_CELL_ASPECT_RATIO;
+use crate::widget::zoom_fit::compute_zoomed_slide_fit;
 
 /// Render the split-pane presenter mode console.
 pub fn render_presenter(
@@ -34,13 +36,16 @@ pub fn render_presenter(
     let inner_slide_area = slide_block.inner(current_slide_area);
     f.render_widget(slide_block, current_slide_area);
 
-    bindings.record_current(
+    let current_fit = compute_zoomed_slide_fit(
         inner_slide_area,
         state.aspect_ratio(),
+        DEFAULT_CELL_ASPECT_RATIO,
         state.scale(),
-        state.zoom_pan(),
+        state.zoom_pan().0,
+        state.zoom_pan().1,
     );
-    let slide_widget = current_slide_widget(state);
+    bindings.record_current_fit(&current_fit, state.scale());
+    let slide_widget = current_slide_widget(state).with_fit(current_fit);
     f.render_widget(slide_widget, inner_slide_area);
     render_render_failure_note(state, f, inner_slide_area);
 
@@ -64,8 +69,16 @@ pub fn render_presenter(
     f.render_widget(preview_block, next_preview_area);
 
     if let Some(next_id) = state.next_image_id() {
-        bindings.record_preview(inner_preview_area, state.aspect_ratio());
-        let next_widget = preview_slide_widget(state, next_id);
+        let preview_fit = compute_zoomed_slide_fit(
+            inner_preview_area,
+            state.aspect_ratio(),
+            DEFAULT_CELL_ASPECT_RATIO,
+            1.0,
+            0.0,
+            0.0,
+        );
+        bindings.record_preview_fit(&preview_fit);
+        let next_widget = preview_slide_widget(state, next_id).with_fit(preview_fit);
         f.render_widget(next_widget, inner_preview_area);
     } else {
         let end_msg = Paragraph::new("End of presentation")

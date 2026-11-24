@@ -7,6 +7,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::app::bindings::FrameBindings;
 use crate::app::state::PresentationState;
 use crate::app::ui::{current_slide_widget, render_render_failure_note};
+use crate::widget::layout::DEFAULT_CELL_ASPECT_RATIO;
+use crate::widget::zoom_fit::compute_zoomed_slide_fit;
 
 /// Render the standard fullscreen presentation mode.
 pub fn render_normal(
@@ -15,31 +17,31 @@ pub fn render_normal(
     area: Rect,
     bindings: &mut FrameBindings,
 ) {
-    if !state.status_line_visible() {
-        // True fullscreen without any status line overlay
-        bindings.record_current(area, state.aspect_ratio(), state.scale(), state.zoom_pan());
-        f.render_widget(current_slide_widget(state), area);
-        render_render_failure_note(state, f, area);
-        return;
-    }
+    let canvas_area = if !state.status_line_visible() {
+        area
+    } else {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(1)])
+            .split(area);
+        render_status_bar(state, f, chunks[1]);
+        chunks[0]
+    };
 
-    // Fullscreen with minimal non-intrusive status line
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(1)])
-        .split(area);
-
-    // Slide canvas
-    bindings.record_current(
-        chunks[0],
+    let fit = compute_zoomed_slide_fit(
+        canvas_area,
         state.aspect_ratio(),
+        DEFAULT_CELL_ASPECT_RATIO,
         state.scale(),
-        state.zoom_pan(),
+        state.zoom_pan().0,
+        state.zoom_pan().1,
     );
-    f.render_widget(current_slide_widget(state), chunks[0]);
-    render_render_failure_note(state, f, chunks[0]);
+    bindings.record_current_fit(&fit, state.scale());
+    f.render_widget(current_slide_widget(state).with_fit(fit), canvas_area);
+    render_render_failure_note(state, f, canvas_area);
+}
 
-    // Status line
+fn render_status_bar(state: &PresentationState, f: &mut Frame, area: Rect) {
     let status_line = if !state.digit_buffer().is_empty() {
         Line::from(vec![
             Span::styled(
@@ -88,5 +90,5 @@ pub fn render_normal(
 
     let status = Paragraph::new(status_line)
         .block(Block::default().borders(Borders::NONE));
-    f.render_widget(status, chunks[1]);
+    f.render_widget(status, area);
 }
