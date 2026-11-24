@@ -6,6 +6,7 @@
 //! `packages/core/src/drawingml-text/`.
 
 pub mod bidi;
+mod body_layout;
 pub mod cmap;
 pub mod columns;
 pub mod document_faces;
@@ -31,6 +32,7 @@ mod decor;
 mod paint;
 mod paragraphs;
 mod slots;
+mod shrink;
 mod stacked;
 pub mod tabs;
 pub mod vertical;

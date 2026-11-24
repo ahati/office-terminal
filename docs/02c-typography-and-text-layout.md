@@ -125,5 +125,6 @@ The SVG backend supports two modes (`--svg-text <mode>`):
 ## 5. Autofit & Underlines
 
 - **Autofit**: Applies PowerPoint's precomputed `font_scale` (e.g. 0.85) and `line_spacing_reduction`. Because this scale was converged by PowerPoint at authoring time, applying it directly is correct-by-construction.
+- **Shrink-on-overflow** (ODF 1.3 Part 3 §20.358 `style:shrink-to-fit`, model `TextBody.shrink_on_overflow`): when a body asks for it and carries no stored scale, the compiler derives the largest half-percent font scale whose wrapped layout fits the frame's inner height — LibreOffice Impress' behaviour. The search (`text::shrink`) binary-searches 10 %–100 % over the shared line layout (`text::body_layout`), clamps to the 10 % floor with a `shrink_on_overflow_floor` fidelity warning when nothing fits, and never runs for DrawingML bodies (a stored `normAutofit@fontScale` wins, `spAutoFit` grows instead).
 - **Underline**: Rendered as a rule at baseline $+ \max(1.0,\, 0.1 \cdot \text{size})$. Thickness $t = \max(1.0,\, 0.05 \cdot \text{size})$.
 - **Strikethrough**: Horizontal rule across glyph advance at baseline $- 0.35 \cdot \text{size}$. Double strike draws two rules separated by $1.5 \cdot t$.

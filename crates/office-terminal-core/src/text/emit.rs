@@ -9,17 +9,18 @@ use crate::compiler::parse_hex_color;
 use crate::contracts::{AffineTransform, PositionedGlyphRun, VectorCommand, WarningEvent};
 use crate::text::bidi;
 use crate::text::bullets::MarkerBitmap;
-use crate::text::linebreak::{break_paragraph, BreakOptions, LineItem};
+use crate::text::linebreak::LineItem;
 use crate::text::measure::{StyleId, TextMeasure, WrapWords};
 use crate::text::metrics;
 use crate::text::shape;
 use crate::text::vertical::{self, VertMode};
 
+use super::body_layout;
 use super::columns;
-use super::natural_box;
 use super::paint;
 use super::preflight;
 use super::paragraphs::{self, ParagraphLayout};
+use super::shrink;
 
 /// One authored text segment's resolved styling.
 ///
@@ -137,7 +138,7 @@ pub(super) struct Measurer {
 }
 
 impl Measurer {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             styles: Vec::new(),
             index: HashMap::new(),
@@ -200,21 +201,52 @@ impl TextMeasure for Measurer {
 }
 
 pub(super) struct LineLayout {
-    para_index: usize,
+    pub(super) para_index: usize,
     pub(super) items: Vec<LineItem>,
     pub(super) width: f32,
-    ascent: f32,
-    descent: f32,
-    top_gap: f32,
-    after_gap: f32,
+    pub(super) ascent: f32,
+    pub(super) descent: f32,
+    pub(super) top_gap: f32,
+    pub(super) after_gap: f32,
     /// First-line indent the layout applied (`textXOffset`,
     /// `renderer.ts:5479`): 0 for a paragraph that carries a marker.
-    first_line_indent: f32,
+    pub(super) first_line_indent: f32,
     pub(super) first_line: bool,
     /// Last line of its paragraph (`isLastLine` in the draw loop).
     pub(super) is_last_line: bool,
     /// Closed by an authored `<a:br/>` (`line.endsWithBreak`).
     pub(super) ends_with_break: bool,
+}
+
+/// The body-level default run style every paragraph inherits when a run does
+/// not override it (`defaultTextStyle`, `renderer.ts:4985-5001`). The stored
+/// `normAutofit@fontScale` — or the derived shrink scale — is already folded
+/// into `font_scale`, so the pushed sizes are the final ones.
+pub(super) fn push_default_style(
+    measurer: &mut Measurer,
+    text_body: &pptx_model::TextBody,
+    font_scale: f32,
+    default_color: [u8; 4],
+) -> StyleId {
+    let body_size = text_body.default_font_size.unwrap_or(18.0) as f32;
+    measurer.push(StyleDef {
+        family: "Calibri".to_string(),
+        size_emu: body_size * font_scale * 12700.0,
+        size_pt: body_size * font_scale,
+        bold: text_body.default_bold.unwrap_or(false),
+        italic: text_body.default_italic.unwrap_or(false),
+        color: default_color,
+        underline: false,
+        underline_style: None,
+        underline_color: None,
+        strikethrough: false,
+        strike_double: false,
+        baseline: None,
+        letter_spacing_emu: 0.0,
+        highlight: None,
+        lang: None,
+        reflection: None,
+    })
 }
 
 /// `renderTextBody` for bodies without an `a:prstTxWarp`.
@@ -262,36 +294,18 @@ pub fn compile_text_body_with_markers(
     let r_ins = text_body.r_ins as f32;
     let t_ins = text_body.t_ins as f32;
     let b_ins = text_body.b_ins as f32;
-    let font_scale = text_body.font_scale.unwrap_or(1.0) as f32;
+    let mut font_scale = text_body.font_scale.unwrap_or(1.0) as f32;
     let reduction = text_body.ln_spc_reduction.unwrap_or(0.0) as f32;
-
-    let mut measurer = Measurer::new();
     let default_color = parse_hex_color(default_shape_text_color.unwrap_or("000000"));
-    let body_size = text_body.default_font_size.unwrap_or(18.0) as f32;
-    let default_style = measurer.push(StyleDef {
-        family: "Calibri".to_string(),
-        size_emu: body_size * font_scale * 12700.0,
-        size_pt: body_size * font_scale,
-        bold: text_body.default_bold.unwrap_or(false),
-        italic: text_body.default_italic.unwrap_or(false),
-        color: default_color,
-        underline: false,
-        underline_style: None,
-        underline_color: None,
-        strikethrough: false,
-        strike_double: false,
-        baseline: None,
-        letter_spacing_emu: 0.0,
-        highlight: None,
-        lang: None,
-        reflection: None,
-    });
 
     // `a:bodyPr@vert` dispatch (renderer.ts:5021-5035). Stacked WordArt is a
     // separate draw path in the reference; the rotated modes only swap the
     // layout box and post-multiply a frame rotation.
     let mode = VertMode::of(&text_body.vert);
     if let VertMode::Stacked { rtl } = mode {
+        let mut measurer = Measurer::new();
+        let default_style =
+            push_default_style(&mut measurer, text_body, font_scale, default_color);
         return super::stacked::compile_stacked(
             text_body,
             box_w,
@@ -320,6 +334,29 @@ pub fn compile_text_body_with_markers(
     };
     let avail_w = column_width;
 
+    // ODF `style:shrink-to-fit` (model `shrink_on_overflow`): derive the
+    // largest half-percent font scale whose wrapped layout fits the frame,
+    // LibreOffice-style. DrawingML never sets the flag — a stored
+    // `normAutofit@fontScale` (`Some`) already fixed the size, and an
+    // `spAutoFit` body grows instead of shrinking.
+    if text_body.shrink_on_overflow
+        && text_body.font_scale.is_none()
+        && text_body.auto_fit != "sp"
+    {
+        font_scale = shrink::derive_shrink_scale(
+            text_body,
+            default_color,
+            avail_w,
+            t_ins,
+            b_ins,
+            layout_h,
+            reduction,
+            warning_sink,
+        );
+    }
+
+    let mut measurer = Measurer::new();
+    let default_style = push_default_style(&mut measurer, text_body, font_scale, default_color);
     let paragraphs = paragraphs::build_paragraphs(
         text_body,
         default_style,
@@ -340,91 +377,21 @@ pub fn compile_text_body_with_markers(
             &measurer,
         );
     let do_wrap = text_body.wrap != "none" && !sp_grows;
-    let mut lines: Vec<LineLayout> = Vec::new();
-    for (p_index, para) in paragraphs.iter().enumerate() {
-        let budget = (avail_w - para.mar_l - para.mar_r).max(0.0);
-        // `firstLineIndentPxFor(hasBullet, indentPx)` (`renderer.ts:1542-1544`):
-        // a marker already owns the gutter, so it contributes no text indent.
-        let first_line_indent = if para.marker.is_some() {
-            0.0
-        } else {
-            para.indent
-        };
-        let opts = BreakOptions {
-            max_width: if do_wrap { budget } else { f32::INFINITY },
-            first_line_indent,
-            tab_stops: &para.tab_stops,
-            default_tab_size: para.tab_size,
-            east_asian_line_break: para.ea_ln_brk,
-            measurer: &measurer,
-        };
-        let broken = break_paragraph(&para.items, &opts);
-        let line_count = broken.len().max(1);
-        // A paragraph's equations are consumed by its `BreakItem::Object`s in
-        // line order, the same order the paint pass walks them in.
-        let mut math_cursor = 0usize;
-        for (line_index, line) in broken.iter().enumerate() {
-            let first_line = line_index == 0;
-            let is_last = line_index + 1 == line_count;
-            let pieces = paragraphs::line_math_pieces(line, para, &mut math_cursor);
-            let (nat_ascent, nat_descent) = natural_box::natural_box(&measurer, line, para, &pieces);
-            let (ascent, descent) = metrics::spaced_line_box(
-                nat_ascent,
-                nat_descent,
-                para.space_line,
-                12700.0,
-                reduction,
-            );
-            let natural = nat_ascent + nat_descent;
-            let mut top_gap = 0.0;
-            if first_line && (text_body.spc_first_last_para || p_index > 0) {
-                top_gap = metrics::paragraph_spacing(para.space_before, natural, 12700.0);
-            }
-            let mut after_gap = 0.0;
-            if is_last && (text_body.spc_first_last_para || p_index + 1 < paragraphs.len()) {
-                after_gap = metrics::paragraph_spacing(para.space_after, natural, 12700.0);
-            }
-            lines.push(LineLayout {
-                para_index: p_index,
-                items: line.items.clone(),
-                width: line.width,
-                ascent,
-                descent,
-                top_gap,
-                after_gap,
-                first_line_indent,
-                first_line,
-                is_last_line: is_last,
-                ends_with_break: line.ends_with_break,
-            });
-        }
-    }
-
-    let total_h: f32 = lines
-        .iter()
-        .map(|l| l.top_gap + l.ascent + l.descent + l.after_gap)
-        .sum();
-    // The final paragraph's trailing space-after cannot by itself fill a
-    // column (ECMA-376 §21.1.2.1.1 bodyPr@numCol).
-    let trailing_after = lines.last().map(|line| line.after_gap).unwrap_or(0.0);
-    let column_capacity = (layout_h - t_ins - b_ins).max(0.0);
-    let plan = columns::plan_columns(
-        lines.len(),
-        (total_h - trailing_after).max(0.0),
-        column_capacity,
+    let broken = body_layout::break_body_lines(
+        text_body,
+        &paragraphs,
+        &measurer,
+        avail_w,
+        do_wrap,
+        reduction,
+        t_ins,
+        b_ins,
+        layout_h,
         num_col,
     );
-    let mut column_heights = vec![0.0f32; plan.used_columns.max(1)];
-    for (index, line) in lines.iter().enumerate() {
-        let column = plan.line_col.get(index).copied().unwrap_or(0);
-        if let Some(height) = column_heights.get_mut(column) {
-            *height += line.top_gap + line.ascent + line.descent + line.after_gap;
-        }
-    }
-    let anchor_h = column_heights
-        .iter()
-        .copied()
-        .fold(0.0_f32, f32::max);
+    let mut lines = broken.lines;
+    let plan = broken.plan;
+    let anchor_h = broken.anchor_h;
     let mut cur_y = metrics::block_top(
         &text_body.vertical_anchor,
         0.0,
