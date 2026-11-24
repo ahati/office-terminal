@@ -8,8 +8,12 @@ The following crates in this directory are vendored from [`yukiyokotani/office-o
 | `crates/pptx-model` | `packages/pptx/model` | MIT |
 | `crates/pptx-parser` | `packages/pptx/parser` | MIT |
 
-- **Pinned Commit**: `4d6828bb85b3be58c26e83bd7f4ef025a118ead6`
-- **Vendored Date**: 2026-11-10
+- **Pinned Commit**: `2da9dd7a08eec50d58c4a3ba2b31500c52ea03dc`
+- **Vendored Date**: 2026-11-24
+- **Copy rule**: verbatim from the pinned commit; the parser package's standalone
+  `Cargo.lock` is dropped (the workspace lock governs). `pptx-model`'s
+  `examples/wire-schema.rs` is kept — upstream gates it behind the dev-only `schema`
+  feature via `required-features`, so workspace builds skip it.
 - **Policy**: Per [PRD 01](../docs/01-parser-and-data-model.md) §2.2, re-vendoring is performed deliberately, gated by the full test suite. Any local modifications must be maintained as numbered patches in `crates/patches/`.
 
 ## Applied Patches
@@ -28,6 +32,28 @@ The following crates in this directory are vendored from [`yukiyokotani/office-o
      dropped from the element list entirely, so the slide rendered without its
      image. The shared resolver already handles SVG-only blips, intrinsic PNG
      sizes and the SVG twin.
+11. `crates/patches/0011-ooxml-common-typed-resource-violation.patch`:
+   - `resource.rs` grows the owned, `pub` `ResourceViolation` with its `violation()`
+     builder, and `ResourceUsage` derives `PartialEq, Eq`. Upstream's private
+     borrowed wire struct `ResourceViolation<'a>` is renamed
+     `WireResourceViolation<'a>` to free the name; `package_session.rs` adds
+     `first_violation()` so a latched package-wide ceiling is propagated typed
+     instead of being flattened to its wire string. `office-terminal-core` and
+     `office-terminal-docx` map the violation onto their `ResourceLimit` error
+     arms.
+12. `crates/patches/0012-pptx-parser-typed-native-errors.patch`:
+   - adds `src/error.rs` (`PptxError::{Resource, Format}`), the reader-private
+     `first_violation()` accessor, and the typed entry points
+     `parse_pptx_model_native_checked` / `extract_font_checked`, so a governed
+     resource crossing surfaces as `PptxError::Resource(violation)` instead of
+     a formatted string (ref `core/src/errors/ooxml-error.ts`
+     `OoxmlResourceLimitError`). Previously carried undocumented since the
+     workspace scaffold; re-vendoring at `2da9dd7` made it a numbered patch.
+
+   Patches 11 and 12 predate the numbering regime (they landed with the typed
+   resource-limit error waves) and were re-captured as patches during the
+   2026-11-24 re-vendor; the full sequence 0001, 0002, 0006, 0011, 0012 applies
+   cleanly, in order, onto the pristine pinned tree.
 
 
 ## Metafile Playback Crates (`metafile-rs`)

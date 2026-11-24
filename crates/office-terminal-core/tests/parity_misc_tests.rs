@@ -122,6 +122,7 @@ fn text_body(text: &str) -> TextBody {
     TextBody {
         vertical_anchor: "t".to_string(),
         paragraphs: vec![paragraph(text)],
+        shrink_on_overflow: false,
         default_font_size: Some(18.0),
         default_bold: None,
         default_italic: None,

@@ -243,7 +243,9 @@ pub(super) fn parse_classic_impl(
     // bounded Office rules observed across 3/4-series stock charts, omitted
     // and explicit legacy styles, direct/noFill controls, and a substituted
     // dark-1 theme. Styles outside this observed set stay unresolved instead
-    // of receiving a guessed palette.
+    // of receiving a guessed palette; Style 48 was observed to give a
+    // different light/no-bar result and is the counterexample that keeps the
+    // set closed.
     let stock_has_decoration = stock_drop_lines.is_some()
         || stock_hi_low_lines == Some(true)
         || stock_up_down_bars == Some(true);
@@ -2501,6 +2503,7 @@ pub(super) fn parse_classic_impl(
             title: t,
             hidden: axis_is_deleted(ax),
             format_code,
+            format_divisors: None,
             number_format,
             display_units: parse_axis_display_units(ax, color_resolver),
             font_color: extract_axis_tick_label_color(ax, color_resolver)
@@ -3269,6 +3272,7 @@ pub(super) fn parse_classic_impl(
         data_label_font_language: None,
         data_label_font_baseline: None,
         val_axis_format_code,
+        val_axis_format_divisors: None,
         val_axis_number_format,
         val_axis_display_units,
         cat_axis_display_units,
@@ -3369,6 +3373,7 @@ pub(super) fn parse_classic_impl(
         val_axis_crosses,
         val_axis_crosses_at,
         cat_axis_format_code,
+        cat_axis_format_divisors: None,
         cat_axis_number_format,
         cat_axis_min,
         cat_axis_max,

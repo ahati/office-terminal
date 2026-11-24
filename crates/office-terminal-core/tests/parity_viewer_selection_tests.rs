@@ -112,6 +112,7 @@ fn text_body(paragraphs: Vec<Paragraph>) -> TextBody {
     TextBody {
         vertical_anchor: "t".to_string(),
         paragraphs,
+        shrink_on_overflow: false,
         default_font_size: Some(18.0),
         default_bold: None,
         default_italic: None,
