@@ -42,9 +42,9 @@ pub fn extract_page_links(page: &Page<'_>) -> Vec<SlideLink> {
         let target = if let Some(action) = annot.get::<Dict<'_>>(b"A") {
             let s = action.get::<Name<'_>>(b"S");
             if s.as_ref().map(|n| n.as_ref()) == Some(b"URI") {
-                action
-                    .get::<PdfString<'_>>(b"URI")
-                    .map(|u| HyperlinkTarget::ExternalUri(std::string::String::from_utf8_lossy(u.as_bytes()).into_owned()))
+                action.get::<PdfString<'_>>(b"URI").map(|u| {
+                    HyperlinkTarget::ExternalUri(std::string::String::from_utf8_lossy(u.as_bytes()).into_owned())
+                })
             } else if s.as_ref().map(|n| n.as_ref()) == Some(b"GoTo") {
                 action
                     .get::<hayro_syntax::object::Number>(b"D")

@@ -25,11 +25,7 @@ pub fn unpack(bytes: &[u8], path: &str, limits: &MetafileLimits) -> Result<Vec<u
     // mislabelled parts, and inflating a plain metafile would fail.
     let already_metafile = super::classify_bytes(bytes).is_some();
     let wrapped = is_gzip(bytes)
-        || (!already_metafile
-            && matches!(
-                classify_path(path),
-                Some(MetafileFormat::Emz | MetafileFormat::Wmz)
-            ));
+        || (!already_metafile && matches!(classify_path(path), Some(MetafileFormat::Emz | MetafileFormat::Wmz)));
     if !wrapped {
         return Ok(bytes.to_vec());
     }
@@ -45,9 +41,7 @@ pub fn unpack(bytes: &[u8], path: &str, limits: &MetafileLimits) -> Result<Vec<u
         .read_to_end(&mut out)
         .map_err(|error| MetafileError::Invalid(format!("gzip stream: {error}")))?;
     if out.len() > limit {
-        return Err(MetafileError::Limit(format!(
-            "gzip stream inflates past {limit} bytes"
-        )));
+        return Err(MetafileError::Limit(format!("gzip stream inflates past {limit} bytes")));
     }
     if out.is_empty() {
         return Err(MetafileError::Invalid("gzip stream is empty".into()));

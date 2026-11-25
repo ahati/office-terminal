@@ -77,7 +77,10 @@ impl Line {
     /// A line whose runs and mark name catalogued faces.
     pub fn named(runs: Vec<(f32, &'static str)>) -> Self {
         Self {
-            runs: runs.into_iter().map(|(size, family)| Run::named(size, family)).collect(),
+            runs: runs
+                .into_iter()
+                .map(|(size, family)| Run::named(size, family))
+                .collect(),
             mark: None,
         }
     }
@@ -234,14 +237,14 @@ impl Stack {
             .metric_runs()
             .map(|run| {
                 run.full()
-                    .or_else(|| run.family.and_then(|f| faces::power_point_face_metrics(f, false, false)))
+                    .or_else(|| {
+                        run.family
+                            .and_then(|f| faces::power_point_face_metrics(f, false, false))
+                    })
                     .unwrap_or_else(|| panic!("fontAlgn run needs a catalogued family"))
             })
             .collect();
-        let sizes: Vec<f32> = line
-            .metric_runs()
-            .map(|run| run.size * self.font_scale)
-            .collect();
+        let sizes: Vec<f32> = line.metric_runs().map(|run| run.size * self.font_scale).collect();
         let runs: Vec<AlignedRun<'_>> = sizes
             .iter()
             .zip(fulls.iter())
@@ -265,13 +268,10 @@ impl Stack {
             let boxes: Vec<(f32, faces::ExcelLineBox)> = line
                 .metric_runs()
                 .map(|run| {
-                    let full = run.full().unwrap_or_else(|| {
-                        panic!("compatLnSpc=\"0\" needs a catalogued family")
-                    });
-                    (
-                        run.size * self.font_scale,
-                        full.excel.expect("catalogued Excel box"),
-                    )
+                    let full = run
+                        .full()
+                        .unwrap_or_else(|| panic!("compatLnSpc=\"0\" needs a catalogued family"));
+                    (run.size * self.font_scale, full.excel.expect("catalogued Excel box"))
                 })
                 .collect();
             return power_point::compat_off_natural_line(&boxes);
@@ -291,13 +291,8 @@ impl Stack {
             for (l_index, line) in para.lines.iter().enumerate() {
                 let aligned = self.aligned(para, line);
                 let (nat_ascent, nat_descent) = aligned.0.unwrap_or_else(|| self.natural(line));
-                let (ascent, descent) = metrics::spaced_line_box(
-                    nat_ascent,
-                    nat_descent,
-                    para.space_line,
-                    1.0,
-                    self.reduction,
-                );
+                let (ascent, descent) =
+                    metrics::spaced_line_box(nat_ascent, nat_descent, para.space_line, 1.0, self.reduction);
                 let natural = nat_ascent + nat_descent;
                 let first = l_index == 0;
                 let last = l_index == last_line;

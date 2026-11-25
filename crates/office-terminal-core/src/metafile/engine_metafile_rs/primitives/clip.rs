@@ -19,10 +19,7 @@ pub fn map_clip(region: &mc::ClipRegion) -> (Vec<VectorPath>, Option<&'static st
     match region {
         mc::ClipRegion::Rect(rect) => {
             let rect = from_engine_rect(*rect);
-            (
-                vec![rounded_rect(rect, None)],
-                None,
-            )
+            (vec![rounded_rect(rect, None)], None)
         }
         mc::ClipRegion::Polygon(points) => {
             if points.len() < 3 {
@@ -51,11 +48,7 @@ pub fn map_clip(region: &mc::ClipRegion) -> (Vec<VectorPath>, Option<&'static st
             }
             (paths, approximation)
         }
-        mc::ClipRegion::Combine {
-            operation,
-            left,
-            right,
-        } => {
+        mc::ClipRegion::Combine { operation, left, right } => {
             if let Some(paths) = exact_combine(*operation, left, right) {
                 return (paths, None);
             }
@@ -281,11 +274,7 @@ mod tests {
     fn rect_difference_is_exact() {
         let outer = rect(0.0, 0.0, 100.0, 100.0);
         let inner = rect(25.0, 25.0, 75.0, 75.0);
-        let (paths, tag) = map_clip(&combine(
-            mc::ClipOperation::Exclude,
-            outer.clone(),
-            inner,
-        ));
+        let (paths, tag) = map_clip(&combine(mc::ClipOperation::Exclude, outer.clone(), inner));
         assert_eq!(tag, None);
         assert_eq!(paths.len(), 2, "outer clip + difference compound");
         assert_eq!(figures(&paths[0]), 1);
@@ -335,11 +324,7 @@ mod tests {
             },
             fill_mode: 2,
         };
-        let (paths, tag) = map_clip(&combine(
-            mc::ClipOperation::Union,
-            rect(0.0, 0.0, 100.0, 100.0),
-            curved,
-        ));
+        let (paths, tag) = map_clip(&combine(mc::ClipOperation::Union, rect(0.0, 0.0, 100.0, 100.0), curved));
         assert_eq!(tag, Some("metafile_clip_combine"));
         assert_eq!(paths.len(), 1);
 

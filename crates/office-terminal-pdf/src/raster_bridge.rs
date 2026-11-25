@@ -1,5 +1,3 @@
-use std::io::Cursor;
-use std::sync::Arc;
 use hayro::vello_cpu::color::palette::css::WHITE;
 use hayro::vello_cpu::Pixmap;
 use hayro::{render, PixmapSettings, RenderCache, RenderSettings};
@@ -7,9 +5,10 @@ use hayro_interpret::InterpreterSettings;
 use hayro_syntax::page::Page;
 use image::ImageEncoder;
 use office_terminal_core::{
-    AffineTransform, BitmapSampling, RgbaSlide, SlideLink, VectorBackground, VectorCommand,
-    VectorSlide, EMU_PER_PT,
+    AffineTransform, BitmapSampling, RgbaSlide, SlideLink, VectorBackground, VectorCommand, VectorSlide, EMU_PER_PT,
 };
+use std::io::Cursor;
+use std::sync::Arc;
 
 use crate::error::PdfError;
 use crate::limits::calculate_canonical_scale;

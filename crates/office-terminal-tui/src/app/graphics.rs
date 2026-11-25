@@ -1,7 +1,7 @@
 use office_terminal_core::{DisplayError, PipelineEntry, RenderPipeline, RenderTargetSpec};
 use office_terminal_display::{
-    ImageId, Placement, TerminalGraphicsDriver, CURRENT_IMAGE_ID_BASE,
-    CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE, PREVIEW_IMAGE_ID_SLOTS,
+    ImageId, Placement, TerminalGraphicsDriver, CURRENT_IMAGE_ID_BASE, CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE,
+    PREVIEW_IMAGE_ID_SLOTS,
 };
 
 use crate::app::bindings::{FrameBindings, SlidePlacement};
@@ -195,15 +195,9 @@ impl GraphicsSyncer {
 
         match preview {
             Some((slide, id, placement)) => {
-                if let StageLookup::Ready(id) = self.ensure_staged(
-                    slide,
-                    id,
-                    SlideSlot::Preview,
-                    pipeline,
-                    driver,
-                    state,
-                    canvas_target,
-                )? {
+                if let StageLookup::Ready(id) =
+                    self.ensure_staged(slide, id, SlideSlot::Preview, pipeline, driver, state, canvas_target)?
+                {
                     self.place_slot(SlideSlot::Preview, id, &placement, driver)?;
                 }
             }
@@ -234,22 +228,14 @@ impl GraphicsSyncer {
     ) -> Result<usize, DisplayError> {
         self.release_slot(SlideSlot::Current, driver)?;
         self.release_slot(SlideSlot::Preview, driver)?;
-        self.thumbnails.sync_thumbnails(
-            state,
-            pipeline,
-            driver,
-            &mut self.epochs,
-            &bindings.thumbnails,
-        )
+        self.thumbnails
+            .sync_thumbnails(state, pipeline, driver, &mut self.epochs, &bindings.thumbnails)
     }
 
     /// Releases all staged thumbnails (leaving the sorter). The downscaled-card
     /// cache is kept: the deck is unchanged, so re-entering the sorter restages
     /// from cache instead of re-rendering every visible slide.
-    pub(crate) fn release_thumbnails(
-        &mut self,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
+    pub(crate) fn release_thumbnails(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
         self.thumbnails.release_all_keep_cache(driver)
     }
 
@@ -293,8 +279,7 @@ impl GraphicsSyncer {
                     None => driver.stage(&bitmap, id)?,
                 }
                 let epoch = self.epochs.bump();
-                self.slot_mut(slot_key)
-                    .record_staged(SlotBitmap { id, ..want }, epoch);
+                self.slot_mut(slot_key).record_staged(SlotBitmap { id, ..want }, epoch);
                 Ok(StageLookup::Ready(id))
             }
             PipelineEntry::Failed { error } => {
@@ -315,9 +300,7 @@ impl GraphicsSyncer {
     /// The id of a slot bitmap that already holds exactly these pixels.
     fn staged_equivalent(&self, slot_key: SlideSlot, want: &SlotBitmap) -> Option<ImageId> {
         self.slot(slot_key).staged().and_then(|staged| {
-            (staged.page == want.page
-                && staged.width == want.width
-                && staged.height == want.height)
+            (staged.page == want.page && staged.width == want.width && staged.height == want.height)
                 .then_some(staged.id)
         })
     }
@@ -466,10 +449,7 @@ impl GraphicsSyncer {
     }
 
     /// Empty deck: nothing may remain on screen.
-    fn clear_everything(
-        &mut self,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
+    fn clear_everything(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
         if self.current.is_clear() && self.preview.is_clear() && self.thumbnails.thumbs.is_empty() {
             return Ok(());
         }

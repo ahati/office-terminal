@@ -3,8 +3,8 @@ use pptx_model::{Slide, SlideElement, TableElement, TextBody, TextRun, TextRunDa
 
 use super::slide_nav::{looks_like_slide_part, resolve_internal_slide};
 use crate::contracts::{
-    sanitize_hyperlink_url, FidelityClass, HyperlinkTarget, RectF32, SecurityError, SlideAction,
-    SlideLink, WarningEvent, EMU_PER_PT,
+    sanitize_hyperlink_url, FidelityClass, HyperlinkTarget, RectF32, SecurityError, SlideAction, SlideLink,
+    WarningEvent, EMU_PER_PT,
 };
 
 /// Extract every hyperlink reachable from a slide model into vector IR links.
@@ -12,11 +12,7 @@ use crate::contracts::{
 /// `deck` supplies the slide order needed to turn internal part-name jumps into
 /// 0-based slide indices. Pass an empty slice when no deck context exists: all
 /// external links are still extracted, internal jumps are dropped.
-pub fn extract_slide_hyperlinks(
-    slide: &Slide,
-    deck: &[Slide],
-    warning_sink: &Sender<WarningEvent>,
-) -> Vec<SlideLink> {
+pub fn extract_slide_hyperlinks(slide: &Slide, deck: &[Slide], warning_sink: &Sender<WarningEvent>) -> Vec<SlideLink> {
     let source_part = slide
         .part_name
         .as_deref()
@@ -27,12 +23,7 @@ pub fn extract_slide_hyperlinks(
     for element in &slide.elements {
         match element {
             SlideElement::Shape(shape) => {
-                let bounds = RectF32::new(
-                    shape.x as f32,
-                    shape.y as f32,
-                    shape.width as f32,
-                    shape.height as f32,
-                );
+                let bounds = RectF32::new(shape.x as f32, shape.y as f32, shape.width as f32, shape.height as f32);
                 let element_id = shape
                     .id
                     .clone()
@@ -52,12 +43,7 @@ pub fn extract_slide_hyperlinks(
 
                 if let Some(ref text_body) = shape.text_body {
                     let text_rect = shape.text_rect.as_ref().map_or(bounds, |tr| {
-                        RectF32::new(
-                            tr.x as f32,
-                            tr.y as f32,
-                            tr.width as f32,
-                            tr.height as f32,
-                        )
+                        RectF32::new(tr.x as f32, tr.y as f32, tr.width as f32, tr.height as f32)
                     });
                     collect_text_links(
                         text_body,
@@ -111,15 +97,7 @@ fn collect_table_links(
                 .unwrap_or(default_width);
             let cell_rect = RectF32::new(x, y, cell_width.max(1.0), row_height);
             if let Some(ref text_body) = cell.text_body {
-                collect_text_links(
-                    text_body,
-                    cell_rect,
-                    &element_id,
-                    source_part,
-                    deck,
-                    warning_sink,
-                    out,
-                );
+                collect_text_links(text_body, cell_rect, &element_id, source_part, deck, warning_sink, out);
             }
             x += cell_width;
         }
@@ -146,19 +124,13 @@ fn collect_text_links(
     // "AB" into one wide link; emit the per-glyph boxes the stacked painter uses.
     if text_body.vert.starts_with("wordArtVert") {
         for paragraph in &text_body.paragraphs {
-            let size = paragraph
-                .def_font_size
-                .or(text_body.default_font_size)
-                .unwrap_or(18.0) as f32
-                * scale;
+            let size = paragraph.def_font_size.or(text_body.default_font_size).unwrap_or(18.0) as f32 * scale;
             let cell = size * EMU_PER_PT * 1.2;
             for run in &paragraph.runs {
                 let TextRun::Text(data) = run else {
                     continue;
                 };
-                let Some(target) =
-                    run_hyperlink(data, source_part, deck, element_id, warning_sink)
-                else {
+                let Some(target) = run_hyperlink(data, source_part, deck, element_id, warning_sink) else {
                     continue;
                 };
                 for _ in crate::text::vertical::graphemes(&data.text) {
@@ -173,10 +145,7 @@ fn collect_text_links(
     }
 
     for paragraph in &text_body.paragraphs {
-        let default_size = paragraph
-            .def_font_size
-            .or(text_body.default_font_size)
-            .unwrap_or(18.0) as f32;
+        let default_size = paragraph.def_font_size.or(text_body.default_font_size).unwrap_or(18.0) as f32;
         let line_height = default_size * EMU_PER_PT * 1.2 * scale;
         let space_before = paragraph
             .space_before
@@ -189,26 +158,13 @@ fn collect_text_links(
         for run in &paragraph.runs {
             match run {
                 TextRun::Text(data) => {
-                    let size_pt = data
-                        .font_size
-                        .map(|size| size as f32)
-                        .unwrap_or(default_size)
-                        * scale;
+                    let size_pt = data.font_size.map(|size| size as f32).unwrap_or(default_size) * scale;
                     let size_emu = size_pt * EMU_PER_PT;
                     line_height = line_height.max(size_emu * 1.2);
                     let width = estimate_text_width(&data.text, size_emu);
 
-                    if let Some(target) = run_hyperlink(
-                        data,
-                        source_part,
-                        deck,
-                        element_id,
-                        warning_sink,
-                    ) {
-                        let rect = clamp_rect(
-                            RectF32::new(x, line_top, width.max(1.0), line_height),
-                            &clip,
-                        );
+                    if let Some(target) = run_hyperlink(data, source_part, deck, element_id, warning_sink) {
+                        let rect = clamp_rect(RectF32::new(x, line_top, width.max(1.0), line_height), &clip);
                         out.push(SlideLink::new(target, rect, None));
                     }
                     x += width;
@@ -296,14 +252,9 @@ fn classify_external_target(raw_target: &str) -> Result<Option<String>, Security
         // already enforced the shared length / control-character / scheme
         // guards before it reaches this arm.
         Err(SecurityError::UnsupportedScheme(scheme)) if scheme.eq_ignore_ascii_case("tel") => {
-            let rest = raw_target
-                .split_once(':')
-                .map(|(_, rest)| rest)
-                .unwrap_or("");
+            let rest = raw_target.split_once(':').map(|(_, rest)| rest).unwrap_or("");
             if rest.trim().is_empty() {
-                return Err(SecurityError::InvalidUri(
-                    "tel URI has no number".to_string(),
-                ));
+                return Err(SecurityError::InvalidUri("tel URI has no number".to_string()));
             }
             Ok(Some(raw_target.trim().to_string()))
         }
@@ -396,9 +347,7 @@ fn dedupe_links(links: Vec<SlideLink>) -> Vec<SlideLink> {
     let mut unique: Vec<SlideLink> = Vec::with_capacity(links.len());
     for link in links {
         if !unique.iter().any(|existing| {
-            existing.target == link.target
-                && existing.tooltip == link.tooltip
-                && existing.bounds_emu == link.bounds_emu
+            existing.target == link.target && existing.tooltip == link.tooltip && existing.bounds_emu == link.bounds_emu
         }) {
             unique.push(link);
         }
@@ -459,7 +408,12 @@ mod tests {
     #[test]
     fn external_link_is_sanitized_and_bounded() {
         let (tx, rx) = unbounded();
-        let deck = vec![slide_json(0, "ppt/slides/slide1.xml", Some(" https://example.com "), None)];
+        let deck = vec![slide_json(
+            0,
+            "ppt/slides/slide1.xml",
+            Some(" https://example.com "),
+            None,
+        )];
         let links = extract_slide_hyperlinks(&deck[0], &deck, &tx);
         assert_eq!(links.len(), 1);
         assert_eq!(
@@ -473,7 +427,12 @@ mod tests {
     #[test]
     fn forbidden_scheme_is_classified_internal_and_dropped() {
         let (tx, rx) = unbounded();
-        let deck = vec![slide_json(0, "ppt/slides/slide1.xml", Some("javascript:alert(1)"), None)];
+        let deck = vec![slide_json(
+            0,
+            "ppt/slides/slide1.xml",
+            Some("javascript:alert(1)"),
+            None,
+        )];
         let links = extract_slide_hyperlinks(&deck[0], &deck, &tx);
         // ref hyperlink.test.ts:46-52: a non-navigable scheme is INTERNAL, not
         // an external URL and not a rejection; no slide part matches it, so no
@@ -510,10 +469,7 @@ mod tests {
             Some("ppaction://hlinkshowjump?jump=endshow"),
         )];
         let links = extract_slide_hyperlinks(&deck[0], &deck, &tx);
-        assert_eq!(
-            links[0].target,
-            HyperlinkTarget::Action(SlideAction::EndShow)
-        );
+        assert_eq!(links[0].target, HyperlinkTarget::Action(SlideAction::EndShow));
     }
 
     #[test]
@@ -557,6 +513,9 @@ mod tests {
         let links = extract_slide_hyperlinks(&slide, std::slice::from_ref(&slide), &tx);
         assert_eq!(links.len(), 2, "different run bounds stay distinct");
         assert!(links[0].bounds_emu.x < links[1].bounds_emu.x);
-        assert_eq!(links[0].target, HyperlinkTarget::ExternalUri("mailto:a@example.com".into()));
+        assert_eq!(
+            links[0].target,
+            HyperlinkTarget::ExternalUri("mailto:a@example.com".into())
+        );
     }
 }

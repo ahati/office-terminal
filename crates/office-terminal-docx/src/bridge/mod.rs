@@ -19,9 +19,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::Sender;
-use office_terminal_core::contracts::{
-    AffineTransform, FidelityClass, VectorSlide, WarningEvent,
-};
+use office_terminal_core::contracts::{AffineTransform, FidelityClass, VectorSlide, WarningEvent};
 use office_terminal_core::RenderError;
 use oxml_layout::{PageFrame, PositionedElement};
 
@@ -42,10 +40,7 @@ impl BridgeContext<'_> {
     /// Emit a fidelity warning once per feature per document.
     pub(crate) fn warn_once(&self, feature: &'static str, element_id: String) {
         {
-            let mut emitted = self
-                .emitted
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut emitted = self.emitted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if !emitted.insert(feature) {
                 return;
             }
@@ -68,8 +63,7 @@ impl BridgeContext<'_> {
 pub(crate) struct BridgeState {
     /// A group-level shadow awaiting the next emitted path (issue #40
     /// §7.7.6: attach to the single path child, warn when no path consumes it).
-    pub(crate) pending_shadow:
-        Option<office_terminal_core::contracts::VectorOuterShadow>,
+    pub(crate) pending_shadow: Option<office_terminal_core::contracts::VectorOuterShadow>,
 }
 
 /// Compile one laid-out page into a resolution-independent display list.
@@ -90,9 +84,7 @@ pub fn compile_page(
         warnings,
         emitted: emitted.as_ref(),
     };
-    let mut state = BridgeState {
-        pending_shadow: None,
-    };
+    let mut state = BridgeState { pending_shadow: None };
     if let Some(background) = page.background.as_ref() {
         slide.background = page::map_background(background, &ctx);
     }
@@ -230,9 +222,7 @@ mod tests {
             1
         }
         fn page(&self, index: usize) -> Option<Arc<PageFrame>> {
-            (index == 0).then(|| {
-                Arc::new(PageFrame::new(1, 612.0, 792.0, Vec::new()))
-            })
+            (index == 0).then(|| Arc::new(PageFrame::new(1, 612.0, 792.0, Vec::new())))
         }
         fn resolve_font(&self, _id: FontId) -> Option<&ResolvedFont> {
             None
@@ -263,14 +253,7 @@ mod tests {
         let engine = FixtureEngine;
         let media = DocxAssetStore::from_engine(&engine);
         let (tx, _rx) = crossbeam_channel::unbounded();
-        let slide = compile_page(
-            &page,
-            &engine,
-            &media,
-            &tx,
-            Arc::new(Mutex::new(HashSet::new())),
-        )
-        .expect("compile");
+        let slide = compile_page(&page, &engine, &media, &tx, Arc::new(Mutex::new(HashSet::new()))).expect("compile");
         assert_eq!(slide.width_emu, 612 * 12_700);
         assert_eq!(slide.height_emu, 792 * 12_700);
     }
@@ -309,5 +292,4 @@ mod tests {
         assert_eq!(core.tx, 72.0 * 12_700.0);
         assert_eq!(core.ty, 96.0 * 12_700.0);
     }
-
 }

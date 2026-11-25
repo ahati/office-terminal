@@ -1,11 +1,11 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
-use office_terminal_core::WarningEvent;
 use crate::app::state::PresentationState;
+use office_terminal_core::WarningEvent;
 
 /// Render the fidelity warnings drawer sliding up from the bottom edge.
 pub fn render_warning_drawer(state: &PresentationState, f: &mut Frame, area: Rect) {
@@ -16,10 +16,7 @@ pub fn render_warning_drawer(state: &PresentationState, f: &mut Frame, area: Rec
     let drawer_height = 10.min(area.height.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(drawer_height),
-        ])
+        .constraints([Constraint::Min(0), Constraint::Length(drawer_height)])
         .split(area);
 
     let drawer_area = chunks[1];
@@ -113,12 +110,13 @@ pub fn render_warning_drawer(state: &PresentationState, f: &mut Frame, area: Rec
                         "MEDIA: ",
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     ));
-                    spans.push(Span::raw(format!(
-                        "Media element \"{}\" failed: {}",
-                        rel_id, reason
-                    )));
+                    spans.push(Span::raw(format!("Media element \"{}\" failed: {}", rel_id, reason)));
                 }
-                WarningEvent::FidelityDegraded { element_id, feature, class } => {
+                WarningEvent::FidelityDegraded {
+                    element_id,
+                    feature,
+                    class,
+                } => {
                     spans.push(Span::styled(
                         "FIDELITY: ",
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),

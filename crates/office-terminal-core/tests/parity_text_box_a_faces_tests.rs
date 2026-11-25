@@ -23,12 +23,10 @@
 mod support;
 
 use office_terminal_core::text::faces::{
-    face_cache_len, power_point_ascent_share, power_point_face_metrics, share_cache_len,
-    FaceMetricsFull, SHARE_CACHE_LIMIT,
+    face_cache_len, power_point_ascent_share, power_point_face_metrics, share_cache_len, FaceMetricsFull,
+    SHARE_CACHE_LIMIT,
 };
-use support::{
-    body, close_tol, compile, line_pts, para, text_face, units, Para, Stack,
-};
+use support::{body, close_tol, compile, line_pts, para, text_face, units, Para, Stack};
 
 /// Every face of the #1610 controls, its catalogued share and the exported
 /// baselines. The shares are `usWinAscent / (usWinAscent + usWinDescent)`, or
@@ -52,8 +50,8 @@ const CONTROLS: [(&str, f32, f32, [i32; 2]); 9] = [
 #[test]
 fn catalogue_shares_drive_the_compiled_baselines() {
     for (name, share, size, expected) in CONTROLS {
-        let pinned = power_point_ascent_share(name, false, false)
-            .unwrap_or_else(|| panic!("{name} must be catalogued"));
+        let pinned =
+            power_point_ascent_share(name, false, false).unwrap_or_else(|| panic!("{name} must be catalogued"));
         close_tol(pinned, share, 1e-6, name);
         // End to end: `compile_text_body` reads the catalogue, not the host.
         let paragraphs: Vec<support::ParaSpec> = (0..2)
@@ -154,10 +152,7 @@ fn substitutions_follow_power_point_for_system_only_faces() {
 fn share_cache_is_bounded() {
     for index in 0..SHARE_CACHE_LIMIT * 4 {
         let face = format!("Unresolved Face {index}");
-        assert_eq!(
-            power_point_ascent_share(&face, index % 2 == 0, index % 3 == 0),
-            None
-        );
+        assert_eq!(power_point_ascent_share(&face, index % 2 == 0, index % 3 == 0), None);
         assert!(
             share_cache_len() <= SHARE_CACHE_LIMIT,
             "share cache grew past its bound"
@@ -193,7 +188,12 @@ fn face_metrics_carry_the_glyph_excel_and_decoration_boxes() {
     close_tol(excel.descent, 434.0 / 2048.0, 1e-6, "Arial Excel descent");
     let decoration = arial.decoration.expect("Arial decoration");
     close_tol(decoration.underline_top_em, 217.0 / 2048.0, 1e-6, "underline top");
-    close_tol(decoration.underline_thickness_em, 150.0 / 2048.0, 1e-6, "underline thickness");
+    close_tol(
+        decoration.underline_thickness_em,
+        150.0 / 2048.0,
+        1e-6,
+        "underline thickness",
+    );
     close_tol(decoration.strike_top_em, -530.0 / 2048.0, 1e-6, "strike top");
     close_tol(decoration.strike_thickness_em, 102.0 / 2048.0, 1e-6, "strike size");
 
@@ -249,8 +249,8 @@ fn layout_face_metrics_matches_the_catalogue() {
 #[test]
 fn single_cut_families_resolve_through_that_cut() {
     for face in ["Yu Gothic Light", "Calibri Light", "Arial Narrow"] {
-        let resolved = power_point_ascent_share(face, false, false)
-            .or_else(|| power_point_ascent_share(face, true, false));
+        let resolved =
+            power_point_ascent_share(face, false, false).or_else(|| power_point_ascent_share(face, true, false));
         assert!(resolved.is_some(), "{face} selects a single cut");
     }
     assert_eq!(power_point_ascent_share("   ", false, false), None);

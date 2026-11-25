@@ -42,11 +42,5 @@ pub fn fill_path_with_texture(
         texture.opacity.clamp(0.0, 1.0),
         ts_transform,
     );
-    pixmap.fill_path(
-        device_path,
-        &paint,
-        fill_rule,
-        tiny_skia::Transform::identity(),
-        None,
-    );
+    pixmap.fill_path(device_path, &paint, fill_rule, tiny_skia::Transform::identity(), None);
 }

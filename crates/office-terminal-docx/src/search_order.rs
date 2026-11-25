@@ -123,10 +123,7 @@ struct Line {
 impl Line {
     fn from_runs(runs: Vec<RunCandidate>, label: Option<bool>) -> Self {
         let table = runs.iter().any(|run| run.table);
-        let slots = runs
-            .into_iter()
-            .map(|run| Slot { run, label })
-            .collect();
+        let slots = runs.into_iter().map(|run| Slot { run, label }).collect();
         Self { slots, table }
     }
 
@@ -169,10 +166,7 @@ impl Line {
 
 /// Order one page's runs into reading order and return them grouped per
 /// visual line, each line's runs already in reading order.
-pub(crate) fn reading_order(
-    candidates: Vec<RunCandidate>,
-    page_width: f64,
-) -> Vec<Vec<RunCandidate>> {
+pub(crate) fn reading_order(candidates: Vec<RunCandidate>, page_width: f64) -> Vec<Vec<RunCandidate>> {
     // 1. Attributed runs group by source node; unattributed runs wait for
     //    attachment to a line.
     let mut nodes: Vec<(u32, Vec<RunCandidate>)> = Vec::new();
@@ -227,7 +221,10 @@ pub(crate) fn reading_order(
         }
         match best {
             Some((index, _, left)) => {
-                lines[index].slots.push(Slot { run: label, label: Some(left) });
+                lines[index].slots.push(Slot {
+                    run: label,
+                    label: Some(left),
+                });
             }
             None => standalone.push(label),
         }
@@ -247,7 +244,11 @@ pub(crate) fn reading_order(
 
     // 4. Table lines and wide lines split the page into strips; body lines
     //    inside a strip read by column band when the strip has several.
-    lines.sort_by(|a, b| line_key(a).partial_cmp(&line_key(b)).unwrap_or(std::cmp::Ordering::Equal));
+    lines.sort_by(|a, b| {
+        line_key(a)
+            .partial_cmp(&line_key(b))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let wide_limit = WIDE_FRACTION * page_width;
     let mut ordered: Vec<Line> = Vec::with_capacity(lines.len());
     let mut strip: Vec<Line> = Vec::new();
@@ -267,7 +268,11 @@ pub(crate) fn reading_order(
         .into_iter()
         .map(|line| {
             let mut slots = line.slots;
-            slots.sort_by(|a, b| slot_key(a).partial_cmp(&slot_key(b)).unwrap_or(std::cmp::Ordering::Equal));
+            slots.sort_by(|a, b| {
+                slot_key(a)
+                    .partial_cmp(&slot_key(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             slots.into_iter().map(|slot| slot.run).collect()
         })
         .collect()

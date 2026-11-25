@@ -4,10 +4,7 @@ use office_terminal_core::contracts::{RenderTargetSpec, RgbaSlide};
 use office_terminal_core::pipeline::PipelineCache;
 
 fn target(width_px: u32) -> RenderTargetSpec {
-    RenderTargetSpec {
-        width_px,
-        height_px: 1,
-    }
+    RenderTargetSpec { width_px, height_px: 1 }
 }
 
 /// A 4x4 raster (64 bytes) whose first pixel identifies which target produced it.
@@ -81,10 +78,7 @@ fn best_raster_recovers_when_the_widest_frame_is_evicted() {
     cache.put_raster(1, target(320), bitmap(1));
 
     assert!(!cache.contains_raster(0, &target(960)));
-    assert_eq!(
-        cache.best_raster(0).expect("the smaller frame remains").pixels[0],
-        32
-    );
+    assert_eq!(cache.best_raster(0).expect("the smaller frame remains").pixels[0], 32);
 }
 
 #[test]

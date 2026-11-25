@@ -10,8 +10,8 @@
 
 use crate::compiler::options::ErrorPlaceholder;
 use crate::contracts::{
-    AffineTransform, EMU_PER_PX, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph,
-    PositionedGlyphRun, VectorCommand, VectorPath, VectorPaint, VectorStroke,
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun, VectorCommand,
+    VectorPaint, VectorPath, VectorStroke, EMU_PER_PX,
 };
 
 /// CSS px → pt (`1 px = 0.75 pt`), for `font_size_pt`.
@@ -99,10 +99,7 @@ pub fn compile_parse_error_card(
     let inset_y = pad_px * EMU_PER_PX;
     let border = VectorPath::new(
         vec![
-            PathSegment::MoveTo {
-                x: inset_x,
-                y: inset_y,
-            },
+            PathSegment::MoveTo { x: inset_x, y: inset_y },
             PathSegment::LineTo {
                 x: width - inset_x,
                 y: inset_y,

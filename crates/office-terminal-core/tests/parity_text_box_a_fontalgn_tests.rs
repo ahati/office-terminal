@@ -137,12 +137,7 @@ fn font_algn_sweep_matches_the_export() {
 #[test]
 fn font_algn_b_aligns_descent_midpoints_of_mixed_runs() {
     const ARIAL4: [(f32, &str); 4] = [(20.0, "Arial"), (30.0, "Arial"), (45.0, "Arial"), (60.0, "Arial")];
-    const MEI_ARIAL4: [(f32, &str); 4] = [
-        (20.0, "Meiryo"),
-        (30.0, "Arial"),
-        (45.0, "Meiryo"),
-        (60.0, "Arial"),
-    ];
+    const MEI_ARIAL4: [(f32, &str); 4] = [(20.0, "Meiryo"), (30.0, "Arial"), (45.0, "Meiryo"), (60.0, "Arial")];
     const YU3: [(f32, &str); 3] = [(20.0, "Yu Gothic"), (30.0, "Yu Gothic"), (45.0, "Yu Gothic")];
     // Two one-line paragraphs under fontAlgn b; `space` = its line spacing.
     let stack = |spec: &[(f32, &'static str)], space: SpaceLine| -> Stack {
@@ -199,10 +194,7 @@ fn font_algn_b_aligns_descent_midpoints_of_mixed_runs() {
         &stack(&YU3, spacing("pct80")).compat_off(true),
         &[61.0, 58.0, 53.0, 145.0, 142.0, 137.0],
     );
-    expect_within(
-        &stack(&YU3, spacing("pct80")),
-        &[47.0, 45.0, 42.0, 107.0, 105.0, 102.0],
-    );
+    expect_within(&stack(&YU3, spacing("pct80")), &[47.0, 45.0, 42.0, 107.0, 105.0, 102.0]);
 }
 
 /// A two-line paragraph: `first` and `second` are the runs of line 1 and 2.
@@ -255,10 +247,7 @@ fn br_face_is_sized_at_the_preceding_run() {
             Some((60.0, "Meiryo")),
         )
     };
-    expect_within(
-        &arial_break(16.0).compat_off(true),
-        &[107.0, 107.0, 270.0, 270.0],
-    );
+    expect_within(&arial_break(16.0).compat_off(true), &[107.0, 107.0, 270.0, 270.0]);
     expect_within(&arial_break(16.0), &[73.0, 73.0, 171.0, 171.0]);
     let arial_only = |_authored_mark_size: f32| {
         broken_lines(
@@ -268,10 +257,7 @@ fn br_face_is_sized_at_the_preceding_run() {
             Some((24.0, "Arial")),
         )
     };
-    expect_within(
-        &arial_only(80.0).compat_off(true),
-        &[78.0, 78.0, 174.0, 174.0],
-    );
+    expect_within(&arial_only(80.0).compat_off(true), &[78.0, 78.0, 174.0, 174.0]);
     expect_within(&arial_only(80.0), &[81.0, 81.0, 181.0, 181.0]);
 }
 
@@ -293,22 +279,13 @@ fn end_marked(runs: Vec<(f32, &'static str)>, end: Option<(f32, &'static str)>) 
 /// `it('sizes an endParaRPr face at the last run size')`.
 #[test]
 fn end_para_face_is_sized_at_the_last_run() {
-    let meiryo_end = end_marked(
-        vec![(24.0, "Meiryo"), (60.0, "Arial")],
-        Some((60.0, "Meiryo")),
-    );
+    let meiryo_end = end_marked(vec![(24.0, "Meiryo"), (60.0, "Arial")], Some((60.0, "Meiryo")));
     expect_within(&meiryo_end.clone().compat_off(true), &[107.0, 107.0, 270.0, 270.0]);
     expect_within(&meiryo_end, &[73.0, 73.0, 173.0, 173.0]);
-    let arial_end = end_marked(
-        vec![(24.0, "Arial"), (60.0, "Meiryo")],
-        Some((60.0, "Arial")),
-    );
+    let arial_end = end_marked(vec![(24.0, "Arial"), (60.0, "Meiryo")], Some((60.0, "Arial")));
     expect_within(&arial_end.clone().compat_off(true), &[107.0, 107.0, 270.0, 270.0]);
     expect_within(&arial_end, &[73.0, 73.0, 173.0, 173.0]);
-    let arial_only = end_marked(
-        vec![(60.0, "Arial"), (24.0, "Arial")],
-        Some((24.0, "Arial")),
-    );
+    let arial_only = end_marked(vec![(60.0, "Arial"), (24.0, "Arial")], Some((24.0, "Arial")));
     expect_within(&arial_only.clone().compat_off(true), &[78.0, 78.0, 174.0, 174.0]);
     expect_within(&arial_only, &[81.0, 81.0, 181.0, 181.0]);
 }
@@ -349,12 +326,7 @@ fn inherited_br_face_uses_the_preceding_run_size() {
     let ari = vec![(60.0, "Arial"), (24.0, "Arial")];
     for _authored in [None, Some(16.0), Some(80.0)] {
         // The break inherits Meiryo at the preceding 24 pt run size.
-        let stack = broken_lines(
-            ari.clone(),
-            ari.clone(),
-            Some((24.0, "Meiryo")),
-            Some((24.0, "Arial")),
-        );
+        let stack = broken_lines(ari.clone(), ari.clone(), Some((24.0, "Meiryo")), Some((24.0, "Arial")));
         expect_within_tie(&stack.clone().compat_off(true), &[78.0, 78.0, 179.0, 179.0]);
         expect_within_tie(&stack, &[81.0, 81.0, 181.0, 181.0]);
     }

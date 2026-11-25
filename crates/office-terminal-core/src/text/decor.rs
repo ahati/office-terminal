@@ -8,12 +8,12 @@
 //! - `paintHighlight` (`renderer.ts:764-785`), whose marker band is
 //!   `highlightBox` (`packages/core/src/text/highlight-box.ts:26-32`)
 
-use super::paragraphs::{self, MarkerPlan, ParagraphLayout};
-use super::paint;
 use super::emit::Measurer;
+use super::paint;
+use super::paragraphs::{self, MarkerPlan, ParagraphLayout};
 use crate::contracts::{
-    AffineTransform, FillRule, NormalizedRect, PathSegment, PositionedGlyphRun, RectF32,
-    VectorCommand, VectorPaint, VectorPath,
+    AffineTransform, FillRule, NormalizedRect, PathSegment, PositionedGlyphRun, RectF32, VectorCommand, VectorPaint,
+    VectorPath,
 };
 use crate::text::bullets::MarkerBitmap;
 
@@ -45,15 +45,9 @@ pub(super) fn paint_marker(
         Some(MarkerPlan::Label { text, style }) => {
             paint::emit_run(measurer, text, *style, marker_x, baseline_y, out);
         }
-        Some(MarkerPlan::Image { rel_id, size_emu }) => push_marker_image(
-            rel_id,
-            *size_emu,
-            marker_x,
-            baseline_y,
-            transform,
-            bitmaps,
-            commands,
-        ),
+        Some(MarkerPlan::Image { rel_id, size_emu }) => {
+            push_marker_image(rel_id, *size_emu, marker_x, baseline_y, transform, bitmaps, commands)
+        }
         None => {}
     }
 }

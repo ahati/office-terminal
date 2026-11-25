@@ -174,8 +174,8 @@ fn oracle_matches_probe_measurement_at_every_cut() {
             for text in TEXTS {
                 let atoms = atoms_of(text, style);
                 let o = options(&measurer);
-                let oracle = LineOracle::build(&atoms, 0, &o)
-                    .unwrap_or_else(|| panic!("oracle must model {family} {text:?}"));
+                let oracle =
+                    LineOracle::build(&atoms, 0, &o).unwrap_or_else(|| panic!("oracle must model {family} {text:?}"));
                 for stop in 0..=atoms.len() {
                     let oracle_width = oracle.width_at(stop);
                     let probe_width = super::super::make_line(&atoms, 0, stop, 0, &o).width;
@@ -197,9 +197,7 @@ fn oracle_matches_probe_measurement_at_every_cut() {
             }
         }
     }
-    println!(
-        "oracle lock: {cuts_checked} cuts, {legal_checked} of them legal, all bit-identical"
-    );
+    println!("oracle lock: {cuts_checked} cuts, {legal_checked} of them legal, all bit-identical");
 }
 
 /// A mixed-style line with an inline object: the item fold must match
@@ -218,8 +216,7 @@ fn oracle_matches_probes_on_mixed_style_and_object_lines() {
     });
     atoms.extend(text_atoms(" waffle flow", regular, 3));
     let o = options(&measurer);
-    let oracle = LineOracle::build(&atoms, 0, &o)
-        .expect("oracle must model mixed-style lines");
+    let oracle = LineOracle::build(&atoms, 0, &o).expect("oracle must model mixed-style lines");
     for stop in 0..=atoms.len() {
         let oracle_width = oracle.width_at(stop);
         let probe_width = super::super::make_line(&atoms, 0, stop, 0, &o).width;
@@ -232,21 +229,12 @@ fn oracle_matches_probes_on_mixed_style_and_object_lines() {
 
 /// The stage-1 naive oracle: per-cluster advances from ONE full shaping,
 /// prefix-summed in logical order. Returns `(cluster start bytes, sums)`.
-fn naive_cluster_sums(
-    text: &str,
-    family: &str,
-    bold: bool,
-    italic: bool,
-) -> Option<(Vec<usize>, Vec<f32>)> {
+fn naive_cluster_sums(text: &str, family: &str, bold: bool, italic: bool) -> Option<(Vec<usize>, Vec<f32>)> {
     crate::text::fonts::with_font_system(|font_system| {
         let size_px = (PT18_EMU / 12700.0).max(0.5);
-        let mut buffer = cosmic_text::Buffer::new(
-            font_system,
-            cosmic_text::Metrics::new(size_px, size_px * 1.2),
-        );
+        let mut buffer = cosmic_text::Buffer::new(font_system, cosmic_text::Metrics::new(size_px, size_px * 1.2));
         buffer.set_size(font_system, None, None);
-        let mut attrs =
-            cosmic_text::Attrs::new().family(cosmic_text::Family::Name(family));
+        let mut attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::Name(family));
         if bold {
             attrs = attrs.weight(cosmic_text::Weight::BOLD);
         }
@@ -308,8 +296,8 @@ fn naive_cluster_sums_diverge_where_the_word_oracle_is_exact() {
                     continue;
                 };
                 let o = options(&measurer);
-                let oracle = LineOracle::build(&atoms, 0, &o)
-                    .unwrap_or_else(|| panic!("oracle must model {family} {text:?}"));
+                let oracle =
+                    LineOracle::build(&atoms, 0, &o).unwrap_or_else(|| panic!("oracle must model {family} {text:?}"));
                 for stop in legal_cuts(&atoms) {
                     let cut: usize = atoms[..stop]
                         .iter()
@@ -365,14 +353,10 @@ fn oracle_breaks_identically_to_probe_by_probe() {
                     text: (*text).to_string(),
                     style,
                 }];
-                let oracle_lines = crate::text::linebreak::break_paragraph(
-                    &items,
-                    &options_at(&measurer, full * fraction),
-                );
-                let legacy_lines = crate::text::linebreak::break_paragraph(
-                    &items,
-                    &options_at(&legacy, full * fraction),
-                );
+                let oracle_lines =
+                    crate::text::linebreak::break_paragraph(&items, &options_at(&measurer, full * fraction));
+                let legacy_lines =
+                    crate::text::linebreak::break_paragraph(&items, &options_at(&legacy, full * fraction));
                 assert_eq!(
                     format!("{oracle_lines:?}"),
                     format!("{legacy_lines:?}"),
@@ -409,8 +393,7 @@ fn oracle_cuts_shaping_work_per_wrap() {
             self.builds.set(self.builds.get() + 1);
             let mut words = self.inner.wrap_words(text, style)?;
             for span in &mut words.spans {
-                let original =
-                    std::mem::replace(&mut span.fragment, Box::new(|_, _, _, _| 0.0));
+                let original = std::mem::replace(&mut span.fragment, Box::new(|_, _, _, _| 0.0));
                 span.fragment = Box::new(move |text, start, cut, rtl| {
                     FRAGMENTS.with(|count| count.set(count.get() + 1));
                     original(text, start, cut, rtl)
@@ -448,14 +431,8 @@ fn oracle_cuts_shaping_work_per_wrap() {
                 text: (*text).to_string(),
                 style,
             }];
-            crate::text::linebreak::break_paragraph(
-                &items,
-                &options_at(&counting_legacy, full * fraction),
-            );
-            crate::text::linebreak::break_paragraph(
-                &items,
-                &options_at(&counting, full * fraction),
-            );
+            crate::text::linebreak::break_paragraph(&items, &options_at(&counting_legacy, full * fraction));
+            crate::text::linebreak::break_paragraph(&items, &options_at(&counting, full * fraction));
             wraps += 1;
         }
     }

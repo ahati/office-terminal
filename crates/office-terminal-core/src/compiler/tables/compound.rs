@@ -19,9 +19,7 @@
 //! `tri` arrive from the connector painter. A rail is a plain fill, so dashed,
 //! custom-dashed and non-solid-paint lines keep the authored stroke instead.
 
-use crate::contracts::{
-    AffineTransform, FillRule, PathSegment, VectorCommand, VectorPaint, VectorPath, VectorStroke,
-};
+use crate::contracts::{AffineTransform, FillRule, PathSegment, VectorCommand, VectorPaint, VectorPath, VectorStroke};
 
 /// One device pixel in EMU at DPR = 1. The IR is resolution independent, so the
 /// reference's device-pixel floor (`double-border.ts:26-30`) is applied at the
@@ -153,12 +151,7 @@ pub(super) fn paint_rails(
             let x = from.0 + offset - thickness / 2.0;
             rect_path(x, from.1.min(to.1), thickness, (to.1 - from.1).abs())
         };
-        out.push(VectorCommand::draw_path(
-            path,
-            Some(paint.clone()),
-            None,
-            *transform,
-        ));
+        out.push(VectorCommand::draw_path(path, Some(paint.clone()), None, *transform));
     }
     true
 }

@@ -11,12 +11,9 @@
 
 use std::io::Write;
 
-const HEADER_CONTENT_TYPE: &str =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
-const FOOTER_CONTENT_TYPE: &str =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
-const CORE_CONTENT_TYPE: &str =
-    "application/vnd.openxmlformats-package.core-properties+xml";
+const HEADER_CONTENT_TYPE: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
+const FOOTER_CONTENT_TYPE: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
+const CORE_CONTENT_TYPE: &str = "application/vnd.openxmlformats-package.core-properties+xml";
 
 /// `[Content_Types].xml` with the conventional defaults plus the document
 /// main part; `extra` carries any additional `<Default/>`/`<Override/>`
@@ -108,9 +105,7 @@ fn paragraph_xml(para: &Paragraph) -> String {
 }
 
 fn xml_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Wrap rendered body content into a full `w:document` part (Letter
@@ -145,8 +140,7 @@ pub fn build_docx_bytes(parts: &[(&str, &[u8])]) -> Vec<u8> {
         writer
             .start_file(
                 *name,
-                zip::write::SimpleFileOptions::default()
-                    .compression_method(zip::CompressionMethod::Deflated),
+                zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
             )
             .expect("start entry");
         writer.write_all(contents).expect("write entry");
@@ -167,9 +161,12 @@ pub fn simple_docx() -> Vec<u8> {
     .map(paragraph_xml)
     .collect();
     build_docx(&[
-        ("[Content_Types].xml", &content_types(&format!(
-            "<Override PartName=\"/docProps/core.xml\" ContentType=\"{CORE_CONTENT_TYPE}\"/>"
-        ))),
+        (
+            "[Content_Types].xml",
+            &content_types(&format!(
+                "<Override PartName=\"/docProps/core.xml\" ContentType=\"{CORE_CONTENT_TYPE}\"/>"
+            )),
+        ),
         ("_rels/.rels", PACKAGE_RELS_WITH_CORE),
         ("docProps/core.xml", CORE_PROPS),
         ("word/document.xml", &document_xml(&body)),
@@ -197,9 +194,7 @@ pub fn hyperlinks_and_pages_docx() -> Vec<u8> {
 /// A 3x3 table with a `gridSpan` header cell, a `vMerge` column, full
 /// single-line borders and one shaded cell, framed by body paragraphs.
 pub fn table_docx() -> Vec<u8> {
-    let cell = |text: &str| {
-        format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>")
-    };
+    let cell = |text: &str| format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
     let tc = |props: &str, text: &str| format!("<w:tc><w:tcPr>{props}</w:tcPr>{}</w:tc>", cell(text));
     let width = "<w:tcW w:w=\"2880\" w:type=\"dxa\"/>";
     let table = format!(
@@ -262,18 +257,18 @@ pub fn header_footer_docx() -> Vec<u8> {
         "<w:footerReference w:type=\"default\" r:id=\"rIdFtr1\"/>",
     );
     build_docx(&[
-        ("[Content_Types].xml", &content_types(&format!(
-            "<Override PartName=\"/word/header1.xml\" ContentType=\"{HEADER_CONTENT_TYPE}\"/>\
+        (
+            "[Content_Types].xml",
+            &content_types(&format!(
+                "<Override PartName=\"/word/header1.xml\" ContentType=\"{HEADER_CONTENT_TYPE}\"/>\
              <Override PartName=\"/word/footer1.xml\" ContentType=\"{FOOTER_CONTENT_TYPE}\"/>"
-        ))),
+            )),
+        ),
         ("_rels/.rels", PACKAGE_RELS),
         ("word/_rels/document.xml.rels", DOCUMENT_RELS_HEADER_FOOTER),
         ("word/header1.xml", HEADER1),
         ("word/footer1.xml", FOOTER1),
-        (
-            "word/document.xml",
-            &document_xml_with_sect(&body, sect_head),
-        ),
+        ("word/document.xml", &document_xml_with_sect(&body, sect_head)),
     ])
 }
 
@@ -281,11 +276,10 @@ pub fn header_footer_docx() -> Vec<u8> {
 /// fixture module stays usable from test binaries without an `image`
 /// dependency.
 pub const SAMPLE_PNG: &[u8] = &[
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x7b, 0x40, 0xe8,
-    0xdd, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x50, 0x48, 0x58, 0x00,
-    0x44, 0x00, 0x06, 0xe7, 0x02, 0x41, 0xa9, 0xc2, 0xc1, 0x84, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
-    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x7b, 0x40, 0xe8, 0xdd, 0x00, 0x00, 0x00, 0x0d, 0x49,
+    0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x50, 0x48, 0x58, 0x00, 0x44, 0x00, 0x06, 0xe7, 0x02, 0x41, 0xa9, 0xc2, 0xc1,
+    0x84, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ];
 
 /// A document with one inline PNG picture (`wp:inline` / `pic:pic`) carrying
@@ -299,9 +293,10 @@ pub fn image_docx() -> Vec<u8> {
     );
     let png_bytes = SAMPLE_PNG.to_vec();
     build_docx_bytes(&[
-        ("[Content_Types].xml", content_types(
-            "<Default Extension=\"png\" ContentType=\"image/png\"/>",
-        ).as_bytes()),
+        (
+            "[Content_Types].xml",
+            content_types("<Default Extension=\"png\" ContentType=\"image/png\"/>").as_bytes(),
+        ),
         ("_rels/.rels", PACKAGE_RELS.as_bytes()),
         ("word/_rels/document.xml.rels", DOCUMENT_RELS_IMAGE.as_bytes()),
         ("word/document.xml", document_xml(&body).as_bytes()),

@@ -32,9 +32,7 @@ use std::sync::Arc;
 use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::{RenderTargetSpec, RgbaSlide};
 use office_terminal_core::loader::{AssetStore, DefaultPresentationLoader, PresentationLoader, Source};
-use office_terminal_core::{
-    DefaultSlideCompiler, ParseError, SlideCompiler, SlideRasterizer, TinySkiaRasterizer,
-};
+use office_terminal_core::{DefaultSlideCompiler, ParseError, SlideCompiler, SlideRasterizer, TinySkiaRasterizer};
 use pptx_model::Slide;
 
 mod parity_support;
@@ -142,9 +140,7 @@ fn placeholder_text_matches_in_main_and_worker_mode() {
         card.commands
             .iter()
             .flat_map(|command| match command {
-                VectorCommand::DrawText { runs, .. } => {
-                    runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>()
-                }
+                VectorCommand::DrawText { runs, .. } => runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>(),
                 _ => Vec::new(),
             })
             .collect()
@@ -163,23 +159,14 @@ fn placeholder_text_matches_in_main_and_worker_mode() {
     // Each variant is rendered twice, once per realm.
     let main_builtin = compile(&CompileOptions::default());
     let worker_builtin = compile(&CompileOptions::default());
-    let main_static = compile(&CompileOptions::with_placeholder_text(
-        "Custom placeholder title",
-        None,
-    ));
-    let worker_static = compile(&CompileOptions::with_placeholder_text(
-        "Custom placeholder title",
-        None,
-    ));
+    let main_static = compile(&CompileOptions::with_placeholder_text("Custom placeholder title", None));
+    let worker_static = compile(&CompileOptions::with_placeholder_text("Custom placeholder title", None));
     let main_function = compile(&functional);
     let worker_function = compile(&functional);
 
     assert_eq!(main_builtin, worker_builtin, "builtin text is realm-neutral");
     assert_eq!(main_static, worker_static, "static text is realm-neutral");
-    assert_eq!(
-        main_function, worker_function,
-        "function text is realm-neutral"
-    );
+    assert_eq!(main_function, worker_function, "function text is realm-neutral");
 
     let payloads = [
         texts(&main_builtin).join("\n"),
@@ -198,11 +185,7 @@ fn placeholder_text_matches_in_main_and_worker_mode() {
     for failure in recorded {
         assert_eq!(failure.kind, "slide");
         assert_eq!((failure.slide_index, failure.slide_number), (1, 2));
-        assert!(
-            failure.message.contains("ppt/slides/slide2.xml"),
-            "{}",
-            failure.message
-        );
+        assert!(failure.message.contains("ppt/slides/slide2.xml"), "{}", failure.message);
     }
 }
 
@@ -234,10 +217,7 @@ fn main_and_worker_mode_produce_identical_pixels() {
     );
     // Sanity: the frame carries ink, so the comparison is not degenerate.
     assert!(
-        main_frame
-            .pixels
-            .chunks(4)
-            .any(|pixel| pixel[0..3] != [255, 255, 255]),
+        main_frame.pixels.chunks(4).any(|pixel| pixel[0..3] != [255, 255, 255]),
         "the fixture slide is not blank"
     );
 }
@@ -308,20 +288,13 @@ fn worker_part_index_agrees_with_main_mode() {
 #[test]
 fn a_deck_renders_deterministically_on_every_slide() {
     let (presentation, assets) = load(fixture_deck()).expect("fixture deck loads");
-    assert!(
-        !presentation.slides.is_empty(),
-        "the deck reports a slide count"
-    );
+    assert!(!presentation.slides.is_empty(), "the deck reports a slide count");
     let slides: &[Slide] = &presentation.slides;
     for slide in slides {
         let first = render_slide(slide, slides, assets.as_ref());
         let second = render_slide(slide, slides, assets.as_ref());
         assert_eq!(first.width, 480);
         assert_eq!(first.height, 360);
-        assert!(
-            first.pixels == second.pixels,
-            "slide {} is deterministic",
-            slide.index
-        );
+        assert!(first.pixels == second.pixels, "slide {} is deterministic", slide.index);
     }
 }

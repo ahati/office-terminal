@@ -149,9 +149,6 @@ pub(crate) fn cosmic_family_face_id(
     };
     let id = db.query(&query)?;
     let face = db.face(id)?;
-    let exact_family = face
-        .families
-        .iter()
-        .any(|(name, _)| name == family);
+    let exact_family = face.families.iter().any(|(name, _)| name == family);
     (face.weight == weight && face.style == style && exact_family).then_some(id)
 }

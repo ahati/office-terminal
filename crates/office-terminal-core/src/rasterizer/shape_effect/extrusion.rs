@@ -1,16 +1,12 @@
 //! Extrusion layers and contour rim painting.
 
 use crate::contracts::{
-    AffineTransform, LineCap, LineJoin, ShapeEffects, VectorPaint, VectorPath, VectorShape3d,
-    VectorStroke,
+    AffineTransform, LineCap, LineJoin, ShapeEffects, VectorPaint, VectorPath, VectorShape3d, VectorStroke,
 };
 use crate::rasterizer::bevel::apply_bevel_shading;
 use crate::rasterizer::path;
 
-pub(super) fn resolve_extrusion_rgb(
-    shape_3d: Option<&VectorShape3d>,
-    fill: Option<&VectorPaint>,
-) -> [u8; 3] {
+pub(super) fn resolve_extrusion_rgb(shape_3d: Option<&VectorShape3d>, fill: Option<&VectorPaint>) -> [u8; 3] {
     if let Some(shape_3d) = shape_3d {
         if let Some(c) = shape_3d.extrusion_color {
             return [c[0], c[1], c[2]];
@@ -27,12 +23,7 @@ pub(super) fn resolve_extrusion_rgb(
 }
 
 #[allow(clippy::chunks_exact_to_as_chunks)]
-pub(super) fn sweep_extrusion(
-    layer: &mut tiny_skia::Pixmap,
-    offset_x: f32,
-    offset_y: f32,
-    rgb: [u8; 3],
-) {
+pub(super) fn sweep_extrusion(layer: &mut tiny_skia::Pixmap, offset_x: f32, offset_y: f32, rgb: [u8; 3]) {
     let width = layer.width() as usize;
     let height = layer.height() as usize;
     if width == 0 || height == 0 {
@@ -321,4 +312,3 @@ pub(super) fn draw_contour(
         offset_y,
     );
 }
-

@@ -186,11 +186,7 @@ mod tests {
     }
 
     fn ink_pixels(pixmap: &tiny_skia::Pixmap) -> usize {
-        pixmap
-            .pixels()
-            .iter()
-            .filter(|p| p.alpha() > 0)
-            .count()
+        pixmap.pixels().iter().filter(|p| p.alpha() > 0).count()
     }
 
     fn sample_run(face_id: crate::text::document_faces::DocumentFaceId) -> PositionedGlyphRun {

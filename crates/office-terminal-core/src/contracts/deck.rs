@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use crossbeam_channel::Sender;
+use std::sync::Arc;
 
 use crate::contracts::geometry::RectF32;
 use crate::contracts::pipeline::{RenderTargetSpec, RgbaSlide, WarningEvent};
@@ -85,11 +85,7 @@ pub trait PageSource: Send + Sync {
     fn page_size_emu(&self, index: usize) -> (i64, i64);
 
     /// Compiles page `index` into an intermediate vector display list.
-    fn compile_page(
-        &self,
-        index: usize,
-        warnings: &Sender<WarningEvent>,
-    ) -> Result<VectorSlide, RenderError>;
+    fn compile_page(&self, index: usize, warnings: &Sender<WarningEvent>) -> Result<VectorSlide, RenderError>;
 
     /// Renders a page natively at the exact pixel target, bypassing the
     /// Tier-1 vector pipeline.
@@ -101,11 +97,7 @@ pub trait PageSource: Send + Sync {
     /// like a compile failure); callers that want a vector fallback must
     /// consult `compile_page` themselves — the unified render path does not
     /// silently retry on native errors.
-    fn render_raster(
-        &self,
-        index: usize,
-        target: &RenderTargetSpec,
-    ) -> Option<Result<RgbaSlide, RenderError>> {
+    fn render_raster(&self, index: usize, target: &RenderTargetSpec) -> Option<Result<RgbaSlide, RenderError>> {
         let _ = (index, target);
         None
     }

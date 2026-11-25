@@ -150,11 +150,7 @@ const SECOND_LINE: &str = "いいいいいいいい";
 fn break_body(alignment: &str) -> pptx_model::TextBody {
     body(
         alignment,
-        &[
-            Run::Text(FIRST_LINE),
-            Run::Br,
-            Run::Text(SECOND_LINE),
-        ],
+        &[Run::Text(FIRST_LINE), Run::Br, Run::Text(SECOND_LINE)],
         "[]",
     )
 }
@@ -294,16 +290,8 @@ fn d05_partial_gaps_split_the_line_into_pieces() {
     let rows = lines(&runs);
     assert_eq!(rows.len(), 1, "one line");
     let texts: Vec<&str> = rows[0].iter().map(|run| run.text.as_str()).collect();
-    assert_eq!(
-        texts,
-        ["あ", "［", "AB", "］", "い"],
-        "the Latin seam stays one piece"
-    );
-    assert_eq!(
-        rows[0].len(),
-        5,
-        "multiple pieces are drawn via the loop"
-    );
+    assert_eq!(texts, ["あ", "［", "AB", "］", "い"], "the Latin seam stays one piece");
+    assert_eq!(rows[0].len(), 5, "multiple pieces are drawn via the loop");
     // Every inter-piece gap is the same pitch: slack 40 over 4 gaps = 10 px.
     let pieces_first: Vec<&PositionedGlyph> = rows[0]
         .iter()
@@ -355,11 +343,7 @@ fn d07_tab_stop_cell_is_one_piece_ending_on_the_stop() {
     assert_eq!(rows[0].len(), 1, "one fillText-equivalent piece: {:?}", rows[0]);
     assert_eq!(rows[0][0].text, EA_SPC);
     let first = rows[0][0].glyphs.first().expect("a shaped glyph");
-    let advance: f32 = rows[0][0]
-        .glyphs
-        .iter()
-        .map(|glyph| px(glyph, |g| g.advance))
-        .sum();
+    let advance: f32 = rows[0][0].glyphs.iter().map(|glyph| px(glyph, |g| g.advance)).sum();
     close(
         px(first, |g| g.x) + advance,
         400.0,

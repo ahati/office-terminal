@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 
 use crate::app::bindings::FrameBindings;
 use crate::app::state::PresentationState;
@@ -11,12 +11,7 @@ use crate::widget::layout::DEFAULT_CELL_ASPECT_RATIO;
 use crate::widget::zoom_fit::compute_zoomed_slide_fit;
 
 /// Render the standard fullscreen presentation mode.
-pub fn render_normal(
-    state: &PresentationState,
-    f: &mut Frame,
-    area: Rect,
-    bindings: &mut FrameBindings,
-) {
+pub fn render_normal(state: &PresentationState, f: &mut Frame, area: Rect, bindings: &mut FrameBindings) {
     let canvas_area = if !state.status_line_visible() {
         area
     } else {
@@ -48,10 +43,7 @@ fn render_status_bar(state: &PresentationState, f: &mut Frame, area: Rect) {
                 format!(" Jump to slide: {}_ ", state.digit_buffer()),
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                "[Enter] Jump | [Esc] Cancel",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled("[Enter] Jump | [Esc] Cancel", Style::default().fg(Color::DarkGray)),
         ])
     } else {
         let mut spans = Vec::new();
@@ -88,7 +80,6 @@ fn render_status_bar(state: &PresentationState, f: &mut Frame, area: Rect) {
         Line::from(spans)
     };
 
-    let status = Paragraph::new(status_line)
-        .block(Block::default().borders(Borders::NONE));
+    let status = Paragraph::new(status_line).block(Block::default().borders(Borders::NONE));
     f.render_widget(status, area);
 }

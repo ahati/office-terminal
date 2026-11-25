@@ -1,11 +1,9 @@
 //! Slide sorter thumbnail graphics synchronization and quota accounting.
 
-use office_terminal_core::{
-    DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
-};
+use office_terminal_core::{DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide};
 use office_terminal_display::{
-    terminal_image_quota_bytes, CellRect, ImageId, Placement, TerminalGraphicsDriver,
-    MAX_THUMBNAIL_IMAGES, THUMBNAIL_IMAGE_ID_BASE,
+    terminal_image_quota_bytes, CellRect, ImageId, Placement, TerminalGraphicsDriver, MAX_THUMBNAIL_IMAGES,
+    THUMBNAIL_IMAGE_ID_BASE,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
@@ -70,10 +68,7 @@ pub fn thumbnail_target_for_aspect(aspect: f32) -> RenderTargetSpec {
 /// Cards are downscaled to thumbnail dimensions (~480x360), so per-card memory
 /// is computed against the downscaled bounds to avoid prematurely capping
 /// portrait or high-resolution canvas targets.
-pub fn max_sorter_cards_for_target_and_quota(
-    target: &RenderTargetSpec,
-    quota: Option<usize>,
-) -> usize {
+pub fn max_sorter_cards_for_target_and_quota(target: &RenderTargetSpec, quota: Option<usize>) -> usize {
     let w = (target.width_px as usize).min(THUMBNAIL_CARD_MAX_WIDTH as usize);
     let h = (target.height_px as usize).min(THUMBNAIL_CARD_MAX_HEIGHT as usize);
     let per_card = (w * h * 4).max(1);
@@ -122,10 +117,7 @@ pub struct ThumbnailSyncer {
 impl ThumbnailSyncer {
     /// Terminal ids of the cards currently resident on screen.
     fn resident_ids(&self) -> Vec<ImageId> {
-        self.thumbs
-            .values()
-            .filter_map(|slot| slot.state.placed_id())
-            .collect()
+        self.thumbs.values().filter_map(|slot| slot.state.placed_id()).collect()
     }
 
     /// Drops every staged card's bookkeeping (slot map, staging order,
@@ -140,10 +132,7 @@ impl ThumbnailSyncer {
 
     /// Releases every staged card and drops the downscale cache (teardown:
     /// blank screen, empty deck).
-    pub fn release_all(
-        &mut self,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
+    pub fn release_all(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
         self.thumb_prefetch = None;
         self.downscale_cache.clear();
         if self.thumbs.is_empty() {
@@ -158,10 +147,7 @@ impl ThumbnailSyncer {
     /// Releases every staged card but keeps the downscale cache (leaving the
     /// sorter, or a resize): the deck content is unchanged, so re-entry and
     /// scroll-back restage from cache instead of re-rendering.
-    pub fn release_all_keep_cache(
-        &mut self,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
+    pub fn release_all_keep_cache(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
         self.thumb_prefetch = None;
         if self.thumbs.is_empty() {
             return Ok(());
@@ -217,12 +203,7 @@ impl ThumbnailSyncer {
 
     /// Downscaled card for a freshly resolved raster, reusing the cache when
     /// the target matches (PRD 14a §11: no repeated resizing on the UI thread).
-    fn card_bitmap(
-        &mut self,
-        slide: usize,
-        bitmap: &RgbaSlide,
-        target: &RenderTargetSpec,
-    ) -> RgbaSlide {
+    fn card_bitmap(&mut self, slide: usize, bitmap: &RgbaSlide, target: &RenderTargetSpec) -> RgbaSlide {
         if let Some(cached) = self.cached_card(slide, target) {
             return cached;
         }
@@ -251,8 +232,7 @@ impl ThumbnailSyncer {
         while self.total_staged_bytes + card_bytes > quota && !self.staging_order.is_empty() {
             if let Some(oldest_slide) = self.staging_order.pop_front() {
                 if let Some(old_slot) = self.thumbs.remove(&oldest_slide) {
-                    self.total_staged_bytes =
-                        self.total_staged_bytes.saturating_sub(old_slot.bytes);
+                    self.total_staged_bytes = self.total_staged_bytes.saturating_sub(old_slot.bytes);
                     if let Some(id) = old_slot.state.placed_id() {
                         let _ = driver.release(id);
                     }
@@ -267,12 +247,23 @@ impl ThumbnailSyncer {
 
         let mut state = SlotState::default();
         state.record_staged(
-            SlotBitmap { id, page: slide, width: downscaled.width, height: downscaled.height },
+            SlotBitmap {
+                id,
+                page: slide,
+                width: downscaled.width,
+                height: downscaled.height,
+            },
             epoch,
         );
         state.record_placed(id, PlacedKey::Cells(rect), epoch);
 
-        self.thumbs.insert(slide, ThumbSlot { state, bytes: card_bytes });
+        self.thumbs.insert(
+            slide,
+            ThumbSlot {
+                state,
+                bytes: card_bytes,
+            },
+        );
         self.staging_order.push_back(slide);
         self.total_staged_bytes += card_bytes;
         Ok(())

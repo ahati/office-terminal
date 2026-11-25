@@ -5,9 +5,7 @@
 //! physical page indices through the engine. Unresolvable and forbidden
 //! links drop with a warning — never silently, never as a URL.
 
-use office_terminal_core::contracts::{
-    AffineTransform, HyperlinkTarget, RectF32, SlideLink, WarningEvent,
-};
+use office_terminal_core::contracts::{AffineTransform, HyperlinkTarget, RectF32, SlideLink, WarningEvent};
 use office_terminal_core::sanitize_hyperlink_url;
 use oxml_layout::Rect;
 
@@ -39,12 +37,7 @@ pub(crate) fn map_link(
     let min_y = p0_y.min(p1_y).min(p2_y).min(p3_y);
     let max_y = p0_y.max(p1_y).max(p2_y).max(p3_y);
 
-    let bounds = RectF32::new(
-        min_x,
-        min_y,
-        (max_x - min_x).max(0.0),
-        (max_y - min_y).max(0.0),
-    );
+    let bounds = RectF32::new(min_x, min_y, (max_x - min_x).max(0.0), (max_y - min_y).max(0.0));
     if bounds.w <= 0.0 || bounds.h <= 0.0 {
         return;
     }
@@ -141,11 +134,7 @@ mod tests {
 
     #[test]
     fn dangerous_schemes_never_become_links() {
-        for url in [
-            "javascript:alert(1)",
-            "data:text/html,hi",
-            "file:///etc/passwd",
-        ] {
+        for url in ["javascript:alert(1)", "data:text/html,hi", "file:///etc/passwd"] {
             let page = letter_page(vec![link(url)]);
             let engine = FixtureEngine::new(Vec::new());
             let (slide, warnings) = compile(&page, &engine);

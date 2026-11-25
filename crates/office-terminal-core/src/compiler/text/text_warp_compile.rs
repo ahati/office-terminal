@@ -10,14 +10,12 @@ use crossbeam_channel::Sender;
 
 use super::super::math::{self, MathParams};
 use super::super::style::parse_hex_color;
-use super::super::text_warp::{
-    build_warp_envelope, follow_path_u_scale, warp_envelope_for_line,
-};
-use crate::contracts::{
-    AffineTransform, FidelityClass, PositionedGlyph, PositionedGlyphRun, RunWarp, VectorCommand,
-    WarningEvent, EMU_PER_PT,
-};
+use super::super::text_warp::{build_warp_envelope, follow_path_u_scale, warp_envelope_for_line};
 use super::{map_bullet_char, resolve_font_family};
+use crate::contracts::{
+    AffineTransform, FidelityClass, PositionedGlyph, PositionedGlyphRun, RunWarp, VectorCommand, WarningEvent,
+    EMU_PER_PT,
+};
 
 struct ShapedText {
     glyphs: Vec<PositionedGlyph>,
@@ -29,13 +27,7 @@ struct ShapedText {
 /// system is the crate's ONE shared per-thread runtime
 /// (`crate::text::fonts::with_font_system`), the very store the measurer and
 /// the painter resolve through.
-fn shape_text_run(
-    text: &str,
-    font_family: &str,
-    font_size_emu: f32,
-    bold: bool,
-    italic: bool,
-) -> ShapedText {
+fn shape_text_run(text: &str, font_family: &str, font_size_emu: f32, bold: bool, italic: bool) -> ShapedText {
     crate::text::fonts::with_font_system(|font_system| {
         let size_px = (font_size_emu / EMU_PER_PT).max(1.0);
         let mut buffer = Buffer::new(font_system, Metrics::new(size_px, size_px * 1.25));
@@ -149,15 +141,8 @@ pub(super) fn compile_text_body_warped(
 
     for (p_idx, p) in text_body.paragraphs.iter().enumerate() {
         let first_line = lines.len();
-        let def_sz = p
-            .def_font_size
-            .or(text_body.default_font_size)
-            .unwrap_or(18.0) as f32;
-        let def_color = p
-            .def_color
-            .as_deref()
-            .or(default_shape_text_color)
-            .unwrap_or("000000");
+        let def_sz = p.def_font_size.or(text_body.default_font_size).unwrap_or(18.0) as f32;
+        let def_color = p.def_color.as_deref().or(default_shape_text_color).unwrap_or("000000");
 
         let mut current_line_runs: Vec<PositionedGlyphRun> = Vec::new();
         let mut current_line_math_runs: Vec<PositionedGlyphRun> = Vec::new();
@@ -167,9 +152,7 @@ pub(super) fn compile_text_body_warped(
 
         // Process bullet if present
         let bullet_str = match &p.bullet {
-            pptx_model::Bullet::Char {
-                ch, font_family, ..
-            } => {
+            pptx_model::Bullet::Char { ch, font_family, .. } => {
                 let mapped = map_bullet_char(ch, font_family.as_deref());
                 Some(format!("{} ", mapped))
             }
@@ -234,11 +217,7 @@ pub(super) fn compile_text_body_warped(
                         .unwrap_or(def_color);
                     let color = parse_hex_color(color_hex);
 
-                    let bold = data
-                        .bold
-                        .or(p.def_bold)
-                        .or(text_body.default_bold)
-                        .unwrap_or(false);
+                    let bold = data.bold.or(p.def_bold).or(text_body.default_bold).unwrap_or(false);
                     let italic = data
                         .italic
                         .or(p.def_italic)
@@ -274,10 +253,7 @@ pub(super) fn compile_text_body_warped(
                         single_face: false,
                         face: None,
                         warp: None,
-                        reflection: data
-                            .reflection
-                            .as_ref()
-                            .map(crate::compiler::shape_effects::reflection),
+                        reflection: data.reflection.as_ref().map(crate::compiler::shape_effects::reflection),
                     });
                     cur_line_w += shaped.width;
                 }
@@ -288,7 +264,11 @@ pub(super) fn compile_text_body_warped(
                         math_runs: std::mem::take(&mut current_line_math_runs),
                         paths: std::mem::take(&mut current_line_paths),
                         line_w: cur_line_w,
-                        line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * EMU_PER_PT * 1.2 * font_scale },
+                        line_h: if cur_line_h > 0.0 {
+                            cur_line_h
+                        } else {
+                            def_sz * EMU_PER_PT * 1.2 * font_scale
+                        },
                         alignment: p.alignment.clone(),
                         mar_l: p.mar_l as f32,
                         avail_w,
@@ -331,7 +311,11 @@ pub(super) fn compile_text_body_warped(
                                 math_runs: std::mem::take(&mut current_line_math_runs),
                                 paths: std::mem::take(&mut current_line_paths),
                                 line_w: cur_line_w,
-                                line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * EMU_PER_PT * 1.2 * font_scale },
+                                line_h: if cur_line_h > 0.0 {
+                                    cur_line_h
+                                } else {
+                                    def_sz * EMU_PER_PT * 1.2 * font_scale
+                                },
                                 alignment: p.alignment.clone(),
                                 mar_l: p.mar_l as f32,
                                 avail_w,
@@ -380,7 +364,11 @@ pub(super) fn compile_text_body_warped(
                 math_runs: current_line_math_runs,
                 paths: current_line_paths,
                 line_w: cur_line_w,
-                line_h: if cur_line_h > 0.0 { cur_line_h } else { def_sz * EMU_PER_PT * 1.2 * font_scale },
+                line_h: if cur_line_h > 0.0 {
+                    cur_line_h
+                } else {
+                    def_sz * EMU_PER_PT * 1.2 * font_scale
+                },
                 alignment: p.alignment.clone(),
                 mar_l: p.mar_l as f32,
                 avail_w,
@@ -460,37 +448,35 @@ pub(super) fn compile_text_body_warped(
         // already contains it (the envelope follows `u` across the glyph), so
         // only single-edge Follow Path callers consume it.
         let ascent_share = crate::text::metrics::SYNTHETIC_ASCENT_EM;
-        let (band_frac, warp_box_h, h_scale, follow, follow_offset) =
-            if let Some(envelope) = &warp_envelope {
-                if envelope.single_edge {
-                    // Follow Path keeps the natural glyph size; `band_frac` is
-                    // the flat renderer's ascent fallback used as the baseline
-                    // drop below the arc (ref `renderer.ts:3287`).
-                    let follow = follow_path_u_scale(envelope, line_w);
-                    let offset = match line.alignment.as_str() {
-                        "r" => 1.0,
-                        "ctr" => 0.5,
-                        _ => 0.0,
-                    } * (1.0 - follow);
-                    (ascent_share, ink_h, 1.0, follow, offset)
-                } else {
-                    let v0 = line_index as f32 / line_count as f32;
-                    let v1 = (line_index + 1) as f32 / line_count as f32;
-                    let band_frac = v0 + ascent_share * (v1 - v0);
-                    let band_height = (v1 - v0).max(f32::EPSILON);
-                    let h_scale = box_w as f32 / line_w;
-                    (band_frac, ink_h / band_height, h_scale, 1.0, 0.0)
-                }
+        let (band_frac, warp_box_h, h_scale, follow, follow_offset) = if let Some(envelope) = &warp_envelope {
+            if envelope.single_edge {
+                // Follow Path keeps the natural glyph size; `band_frac` is
+                // the flat renderer's ascent fallback used as the baseline
+                // drop below the arc (ref `renderer.ts:3287`).
+                let follow = follow_path_u_scale(envelope, line_w);
+                let offset = match line.alignment.as_str() {
+                    "r" => 1.0,
+                    "ctr" => 0.5,
+                    _ => 0.0,
+                } * (1.0 - follow);
+                (ascent_share, ink_h, 1.0, follow, offset)
             } else {
-                (ascent_share, ink_h, 1.0, 1.0, 0.0)
-            };
+                let v0 = line_index as f32 / line_count as f32;
+                let v1 = (line_index + 1) as f32 / line_count as f32;
+                let band_frac = v0 + ascent_share * (v1 - v0);
+                let band_height = (v1 - v0).max(f32::EPSILON);
+                let h_scale = box_w as f32 / line_w;
+                (band_frac, ink_h / band_height, h_scale, 1.0, 0.0)
+            }
+        } else {
+            (ascent_share, ink_h, 1.0, 1.0, 0.0)
+        };
         let line_envelope = warp_envelope.as_ref().map(|envelope| {
             if envelope.single_edge {
                 // `textArchDown` is wound counterclockwise: its FIRST line stays
                 // on the authored arch and later lines expand outward. Clockwise
                 // arch/circle presets anchor the LAST line instead.
-                let counterclockwise = text_warp
-                    .is_some_and(|warp| warp.preset.eq_ignore_ascii_case("textArchDown"));
+                let counterclockwise = text_warp.is_some_and(|warp| warp.preset.eq_ignore_ascii_case("textArchDown"));
                 let steps = if counterclockwise {
                     line_index
                 } else {
@@ -521,10 +507,9 @@ pub(super) fn compile_text_body_warped(
                 run.warp = line_warp.clone();
                 for glyph in &mut run.glyphs {
                     let advance = glyph.advance.max(0.0);
-                    let u = (follow_offset + ((pen_w + advance * 0.5) / line_w) * follow)
-                        .clamp(0.0, 1.0);
+                    let u = (follow_offset + ((pen_w + advance * 0.5) / line_w) * follow).clamp(0.0, 1.0);
                     glyph.warp_u = Some(u);
-                    if std::env::var("KITTY_PPTX_DEBUG_WARP").is_ok() {
+                    if std::env::var("OT_DEBUG_WARP").is_ok() || std::env::var("KITTY_PPTX_DEBUG_WARP").is_ok() {
                         eprintln!(
                             "line {} run {:?} adv={:.0} pen={:.0} u={:.3} hscale={:.3}",
                             line_index + 1,
@@ -564,4 +549,3 @@ pub(super) fn compile_text_body_warped(
     }
     commands
 }
-

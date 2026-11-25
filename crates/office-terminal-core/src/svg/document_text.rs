@@ -17,11 +17,7 @@ use rustybuzz::ttf_parser::{Face, GlyphId};
 ///
 /// Returns `false` when the handle cannot be resolved or produces no ink, so
 /// the caller falls back to the family-based serializer.
-pub(super) fn serialize_document_glyphs(
-    run: &PositionedGlyphRun,
-    transform_attr: &str,
-    out: &mut String,
-) -> bool {
+pub(super) fn serialize_document_glyphs(run: &PositionedGlyphRun, transform_attr: &str, out: &mut String) -> bool {
     let Some(face_id) = run.face else {
         return false;
     };

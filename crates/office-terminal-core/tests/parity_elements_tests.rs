@@ -19,15 +19,15 @@
 use std::sync::{Arc, Mutex};
 
 use office_terminal_core::compiler::background::compile_slide_background;
+use office_terminal_core::contracts::SvgTextMode;
 use office_terminal_core::contracts::{
-    AffineTransform, BackgroundTile, NormalizedRect, RectF32, RenderTargetSpec, RgbaSlide,
-    VectorBackground, VectorCommand, VectorSlide,
+    AffineTransform, BackgroundTile, NormalizedRect, RectF32, RenderTargetSpec, RgbaSlide, VectorBackground,
+    VectorCommand, VectorSlide,
 };
 use office_terminal_core::error::AssetError;
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::rasterizer::{SlideRasterizer, TinySkiaRasterizer};
 use office_terminal_core::svg::{DefaultSlideSvgSerializer, SlideSvgSerializer};
-use office_terminal_core::contracts::SvgTextMode;
 use serde_json::json;
 
 /// 96-DPI pixel in EMU (ref renderer.ts:2453-2455, `pixelToEmu`).
@@ -183,7 +183,10 @@ fn picture_slide(rel_id: &str, frame: (f32, f32, f32, f32), crop: (f32, f32, f32
 }
 
 fn target(width: u32, height: u32) -> RenderTargetSpec {
-    RenderTargetSpec { width_px: width, height_px: height }
+    RenderTargetSpec {
+        width_px: width,
+        height_px: height,
+    }
 }
 
 fn rasterize(slide: &VectorSlide, width: u32, height: u32, store: &Store) -> RgbaSlide {
@@ -429,11 +432,7 @@ fn model_image(
 #[test]
 fn background_fill_rect_paints_the_cropped_destination_rectangle() {
     const IMAGE: &str = "ppt/media/background.png";
-    let fill = model_image(
-        IMAGE,
-        Some((0.25, 0.0, 0.1, 0.0)),
-        Some((0.1, -0.1, 0.2, 0.05)),
-    );
+    let fill = model_image(IMAGE, Some((0.25, 0.0, 0.1, 0.0)), Some((0.1, -0.1, 0.2, 0.05)));
     let background = compile_slide_background(Some(&fill)).expect("image background");
     match &background {
         VectorBackground::Image {
@@ -464,9 +463,18 @@ fn background_fill_rect_paints_the_cropped_destination_rectangle() {
     // device rect x = 96 .. 768, y = -72 .. 684.
     assert!(is_dark_or_colour(pixel(&rendered, 96, 0)), "left edge of the fillRect");
     assert!(is_light(pixel(&rendered, 95, 0)), "left of the fillRect stays white");
-    assert!(is_dark_or_colour(pixel(&rendered, 767, 400)), "right edge of the fillRect");
-    assert!(is_light(pixel(&rendered, 768, 400)), "right of the fillRect stays white");
-    assert!(is_dark_or_colour(pixel(&rendered, 400, 683)), "bottom edge of the fillRect");
+    assert!(
+        is_dark_or_colour(pixel(&rendered, 767, 400)),
+        "right edge of the fillRect"
+    );
+    assert!(
+        is_light(pixel(&rendered, 768, 400)),
+        "right of the fillRect stays white"
+    );
+    assert!(
+        is_dark_or_colour(pixel(&rendered, 400, 683)),
+        "bottom edge of the fillRect"
+    );
     assert!(is_light(pixel(&rendered, 400, 684)), "below the fillRect stays white");
 }
 
@@ -509,4 +517,3 @@ fn picture_raster_requests_the_native_source_grid_by_default() {
     assert_eq!(pixel(&rendered, 400, 600), [255, 255, 0, 255]);
     assert!(is_light(pixel(&rendered, 600, 300)), "outside the frame stays white");
 }
-

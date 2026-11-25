@@ -1,7 +1,9 @@
 use office_terminal_cli::cli::ExportFormat;
 use office_terminal_cli::commands::export::run_export;
 use office_terminal_cli::commands::{run_dump, run_info};
-use office_terminal_core::{DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, TinySkiaRasterizer};
+use office_terminal_core::{
+    DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, TinySkiaRasterizer,
+};
 use std::process::ExitCode;
 use std::sync::Arc;
 

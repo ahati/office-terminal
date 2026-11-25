@@ -147,11 +147,7 @@ pub(crate) fn grapheme_spans(text: &str) -> Vec<(usize, usize)> {
             pict_base = false;
             zwj_ready = false;
         }
-        ri_run = if is_regional_indicator(cp) {
-            ri_run + 1
-        } else {
-            0
-        };
+        ri_run = if is_regional_indicator(cp) { ri_run + 1 } else { 0 };
         prev = Some(c);
     }
     if prev.is_some() {

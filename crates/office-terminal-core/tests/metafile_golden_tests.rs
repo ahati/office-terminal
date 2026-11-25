@@ -9,12 +9,12 @@ mod pixelmatch;
 use std::fs;
 use std::path::PathBuf;
 
+use metafile_support as support;
 use office_terminal_core::contracts::{
     FillRule, PathSegment, RenderTargetSpec, VectorCommand, VectorPath, VectorSlide, WarningEvent,
 };
 use office_terminal_core::metafile;
 use office_terminal_core::{SlideRasterizer, TinySkiaRasterizer};
-use metafile_support as support;
 use pixelmatch::{compare_rgba, DiffOptions};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -72,11 +72,7 @@ fn expand_fixture(
     rel_id: &str,
     mime: &str,
     bytes: Vec<u8>,
-) -> (
-    VectorSlide,
-    metafile::MetafileExpansionSummary,
-    Vec<WarningEvent>,
-) {
+) -> (VectorSlide, metafile::MetafileExpansionSummary, Vec<WarningEvent>) {
     metafile::clear_global_cache();
     let (compile_tx, _compile_rx) = crossbeam_channel::unbounded();
     let mut scene = support::compile_slide(&support::picture_slide(rel_id, mime), &compile_tx);
@@ -164,12 +160,7 @@ fn parse_target(target: &str) -> (u32, u32) {
     (w, h)
 }
 
-fn rasterize_scene(
-    scene: &VectorSlide,
-    w: u32,
-    h: u32,
-    store: &support::FixtureStore,
-) -> image::RgbaImage {
+fn rasterize_scene(scene: &VectorSlide, w: u32, h: u32, store: &support::FixtureStore) -> image::RgbaImage {
     let target = RenderTargetSpec {
         width_px: w,
         height_px: h,
@@ -209,15 +200,14 @@ fn test_metafile_ast_and_png_goldens() {
     support::generate::ensure_synthetic_fixtures(&dir).expect("ensure synthetic fixtures");
 
     let manifest_bytes = fs::read(dir.join("manifest.json")).expect("read manifest.json");
-    let manifest: Manifest =
-        serde_json::from_slice(&manifest_bytes).expect("parse manifest.json");
+    let manifest: Manifest = serde_json::from_slice(&manifest_bytes).expect("parse manifest.json");
 
-    let update = std::env::var("KITTY_PPTX_UPDATE_METAFILE_GOLDENS").is_ok();
+    let update = std::env::var("OT_UPDATE_METAFILE_GOLDENS").is_ok()
+        || std::env::var("KITTY_PPTX_UPDATE_METAFILE_GOLDENS").is_ok();
 
     for f in &manifest.fixtures {
         let fixture_path = dir.join(&f.path);
-        let bytes = fs::read(&fixture_path)
-            .unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", f.path));
+        let bytes = fs::read(&fixture_path).unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", f.path));
         let mime = mime_for_path(&f.path);
 
         let (scene, summary, warnings) = expand_fixture(&f.path, mime, bytes.clone());
@@ -233,11 +223,7 @@ fn test_metafile_ast_and_png_goldens() {
         } else {
             "full"
         };
-        assert_eq!(
-            actual_class, f.expect.class,
-            "Class mismatch for fixture '{}'",
-            f.id
-        );
+        assert_eq!(actual_class, f.expect.class, "Class mismatch for fixture '{}'", f.id);
 
         let mut actual_tags = extract_diagnostics(&warnings);
         let mut expected_tags = f.expect.diagnostics.clone();
@@ -256,14 +242,12 @@ fn test_metafile_ast_and_png_goldens() {
             if let Some(parent) = ast_file.parent() {
                 fs::create_dir_all(parent).expect("create ast dir");
             }
-            let formatted =
-                serde_json::to_string_pretty(&actual_ast).expect("pretty print ast");
+            let formatted = serde_json::to_string_pretty(&actual_ast).expect("pretty print ast");
             fs::write(&ast_file, formatted).expect("write ast golden");
         } else {
-            let expected_bytes = fs::read(&ast_file)
-                .unwrap_or_else(|e| panic!("missing AST golden {}: {e}", ast_file.display()));
-            let expected_ast: Value =
-                serde_json::from_slice(&expected_bytes).expect("parse expected AST");
+            let expected_bytes =
+                fs::read(&ast_file).unwrap_or_else(|e| panic!("missing AST golden {}: {e}", ast_file.display()));
+            let expected_ast: Value = serde_json::from_slice(&expected_bytes).expect("parse expected AST");
             if let Err(diff) = compare_ast_commands(&actual_ast, &expected_ast, &f.id) {
                 panic!("{diff}");
             }
@@ -339,11 +323,7 @@ fn test_coverage_table_consistency() {
             if trimmed.starts_with("| :---") {
                 continue;
             }
-            let cols: Vec<&str> = trimmed
-                .split('|')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let cols: Vec<&str> = trimmed.split('|').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
             if cols.len() >= 6 {
                 let family = cols[0];
                 let fixture = cols[1].trim_matches('`');
@@ -351,14 +331,8 @@ fn test_coverage_table_consistency() {
                 let png = cols[4].trim_matches('`');
                 let status = cols[5];
 
-                assert_eq!(
-                    status, "✅",
-                    "Row '{family}' must be promoted to ✅, but is '{status}'"
-                );
-                assert!(
-                    fixture != "—" && !fixture.is_empty(),
-                    "Row '{family}' has no fixture"
-                );
+                assert_eq!(status, "✅", "Row '{family}' must be promoted to ✅, but is '{status}'");
+                assert!(fixture != "—" && !fixture.is_empty(), "Row '{family}' has no fixture");
                 assert!(ast != "—" && !ast.is_empty(), "Row '{family}' has no AST");
                 assert!(png != "—" && !png.is_empty(), "Row '{family}' has no PNG");
 

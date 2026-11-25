@@ -50,9 +50,9 @@ pub(crate) const IDLE_POLL: Duration = Duration::from_secs(3600);
 pub(crate) fn reader_animating(state: &PresentationState) -> bool {
     !state.is_blank()
         && state.base_mode() == AppMode::Reader
-        && state.reader_state().is_some_and(|reader| {
-            reader.is_animating() || reader.displayed_scroll_px() != reader.scroll_px as f32
-        })
+        && state
+            .reader_state()
+            .is_some_and(|reader| reader.is_animating() || reader.displayed_scroll_px() != reader.scroll_px as f32)
 }
 
 /// Whether the current frame displays a 1-second-granularity clock: the
@@ -66,9 +66,7 @@ pub(crate) fn clock_displayed(state: &PresentationState) -> bool {
     }
     match state.base_mode() {
         AppMode::PresenterConsole => true,
-        AppMode::Fullscreen => {
-            state.status_line_visible() && state.digit_buffer().is_empty()
-        }
+        AppMode::Fullscreen => state.status_line_visible() && state.digit_buffer().is_empty(),
         _ => false,
     }
 }
@@ -117,11 +115,7 @@ fn shorter(current: Option<Duration>, candidate: Duration) -> Duration {
 /// * displayed 1 s clocks — the next second boundary of whichever clocks
 ///   the active view actually shows;
 /// * a live toast — its TTL expiry, when the status lines drop it.
-pub(crate) fn next_wake(
-    state: &PresentationState,
-    in_flight: usize,
-    now: Instant,
-) -> Option<Duration> {
+pub(crate) fn next_wake(state: &PresentationState, in_flight: usize, now: Instant) -> Option<Duration> {
     let mut wake = None;
 
     if reader_animating(state) {
@@ -190,8 +184,8 @@ impl RedrawTracker {
         // clock is only shown in the presenter console.
         if clock_displayed(state) {
             let elapsed_flipped = state.elapsed().as_secs() != self.last_clock_secs;
-            let wall_flipped = state.base_mode() == AppMode::PresenterConsole
-                && wall_clock_secs() != self.last_wall_secs;
+            let wall_flipped =
+                state.base_mode() == AppMode::PresenterConsole && wall_clock_secs() != self.last_wall_secs;
             if elapsed_flipped || wall_flipped {
                 self.needs_redraw = true;
             }

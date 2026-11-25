@@ -107,9 +107,7 @@ impl FindState {
 impl PresentationState {
     /// Rebuild the content-find index from the current slides and hidden mask.
     pub fn sync_find_index(&mut self) {
-        let hidden: Vec<bool> = (0..self.total_slides)
-            .map(|index| self.nav.is_hidden(index))
-            .collect();
+        let hidden: Vec<bool> = (0..self.total_slides).map(|index| self.nav.is_hidden(index)).collect();
         self.find
             .sync(self.deck.slides(), &hidden, self.nav.hidden_mode().is_skip());
     }
@@ -208,4 +206,3 @@ pub(crate) fn handle_find_key(key: KeyEvent, state: &mut PresentationState) -> A
         _ => AppAction::None,
     }
 }
-

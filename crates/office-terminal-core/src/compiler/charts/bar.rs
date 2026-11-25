@@ -1,11 +1,11 @@
-use pptx_model::ChartModel;
-use crate::contracts::{AffineTransform, VectorCommand, VectorPaint, EMU_PER_PT};
 use super::color::resolve_series_color;
 use super::layout::{
-    data_label_position, make_simple_run, rect_path, series_data_label_font_pt,
-    series_shows_percent_labels, series_shows_value_labels, ChartLayout,
+    data_label_position, make_simple_run, rect_path, series_data_label_font_pt, series_shows_percent_labels,
+    series_shows_value_labels, ChartLayout,
 };
 use super::types::{ChartDataBounds, ChartFamily};
+use crate::contracts::{AffineTransform, VectorCommand, VectorPaint, EMU_PER_PT};
+use pptx_model::ChartModel;
 
 /// Bar cluster geometry resolved from the chart group's `gapWidth`/`overlap`.
 ///
@@ -25,17 +25,8 @@ struct ClusterGeometry {
     cat_start: f32,
 }
 
-fn cluster_geometry(
-    chart: &ChartModel,
-    num_series: usize,
-    is_stacked: bool,
-    category_size: f32,
-) -> ClusterGeometry {
-    let effective = if is_stacked {
-        1.0
-    } else {
-        num_series.max(1) as f32
-    };
+fn cluster_geometry(chart: &ChartModel, num_series: usize, is_stacked: bool, category_size: f32) -> ClusterGeometry {
+    let effective = if is_stacked { 1.0 } else { num_series.max(1) as f32 };
     let owner = chart.series.first();
     let raw_overlap = owner
         .and_then(|s| s.bar_group_overlap)
@@ -46,9 +37,7 @@ fn cluster_geometry(
     } else {
         raw_overlap.clamp(-100.0, 100.0)
     };
-    let authored_gap = owner
-        .and_then(|s| s.bar_group_gap_width)
-        .or(chart.bar_gap_width);
+    let authored_gap = owner.and_then(|s| s.bar_group_gap_width).or(chart.bar_gap_width);
     // ref category-spacing.ts:126-134 (`resolveCategoryGapWidthPercent`):
     // legacy policy default 150, authored values clamped to 0..500.
     let gap_width_pct = authored_gap.map_or(150.0, |gap| (gap as f32).clamp(0.0, 500.0));
@@ -184,7 +173,8 @@ fn compile_vertical_columns(
                 };
                 let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
 
-                let norm_h = (((val - bounds.min_val) / bounds.max_val.max(1e-6)) as f32).clamp(0.0, 1.0) * layout.plot_h;
+                let norm_h =
+                    (((val - bounds.min_val) / bounds.max_val.max(1e-6)) as f32).clamp(0.0, 1.0) * layout.plot_h;
                 let bar_x = cat_start_x + (s_idx as f32) * geom.cluster_gap;
                 let bar_y = layout.plot_y + layout.plot_h - norm_h;
 
@@ -317,7 +307,8 @@ fn compile_horizontal_bars(
                 };
                 let label_pt = series_data_label_font_pt(chart, s, layout.plot_h);
 
-                let norm_w = (((val - bounds.min_val) / bounds.max_val.max(1e-6)) as f32).clamp(0.0, 1.0) * layout.plot_w;
+                let norm_w =
+                    (((val - bounds.min_val) / bounds.max_val.max(1e-6)) as f32).clamp(0.0, 1.0) * layout.plot_w;
                 let bar_y = cat_start_y + (s_idx as f32) * geom.cluster_gap;
                 let bar_x = layout.plot_x;
 

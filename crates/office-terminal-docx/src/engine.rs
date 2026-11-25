@@ -100,18 +100,12 @@ impl RdocxEngine {
     /// never abort the interactive presenter (PRD 15 §8.2).
     pub fn open_with_limits(bytes: Arc<[u8]>, limits: &DocxLimits) -> Result<Self, DocxError> {
         let started = Instant::now();
-        let outcome: Result<Arc<rdocx_layout::WordLayoutResult>, DocxError> =
-            catch_unwind(AssertUnwindSafe(|| {
-                let document = rdocx::Document::from_bytes_with_limits(
-                    &bytes,
-                    limits.package_limits(),
-                )
+        let outcome: Result<Arc<rdocx_layout::WordLayoutResult>, DocxError> = catch_unwind(AssertUnwindSafe(|| {
+            let document = rdocx::Document::from_bytes_with_limits(&bytes, limits.package_limits())
                 .map_err(map_rdocx_open_error)?;
-                document
-                    .layout_deterministic()
-                    .map_err(map_rdocx_open_error)
-            }))
-            .map_err(panic_message)?;
+            document.layout_deterministic().map_err(map_rdocx_open_error)
+        }))
+        .map_err(panic_message)?;
         let layout = outcome?;
         let result = &layout.layout;
 
@@ -123,8 +117,7 @@ impl RdocxEngine {
         // Soft deadline: record, never abort a running pagination
         // (issue #40 §7.14).
         let elapsed = started.elapsed();
-        let mut diagnostics: Vec<String> =
-            result.diagnostics.iter().map(|d| d.message.clone()).collect();
+        let mut diagnostics: Vec<String> = result.diagnostics.iter().map(|d| d.message.clone()).collect();
         if elapsed > limits.layout_deadline {
             diagnostics.push(format!(
                 "{LAYOUT_DEADLINE_PREFIX} {:.1}s (soft deadline {:.0}s)",
@@ -164,9 +157,7 @@ impl DocxEngine for RdocxEngine {
     }
 
     fn resolve_font(&self, id: FontId) -> Option<&ResolvedFont> {
-        self.font_slots
-            .get(id.0 as usize)
-            .and_then(|slot| slot.as_ref())
+        self.font_slots.get(id.0 as usize).and_then(|slot| slot.as_ref())
     }
 
     fn media_ids(&self) -> Vec<MediaId> {
@@ -275,9 +266,7 @@ mod tests {
     #[test]
     fn missing_encrypted_package_maps_to_the_encrypted_error() {
         use oxml_opc::OpcError;
-        let error = rdocx::Error::Opc(OpcError::PartNotFound(
-            "word/EncryptedPackage".to_string(),
-        ));
+        let error = rdocx::Error::Opc(OpcError::PartNotFound("word/EncryptedPackage".to_string()));
         assert!(matches!(map_rdocx_open_error(error), DocxError::Encrypted));
     }
 

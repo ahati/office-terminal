@@ -1,10 +1,7 @@
 use crate::contracts::{AffineTransform, PositionedGlyphRun};
-use cosmic_text::{
-    Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight,
-};
+use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight};
 use fontdb::{
-    Database, Family as DbFamily, Query as DbQuery, Stretch as DbStretch, Style as DbStyle,
-    Weight as DbWeight,
+    Database, Family as DbFamily, Query as DbQuery, Stretch as DbStretch, Style as DbStyle, Weight as DbWeight,
 };
 mod affine;
 mod decorations;
@@ -21,8 +18,8 @@ use std::cell::RefCell;
 // borrows the shared `cosmic-text` system and the `WARP_FONT_DB` alias keeps
 // the outline painters' `super::WARP_FONT_DB` call sites pointing at the one
 // shared raw database.
-use crate::text::fonts::{with_font_system, FACE_DB as WARP_FONT_DB};
 use crate::rasterizer::scratch::EffectScratch;
+use crate::text::fonts::{with_font_system, FACE_DB as WARP_FONT_DB};
 
 thread_local! {
     /// Glyph rasterisation cache for the shared per-thread font system.
@@ -103,9 +100,7 @@ pub(crate) fn render_single_run(
     // carries glyph IDs valid only for its registered face bytes. Paint the
     // outlines by ID through the element transform before any family-based
     // path; an unresolvable handle falls through to re-shaping.
-    if run.face.is_some()
-        && document::render_document_run(pixmap, run, transform, scale, offset_x, offset_y)
-    {
+    if run.face.is_some() && document::render_document_run(pixmap, run, transform, scale, offset_x, offset_y) {
         return;
     }
 
@@ -204,12 +199,7 @@ pub(crate) fn render_single_run(
     let pix_data = pixmap.data_mut();
 
     buffer.draw(font_system, swash_cache, text_color, |x, y, w, h, col| {
-        let (cr, cg, cb, ca) = (
-            col.r() as u32,
-            col.g() as u32,
-            col.b() as u32,
-            col.a() as u32,
-        );
+        let (cr, cg, cb, ca) = (col.r() as u32, col.g() as u32, col.b() as u32, col.a() as u32);
         if ca == 0 {
             return;
         }
@@ -289,10 +279,7 @@ fn query_face(db: &Database, run: &PositionedGlyphRun) -> Option<fontdb::ID> {
             "Times New Roman".to_string(),
         ]);
     } else if mono {
-        families.extend([
-            "Liberation Mono".to_string(),
-            "DejaVu Sans Mono".to_string(),
-        ]);
+        families.extend(["Liberation Mono".to_string(), "DejaVu Sans Mono".to_string()]);
     } else {
         families.extend([
             "Carlito".to_string(),
@@ -302,21 +289,10 @@ fn query_face(db: &Database, run: &PositionedGlyphRun) -> Option<fontdb::ID> {
         ]);
     }
 
-    let requested_weight = if run.bold {
-        DbWeight::BOLD
-    } else {
-        DbWeight::NORMAL
-    };
-    let requested_style = if run.italic {
-        DbStyle::Italic
-    } else {
-        DbStyle::Normal
-    };
+    let requested_weight = if run.bold { DbWeight::BOLD } else { DbWeight::NORMAL };
+    let requested_style = if run.italic { DbStyle::Italic } else { DbStyle::Normal };
     for family in &families {
-        for (weight, style) in [
-            (requested_weight, requested_style),
-            (DbWeight::NORMAL, DbStyle::Normal),
-        ] {
+        for (weight, style) in [(requested_weight, requested_style), (DbWeight::NORMAL, DbStyle::Normal)] {
             let query = DbQuery {
                 families: &[DbFamily::Name(family)],
                 weight,
@@ -445,15 +421,7 @@ mod tests {
     fn a_rotated_run_paints_along_the_rotated_axis() {
         let mut pixmap = tiny_skia::Pixmap::new(128, 128).expect("pixmap");
         let emu = 12_700.0;
-        let transform = compute_shape_transform(
-            0,
-            0,
-            (128.0 * emu) as i64,
-            (128.0 * emu) as i64,
-            90.0,
-            false,
-            false,
-        );
+        let transform = compute_shape_transform(0, 0, (128.0 * emu) as i64, (128.0 * emu) as i64, 90.0, false, false);
         render_text_runs(
             &mut pixmap,
             &[run("HELLO", 20.0, 86.0)],

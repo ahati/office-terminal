@@ -1,7 +1,7 @@
 # PRD 01: Core Parser & Data Model Integration
 
 ## 1. Purpose & Scope
-This document specifies the integration of the pure-Rust parsing engine from [`yukiyokotani/office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer) into `kitty-pptx`: how `.pptx` archives are opened (including non-seekable streams such as stdin), how PresentationML parts, relationships, and inheritance trees are resolved, what the verified internal data structures carry, and how media assets are managed. The access interfaces (`PresentationLoader`, `AssetStore`) are normative in [PRD 06](./06-component-interface-contracts.md) §3, §5.
+This document specifies the integration of the pure-Rust parsing engine from [`yukiyokotani/office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer) into **Office Terminal**: how `.pptx` archives are opened (including non-seekable streams such as stdin), how PresentationML parts, relationships, and inheritance trees are resolved, what the verified internal data structures carry, and how media assets are managed. The access interfaces (`PresentationLoader`, `AssetStore`) are normative in [PRD 06](./06-component-interface-contracts.md) §3, §5.
 
 ---
 
@@ -31,14 +31,14 @@ The upstream project structures its PPTX implementation into two core Rust crate
 └────────────────────────────┬─────────────────────────────┘
                              ▼
 ┌──────────────────────────────────────────────────────────┐
-│             kitty-pptx AssetStore Session                │
+│            Office Terminal AssetStore Session            │
 │  - Lazy decode of ppt/media/*                            │
 │  - LRU-cached raster bitmaps & resvg SVGs                │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ### 2.1 Workspace Crate Vendoring
-`kitty-pptx` consumes upstream crates directly in a cargo workspace:
+**Office Terminal** consumes upstream crates directly in a cargo workspace:
 ```toml
 [dependencies]
 ooxml-common = { path = "./crates/ooxml-common", default-features = false }

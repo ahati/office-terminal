@@ -1,5 +1,5 @@
-use office_terminal_core::*;
 use crossbeam_channel::unbounded;
+use office_terminal_core::*;
 use pptx_model::*;
 
 #[test]
@@ -90,9 +90,7 @@ fn test_shape_presets_compilation() {
 
     let slide: Slide = serde_json::from_value(slide_json).expect("deserialize slide");
 
-    let vector_slide = compiler
-        .compile(&slide, 9144000, 6858000, &tx)
-        .expect("compile failed");
+    let vector_slide = compiler.compile(&slide, 9144000, 6858000, &tx).expect("compile failed");
 
     assert_eq!(vector_slide.width_emu, 9144000);
     assert_eq!(vector_slide.height_emu, 6858000);

@@ -14,9 +14,7 @@
 //! everything the dictionary-free contract can express is asserted here.
 
 use office_terminal_core::text::justify::{justify_line, JustifyMode, JustifyPlan};
-use office_terminal_core::text::linebreak::{
-    break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem,
-};
+use office_terminal_core::text::linebreak::{break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem};
 use office_terminal_core::text::{StyleId, TextMeasure};
 
 const S: StyleId = StyleId(0);
@@ -194,20 +192,15 @@ fn sea_thai_fitting_run_is_one_line() {
 /// its marks are never torn, and the text is preserved.
 #[test]
 fn sea_myanmar_tibetan_break_at_grapheme_boundaries() {
-    for text in [
-        "မြန်မာဘာသာစကားကိုစာလုံးများအကြားတွင်ကွက်လပ်မထား",
-        "བོད་ཡིག་ནི་ཚིག་གྲུབ་སོ་སོའི་བར་དུ་ཚེག",
-    ] {
+    for text in ["မြန်မာဘာသာစကားကိုစာလုံးများအကြားတွင်ကွက်လပ်မထား", "བོད་ཡིག་ནི་ཚིག་གྲུབ་སོ་སོའི་བར་དུ་ཚེག"]
+    {
         let lines = wrap_one(text, 120.0);
         let out = texts(&lines);
         assert!(out.len() > 1, "no wrap for {text:?}: {out:?}");
         assert_eq!(out.concat(), text);
         for line in &out {
             let head = line.chars().next().expect("a non-empty line");
-            assert!(
-                !is_stack_mark(head),
-                "line {line:?} begins with a stacked mark",
-            );
+            assert!(!is_stack_mark(head), "line {line:?} begins with a stacked mark",);
             assert!(line.chars().count() * 10 <= 120 || line.chars().count() <= 2);
         }
     }
@@ -308,7 +301,10 @@ fn sea_justified_wrap_is_alignment_independent() {
 fn sea_justified_three_pixel_slack_stays_on_one_line() {
     let lines = wrap_one("มาก มาก มาก ดังนี้", 183.0);
     assert_eq!(lines.len(), 1);
-    assert_eq!(line_text(&lines[0]).split_whitespace().collect::<String>(), "มากมากมากดังนี้");
+    assert_eq!(
+        line_text(&lines[0]).split_whitespace().collect::<String>(),
+        "มากมากมากดังนี้"
+    );
 }
 
 // ── cjk-spc-justify.test.ts — justification gap structure ──────────────────

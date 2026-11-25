@@ -56,17 +56,13 @@ pub fn render_image_with_hint(
             // A missing/corrupt picture must stay visible: a silent return
             // leaves an unexplained hole in the slide. Paint the neutral
             // frame used for unexpanded metafiles instead.
-            render_missing_picture(
-                pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y,
-            );
+            render_missing_picture(pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y);
             return;
         }
     };
 
     if decoded.width == 0 || decoded.height == 0 {
-        render_missing_picture(
-            pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y,
-        );
+        render_missing_picture(pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y);
         return;
     }
 
@@ -86,9 +82,7 @@ pub fn render_image_with_hint(
     let mut src_pixmap = match tiny_skia::Pixmap::new(crop_w, crop_h) {
         Some(p) => p,
         None => {
-            render_missing_picture(
-                pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y,
-            );
+            render_missing_picture(pixmap, dest_rect, transform, opacity, scale, offset_x, offset_y);
             return;
         }
     };
@@ -167,28 +161,14 @@ pub fn render_image_with_hint(
     let total_tx = offset_x + m2.tx * scale;
     let total_ty = offset_y + m2.ty * scale;
 
-    let ts_transform = tiny_skia::Transform::from_row(
-        total_sx,
-        total_ky,
-        total_kx,
-        total_sy,
-        total_tx,
-        total_ty,
-    );
+    let ts_transform = tiny_skia::Transform::from_row(total_sx, total_ky, total_kx, total_sy, total_tx, total_ty);
 
     let paint = tiny_skia::PixmapPaint {
         quality: tiny_skia::FilterQuality::Bilinear,
         ..Default::default()
     };
 
-    pixmap.draw_pixmap(
-        0,
-        0,
-        src_pixmap.as_ref(),
-        &paint,
-        ts_transform,
-        None,
-    );
+    pixmap.draw_pixmap(0, 0, src_pixmap.as_ref(), &paint, ts_transform, None);
 }
 
 /// Paints an inline PNG from `VectorCommand::DrawBitmap`.
@@ -287,13 +267,7 @@ pub fn render_missing_picture(
         242,
         (255.0 * opacity).round() as u8,
     ));
-    pixmap.fill_path(
-        &path,
-        &fill,
-        tiny_skia::FillRule::Winding,
-        target,
-        None,
-    );
+    pixmap.fill_path(&path, &fill, tiny_skia::FillRule::Winding, target, None);
 
     let mut stroke = tiny_skia::Paint::default();
     stroke.set_color(tiny_skia::Color::from_rgba8(

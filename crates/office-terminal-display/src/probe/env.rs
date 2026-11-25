@@ -35,12 +35,7 @@ mod tests {
     use super::*;
 
     fn detect(pairs: &[(&str, &str)]) -> bool {
-        kitty_from_env_with(|key| {
-            pairs
-                .iter()
-                .find(|(k, _)| *k == key)
-                .map(|(_, v)| (*v).to_string())
-        })
+        kitty_from_env_with(|key| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_string()))
     }
 
     #[test]

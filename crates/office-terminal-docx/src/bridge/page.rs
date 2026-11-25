@@ -1,8 +1,6 @@
 //! Page background mapping (PRD 15 §5.2, issue #40 §7.7.2).
 
-use office_terminal_core::contracts::{
-    VectorBackground, VectorGradient,
-};
+use office_terminal_core::contracts::{VectorBackground, VectorGradient};
 use oxml_layout::paint::Paint;
 
 use super::paint::{average_color, gradient_angle_deg, map_gradient_stops, rgba};
@@ -15,9 +13,7 @@ use super::BridgeContext;
 pub(crate) fn map_background(paint: &Paint, ctx: &BridgeContext<'_>) -> Option<VectorBackground> {
     match paint {
         Paint::Solid(color) => Some(VectorBackground::Solid(rgba(color))),
-        Paint::Linear {
-            start, end, stops, ..
-        } => Some(VectorBackground::Gradient(VectorGradient::new(
+        Paint::Linear { start, end, stops, .. } => Some(VectorBackground::Gradient(VectorGradient::new(
             gradient_angle_deg(start, end),
             map_gradient_stops(stops, 1.0),
         ))),
@@ -79,10 +75,7 @@ mod tests {
     #[test]
     fn solid_backgrounds_map_directly() {
         let engine = FixtureEngine::new(Vec::new());
-        let (slide, warnings) = compile(
-            &page_with(Some(Paint::Solid(Color::WHITE))),
-            &engine,
-        );
+        let (slide, warnings) = compile(&page_with(Some(Paint::Solid(Color::WHITE))), &engine);
         assert_eq!(slide.background, Some(VectorBackground::Solid([255, 255, 255, 255])));
         assert!(warnings.is_empty());
     }
@@ -93,8 +86,14 @@ mod tests {
             Point { x: 0.0, y: 0.0 },
             Point { x: 0.0, y: 100.0 },
             vec![
-                GradientStop { offset: 0.0, color: Color::BLACK },
-                GradientStop { offset: 1.0, color: Color::WHITE },
+                GradientStop {
+                    offset: 0.0,
+                    color: Color::BLACK,
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: Color::WHITE,
+                },
             ],
             (false, false),
         );
@@ -117,8 +116,14 @@ mod tests {
             50.0,
             Point { x: 50.0, y: 50.0 },
             vec![
-                GradientStop { offset: 0.0, color: Color::BLACK },
-                GradientStop { offset: 1.0, color: Color::WHITE },
+                GradientStop {
+                    offset: 0.0,
+                    color: Color::BLACK,
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: Color::WHITE,
+                },
             ],
             (false, false),
         );
@@ -146,17 +151,11 @@ mod tests {
         };
 
         let engine = FixtureEngine::new(Vec::new());
-        let (slide, warnings) = compile(
-            &page_with(Some(radial)),
-            &engine,
-        );
+        let (slide, warnings) = compile(&page_with(Some(radial)), &engine);
         assert!(matches!(slide.background, Some(VectorBackground::Gradient(_))));
 
         let (slide, more) = compile(&page_with(Some(grid)), &engine);
-        assert_eq!(
-            slide.background,
-            Some(VectorBackground::Solid([128, 128, 128, 255]))
-        );
+        assert_eq!(slide.background, Some(VectorBackground::Solid([128, 128, 128, 255])));
 
         let (slide, tail) = compile(&page_with(Some(tile)), &engine);
         assert!(slide.background.is_none());
@@ -165,10 +164,7 @@ mod tests {
         assert_eq!(more.len(), 1);
         assert_eq!(tail.len(), 1);
         for warning in [warnings, more, tail].concat() {
-            let office_terminal_core::contracts::WarningEvent::FidelityDegraded {
-                feature, ..
-            } = warning
-            else {
+            let office_terminal_core::contracts::WarningEvent::FidelityDegraded { feature, .. } = warning else {
                 panic!("unexpected warning {warning:?}");
             };
             assert!(feature.starts_with("docx-background-"));

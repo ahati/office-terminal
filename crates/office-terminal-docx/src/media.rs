@@ -8,17 +8,15 @@
 //! structurally impossible.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 #[cfg(any(feature = "rdocx-backend", test))]
 use std::sync::Arc;
+use std::sync::Mutex;
 
-use office_terminal_core::loader::{
-    decode_raster, decode_svg, AssetStore, AssetStoreStats, DecodedImage, SizeHint,
-};
+use office_terminal_core::loader::{decode_raster, decode_svg, AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::AssetError;
+use oxml_layout::MediaId;
 #[cfg(any(feature = "rdocx-backend", test))]
 use oxml_layout::{PageFrame, PositionedElement};
-use oxml_layout::MediaId;
 
 use crate::engine::MediaBytes;
 use crate::limits::DocxLimits;
@@ -89,10 +87,7 @@ impl DocxAssetStore {
 
     /// Build the store from the engine's media inventory with an explicit
     /// decoded-image LRU byte budget (`DocxLimits::image_cache_bytes`).
-    pub fn from_engine_with_budget(
-        engine: &dyn crate::engine::DocxEngine,
-        max_cache_bytes: usize,
-    ) -> Self {
+    pub fn from_engine_with_budget(engine: &dyn crate::engine::DocxEngine, max_cache_bytes: usize) -> Self {
         let mut entries = HashMap::new();
         for id in engine.media_ids() {
             if let Some(bytes) = engine.media(id) {
@@ -132,9 +127,7 @@ impl DocxAssetStore {
             .entries
             .get(rel_id)
             .ok_or_else(|| AssetError::NotFound(rel_id.to_string()))?;
-        if entry.content_type.contains("svg") || entry.data.starts_with(b"<svg")
-            || entry.data.starts_with(b"<?xml")
-        {
+        if entry.content_type.contains("svg") || entry.data.starts_with(b"<svg") || entry.data.starts_with(b"<?xml") {
             decode_svg(&entry.data, &hint)
         } else {
             decode_raster(&entry.data, &hint)
@@ -150,10 +143,7 @@ impl AssetStore for DocxAssetStore {
         };
 
         {
-            let mut cache = self
-                .cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut clock = self
                 .access_clock
                 .lock()
@@ -168,10 +158,7 @@ impl AssetStore for DocxAssetStore {
         let decoded = self.decode(rel_id, hint)?;
 
         {
-            let mut cache = self
-                .cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut clock = self
                 .access_clock
                 .lock()
@@ -223,10 +210,7 @@ impl AssetStore for DocxAssetStore {
     }
 
     fn stats(&self) -> AssetStoreStats {
-        let cache = self
-            .cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         AssetStoreStats {
             cached_entries: cache.len(),
             cached_bytes: cache.values().map(|e| e.image.pixels.len()).sum(),
@@ -409,7 +393,12 @@ mod tests {
     /// content across entries is irrelevant.
     fn store_with_pngs() -> HashMap<String, MediaBytes> {
         let mut entries = HashMap::new();
-        for (name, png) in [("a", png(1, 1)), ("b", png(1, 1)), ("c", png(1, 1)), ("wide", png(2, 1))] {
+        for (name, png) in [
+            ("a", png(1, 1)),
+            ("b", png(1, 1)),
+            ("c", png(1, 1)),
+            ("wide", png(2, 1)),
+        ] {
             entries.insert(
                 name.to_string(),
                 MediaBytes {
@@ -427,9 +416,7 @@ mod tests {
         use image::{ImageFormat, RgbImage};
         let image = RgbImage::from_pixel(width, height, image::Rgb([0x40, 0x80, 0xC0]));
         let mut bytes = std::io::Cursor::new(Vec::new());
-        image
-            .write_to(&mut bytes, ImageFormat::Png)
-            .expect("encode png");
+        image.write_to(&mut bytes, ImageFormat::Png).expect("encode png");
         bytes.into_inner()
     }
 

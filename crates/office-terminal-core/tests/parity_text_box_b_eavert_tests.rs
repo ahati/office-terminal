@@ -76,11 +76,7 @@ fn latin_stays_sideways() {
 #[test]
 fn fullwidth_bracket_is_substituted_upright() {
     let painted = pieces("（", all_forms);
-    assert_eq!(
-        painted,
-        [("\u{fe35}".to_string(), true)],
-        "（ → ︵ upright"
-    );
+    assert_eq!(painted, [("\u{fe35}".to_string(), true)], "（ → ︵ upright");
     assert!(!painted.iter().any(|(text, _)| text == "（"));
 }
 
@@ -339,13 +335,7 @@ fn fullwidth_colon_rotates_with_the_page() {
     assert_eq!(pieces("：", all_forms), [("：".to_string(), false)]);
 }
 
-fn upright_column_spaced(
-    text: &str,
-    alignment: &str,
-    box_w: f32,
-    box_h: f32,
-    spc_pt: f64,
-) -> Vec<PositionedGlyphRun> {
+fn upright_column_spaced(text: &str, alignment: &str, box_w: f32, box_h: f32, spc_pt: f64) -> Vec<PositionedGlyphRun> {
     let mut body = ea_vert_body(text, alignment);
     if let pptx_model::TextRun::Text(run) = &mut body.paragraphs[0].runs[0] {
         run.letter_spacing = Some(spc_pt);
@@ -378,12 +368,7 @@ fn upright_column_spaced(
 fn helper_uses_the_vert_feature_for_long_marks_only() {
     let painted: Vec<String> = pieces("ー〜～、。：；「」“”A", all_forms)
         .into_iter()
-        .flat_map(|(text, _)| {
-            graphemes(&text)
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<_>>()
-        })
+        .flat_map(|(text, _)| graphemes(&text).into_iter().map(String::from).collect::<Vec<_>>())
         .collect();
     assert_eq!(
         painted,

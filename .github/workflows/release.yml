@@ -9,14 +9,17 @@ jobs:
   build-release:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: macos-latest
+          - os: macos-15
             target: aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
 
     steps:
@@ -36,9 +39,18 @@ jobs:
           mkdir -p "$ARCHIVE_DIR"
           cp "target/${{ matrix.target }}/release/ot" "$ARCHIVE_DIR/"
           cp "target/${{ matrix.target }}/release/office-terminal" "$ARCHIVE_DIR/"
-          cp README.md LICENSE "$ARCHIVE_DIR/"
+          cp README.md LICENSE CHANGELOG.md THIRD_PARTY_NOTICES.md "$ARCHIVE_DIR/"
+          mkdir -p "$ARCHIVE_DIR/crates/office-terminal-core/assets/fonts"
+          cp crates/VENDORED.md "$ARCHIVE_DIR/crates/"
+          cp crates/office-terminal-core/assets/fonts/NOTICE.md \
+             crates/office-terminal-core/assets/fonts/OFL.txt \
+             "$ARCHIVE_DIR/crates/office-terminal-core/assets/fonts/"
           tar -czvf "${ARCHIVE_DIR}.tar.gz" "$ARCHIVE_DIR"
-          sha256sum "${ARCHIVE_DIR}.tar.gz" > "${ARCHIVE_DIR}.tar.gz.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${ARCHIVE_DIR}.tar.gz" > "${ARCHIVE_DIR}.tar.gz.sha256"
+          else
+            shasum -a 256 "${ARCHIVE_DIR}.tar.gz" > "${ARCHIVE_DIR}.tar.gz.sha256"
+          fi
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2

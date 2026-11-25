@@ -6,15 +6,11 @@ mod image;
 mod path;
 mod text;
 
-use std::fmt::Write;
-use self::defs::{
-    emit_clip_path_def, emit_fill_def, emit_stroke_def, find_command_link, wrap_svg_anchor,
-};
-use crate::contracts::{
-    SvgTextMode, VectorBackground, VectorCommand, VectorSlide,
-};
+use self::defs::{emit_clip_path_def, emit_fill_def, emit_stroke_def, find_command_link, wrap_svg_anchor};
+use crate::contracts::{SvgTextMode, VectorBackground, VectorCommand, VectorSlide};
 use crate::error::RenderError;
 use crate::loader::AssetStore;
+use std::fmt::Write;
 
 pub trait SlideSvgSerializer: Send + Sync {
     fn serialize_svg(
@@ -94,13 +90,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
         // body. A tiled fill registers its `<pattern>` in the shared defs
         // buffer (ref renderer.ts:2218-2362).
         let bg_image_body = scene.background.as_ref().and_then(|bg| {
-            background_image::emit(
-                assets,
-                bg,
-                scene.width_emu as f32,
-                scene.height_emu as f32,
-                &mut defs,
-            )
+            background_image::emit(assets, bg, scene.width_emu as f32, scene.height_emu as f32, &mut defs)
         });
 
         // Command gradients, clip defs, and shape-effect filter graphs
@@ -222,12 +212,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                 }
             }
         } else {
-            writeln!(
-                &mut svg,
-                r##"  <rect width="{}" height="{}" fill="#ffffff"/>"##,
-                w, h
-            )
-            .ok();
+            writeln!(&mut svg, r##"  <rect width="{}" height="{}" fill="#ffffff"/>"##, w, h).ok();
         }
 
         // 3. Render vector commands. A PushClip opens a `<g clip-path>` group;
@@ -270,12 +255,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     let fill_attr = path::format_fill_attr(fill.as_ref(), grad_id);
                     let stroke_id = stroke_paint_ids.get(cmd_idx).and_then(|id| id.as_deref());
                     let stroke_attr = path::format_stroke_attr(stroke.as_ref(), stroke_id);
-                    let transform_attr = filters::format_path_transform(
-                        v_path,
-                        transform,
-                        effects,
-                        scene.width_emu,
-                    );
+                    let transform_attr = filters::format_path_transform(v_path, transform, effects, scene.width_emu);
                     let fill_rule_attr = path::format_fill_rule_attr(v_path.fill_rule);
 
                     let effect_ref = effect_refs.get(cmd_idx).and_then(|r| r.as_ref());
@@ -291,19 +271,11 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     writeln!(
                         &mut element,
                         r#"  <path d="{}" {} {}{}{}{}{}/>"#,
-                        d,
-                        fill_attr,
-                        stroke_attr,
-                        fill_rule_attr,
-                        transform_attr,
-                        id_attr,
-                        filter_attr
+                        d, fill_attr, stroke_attr, fill_rule_attr, transform_attr, id_attr, filter_attr
                     )
                     .ok();
 
-                    if let Some(reflection_use) =
-                        effect_ref.and_then(|r| r.reflection_use.as_deref())
-                    {
+                    if let Some(reflection_use) = effect_ref.and_then(|r| r.reflection_use.as_deref()) {
                         element.push_str("  ");
                         element.push_str(reflection_use);
                         element.push('\n');
@@ -337,15 +309,8 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     transform,
                     effects,
                 } => {
-                    let img_svg = image::serialize_svg_image(
-                        assets,
-                        rel_id,
-                        src_rect,
-                        dest_rect,
-                        *opacity,
-                        transform,
-                        effects,
-                    );
+                    let img_svg =
+                        image::serialize_svg_image(assets, rel_id, src_rect, dest_rect, *opacity, transform, effects);
                     if !img_svg.is_empty() {
                         element.push_str(&img_svg);
                         element.push('\n');
@@ -363,9 +328,7 @@ impl SlideSvgSerializer for DefaultSlideSvgSerializer {
                     element = image::serialize_svg_bitmap(png, placement, *opacity);
                 }
                 VectorCommand::DrawMetafile {
-                    dest_rect,
-                    transform,
-                    ..
+                    dest_rect, transform, ..
                 } => {
                     element = image::serialize_svg_missing_metafile(dest_rect, transform);
                 }

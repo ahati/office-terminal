@@ -109,16 +109,12 @@ impl AutoNumCounters {
     pub fn resolve_label(&mut self, para: &pptx_model::Paragraph) -> Option<String> {
         let has_content = paragraph_has_renderable_content(para);
         match &para.bullet {
-            pptx_model::Bullet::Char {
-                ch, font_family, ..
-            } => {
+            pptx_model::Bullet::Char { ch, font_family, .. } => {
                 // Switching to char bullets resets the auto-number counters.
                 self.per_level.clear();
                 has_content.then(|| map_bullet_char(ch, font_family.as_deref()))
             }
-            pptx_model::Bullet::AutoNum {
-                num_type, start_at, ..
-            } => {
+            pptx_model::Bullet::AutoNum { num_type, start_at, .. } => {
                 // An empty paragraph draws no marker and does not advance the
                 // counter, so a blank line between items keeps the sequence.
                 if !has_content {
@@ -154,12 +150,16 @@ impl AutoNumCounters {
 pub fn format_auto_num(counter: u32, num_type: &str) -> String {
     let arabic = counter.to_string();
     let alpha_lc = if (1..=26).contains(&counter) {
-        char::from_u32(0x60 + counter).map(String::from).unwrap_or_else(|| arabic.clone())
+        char::from_u32(0x60 + counter)
+            .map(String::from)
+            .unwrap_or_else(|| arabic.clone())
     } else {
         arabic.clone()
     };
     let alpha_uc = if (1..=26).contains(&counter) {
-        char::from_u32(0x40 + counter).map(String::from).unwrap_or_else(|| arabic.clone())
+        char::from_u32(0x40 + counter)
+            .map(String::from)
+            .unwrap_or_else(|| arabic.clone())
     } else {
         arabic.clone()
     };
@@ -204,9 +204,7 @@ pub fn format_auto_num(counter: u32, num_type: &str) -> String {
 /// `toRoman` (`autonum-label.ts:62-70`).
 fn to_roman(value: u32) -> String {
     const VALUES: [u32; 13] = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
-    const SYMBOLS: [&str; 13] = [
-        "M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I",
-    ];
+    const SYMBOLS: [&str; 13] = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"];
     let mut remaining = value;
     let mut out = String::new();
     for (value, symbol) in VALUES.iter().zip(SYMBOLS.iter()) {
@@ -341,12 +339,7 @@ pub fn resolve_marker(
 /// `bulletBaseSizePx * (b.sizePct / 100)` (`renderer.ts:4795-4799`): an
 /// absolute `buSzPts` (§21.1.2.4.10) wins over a co-present `buSzPct`
 /// (§21.1.2.4.9). Both are one `EG_TextBulletSize` choice.
-fn marker_size_pt(
-    size_pts: Option<f64>,
-    size_pct: Option<f64>,
-    base_pt: f32,
-    font_scale: f32,
-) -> f32 {
+fn marker_size_pt(size_pts: Option<f64>, size_pct: Option<f64>, base_pt: f32, font_scale: f32) -> f32 {
     match (size_pts, size_pct) {
         (Some(pts), _) => pts as f32 * font_scale,
         (None, Some(pct)) => base_pt * (pct as f32 / 100.0) * font_scale,

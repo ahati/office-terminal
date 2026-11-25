@@ -9,8 +9,8 @@ use std::path::Path;
 use crossbeam_channel::unbounded;
 use office_terminal_core::metafile::expand_metafiles;
 use office_terminal_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec,
-    RgbaSlide, SlideCompiler, SlideRasterizer, Source, TinySkiaRasterizer,
+    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec, RgbaSlide, SlideCompiler,
+    SlideRasterizer, Source, TinySkiaRasterizer,
 };
 
 /// Render every slide of `path` at `width_px`, preserving the deck aspect ratio.
@@ -19,14 +19,10 @@ pub fn render_fixture(path: &Path, width_px: u32) -> Result<Vec<RgbaSlide>, Stri
     let (presentation, assets) = loader
         .load(Source::File(path.to_path_buf()))
         .map_err(|error| format!("failed to load {}: {error}", path.display()))?;
-    let height_px = (width_px as f64 * presentation.slide_height as f64
-        / presentation.slide_width as f64)
+    let height_px = (width_px as f64 * presentation.slide_height as f64 / presentation.slide_width as f64)
         .round()
         .max(1.0) as u32;
-    let target = RenderTargetSpec {
-        width_px,
-        height_px,
-    };
+    let target = RenderTargetSpec { width_px, height_px };
     let compiler = DefaultSlideCompiler::new();
     let rasterizer = TinySkiaRasterizer::new();
     let (tx, _rx) = unbounded();

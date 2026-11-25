@@ -74,10 +74,7 @@ fn compile(chart: ChartModel, width: i64, height: i64) -> Vec<VectorCommand> {
 
 fn font_pt(commands: &[VectorCommand], text: &str) -> Option<f32> {
     commands.iter().find_map(|cmd| match cmd {
-        VectorCommand::DrawText { runs, .. } => runs
-            .iter()
-            .find(|run| run.text == text)
-            .map(|run| run.font_size_pt),
+        VectorCommand::DrawText { runs, .. } => runs.iter().find(|run| run.text == text).map(|run| run.font_size_pt),
         _ => None,
     })
 }
@@ -254,11 +251,7 @@ fn authored_gap_width_controls_bar_width() {
 
         assert_eq!(bars.len(), 2, "gapWidth={gap_width}");
         let slot = bars[1].x - bars[0].x;
-        assert_close(
-            bars[0].w,
-            slot / denom,
-            &format!("gapWidth={gap_width} bar width"),
-        );
+        assert_close(bars[0].w, slot / denom, &format!("gapWidth={gap_width} bar width"));
     }
 }
 
@@ -278,11 +271,7 @@ fn bar_group_gap_width_wins_over_chart_level() {
 
 #[test]
 fn overlap_is_honoured_inside_the_cluster() {
-    let mut c = chart(
-        "clusteredColumn",
-        &["A", "B"],
-        &[&[10.0, 20.0], &[30.0, 40.0]],
-    );
+    let mut c = chart("clusteredColumn", &["A", "B"], &[&[10.0, 20.0], &[30.0, 40.0]]);
     c.bar_gap_width = Some(150);
     c.bar_overlap = Some(50);
 
@@ -331,11 +320,7 @@ fn horizontal_bars_use_gap_width_and_overlap() {
     let slot = bars[1].y - bars[0].y;
     assert_close(bars[0].h, slot / 2.5, "horizontal bar height");
 
-    let mut c = chart(
-        "clusteredBarH",
-        &["A", "B"],
-        &[&[10.0, 20.0], &[30.0, 40.0]],
-    );
+    let mut c = chart("clusteredBarH", &["A", "B"], &[&[10.0, 20.0], &[30.0, 40.0]]);
     c.bar_gap_width = Some(150);
     c.bar_overlap = Some(50);
 
@@ -353,9 +338,7 @@ fn texts(commands: &[VectorCommand]) -> Vec<String> {
     commands
         .iter()
         .filter_map(|cmd| match cmd {
-            VectorCommand::DrawText { runs, .. } => {
-                Some(runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>())
-            }
+            VectorCommand::DrawText { runs, .. } => Some(runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>()),
             _ => None,
         })
         .flatten()

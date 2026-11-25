@@ -15,12 +15,7 @@ pub struct ColumnPlan {
 
 /// Assign lines to columns. `content_height` excludes the final paragraph's
 /// trailing `spcAft` (it cannot by itself force overflow).
-pub fn plan_columns(
-    line_count: usize,
-    content_height: f32,
-    column_capacity: f32,
-    num_col: usize,
-) -> ColumnPlan {
+pub fn plan_columns(line_count: usize, content_height: f32, column_capacity: f32, num_col: usize) -> ColumnPlan {
     if line_count == 0 {
         return ColumnPlan {
             line_col: Vec::new(),
@@ -57,13 +52,7 @@ pub fn plan_columns(
 }
 
 /// Horizontal offset of one column; `rtl_col` mirrors the visual index.
-pub fn column_x(
-    column: usize,
-    num_col: usize,
-    column_width: f32,
-    column_gap: f32,
-    rtl_col: bool,
-) -> f32 {
+pub fn column_x(column: usize, num_col: usize, column_width: f32, column_gap: f32, rtl_col: bool) -> f32 {
     let visual = if rtl_col {
         num_col.saturating_sub(1).saturating_sub(column)
     } else {

@@ -17,9 +17,7 @@
 #[path = "text_box_a_support/mod.rs"]
 mod support;
 
-use support::{
-    body, body_with, close, compile, drawn_runs, line_pts, para, text, text_face, ParaSpec, BREAK,
-};
+use support::{body, body_with, close, compile, drawn_runs, line_pts, para, text, text_face, ParaSpec, BREAK};
 
 /// `percentage-line-spacing.test.ts`: `baselinePitch(fontFamily, spaceLine)`.
 ///
@@ -79,7 +77,11 @@ fn explicit_100_pct_is_one_natural_line_for_every_face() {
 #[test]
 fn bulleted_paragraphs_use_the_same_percentage_rule() {
     let pitch = baseline_pitch(bulleted("Arial", PCT100));
-    close(pitch, baseline_pitch(two_paragraphs("Arial", PCT100)), "bulleted vs plain");
+    close(
+        pitch,
+        baseline_pitch(two_paragraphs("Arial", PCT100)),
+        "bulleted vs plain",
+    );
     close(pitch, 24.0, "bulleted 100 %");
 }
 
@@ -160,14 +162,7 @@ fn space_before_uses_the_line_it_precedes() {
 #[test]
 fn space_before_uses_the_largest_run_of_the_first_line() {
     let mixed = || vec![text("B", 20.0), text("C", 40.0)];
-    let without = baselines(
-        &[
-            para(vec![text("A", 40.0)]),
-            para(mixed()),
-        ],
-        "t",
-        false,
-    );
+    let without = baselines(&[para(vec![text("A", 40.0)]), para(mixed())], "t", false);
     let ys = baselines(
         &[
             para(vec![text("A", 40.0)]),
@@ -197,11 +192,7 @@ fn first_line_owns_space_before_and_last_line_space_after() {
         let plain = baselines(&lines(first, last, false), "t", false);
         let spaced = baselines(&lines(first, last, true), "t", false);
         close(spaced[1] - plain[1], first * 1.2, "space before");
-        close(
-            spaced[3] - spaced[2] - (plain[3] - plain[2]),
-            last * 1.2,
-            "space after",
-        );
+        close(spaced[3] - spaced[2] - (plain[3] - plain[2]), last * 1.2, "space after");
     }
 }
 
@@ -255,11 +246,7 @@ fn first_paragraph_space_before_stays_suppressed() {
 #[test]
 fn absolute_point_spacing_is_unchanged() {
     let plain = baselines(&[p(20.0, None, None), p(20.0, None, None)], "t", false);
-    let ys = baselines(
-        &[p(20.0, None, None), p(20.0, Some((false, 12.0)), None)],
-        "t",
-        false,
-    );
+    let ys = baselines(&[p(20.0, None, None), p(20.0, Some((false, 12.0)), None)], "t", false);
     close(ys[1] - ys[0], plain[1] - plain[0] + 12.0, "spcBef 12 pt");
 }
 
@@ -303,11 +290,7 @@ fn centre_anchor_suppresses_trailing_gaps() {
 fn space_after_before_an_empty_paragraph_is_interior() {
     let empty = || para(vec![text("", 20.0)]);
     let without = baselines(&[p(20.0, None, None), empty()], "ctr", false);
-    let with_gap = baselines(
-        &[p(20.0, None, Some((false, 12.0))), empty()],
-        "ctr",
-        false,
-    );
+    let with_gap = baselines(&[p(20.0, None, Some((false, 12.0))), empty()], "ctr", false);
     close(without[0] - with_gap[0], 6.0, "interior gap lifts by half");
 }
 
@@ -316,16 +299,7 @@ fn space_after_before_an_empty_paragraph_is_interior() {
 /// `paintedSizes(text, boxHeight)` from the spec: the glyph size actually
 /// painted, in points.
 fn painted_sizes(specs: &[ParaSpec], box_height: f64, font_scale: Option<f64>) -> Vec<f32> {
-    let body = body_with(
-        specs,
-        "t",
-        (0.0, 0.0, 0.0, 0.0),
-        "norm",
-        font_scale,
-        None,
-        false,
-        24.0,
-    );
+    let body = body_with(specs, "t", (0.0, 0.0, 0.0, 0.0), "norm", font_scale, None, false, 24.0);
     let mut sizes: Vec<f32> = drawn_runs(&compile(&body, 400.0, box_height))
         .iter()
         .map(|run| run.font_size_pt)
@@ -335,16 +309,18 @@ fn painted_sizes(specs: &[ParaSpec], box_height: f64, font_scale: Option<f64>) -
 }
 
 fn norm_paragraphs() -> Vec<ParaSpec> {
-    (0..3)
-        .map(|_| para(vec![text("Hamburger", 24.0)]))
-        .collect()
+    (0..3).map(|_| para(vec![text("Hamburger", 24.0)])).collect()
 }
 
 /// `it('keeps authored glyph size through slight and large overflow')`.
 #[test]
 fn omitted_font_scale_keeps_the_authored_size() {
     for height in [140.0, 76.0, 44.0] {
-        assert_eq!(painted_sizes(&norm_paragraphs(), height, None), vec![24.0], "{height} pt box");
+        assert_eq!(
+            painted_sizes(&norm_paragraphs(), height, None),
+            vec![24.0],
+            "{height} pt box"
+        );
     }
 }
 
@@ -354,16 +330,7 @@ fn omitted_font_scale_ignores_spacing() {
     let mut specs = norm_paragraphs();
     specs[0] = specs[0].clone().space_line(Some((true, 120_000.0)));
     specs[2] = specs[2].clone().after(Some((true, 50_000.0)));
-    let body = body_with(
-        &specs,
-        "t",
-        (0.0, 0.0, 0.0, 0.0),
-        "norm",
-        None,
-        None,
-        true,
-        24.0,
-    );
+    let body = body_with(&specs, "t", (0.0, 0.0, 0.0, 0.0), "norm", None, None, true, 24.0);
     let sizes: Vec<f32> = drawn_runs(&compile(&body, 400.0, 44.0))
         .iter()
         .map(|run| run.font_size_pt)
@@ -374,8 +341,5 @@ fn omitted_font_scale_ignores_spacing() {
 /// `it('uses a stored scale even when it does not match the content')`.
 #[test]
 fn stored_font_scale_is_honoured() {
-    assert_eq!(
-        painted_sizes(&norm_paragraphs(), 140.0, Some(0.5)),
-        vec![12.0]
-    );
+    assert_eq!(painted_sizes(&norm_paragraphs(), 140.0, Some(0.5)), vec![12.0]);
 }

@@ -41,23 +41,39 @@ pub(super) enum Lb {
 /// scripts (Thai/Lao/Khmer/…) are `Other`, as UAX #14 gives them `SA`.
 pub(super) fn lb_class(cp: u32) -> Lb {
     match cp {
-        0x28 | 0x5b | 0x7b | 0xbf | 0x201a | 0x201e | 0x2329 | 0x3008 | 0x300a | 0x300c
-        | 0x300e | 0x3010 | 0x3014 | 0x3016 | 0x3018 | 0x301a | 0x301d | 0xff08 | 0xff3b
-        | 0xff5b | 0xff5f | 0xff62 => Lb::Op,
+        0x28 | 0x5b | 0x7b | 0xbf | 0x201a | 0x201e | 0x2329 | 0x3008 | 0x300a | 0x300c | 0x300e | 0x3010 | 0x3014
+        | 0x3016 | 0x3018 | 0x301a | 0x301d | 0xff08 | 0xff3b | 0xff5b | 0xff5f | 0xff62 => Lb::Op,
         0x29 | 0x5d | 0x7d | 0xff09 | 0xff3d | 0xff5d | 0xff60 => Lb::Cp,
         0x23 => Lb::Al,
         0x2d => Lb::Hy,
         0x2010 => Lb::Hh,
         0x2c | 0x2e | 0x3a | 0x3b => Lb::Is,
-        0x24 | 0x2b | 0x5c | 0xa3 | 0xa5 | 0xff04 | 0xffe1 | 0xffe5..=0xffe6
-        | 0x20a0..=0x20a6 => Lb::Pr,
+        0x24 | 0x2b | 0x5c | 0xa3 | 0xa5 | 0xff04 | 0xffe1 | 0xffe5..=0xffe6 | 0x20a0..=0x20a6 => Lb::Pr,
         0x25 | 0xa2 | 0xb0 | 0xff05 | 0xffe0 | 0x2030..=0x2035 | 0x20a7 | 0x2103 | 0x2109 => Lb::Po,
         // CJK punctuation is CL/NS/CM in UAX #14, classes no supported rule uses:
         // it proves nothing rather than becoming ideographic (ID).
-        0x3001..=0x3002 | 0x3005 | 0x3009 | 0x300b | 0x300d | 0x300f | 0x3011 | 0x3015
-        | 0x3017 | 0x3019 | 0x301b..=0x301c | 0x301e..=0x301f | 0x302a..=0x302f | 0x3035
-        | 0x303b..=0x303c | 0xff01 | 0xff0c | 0xff0e | 0xff1a..=0xff1b | 0xff1f
-        | 0xff61 | 0xff63..=0xff64 => Lb::Other,
+        0x3001..=0x3002
+        | 0x3005
+        | 0x3009
+        | 0x300b
+        | 0x300d
+        | 0x300f
+        | 0x3011
+        | 0x3015
+        | 0x3017
+        | 0x3019
+        | 0x301b..=0x301c
+        | 0x301e..=0x301f
+        | 0x302a..=0x302f
+        | 0x3035
+        | 0x303b..=0x303c
+        | 0xff01
+        | 0xff0c
+        | 0xff0e
+        | 0xff1a..=0xff1b
+        | 0xff1f
+        | 0xff61
+        | 0xff63..=0xff64 => Lb::Other,
         _ if is_cjk_break_char(cp) => Lb::Id,
         _ => match char::from_u32(cp) {
             Some(c) if !is_sea_script_cp(cp) && c.is_numeric() => Lb::Nu,
@@ -150,10 +166,7 @@ pub(super) fn sea_seam(before: Option<char>, after: Option<char>) -> bool {
     let (Some(before), Some(after)) = (before, after) else {
         return false;
     };
-    let (before_sea, after_sea) = (
-        is_sea_script_cp(before as u32),
-        is_sea_script_cp(after as u32),
-    );
+    let (before_sea, after_sea) = (is_sea_script_cp(before as u32), is_sea_script_cp(after as u32));
     if !before_sea && !after_sea {
         return false;
     }
@@ -190,11 +203,7 @@ pub(super) fn kinsoku_adjusted_split(chars: &[char], split_at: usize, min_split:
     if split_at == 0 || split_at >= chars.len() {
         return split_at;
     }
-    let start_forbidden = |i: usize| {
-        chars
-            .get(i)
-            .is_some_and(|c| KINSOKU_LINE_START.contains(*c))
-    };
+    let start_forbidden = |i: usize| chars.get(i).is_some_and(|c| KINSOKU_LINE_START.contains(*c));
     let end_forbidden = |i: usize| i < chars.len() && KINSOKU_LINE_END.contains(chars[i]);
     let mut split = split_at;
     while split > min_split && (start_forbidden(split) || end_forbidden(split - 1)) {

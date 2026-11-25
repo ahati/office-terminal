@@ -108,7 +108,11 @@ fn title_band_is_font_plus_pads_and_pushes_the_plot_down() {
     let font_emu = 16.0 * 12700.0;
 
     // ref layout.ts:287-306: bandH = fontPx + topPad + bottomPad.
-    assert!(layout.title.band_h >= font_emu, "band {band_h}, font {font_emu}", band_h = layout.title.band_h);
+    assert!(
+        layout.title.band_h >= font_emu,
+        "band {band_h}, font {font_emu}",
+        band_h = layout.title.band_h
+    );
     assert!(
         (layout.title.band_h - (font_emu + layout.title.top_pad + layout.title.bottom_pad)).abs() < 1.0,
         "band must equal font + pads"
@@ -148,7 +152,11 @@ fn long_title_is_elided_to_the_available_width() {
     let font_emu = 14.0 * 12700.0;
 
     assert_ne!(layout.title.text, long, "long title must be truncated");
-    assert!(layout.title.text.ends_with('\u{2026}'), "elided text: {:?}", layout.title.text);
+    assert!(
+        layout.title.text.ends_with('\u{2026}'),
+        "elided text: {:?}",
+        layout.title.text
+    );
     assert!(
         text_width(long, font_emu, false, false) > avail,
         "fixture must overflow the band"
@@ -168,7 +176,10 @@ fn long_title_is_elided_to_the_available_width() {
         })
         .flatten()
         .collect();
-    assert!(drawn.iter().any(|t| t.ends_with('\u{2026}')), "title run must be elided");
+    assert!(
+        drawn.iter().any(|t| t.ends_with('\u{2026}')),
+        "title run must be elided"
+    );
     assert!(!drawn.iter().any(|t| t == long));
 }
 
@@ -223,12 +234,7 @@ fn legend_that_cannot_fit_is_dropped() {
     c.series[0].name = "Alpha".into();
 
     // A 26 px wide frame cannot hold even one legend key plus a glyph.
-    let layout = compute_chart_layout(
-        &c,
-        26.0 * PX,
-        120.0 * PX,
-        detect_chart_family(&c),
-    );
+    let layout = compute_chart_layout(&c, 26.0 * PX, 120.0 * PX, detect_chart_family(&c));
     assert!(layout.legend.is_none(), "legend must be dropped");
     assert!(!layout.show_legend);
     assert!(layout.legend_box.is_none());
@@ -421,4 +427,3 @@ fn frame_family_is_cartesian_for_the_default_chart_type() {
     let c = chart("clusteredColumn", &["A"], &[&[10.0]]);
     assert_eq!(detect_chart_family(&c), ChartFamily::Column);
 }
-

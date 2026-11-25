@@ -12,8 +12,7 @@ use crate::app::graphics::GraphicsSyncer;
 use crate::app::graphics_thumbnails::thumbnail_target_for_aspect;
 
 use super::sorter_graphics_tests::{
-    draw_sorter, sorter_state, sync_until_settled, GridPipeline, RecordingDriver, CANVAS, SHORT,
-    WIDE,
+    draw_sorter, sorter_state, sync_until_settled, GridPipeline, RecordingDriver, CANVAS, SHORT, WIDE,
 };
 
 /// Sorter target for the default 16:9 test state.
@@ -39,10 +38,7 @@ fn sorter_resolves_the_dedicated_thumbnail_target() {
     // the canvas target: 1280 px keeps text runs above the rasterizer's 6 px
     // font floor while costing ~5x less than a canvas-resolution raster.
     let expected = thumbnail_target_for_aspect(state.aspect_ratio());
-    assert_eq!(
-        expected, THUMB,
-        "16:9 deck derives a 1280x720 sorter target"
-    );
+    assert_eq!(expected, THUMB, "16:9 deck derives a 1280x720 sorter target");
     let targets = pipeline.requested_targets();
     assert!(!targets.is_empty(), "cards resolve an explicit target");
     assert!(
@@ -63,10 +59,7 @@ fn sorter_resolves_the_dedicated_thumbnail_target() {
             "visible slide {slide} is prefetched at the sorter target: {prefetched:?}"
         );
     }
-    assert!(
-        log.lock().unwrap().staged.len() <= 4,
-        "staging is throttled"
-    );
+    assert!(log.lock().unwrap().staged.len() <= 4, "staging is throttled");
 }
 
 #[test]

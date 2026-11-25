@@ -1,12 +1,7 @@
-use crate::contracts::{FillRule, PathSegment, VectorPath};
 use super::arc::decompose_arc_to_cubic;
+use crate::contracts::{FillRule, PathSegment, VectorPath};
 
-pub fn build_t2_preset(
-    name: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_t2_preset(name: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     let _get_adj = |idx: usize, default: f32| -> f32 {
         adj.get(idx)
             .and_then(|&val| val)
@@ -108,11 +103,23 @@ pub fn build_t2_preset(
                 vec![
                     PathSegment::MoveTo { x: 0.3 * w, y: 0.0 },
                     PathSegment::LineTo { x: 0.7 * w, y: 0.0 },
-                    PathSegment::LineTo { x: 0.4 * w, y: 0.45 * h },
-                    PathSegment::LineTo { x: 0.65 * w, y: 0.45 * h },
+                    PathSegment::LineTo {
+                        x: 0.4 * w,
+                        y: 0.45 * h,
+                    },
+                    PathSegment::LineTo {
+                        x: 0.65 * w,
+                        y: 0.45 * h,
+                    },
                     PathSegment::LineTo { x: 0.2 * w, y: h },
-                    PathSegment::LineTo { x: 0.35 * w, y: 0.55 * h },
-                    PathSegment::LineTo { x: 0.1 * w, y: 0.55 * h },
+                    PathSegment::LineTo {
+                        x: 0.35 * w,
+                        y: 0.55 * h,
+                    },
+                    PathSegment::LineTo {
+                        x: 0.1 * w,
+                        y: 0.55 * h,
+                    },
                     PathSegment::Close,
                 ],
                 FillRule::NonZero,
@@ -122,7 +129,10 @@ pub fn build_t2_preset(
         "cloud" => {
             // Composite cloud outline with 4 rounded bumps and flat bottom
             let segs = vec![
-                PathSegment::MoveTo { x: 0.15 * w, y: 0.85 * h },
+                PathSegment::MoveTo {
+                    x: 0.15 * w,
+                    y: 0.85 * h,
+                },
                 PathSegment::CubicTo {
                     x1: 0.0,
                     y1: 0.85 * h,
@@ -169,9 +179,15 @@ pub fn build_t2_preset(
                     PathSegment::LineTo { x: w - r, y: 0.0 },
                     PathSegment::LineTo { x: w, y: r },
                     PathSegment::LineTo { x: w, y: 0.75 * h },
-                    PathSegment::LineTo { x: 0.5 * w, y: 0.75 * h },
+                    PathSegment::LineTo {
+                        x: 0.5 * w,
+                        y: 0.75 * h,
+                    },
                     PathSegment::LineTo { x: 0.35 * w, y: h },
-                    PathSegment::LineTo { x: 0.3 * w, y: 0.75 * h },
+                    PathSegment::LineTo {
+                        x: 0.3 * w,
+                        y: 0.75 * h,
+                    },
                     PathSegment::LineTo { x: 0.0, y: 0.75 * h },
                     PathSegment::LineTo { x: 0.0, y: r },
                     PathSegment::Close,

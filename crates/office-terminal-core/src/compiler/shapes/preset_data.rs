@@ -67,9 +67,7 @@ fn presets() -> &'static BTreeMap<String, PresetDef> {
 /// geometry name before consulting the table.
 pub fn preset_def(name: &str) -> Option<&'static PresetDef> {
     let table = presets();
-    table
-        .get(name)
-        .or_else(|| table.get(&name.to_ascii_lowercase()))
+    table.get(name).or_else(|| table.get(&name.to_ascii_lowercase()))
 }
 
 /// All preset names in sorted order.

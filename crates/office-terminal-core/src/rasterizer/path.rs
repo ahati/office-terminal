@@ -1,7 +1,6 @@
 use crate::compiler::style::gradient;
 use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint,
-    VectorPath, VectorStroke,
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint, VectorPath, VectorStroke,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -41,14 +40,7 @@ pub fn render_path(
                 let py = offset_y + ty * scale;
                 pb.quad_to(px1, py1, px, py);
             }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 let (tx1, ty1) = transform.transform_point(*x1, *y1);
                 let (tx2, ty2) = transform.transform_point(*x2, *y2);
                 let (tx, ty) = transform.transform_point(*x, *y);
@@ -86,13 +78,7 @@ pub fn render_path(
         match paint_desc {
             VectorPaint::Solid([r, g, b, a]) => {
                 paint.set_color_rgba8(*r, *g, *b, *a);
-                pixmap.fill_path(
-                    &ts_path,
-                    &paint,
-                    ts_fill_rule,
-                    tiny_skia::Transform::identity(),
-                    None,
-                );
+                pixmap.fill_path(&ts_path, &paint, ts_fill_rule, tiny_skia::Transform::identity(), None);
             }
             VectorPaint::LinearGradient(grad) => {
                 // ref packages/core/src/shape/paint.ts:377-379: no stops paint
@@ -102,17 +88,9 @@ pub fn render_path(
                 } else if !grad.stops.is_empty() {
                     // ref paint.ts:290-300: the axis is framed on the shape box,
                     // centred, with half-length (|cos|·w + |sin|·h) / 2.
-                    if let Some(shader) = linear_shader(
-                        grad, path, transform, scale, offset_x, offset_y,
-                    ) {
+                    if let Some(shader) = linear_shader(grad, path, transform, scale, offset_x, offset_y) {
                         paint.shader = shader;
-                        pixmap.fill_path(
-                            &ts_path,
-                            &paint,
-                            ts_fill_rule,
-                            tiny_skia::Transform::identity(),
-                            None,
-                        );
+                        pixmap.fill_path(&ts_path, &paint, ts_fill_rule, tiny_skia::Transform::identity(), None);
                     }
                 }
             }
@@ -124,17 +102,9 @@ pub fn render_path(
                     // shape box, so centre = box centre and the circle radius
                     // is the half-diagonal. `fillToRect`/`path` are not in the
                     // IR; the `rect` max-axis branch is therefore unavailable.
-                    if let Some(shader) = radial_shader(
-                        grad, path, transform, scale, offset_x, offset_y,
-                    ) {
+                    if let Some(shader) = radial_shader(grad, path, transform, scale, offset_x, offset_y) {
                         paint.shader = shader;
-                        pixmap.fill_path(
-                            &ts_path,
-                            &paint,
-                            ts_fill_rule,
-                            tiny_skia::Transform::identity(),
-                            None,
-                        );
+                        pixmap.fill_path(&ts_path, &paint, ts_fill_rule, tiny_skia::Transform::identity(), None);
                     }
                 }
             }
@@ -186,7 +156,6 @@ pub fn render_path(
 
     // 2. Stroke
     if let Some(s) = stroke {
-
         // ref packages/core/src/shape/stroke-geometry.ts:15 — hairline floor
         // is 0.5 px, not a full pixel.
         let width_px = (s.width_emu as f32 * scale).max(0.5);
@@ -219,15 +188,7 @@ pub fn render_path(
         };
 
         stroke_with_paint(
-            pixmap,
-            s,
-            &ts_path,
-            &ts_stroke,
-            path,
-            transform,
-            scale,
-            offset_x,
-            offset_y,
+            pixmap, s, &ts_path, &ts_stroke, path, transform, scale, offset_x, offset_y,
         );
     }
 }
@@ -237,18 +198,13 @@ fn fill_solid(
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     [r, g, b, a]: [u8; 4],
-) {    let mut paint = tiny_skia::Paint {
+) {
+    let mut paint = tiny_skia::Paint {
         anti_alias: true,
         ..Default::default()
     };
     paint.set_color_rgba8(r, g, b, a);
-    pixmap.fill_path(
-        path,
-        &paint,
-        fill_rule,
-        tiny_skia::Transform::identity(),
-        None,
-    );
+    pixmap.fill_path(path, &paint, fill_rule, tiny_skia::Transform::identity(), None);
 }
 
 fn gradient_stops(grad: &VectorGradient) -> Vec<tiny_skia::GradientStop> {
@@ -256,10 +212,7 @@ fn gradient_stops(grad: &VectorGradient) -> Vec<tiny_skia::GradientStop> {
         .iter()
         .map(|(pos, [r, g, b, a])| {
             // ref paint.ts:317 clamps stop positions into [0, 1].
-            tiny_skia::GradientStop::new(
-                pos.clamp(0.0, 1.0),
-                tiny_skia::Color::from_rgba8(*r, *g, *b, *a),
-            )
+            tiny_skia::GradientStop::new(pos.clamp(0.0, 1.0), tiny_skia::Color::from_rgba8(*r, *g, *b, *a))
         })
         .collect()
 }
@@ -352,15 +305,13 @@ fn stroke_paint(
         }
         // A single stop paints that solid colour; an image stroke has no
         // paint-server form in `tiny-skia`, so it keeps the flat fallback.
-        Some(VectorPaint::LinearGradient(grad)) | Some(VectorPaint::RadialGradient(grad)) => {
-            match grad.stops.first() {
-                Some((_, [r, g, b, a])) => {
-                    paint.set_color_rgba8(*r, *g, *b, *a);
-                    None
-                }
-                None => None,
+        Some(VectorPaint::LinearGradient(grad)) | Some(VectorPaint::RadialGradient(grad)) => match grad.stops.first() {
+            Some((_, [r, g, b, a])) => {
+                paint.set_color_rgba8(*r, *g, *b, *a);
+                None
             }
-        }
+            None => None,
+        },
         _ => None,
     };
     match shader {
@@ -368,9 +319,7 @@ fn stroke_paint(
         None if stroke.paint.is_none()
             || matches!(
                 stroke.paint.as_deref(),
-                Some(VectorPaint::Image(_))
-                    | Some(VectorPaint::Pattern(_))
-                    | Some(VectorPaint::Texture(_))
+                Some(VectorPaint::Image(_)) | Some(VectorPaint::Pattern(_)) | Some(VectorPaint::Texture(_))
             ) =>
         {
             let [r, g, b, a] = stroke.color;
@@ -408,9 +357,7 @@ fn stroke_with_paint(
     offset_y: f32,
 ) {
     if let Some(VectorPaint::Pattern(pattern)) = stroke.paint.as_deref() {
-        if let Some(pixels) =
-            crate::compiler::pattern::build_pattern_bitmap(&pattern.preset, pattern.fg, pattern.bg)
-        {
+        if let Some(pixels) = crate::compiler::pattern::build_pattern_bitmap(&pattern.preset, pattern.fg, pattern.bg) {
             let edge = crate::compiler::pattern::PATTERN_BITMAP_EDGE;
             if let Some(mut cell) = tiny_skia::Pixmap::new(edge, edge) {
                 super::image_fill::premultiply_into(cell.data_mut(), &pixels);
@@ -426,32 +373,28 @@ fn stroke_with_paint(
                     1.0,
                     tiny_skia::Transform::from_row(step, 0.0, 0.0, step, offset_x, offset_y),
                 );
-                pixmap.stroke_path(
-                    ts_path,
-                    &paint,
-                    ts_stroke,
-                    tiny_skia::Transform::identity(),
-                    None,
-                );
+                pixmap.stroke_path(ts_path, &paint, ts_stroke, tiny_skia::Transform::identity(), None);
                 return;
             }
         }
     }
     let paint = stroke_paint(stroke, path, transform, scale, offset_x, offset_y);
-    pixmap.stroke_path(
-        ts_path,
-        &paint,
-        ts_stroke,
-        tiny_skia::Transform::identity(),
-        None,
-    );
+    pixmap.stroke_path(ts_path, &paint, ts_stroke, tiny_skia::Transform::identity(), None);
 }
 
 fn update_bounds(x: f32, y: f32, min_x: &mut f32, min_y: &mut f32, max_x: &mut f32, max_y: &mut f32) {
-    if x < *min_x { *min_x = x; }
-    if x > *max_x { *max_x = x; }
-    if y < *min_y { *min_y = y; }
-    if y > *max_y { *max_y = y; }
+    if x < *min_x {
+        *min_x = x;
+    }
+    if x > *max_x {
+        *max_x = x;
+    }
+    if y < *min_y {
+        *min_y = y;
+    }
+    if y > *max_y {
+        *max_y = y;
+    }
 }
 
 /// Bounds of the path in its own local coordinate space.
@@ -461,17 +404,11 @@ pub fn local_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
 
 /// Bounds of the path after applying an affine transform (control points
 /// included, matching the rasterizer's conservative bounds).
-pub fn transformed_bounds(
-    path: &VectorPath,
-    transform: &AffineTransform,
-) -> Option<(f32, f32, f32, f32)> {
+pub fn transformed_bounds(path: &VectorPath, transform: &AffineTransform) -> Option<(f32, f32, f32, f32)> {
     bounds_with(path, |x, y| transform.transform_point(x, y))
 }
 
-fn bounds_with(
-    path: &VectorPath,
-    map: impl Fn(f32, f32) -> (f32, f32),
-) -> Option<(f32, f32, f32, f32)> {
+fn bounds_with(path: &VectorPath, map: impl Fn(f32, f32) -> (f32, f32)) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;

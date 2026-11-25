@@ -13,8 +13,8 @@ use ratatui::layout::Rect;
 use ratatui::Terminal;
 
 use crate::app::bindings::FrameBindings;
-use crate::app::ui::reader::render_reader;
 use crate::app::state::PresentationState;
+use crate::app::ui::reader::render_reader;
 
 // 60 cols: the letter pane leaves a free gutter row below it at rest, which
 // is exactly where a marker would appear if one were drawn.
@@ -67,8 +67,7 @@ fn no_focus_line_while_scrolling() {
     // a marker used to ride along with.
     {
         let reader = state.reader_state_mut().unwrap();
-        let (_, viewport_h_px, cell_w_px, cell_h_px) =
-            crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
+        let (_, viewport_h_px, cell_w_px, cell_h_px) = crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
         let slot_w = reader.slot_width(WIDTH as f32 * cell_w_px, viewport_h_px, cell_w_px);
         let stride = reader.row_stride_px(viewport_h_px, slot_w, cell_w_px, cell_h_px);
         reader.scroll_px = (stride / 2.0) as i64;

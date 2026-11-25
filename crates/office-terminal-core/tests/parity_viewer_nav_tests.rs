@@ -26,8 +26,8 @@ use office_terminal_core::contracts::{HyperlinkTarget, RenderTargetSpec, SlideAc
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::navigation::{count_visible, next_visible, resolve_visible};
 use office_terminal_core::{
-    extract_deck_hyperlinks, resolve_hyperlink, resolve_internal_slide, AssetError,
-    DefaultSlideCompiler, SlideCompiler, SlideRasterizer, TinySkiaRasterizer,
+    extract_deck_hyperlinks, resolve_hyperlink, resolve_internal_slide, AssetError, DefaultSlideCompiler,
+    SlideCompiler, SlideRasterizer, TinySkiaRasterizer,
 };
 use pptx_model::Slide;
 
@@ -184,14 +184,8 @@ fn canonical_master_inherited_target_resolves() {
 fn target_naming_no_known_slide_resolves_to_none() {
     let deck = three_slide_deck();
     let source = "ppt/slides/slide1.xml";
-    assert_eq!(
-        resolve_internal_slide("../slides/slide9.xml", source, &deck),
-        None
-    );
-    assert_eq!(
-        resolve_internal_slide("https://example.com/", source, &deck),
-        None
-    );
+    assert_eq!(resolve_internal_slide("../slides/slide9.xml", source, &deck), None);
+    assert_eq!(resolve_internal_slide("https://example.com/", source, &deck), None);
     assert_eq!(resolve_internal_slide("", source, &deck), None);
 }
 
@@ -284,14 +278,7 @@ fn show_jump_verbs_map_to_the_four_presentation_actions() {
     ] {
         let reference = format!("ppaction://hlinkshowjump?jump={verb}");
         assert_eq!(
-            resolve_hyperlink(
-                None,
-                Some(&reference),
-                "ppt/slides/slide1.xml",
-                &deck,
-                "s",
-                &tx
-            ),
+            resolve_hyperlink(None, Some(&reference), "ppt/slides/slide1.xml", &deck, "s", &tx),
             Some(HyperlinkTarget::Action(action)),
             "{verb} names the matching action"
         );
@@ -332,9 +319,7 @@ fn unresolvable_show_action_yields_no_target_and_degrades() {
     assert_eq!(warnings.len(), 1, "the rejected verb is reported once");
     match &warnings[0] {
         WarningEvent::FidelityDegraded {
-            element_id,
-            feature,
-            ..
+            element_id, feature, ..
         } => {
             assert_eq!(element_id, "shape-7");
             assert_eq!(*feature, "hyperlink_action_unsupported");

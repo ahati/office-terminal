@@ -8,12 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use office_terminal_core::{
-    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-    RgbaSlide,
+    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
 };
 use office_terminal_display::{
-    CellRect, DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver,
-    MAX_THUMBNAIL_IMAGES, THUMBNAIL_IMAGE_ID_BASE,
+    CellRect, DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver, MAX_THUMBNAIL_IMAGES,
+    THUMBNAIL_IMAGE_ID_BASE,
 };
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
@@ -80,10 +79,7 @@ impl GridPipeline {
 
     /// Recorded `(slide, target)` prefetch pairs, in call order.
     pub(crate) fn prefetch_log(&self) -> Vec<(usize, RenderTargetSpec)> {
-        self.prefetched
-            .lock()
-            .map(|p| p.clone())
-            .unwrap_or_default()
+        self.prefetched.lock().map(|p| p.clone()).unwrap_or_default()
     }
 }
 
@@ -98,9 +94,7 @@ impl RenderPipeline for GridPipeline {
 
     fn entry(&self, index: usize) -> PipelineEntry {
         if self.ready.load(Ordering::SeqCst) && index < self.slides {
-            PipelineEntry::Ready {
-                bitmap: card_bitmap(),
-            }
+            PipelineEntry::Ready { bitmap: card_bitmap() }
         } else {
             PipelineEntry::NotLoaded
         }
@@ -111,9 +105,7 @@ impl RenderPipeline for GridPipeline {
             targets.push(*target);
         }
         if self.ready.load(Ordering::SeqCst) && index < self.slides {
-            PipelineEntry::Ready {
-                bitmap: card_bitmap(),
-            }
+            PipelineEntry::Ready { bitmap: card_bitmap() }
         } else {
             PipelineEntry::NotLoaded
         }
@@ -138,12 +130,7 @@ pub(crate) struct RecordingDriver {
 impl RecordingDriver {
     pub(crate) fn new() -> (Self, Arc<Mutex<DriverLog>>) {
         let log = Arc::new(Mutex::new(DriverLog::default()));
-        (
-            Self {
-                log: Arc::clone(&log),
-            },
-            log,
-        )
+        (Self { log: Arc::clone(&log) }, log)
     }
 }
 
@@ -189,15 +176,10 @@ impl TerminalGraphicsDriver for RecordingDriver {
 
 /// Draws one sorter frame at the given terminal size and returns the
 /// bindings the render pass produced (thumbnail rects included).
-pub(crate) fn draw_sorter(
-    state: &PresentationState,
-    (width, height): (u16, u16),
-) -> FrameBindings {
+pub(crate) fn draw_sorter(state: &PresentationState, (width, height): (u16, u16)) -> FrameBindings {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     let mut bindings = FrameBindings::default();
-    terminal
-        .draw(|f| render_app(state, f, &mut bindings))
-        .unwrap();
+    terminal.draw(|f| render_app(state, f, &mut bindings)).unwrap();
     bindings
 }
 
@@ -218,9 +200,7 @@ pub(crate) fn sync_until_settled(
     expected: usize,
 ) {
     for _ in 0..16 {
-        syncer
-            .sync(state, pipeline, driver, &CANVAS, bindings)
-            .unwrap();
+        syncer.sync(state, pipeline, driver, &CANVAS, bindings).unwrap();
         if log.lock().unwrap().staged.len() >= expected {
             return;
         }
@@ -238,15 +218,7 @@ fn sorter_stages_one_image_per_visible_card() {
     let cards = &bindings.thumbnails;
     assert_eq!(cards.len(), 12, "the whole deck fits one grid page");
 
-    sync_until_settled(
-        &mut syncer,
-        &mut state,
-        &pipeline,
-        &mut driver,
-        &log,
-        &bindings,
-        12,
-    );
+    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, &bindings, 12);
 
     let log = log.lock().unwrap();
     assert_eq!(log.staged.len(), 12, "one bitmap per card");
@@ -358,10 +330,7 @@ fn sorter_releases_cards_that_scroll_out_of_view() {
     let log = log.lock().unwrap();
     let released: Vec<u32> = log.released.clone();
     for id in &first_ids {
-        assert!(
-            released.contains(id),
-            "off-screen card id {id} must be released"
-        );
+        assert!(released.contains(id), "off-screen card id {id} must be released");
     }
     assert!(
         log.staged.len() > first_ids.len(),
@@ -392,9 +361,7 @@ fn leaving_the_sorter_releases_thumbnails_and_restores_the_slide() {
     state.set_mode(AppMode::Fullscreen);
     let mut terminal = Terminal::new(TestBackend::new(WIDE.0, WIDE.1)).unwrap();
     let mut restored = FrameBindings::default();
-    terminal
-        .draw(|f| render_app(&state, f, &mut restored))
-        .unwrap();
+    terminal.draw(|f| render_app(&state, f, &mut restored)).unwrap();
     syncer
         .sync(&mut state, &pipeline, &mut driver, &CANVAS, &restored)
         .unwrap();
@@ -412,9 +379,7 @@ fn leaving_the_sorter_releases_thumbnails_and_restores_the_slide() {
         log.staged
     );
     assert!(
-        log.presented
-            .iter()
-            .any(|(id, _)| *id == state.current_image_id().0),
+        log.presented.iter().any(|(id, _)| *id == state.current_image_id().0),
         "the restored slide is placed"
     );
 }
@@ -462,15 +427,7 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
 
     let bindings = draw_sorter(&state, WIDE);
     let cards = bindings.thumbnails.len();
-    sync_until_settled(
-        &mut syncer,
-        &mut state,
-        &pipeline,
-        &mut driver,
-        &log,
-        &bindings,
-        cards,
-    );
+    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, &bindings, cards);
 
     state.toggle_blank(BlankMode::Black);
     let blank = FrameBindings::default();
@@ -480,11 +437,7 @@ fn sorter_blank_screen_suppresses_and_resumes_thumbnails() {
     syncer
         .sync(&mut state, &pipeline, &mut driver, &CANVAS, &blank)
         .unwrap();
-    assert_eq!(
-        log.lock().unwrap().released_all,
-        1,
-        "blanking clears the grid once"
-    );
+    assert_eq!(log.lock().unwrap().released_all, 1, "blanking clears the grid once");
 
     state.unblank();
     let restored = draw_sorter(&state, WIDE);
@@ -505,15 +458,7 @@ fn resizing_cards_repositions_instead_of_retransmitting() {
     let mut state = sorter_state(12);
 
     let bindings = draw_sorter(&state, (100, 30));
-    sync_until_settled(
-        &mut syncer,
-        &mut state,
-        &pipeline,
-        &mut driver,
-        &log,
-        &bindings,
-        12,
-    );
+    sync_until_settled(&mut syncer, &mut state, &pipeline, &mut driver, &log, &bindings, 12);
     let staged_before = log.lock().unwrap().staged.len();
 
     // Taller terminal: same column count and aspect, so the card target (and

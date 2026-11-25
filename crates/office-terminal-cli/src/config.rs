@@ -73,6 +73,7 @@ impl Config {
 
     pub fn load() -> Self {
         if let Some(base) = dirs_next_config_dir() {
+            // `kitty-pptx` is the pre-rebrand location and remains a fallback.
             for dir_name in ["ot", "office-terminal", "kitty-pptx"] {
                 let path = base.join(dir_name).join("config.toml");
                 if path.exists() {
@@ -84,6 +85,7 @@ impl Config {
                 }
             }
         }
+        // `kitty-pptx.toml` is the pre-rebrand filename and remains a fallback.
         for file_name in ["ot.toml", "office-terminal.toml", "kitty-pptx.toml"] {
             let path = PathBuf::from(file_name);
             if path.exists() {

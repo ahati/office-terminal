@@ -16,10 +16,7 @@ use crate::shapes_a_support::*;
 /// One numeric attribute of an SVG tag (used for the paint-frame assertions).
 fn numeric_attr(tag: &str, name: &str) -> f32 {
     let key = format!("{name}=\"");
-    let start = tag
-        .find(&key)
-        .unwrap_or_else(|| panic!("missing {name} in {tag}"))
-        + key.len();
+    let start = tag.find(&key).unwrap_or_else(|| panic!("missing {name} in {tag}")) + key.len();
     let rest = &tag[start..];
     let end = rest.find('"').unwrap_or_else(|| panic!("unterminated {name}"));
     rest[..end]
@@ -74,10 +71,7 @@ fn rot_with_shape_false_counter_rotates_the_gradient() {
         (start.0 - 0.0).abs() < 1e-4 && (start.1 - 50.0).abs() < 1e-4,
         "{start:?}"
     );
-    assert!(
-        (end.0 - 100.0).abs() < 1e-4 && (end.1 - 50.0).abs() < 1e-4,
-        "{end:?}"
-    );
+    assert!((end.0 - 100.0).abs() < 1e-4 && (end.1 - 50.0).abs() < 1e-4, "{end:?}");
 
     // The same fixture with the schema default (`rotWithShape` omitted) keeps
     // the authored 90° axis: the shape rotation is inherited.
@@ -95,10 +89,7 @@ fn rot_with_shape_false_counter_rotates_the_gradient() {
         (start.0 - 50.0).abs() < 1e-4 && (start.1 - 0.0).abs() < 1e-4,
         "{start:?}"
     );
-    assert!(
-        (end.0 - 50.0).abs() < 1e-4 && (end.1 - 100.0).abs() < 1e-4,
-        "{end:?}"
-    );
+    assert!((end.0 - 50.0).abs() < 1e-4 && (end.1 - 100.0).abs() < 1e-4, "{end:?}");
 }
 
 /// The painted twin of case 1: the counter-rotated brush must reach the raster
@@ -133,10 +124,7 @@ fn rot_with_shape_false_paints_the_counter_rotated_axis_in_both_backends() {
     let top = pixel(&rendered, 144, 195);
     let bottom = pixel(&rendered, 144, 284);
     assert!(top[0] < 24, "top edge must be the dark stop, got {top:?}");
-    assert!(
-        bottom[0] > 231,
-        "bottom edge must be the light stop, got {bottom:?}"
-    );
+    assert!(bottom[0] > 231, "bottom edge must be the light stop, got {bottom:?}");
 
     // The SVG twin must frame the gradient on the same axis (local EMU).
     let svg = office_terminal_core::svg::DefaultSlideSvgSerializer::new()
@@ -198,10 +186,7 @@ fn stroke_uses_its_authored_gradient_paint() {
         panic!("the line must keep its gradient paint, got {:?}", stroke.paint);
     };
     assert_eq!(gradient.angle_deg, 0.0);
-    assert_eq!(
-        gradient.stops,
-        vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]
-    );
+    assert_eq!(gradient.stops, vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]);
     // The flat authored colour is only the fallback and must not be painted.
     assert_eq!(stroke.color, [0xFF, 0, 0, 255]);
 
@@ -242,7 +227,9 @@ fn stroke_uses_its_authored_gradient_paint() {
         "the flat fallback colour must not be painted:\n{svg}"
     );
     assert!(
-        svg.contains(r#"<linearGradient id="sgrad_1" gradientUnits="userSpaceOnUse" x1="0" y1="457200" x2="914400" y2="457200">"#),
+        svg.contains(
+            r#"<linearGradient id="sgrad_1" gradientUnits="userSpaceOnUse" x1="0" y1="457200" x2="914400" y2="457200">"#
+        ),
         "stroke gradient frame:\n{svg}"
     );
 }
@@ -263,11 +250,7 @@ fn stroke_uses_its_authored_pattern_paint() {
     let slide = compile_slide(vec![element]);
 
     let strokes = shape_strokes(&slide.commands);
-    let stroke = strokes
-        .iter()
-        .flatten()
-        .next()
-        .expect("the outline is stroked");
+    let stroke = strokes.iter().flatten().next().expect("the outline is stroked");
     assert_eq!(
         stroke.paint.as_deref(),
         Some(&VectorPaint::Pattern(pattern_fill(
@@ -348,10 +331,7 @@ fn table_cell_uses_the_authored_gradient_paint() {
         panic!("cell fill must stay a gradient, got {:?}", paints[0]);
     };
     assert_eq!(gradient.angle_deg, 0.0);
-    assert_eq!(
-        gradient.stops,
-        vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]
-    );
+    assert_eq!(gradient.stops, vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]);
 
     // The gradient spans the cell box `(0,0)-(100,50)` on its horizontal axis.
     let (start, end) = linear_gradient_axis(gradient.angle_deg, 0.0, 0.0, 100.0, 50.0);
@@ -359,9 +339,7 @@ fn table_cell_uses_the_authored_gradient_paint() {
     assert_eq!(end, (100.0, 25.0));
 
     assert!(
-        !paints
-            .iter()
-            .any(|p| matches!(p, Some(VectorPaint::Solid(_)))),
+        !paints.iter().any(|p| matches!(p, Some(VectorPaint::Solid(_)))),
         "the flat fallback colour must not be painted"
     );
     // No border was authored, so the cell fill is the only command.

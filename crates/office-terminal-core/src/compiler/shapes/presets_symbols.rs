@@ -7,16 +7,9 @@
 use crate::contracts::{FillRule, PathSegment, VectorPath};
 
 use super::arc::decompose_arc_to_cubic;
-use super::util::{
-    norm_adj, push_arc, push_ellipse, push_polygon, regular_polygon_vertices, star_vertices, KAPPA,
-};
+use super::util::{norm_adj, push_arc, push_ellipse, push_polygon, regular_polygon_vertices, star_vertices, KAPPA};
 
-pub fn build_symbol_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_symbol_preset(geometry: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     match geometry {
         "star4" => Some(star_path(4, w, h, adj, 0.38197)),
         "star7" => Some(star_path(7, w, h, adj, 0.5)),
@@ -92,10 +85,7 @@ pub fn build_symbol_preset(
         "decagon" => Some(poly_path(10, w, h)),
         "dodecagon" => Some(poly_path(12, w, h)),
 
-        "rtTriangle" => Some(super::util::polygon(
-            &[(0.0, 0.0), (w, h), (0.0, h)],
-            FillRule::NonZero,
-        )),
+        "rtTriangle" => Some(super::util::polygon(&[(0.0, 0.0), (w, h), (0.0, h)], FillRule::NonZero)),
 
         "blockArc" => Some(block_arc_path(w, h, adj)),
         "donut" => Some(donut_path(w, h, adj)),
@@ -145,14 +135,7 @@ fn gear_path(teeth: usize, w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
 
     let mut segs = Vec::new();
     push_polygon(&mut segs, &points);
-    push_ellipse(
-        &mut segs,
-        cx,
-        cy,
-        rx_outer * bore_ratio,
-        ry_outer * bore_ratio,
-        false,
-    );
+    push_ellipse(&mut segs, cx, cy, rx_outer * bore_ratio, ry_outer * bore_ratio, false);
     VectorPath::new(segs, FillRule::EvenOdd)
 }
 
@@ -190,10 +173,7 @@ fn push_brace(segments: &mut Vec<PathSegment>, w: f32, h: f32, r: f32, mirror: b
         x: x(x1),
         y: r,
     });
-    segments.push(PathSegment::LineTo {
-        x: x(x1),
-        y: ym - r,
-    });
+    segments.push(PathSegment::LineTo { x: x(x1), y: ym - r });
     segments.push(PathSegment::CubicTo {
         x1: x(x1),
         y1: ym - r + k,
@@ -269,14 +249,7 @@ fn donut_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
     let ry = h / 2.0;
     let mut segs = Vec::new();
     push_ellipse(&mut segs, cx, cy, rx, ry, true);
-    push_ellipse(
-        &mut segs,
-        cx,
-        cy,
-        rx * (1.0 - inner),
-        ry * (1.0 - inner),
-        true,
-    );
+    push_ellipse(&mut segs, cx, cy, rx * (1.0 - inner), ry * (1.0 - inner), true);
     VectorPath::new(segs, FillRule::EvenOdd)
 }
 
@@ -289,14 +262,7 @@ fn no_smoking_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
     let t = (0.05 * w.min(h)).min(0.2 * rx).max(0.0);
     let mut segs = Vec::new();
     push_ellipse(&mut segs, cx, cy, rx, ry, true);
-    push_ellipse(
-        &mut segs,
-        cx,
-        cy,
-        rx * (1.0 - inner),
-        ry * (1.0 - inner),
-        false,
-    );
+    push_ellipse(&mut segs, cx, cy, rx * (1.0 - inner), ry * (1.0 - inner), false);
     push_polygon(
         &mut segs,
         &[
@@ -318,13 +284,7 @@ fn pie_angles(adj: &[Option<f64>], default_start: f32, default_end: f32) -> (f32
     (start, end)
 }
 
-fn pie_path(
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-    default_start: f32,
-    default_end: f32,
-) -> VectorPath {
+fn pie_path(w: f32, h: f32, adj: &[Option<f64>], default_start: f32, default_end: f32) -> VectorPath {
     let (start, end) = pie_angles(adj, default_start, default_end);
     let cx = w / 2.0;
     let cy = h / 2.0;
@@ -357,14 +317,6 @@ fn chord_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
 fn open_arc_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
     let (start, end) = pie_angles(adj, 0.0, 0.75);
     let mut segs = Vec::new();
-    push_arc(
-        &mut segs,
-        w / 2.0,
-        h / 2.0,
-        w / 2.0,
-        h / 2.0,
-        start,
-        end - start,
-    );
+    push_arc(&mut segs, w / 2.0, h / 2.0, w / 2.0, h / 2.0, start, end - start);
     VectorPath::new(segs, FillRule::NonZero)
 }

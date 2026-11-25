@@ -1,9 +1,7 @@
 //! Group recursion: transforms, clips, opacity folding and effects
 //! (issue #40 §7.7.6).
 
-use office_terminal_core::contracts::{
-    AffineTransform, VectorCommand, VectorSlide, VectorOuterShadow,
-};
+use office_terminal_core::contracts::{AffineTransform, VectorCommand, VectorOuterShadow, VectorSlide};
 use oxml_layout::{Effect, GroupElement};
 
 use super::{core_transform, map_elements, BridgeContext, BridgeState};
@@ -40,12 +38,7 @@ pub(crate) fn map_group(
 
     for effect in &group.effects {
         match effect {
-            Effect::OuterShadow {
-                dx,
-                dy,
-                blur,
-                color,
-            } => {
+            Effect::OuterShadow { dx, dy, blur, color } => {
                 // A nested group's shadow is the closer one and wins; the
                 // outer shadow it displaces would otherwise vanish silently.
                 if state.pending_shadow.take().is_some() {
@@ -92,14 +85,7 @@ pub(crate) fn map_group(
     // unconsumed shadow: attaching to unrelated earlier page ink (a table
     // border, a cell fill) would paint a shadow where none was authored.
     let first_child_command = slide.commands.len();
-    map_elements(
-        &group.children,
-        &child_acc,
-        child_opacity,
-        slide,
-        ctx,
-        state,
-    );
+    map_elements(&group.children, &child_acc, child_opacity, slide, ctx, state);
 
     if let Some(unused) = state.pending_shadow.take() {
         if !attach_shadow_to_last_path(slide, first_child_command, unused) {
@@ -133,10 +119,7 @@ fn pretransformed_clip(
     for command in &clip.commands {
         use oxml_layout::path::PathCommand;
         let point_emu = |point: &oxml_layout::Point| {
-            let (x, y) = child_acc.transform_point(
-                super::pt_to_emu(point.x),
-                super::pt_to_emu(point.y),
-            );
+            let (x, y) = child_acc.transform_point(super::pt_to_emu(point.x), super::pt_to_emu(point.y));
             (x, y)
         };
         match command {
@@ -152,29 +135,16 @@ fn pretransformed_clip(
                 let (x1, y1) = point_emu(c1);
                 let (x2, y2) = point_emu(c2);
                 let (x, y) = point_emu(to);
-                segments.push(office_terminal_core::contracts::PathSegment::CubicTo {
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    x,
-                    y,
-                });
+                segments.push(office_terminal_core::contracts::PathSegment::CubicTo { x1, y1, x2, y2, x, y });
             }
-            PathCommand::Close => {
-                segments.push(office_terminal_core::contracts::PathSegment::Close)
-            }
+            PathCommand::Close => segments.push(office_terminal_core::contracts::PathSegment::Close),
         }
     }
     office_terminal_core::contracts::VectorPath::new(
         segments,
         match clip.fill_rule {
-            oxml_layout::path::FillRule::NonZero => {
-                office_terminal_core::contracts::FillRule::NonZero
-            }
-            oxml_layout::path::FillRule::EvenOdd => {
-                office_terminal_core::contracts::FillRule::EvenOdd
-            }
+            oxml_layout::path::FillRule::NonZero => office_terminal_core::contracts::FillRule::NonZero,
+            oxml_layout::path::FillRule::EvenOdd => office_terminal_core::contracts::FillRule::EvenOdd,
         },
     )
 }
@@ -182,11 +152,7 @@ fn pretransformed_clip(
 /// Fold a group shadow onto the most recently emitted path at or after
 /// `from` (the group's first child command). Returns `false` when no path
 /// in that range exists.
-fn attach_shadow_to_last_path(
-    slide: &mut VectorSlide,
-    from: usize,
-    shadow: VectorOuterShadow,
-) -> bool {
+fn attach_shadow_to_last_path(slide: &mut VectorSlide, from: usize, shadow: VectorOuterShadow) -> bool {
     for command in slide.commands[from..].iter_mut().rev() {
         if let VectorCommand::DrawPath { effects, .. } = command {
             effects.outer_shadow = Some(shadow);
@@ -199,13 +165,11 @@ fn attach_shadow_to_last_path(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use office_terminal_core::contracts::WarningEvent;
     use crate::test_support::{compile, letter_page, text_run, FixtureEngine};
+    use office_terminal_core::contracts::WarningEvent;
     use oxml_layout::paint::Paint;
     use oxml_layout::path::{FillRule, Path as LayoutPath, PathCommand};
-    use oxml_layout::{
-        Color, GroupElement, PathElement, Point, PositionedElement, Rect,
-    };
+    use oxml_layout::{Color, GroupElement, PathElement, Point, PositionedElement, Rect};
 
     fn clip_path() -> LayoutPath {
         LayoutPath {

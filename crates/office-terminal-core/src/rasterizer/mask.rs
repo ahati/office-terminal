@@ -59,12 +59,7 @@ pub(crate) fn shift_mask(mask: &[u8], width: usize, height: usize, dx: i32, dy: 
 
 /// Apply the outer-shadow scale/skew matrix (PRD 08 §3.1) around the mask
 /// centre using nearest-neighbour sampling.
-pub(crate) fn warp_mask(
-    mask: &[u8],
-    width: usize,
-    height: usize,
-    shadow: &VectorOuterShadow,
-) -> Vec<u8> {
+pub(crate) fn warp_mask(mask: &[u8], width: usize, height: usize, shadow: &VectorOuterShadow) -> Vec<u8> {
     let sx = shadow.scale_x.max(1e-3);
     let sy = shadow.scale_y.max(1e-3);
     let kx = shadow.skew_x_deg.to_radians().tan();

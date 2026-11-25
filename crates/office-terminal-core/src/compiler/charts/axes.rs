@@ -1,11 +1,10 @@
-use pptx_model::ChartModel;
-use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPath,
-    VectorStroke, EMU_PER_PT,
-};
-use crate::compiler::style::parse_hex_color;
 use super::layout::{axis_label_font_pt, make_simple_run, AxisTitleBand, ChartLayout};
 use super::types::{get_category_label, ChartDataBounds, ChartFamily};
+use crate::compiler::style::parse_hex_color;
+use crate::contracts::{
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPath, VectorStroke, EMU_PER_PT,
+};
+use pptx_model::ChartModel;
 
 pub fn compile_axes(
     chart: &ChartModel,
@@ -153,12 +152,7 @@ pub fn compile_axes(
                 ],
                 FillRule::NonZero,
             );
-            commands.push(VectorCommand::draw_path(
-                axis_path,
-                None,
-                Some(axis_stroke),
-                transform,
-            ));
+            commands.push(VectorCommand::draw_path(axis_path, None, Some(axis_stroke), transform));
         }
     } else {
         // Vertical Chart (Column, Line, Area): Value on Y (left), Category on X (bottom)
@@ -258,12 +252,7 @@ pub fn compile_axes(
                 ],
                 FillRule::NonZero,
             );
-            commands.push(VectorCommand::draw_path(
-                axis_path,
-                None,
-                Some(axis_stroke),
-                transform,
-            ));
+            commands.push(VectorCommand::draw_path(axis_path, None, Some(axis_stroke), transform));
         }
     }
 

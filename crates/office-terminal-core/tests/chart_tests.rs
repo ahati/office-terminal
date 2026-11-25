@@ -185,7 +185,16 @@ fn test_line_chart_compilation() {
     let markers = vs
         .commands
         .iter()
-        .filter(|cmd| matches!(cmd, VectorCommand::DrawPath { fill: Some(_), stroke: Some(_), .. }))
+        .filter(|cmd| {
+            matches!(
+                cmd,
+                VectorCommand::DrawPath {
+                    fill: Some(_),
+                    stroke: Some(_),
+                    ..
+                }
+            )
+        })
         .count();
     assert_eq!(markers, 4, "Expected 4 data point markers");
 }
@@ -228,7 +237,16 @@ fn test_pie_and_doughnut_chart_compilation() {
     let slice_count = vs
         .commands
         .iter()
-        .filter(|cmd| matches!(cmd, VectorCommand::DrawPath { fill: Some(_), stroke: Some(_), .. }))
+        .filter(|cmd| {
+            matches!(
+                cmd,
+                VectorCommand::DrawPath {
+                    fill: Some(_),
+                    stroke: Some(_),
+                    ..
+                }
+            )
+        })
         .count();
     assert_eq!(slice_count, 3, "Expected 3 pie sector paths");
 
@@ -263,7 +281,16 @@ fn test_pie_and_doughnut_chart_compilation() {
     let doughnut_slices = vs2
         .commands
         .iter()
-        .filter(|cmd| matches!(cmd, VectorCommand::DrawPath { fill: Some(_), stroke: Some(_), .. }))
+        .filter(|cmd| {
+            matches!(
+                cmd,
+                VectorCommand::DrawPath {
+                    fill: Some(_),
+                    stroke: Some(_),
+                    ..
+                }
+            )
+        })
         .count();
     assert_eq!(doughnut_slices, 2, "Expected 2 doughnut sector paths");
 }
@@ -300,7 +327,12 @@ fn test_area_chart_compilation() {
 
     let vs = compiler.compile(&slide, 9_144_000, 6_858_000, &tx).unwrap();
     let has_polygon = vs.commands.iter().any(|cmd| match cmd {
-        VectorCommand::DrawPath { fill: Some(_), path, .. } => path.segments.iter().any(|s| matches!(s, office_terminal_core::contracts::PathSegment::Close)),
+        VectorCommand::DrawPath {
+            fill: Some(_), path, ..
+        } => path
+            .segments
+            .iter()
+            .any(|s| matches!(s, office_terminal_core::contracts::PathSegment::Close)),
         _ => false,
     });
     assert!(has_polygon, "Expected closed area polygon path");
@@ -417,7 +449,10 @@ fn test_smartart_text_rect_layout() {
     let vs = compiler.compile(&slide, 9_144_000, 6_858_000, &tx).unwrap();
 
     // Find the text command and check its translation matches text_rect
-    let text_cmd = vs.commands.iter().find(|cmd| matches!(cmd, VectorCommand::DrawText { .. }));
+    let text_cmd = vs
+        .commands
+        .iter()
+        .find(|cmd| matches!(cmd, VectorCommand::DrawText { .. }));
     assert!(text_cmd.is_some(), "Expected DrawText command");
 
     if let Some(VectorCommand::DrawText { transform, runs }) = text_cmd {

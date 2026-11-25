@@ -19,8 +19,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc(layout) };
         if !pointer.is_null() {
-            let current =
-                CURRENT.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
+            let current = CURRENT.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
             PEAK.fetch_max(current, Ordering::Relaxed);
         }
         pointer
@@ -35,11 +34,11 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
+use metafile_support as support;
 use office_terminal_core::contracts::AffineTransform;
 use office_terminal_core::metafile::engine_metafile_rs::MetafileRsEngine;
 use office_terminal_core::metafile::recorder::MetafileRecorder;
 use office_terminal_core::metafile::{MetafileEngine, MetafileLimits};
-use metafile_support as support;
 
 fn points(count: usize) -> Vec<(i32, i32)> {
     (0..count)

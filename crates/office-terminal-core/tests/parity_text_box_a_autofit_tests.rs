@@ -23,8 +23,8 @@ use office_terminal_core::text::linebreak::{break_paragraph, BreakItem, BreakOpt
 use office_terminal_core::text::metrics::align_x;
 use office_terminal_core::text::{StyleId, TextMeasure};
 use support::{
-    body_with, close, compile, first_glyph_x, line_first_xs, line_pts, para, text, text_face,
-    Para, Stack, ARIAL, EMU_PER_PT, MEIRYO,
+    body_with, close, compile, first_glyph_x, line_first_xs, line_pts, para, text, text_face, Para, Stack, ARIAL,
+    EMU_PER_PT, MEIRYO,
 };
 
 const S: StyleId = StyleId(0);
@@ -239,11 +239,7 @@ fn multi_line_pitch_ignores_the_resolved_font_box() {
     ])]);
     let ys = stack.baselines();
     close(ys[0], size * 1.2 * MEIRYO.ascent_share, "first baseline");
-    close(
-        ys[1] - ys[0],
-        size * 1.2,
-        "pitch must be the 1.2 × size line",
-    );
+    close(ys[1] - ys[0], size * 1.2, "pitch must be the 1.2 × size line");
     close(stack.needed_height(), 2.0 * size * 1.2, "needed height");
 }
 
@@ -277,11 +273,7 @@ fn anchored_sp_autofit_block_overflows_without_regrowing() {
         } else {
             box_height - block
         };
-        close(
-            stack.baselines()[0],
-            top + size * 1.2 * MEIRYO.ascent_share,
-            anchor,
-        );
+        close(stack.baselines()[0], top + size * 1.2 * MEIRYO.ascent_share, anchor);
     }
 }
 
@@ -308,10 +300,6 @@ fn arial_uses_its_own_split_in_both_fit_modes() {
     // `t` cursor is the box top in both, so the split alone decides.
     for box_height in [46.0f32, size * 1.2] {
         let stack = Stack::new(vec![Para::one(size, ARIAL)]).in_box(0.0, box_height, 0.0, 0.0);
-        close(
-            stack.baselines()[0],
-            size * 1.2 * ARIAL.ascent_share,
-            "Arial split",
-        );
+        close(stack.baselines()[0], size * 1.2 * ARIAL.ascent_share, "Arial split");
     }
 }

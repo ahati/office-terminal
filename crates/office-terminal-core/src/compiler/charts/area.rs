@@ -1,11 +1,10 @@
-use pptx_model::ChartModel;
-use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPaint,
-    VectorPath, VectorStroke,
-};
 use super::color::{resolve_series_color, resolve_series_line_color, with_alpha};
 use super::layout::ChartLayout;
 use super::types::{ChartDataBounds, ChartFamily};
+use crate::contracts::{
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPaint, VectorPath, VectorStroke,
+};
+use pptx_model::ChartModel;
 
 pub fn compile_area(
     chart: &ChartModel,
@@ -35,11 +34,7 @@ pub fn compile_area(
             let val = s.values.get(c).copied().flatten().unwrap_or(0.0);
             let norm_h = ((val as f32) / span).clamp(0.0, 1.0) * layout.plot_h;
 
-            let y = if is_stacked {
-                prev_y - norm_h
-            } else {
-                base_y - norm_h
-            };
+            let y = if is_stacked { prev_y - norm_h } else { base_y - norm_h };
             curr_y.push(y);
         }
 
@@ -54,15 +49,9 @@ pub fn compile_area(
         // 1. Polygon path
         let mut segs = Vec::new();
         // Top edge: left to right
-        segs.push(PathSegment::MoveTo {
-            x: xs[0],
-            y: curr_y[0],
-        });
+        segs.push(PathSegment::MoveTo { x: xs[0], y: curr_y[0] });
         for i in 1..num_cats {
-            segs.push(PathSegment::LineTo {
-                x: xs[i],
-                y: curr_y[i],
-            });
+            segs.push(PathSegment::LineTo { x: xs[i], y: curr_y[i] });
         }
 
         // Bottom edge: right to left
@@ -78,10 +67,7 @@ pub fn compile_area(
                 x: xs[num_cats - 1],
                 y: base_y,
             });
-            segs.push(PathSegment::LineTo {
-                x: xs[0],
-                y: base_y,
-            });
+            segs.push(PathSegment::LineTo { x: xs[0], y: base_y });
         }
         segs.push(PathSegment::Close);
 
@@ -95,15 +81,9 @@ pub fn compile_area(
 
         // 2. Outline stroke along top edge
         let mut top_segs = Vec::new();
-        top_segs.push(PathSegment::MoveTo {
-            x: xs[0],
-            y: curr_y[0],
-        });
+        top_segs.push(PathSegment::MoveTo { x: xs[0], y: curr_y[0] });
         for i in 1..num_cats {
-            top_segs.push(PathSegment::LineTo {
-                x: xs[i],
-                y: curr_y[i],
-            });
+            top_segs.push(PathSegment::LineTo { x: xs[i], y: curr_y[i] });
         }
 
         let top_stroke = VectorStroke {

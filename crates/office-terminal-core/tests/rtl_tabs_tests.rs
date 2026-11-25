@@ -7,13 +7,7 @@ use serde_json::json;
 
 const PT: f32 = 12_700.0;
 
-fn body_with(
-    rtl: bool,
-    stops: serde_json::Value,
-    text: &str,
-    indent: i64,
-    alignment: &str,
-) -> pptx_model::TextBody {
+fn body_with(rtl: bool, stops: serde_json::Value, text: &str, indent: i64, alignment: &str) -> pptx_model::TextBody {
     let value = json!({
         "verticalAnchor": "t",
         "paragraphs": [{
@@ -114,7 +108,10 @@ fn rtl_multi_cell_tabs_mirror_the_cells() {
     assert!(page_x < value_x && value_x < title_x, "visual order reversed");
     assert!((value_x - 300.0).abs() < 0.01, "value leading edge on mirrored stop");
     assert!((page_x - 40.0).abs() < 0.01, "page leading edge on mirrored stop");
-    assert!((title_x + title_w - 600.0).abs() < 0.01, "title ends at the leading edge");
+    assert!(
+        (title_x + title_w - 600.0).abs() < 0.01,
+        "title ends at the leading edge"
+    );
 }
 
 #[test]

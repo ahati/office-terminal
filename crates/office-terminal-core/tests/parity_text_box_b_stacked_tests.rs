@@ -16,15 +16,11 @@
 //! ledger keeps their rows.
 
 use crossbeam_channel::unbounded;
-use office_terminal_core::contracts::{
-    AffineTransform, PositionedGlyphRun, RectF32, VectorCommand,
-};
 use office_terminal_core::contracts::HyperlinkTarget;
+use office_terminal_core::contracts::{AffineTransform, PositionedGlyphRun, RectF32, VectorCommand};
 use office_terminal_core::text::emit::compile_text_body;
+use office_terminal_core::text::vertical::{graphemes, place_stacked, vertical_form, StackedGlyph, VertMode};
 use office_terminal_core::SlideCompiler;
-use office_terminal_core::text::vertical::{
-    graphemes, place_stacked, vertical_form, StackedGlyph, VertMode,
-};
 use serde_json::{json, Value};
 
 const PT: f32 = 12_700.0;
@@ -168,11 +164,7 @@ fn stacked_glyphs_centre_on_the_column_axis_and_mirror_for_rtl() {
     // The `wordArtVertRtl` block is pinned to the END side (the right edge).
     let rtl = place_stacked(&single, text_rect(), "b", "l", false, true);
     let rtl_centre = rtl[0].x + 0.6 * 24.0 * PT * 0.5;
-    close(
-        rtl_centre / PT,
-        60.0 - 7.2 - CELL / 2.0,
-        "rtl column centre",
-    );
+    close(rtl_centre / PT, 60.0 - 7.2 - CELL / 2.0, "rtl column centre");
 }
 
 /// `:150` "turns ASCII brackets 90° and draws CJK brackets with the face
@@ -243,9 +235,7 @@ fn stacked_glyphs_advance_one_cell_along_the_column() {
 fn stacked_ascii_bracket_is_turned_ninety_degrees() {
     let commands = compile(&body("(A", "wordArtVert"), 60.0, 470.0);
     let rotated = commands.iter().any(|command| match command {
-        VectorCommand::DrawText { transform, .. } => {
-            transform.kx.abs() > 0.1 || transform.ky.abs() > 0.1
-        }
+        VectorCommand::DrawText { transform, .. } => transform.kx.abs() > 0.1 || transform.ky.abs() > 0.1,
         _ => false,
     });
     assert!(rotated, "ASCII bracket must use a rotated DrawText frame");
@@ -331,11 +321,7 @@ fn stacked_glyphs_carry_the_run_hyperlink() {
         .compile(&slide, 9_144_000, 6_858_000, &tx)
         .expect("compile");
     let target = HyperlinkTarget::ExternalUri("https://example.com/".to_string());
-    let resolved: Vec<HyperlinkTarget> = vector_slide
-        .hyperlinks
-        .iter()
-        .map(|link| link.target.clone())
-        .collect();
+    let resolved: Vec<HyperlinkTarget> = vector_slide.hyperlinks.iter().map(|link| link.target.clone()).collect();
     assert_eq!(resolved, vec![target.clone(), target]);
 }
 
@@ -356,9 +342,9 @@ fn stacked_cluster_split_across_runs_stays_one_cell() {
         "hyperlinkUsesTextFill": false, "fieldType": null,
         "fontSize": FONT_PX, "color": "000000", "fontFamily": "Arial"
     });
-    text_body.paragraphs[0].runs.push(
-        serde_json::from_value(second).expect("second run"),
-    );
+    text_body.paragraphs[0]
+        .runs
+        .push(serde_json::from_value(second).expect("second run"));
     let commands = compile(&text_body, 60.0, 470.0);
     assert_eq!(texts(&draw_runs(&commands)), ["葛\u{e0100}", "B"]);
 }
@@ -411,7 +397,10 @@ fn stacked_parallel_mark_follows_the_face_feature() {
     ));
     let bar = yu.iter().find(|(text, _)| text == "∥").expect("bar");
     let form = yu.iter().find(|(text, _)| text == "︵").expect("（ form");
-    assert!(bar.1.kx.abs() < 0.1 && bar.1.ky.abs() < 0.1, "vrt2 marker stays upright");
+    assert!(
+        bar.1.kx.abs() < 0.1 && bar.1.ky.abs() < 0.1,
+        "vrt2 marker stays upright"
+    );
     assert!(form.1.kx.abs() < 0.1 && form.1.ky.abs() < 0.1);
 
     let ms = draw_text_entries(&compile(
@@ -456,11 +445,7 @@ impl office_terminal_core::text::bullets::MarkerBitmap for MarkerSizes {
     }
 }
 
-fn compile_with_bitmaps(
-    text_body: &pptx_model::TextBody,
-    box_w: f32,
-    box_h: f32,
-) -> Vec<VectorCommand> {
+fn compile_with_bitmaps(text_body: &pptx_model::TextBody, box_w: f32, box_h: f32) -> Vec<VectorCommand> {
     let (tx, _rx) = unbounded();
     office_terminal_core::text::emit::compile_text_body_with_markers(
         text_body,
@@ -484,9 +469,7 @@ fn stacked_picture_markers_keep_their_source_aspect() {
     };
     let commands = compile_with_bitmaps(&text_body, 200.0, 200.0);
     let image = commands.iter().find_map(|command| match command {
-        VectorCommand::DrawImage { dest_rect, rel_id, .. } => {
-            Some((rel_id.clone(), *dest_rect))
-        }
+        VectorCommand::DrawImage { dest_rect, rel_id, .. } => Some((rel_id.clone(), *dest_rect)),
         _ => None,
     });
     let (rel_id, dest) = image.expect("picture marker image");

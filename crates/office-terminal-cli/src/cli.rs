@@ -3,10 +3,10 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "ot",
+    name = "office-terminal",
     bin_name = "ot",
     version,
-    about = "Office Terminal (ot) / kitty-pptx-pdf-reader: High-fidelity terminal presentation & document reader"
+    about = "Office Terminal (ot): High-fidelity terminal presentation & document reader"
 )]
 pub struct Cli {
     #[arg(help = "Path to presentation (.pptx), document (.pdf), or Word document (.docx), or '-' for stdin")]
@@ -38,7 +38,7 @@ pub struct Cli {
         value_enum,
         global = true,
         value_name = "MODE",
-        help = "Metafile playback override (also KITTY_PPTX_METAFILE): playback|placeholder"
+        help = "Metafile playback override (also OT_METAFILE; legacy KITTY_PPTX_METAFILE): playback|placeholder"
     )]
     pub metafile: Option<MetafileModeArg>,
 
@@ -55,11 +55,7 @@ pub enum Commands {
         slide: usize,
         #[arg(short, long)]
         all: bool,
-        #[arg(
-            long,
-            value_enum,
-            help = "Fit mode; defaults to display.fit in config.toml"
-        )]
+        #[arg(long, value_enum, help = "Fit mode; defaults to display.fit in config.toml")]
         fit: Option<FitMode>,
     },
     #[command(about = "Headless batch slide export to PNG or vector SVG")]
@@ -116,10 +112,7 @@ pub enum Commands {
     Info { file: PathBuf },
     #[command(about = "Generate shell completion scripts directly to stdout")]
     Completions {
-        #[arg(
-            value_name = "SHELL",
-            help = "Target shell (bash, zsh, fish, elvish, powershell)"
-        )]
+        #[arg(value_name = "SHELL", help = "Target shell (bash, zsh, fish, elvish, powershell)")]
         shell: clap_complete::Shell,
     },
 }
@@ -140,8 +133,9 @@ impl MetafileModeArg {
         }
     }
 
-    /// Parse `KITTY_PPTX_METAFILE` case-insensitively; unknown values are
-    /// ignored rather than aborting playback (the flag wins when both are set).
+    /// Parse `OT_METAFILE` (or legacy `KITTY_PPTX_METAFILE`) case-insensitively;
+    /// unknown values are ignored rather than aborting playback (the flag wins
+    /// when both are set).
     pub fn from_env(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "playback" => Some(Self::Playback),
@@ -210,10 +204,7 @@ pub fn parse_slide_range(input: &str, total: usize) -> Result<Vec<usize>, String
                     .map_err(|_| format!("invalid end number: {}", end_s))?
             };
             if start == 0 || start > total {
-                return Err(format!(
-                    "slide start {} out of bounds (1..={})",
-                    start, total
-                ));
+                return Err(format!("slide start {} out of bounds (1..={})", start, total));
             }
             if end == 0 || end > total {
                 return Err(format!("slide end {} out of bounds (1..={})", end, total));

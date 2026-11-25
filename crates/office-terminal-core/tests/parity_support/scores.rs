@@ -43,13 +43,11 @@ pub fn load(path: &Path) -> Result<Scores, String> {
     if !path.is_file() {
         return Ok(Scores::new());
     }
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("cannot read fidelity scores {}: {e}", path.display()))?;
+    let text = fs::read_to_string(path).map_err(|e| format!("cannot read fidelity scores {}: {e}", path.display()))?;
     if text.trim().is_empty() {
         return Ok(Scores::new());
     }
-    serde_json::from_str(&text)
-        .map_err(|e| format!("cannot parse fidelity scores {}: {e}", path.display()))
+    serde_json::from_str(&text).map_err(|e| format!("cannot parse fidelity scores {}: {e}", path.display()))
 }
 
 /// Serialises `scores` exactly like `writeScore`
@@ -69,11 +67,9 @@ pub fn to_json(scores: &Scores) -> String {
 /// Writes `scores`, creating the parent directory. ref `visual.spec.ts:84-85`.
 pub fn save(path: &Path, scores: &Scores) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("cannot create scores dir {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| format!("cannot create scores dir {}: {e}", parent.display()))?;
     }
-    fs::write(path, to_json(scores))
-        .map_err(|e| format!("cannot write fidelity scores {}: {e}", path.display()))
+    fs::write(path, to_json(scores)).map_err(|e| format!("cannot write fidelity scores {}: {e}", path.display()))
 }
 
 /// Read-modify-writes one entry and returns the stored (rounded) value.

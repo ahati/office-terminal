@@ -1,6 +1,6 @@
 # PRD 03a: Kitty Graphics Protocol Driver
 
-> Specifies the **Kitty Graphics Protocol** driver (block B15) and terminal image lifecycle (block B16). `kitty-pptx` is Kitty-only: there are no fallback drivers. Interfaces live in [PRD 06](./06-component-interface-contracts.md).
+> Specifies the **Kitty Graphics Protocol** driver (block B15) and terminal image lifecycle (block B16). **Office Terminal** is Kitty-only: there are no fallback drivers. Interfaces live in [PRD 06](./06-component-interface-contracts.md).
 
 ## 1. Role & Architectural Seam
 
@@ -120,16 +120,16 @@ There is no fallback renderer. Startup must fail with `DisplayError::NoCapableTe
 1. `KITTY_WINDOW_ID`/`KITTY_PID`, `TERM_PROGRAM=kitty`, or a `TERM` containing `kitty` identifies the terminal, or
 2. the active Kitty graphics query (`a=q`) receives a valid response.
 
-`KITTY_PPTX_PROTOCOL=kitty` bypasses the probe for debugging. Any other override is an error.
+`OT_PROTOCOL=kitty` (legacy `KITTY_PPTX_PROTOCOL`) bypasses the probe for debugging. Any other override is an error.
 
 ### 6.1 Pixel-Geometry Resolution
 
 Raster targets follow the terminal's real device pixels, resolved in layers ([`probe/geometry.rs`](../crates/office-terminal-display/src/probe/geometry.rs)):
 
-1. `KITTY_PPTX_CELL=WxH` env override;
+1. `OT_CELL=WxH` env override (legacy `KITTY_PPTX_CELL`);
 2. `TIOCGWINSZ` pixel fields ÷ grid — correct on kitty/xterm/iTerm2/Alacritty, locally and over SSH (RFC 4254 §6.7 window-change carries pixel dims);
 3. `CSI 16 t` (reply `CSI 6 ; w ; h t`) — cell size in pixels;
 4. `CSI 14 t` (reply `CSI 4 ; h ; w t`) — text-area pixels ÷ grid;
 5. the 10×20 default.
 
-The CSI round-trips run exactly once, from `prime_cell_metrics` at startup (raw mode, before the TUI owns stdin; the same slot as the graphics probe) and only when the ioctl reports zero pixels. Resizes re-resolve via the ioctl; a zero-pixel ioctl keeps the primed cell sticky — numerically what `CSI 14 t` would report for the new grid. A font-size-only change on a zero-pixel terminal needs the env override until restart; that shifts raster sharpness only, never layout. `kitty-pptx info` prints the resolved cell, its source layer, and the implied viewport pixels.
+The CSI round-trips run exactly once, from `prime_cell_metrics` at startup (raw mode, before the TUI owns stdin; the same slot as the graphics probe) and only when the ioctl reports zero pixels. Resizes re-resolve via the ioctl; a zero-pixel ioctl keeps the primed cell sticky — numerically what `CSI 14 t` would report for the new grid. A font-size-only change on a zero-pixel terminal needs the env override until restart; that shifts raster sharpness only, never layout. `ot info` prints the resolved cell, its source layer, and the implied viewport pixels.

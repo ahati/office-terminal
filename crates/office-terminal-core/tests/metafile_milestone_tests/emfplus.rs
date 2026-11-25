@@ -113,11 +113,7 @@ fn emfplus_text_anchor_follows_the_world_transform() {
         support::emf_plus_world_transform([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
         support::emf_plus_draw_string(1, 2, u32::MAX, "A", [100.0, 50.0, 0.0, 0.0]),
     ];
-    let (scene, summary, warnings) = expand(
-        "ppt/media/image1.emf",
-        EMF,
-        support::emf_plus_only_emf(&records),
-    );
+    let (scene, summary, warnings) = expand("ppt/media/image1.emf", EMF, support::emf_plus_only_emf(&records));
 
     assert_eq!(summary.expanded, 1, "EMF+ text must play: {warnings:?}");
     let runs = text_runs(&scene);
@@ -203,11 +199,7 @@ fn emfplus_split_object_commits_at_the_declared_total() {
         support::emf_plus_split_object(4, 3, total, &path[split..], true),
         support::emf_plus_draw_path(4, 3),
     ];
-    let (scene, summary, warnings) = expand(
-        "ppt/media/image1.emf",
-        EMF,
-        support::emf_plus_only_emf(&records),
-    );
+    let (scene, summary, warnings) = expand("ppt/media/image1.emf", EMF, support::emf_plus_only_emf(&records));
 
     assert_eq!(summary.expanded, 1, "split object must play: {warnings:?}");
     assert_eq!(summary.placeholders, 0);
@@ -230,19 +222,10 @@ fn path_gradient_brush_is_approximated_not_dropped() {
     // paint (linear approximation) instead of replacing the whole picture with
     // the placeholder (patch 0007).
     let records = [
-        support::emf_plus_path_gradient_brush(
-            2,
-            0xffff_0000,
-            &[0xff00_00ff, 0xff00_ff00],
-            None,
-        ),
+        support::emf_plus_path_gradient_brush(2, 0xffff_0000, &[0xff00_00ff, 0xff00_ff00], None),
         support::emf_plus_fill_rects(2, [10.0, 10.0, 110.0, 90.0]),
     ];
-    let (scene, summary, warnings) = expand(
-        "ppt/media/image1.emf",
-        EMF,
-        support::emf_plus_only_emf(&records),
-    );
+    let (scene, summary, warnings) = expand("ppt/media/image1.emf", EMF, support::emf_plus_only_emf(&records));
 
     assert_eq!(summary.expanded, 1, "brush must not abort playback: {warnings:?}");
     assert_eq!(summary.placeholders, 0);
@@ -267,10 +250,7 @@ fn path_gradient_brush_is_approximated_not_dropped() {
     );
 
     // Composition proof: the approximated fill must paint, not vanish.
-    let store = support::FixtureStore::new(
-        "ppt/media/image1.emf",
-        support::emf_plus_only_emf(&records),
-    );
+    let store = support::FixtureStore::new("ppt/media/image1.emf", support::emf_plus_only_emf(&records));
     let target = office_terminal_core::contracts::RenderTargetSpec {
         width_px: 320,
         height_px: 160,
@@ -298,11 +278,7 @@ fn asymmetric_pen_caps_keep_the_frame_stroke() {
         support::emf_plus_path(4, &[(10, 10), (110, 10), (110, 90), (10, 90)], true),
         support::emf_plus_draw_path(4, 3),
     ];
-    let (scene, summary, warnings) = expand(
-        "ppt/media/image1.emf",
-        EMF,
-        support::emf_plus_only_emf(&records),
-    );
+    let (scene, summary, warnings) = expand("ppt/media/image1.emf", EMF, support::emf_plus_only_emf(&records));
 
     assert_eq!(summary.expanded, 1, "frame path must play: {warnings:?}");
     assert_eq!(summary.placeholders, 0);
@@ -316,8 +292,5 @@ fn asymmetric_pen_caps_keep_the_frame_stroke() {
             }
         )
     });
-    assert!(
-        framed,
-        "asymmetric-cap pen must still stroke the frame: {warnings:?}"
-    );
+    assert!(framed, "asymmetric-cap pen must still stroke the frame: {warnings:?}");
 }

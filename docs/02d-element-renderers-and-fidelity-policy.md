@@ -4,7 +4,7 @@
 
 ## 1. Fidelity Policy Governance
 
-A PowerPoint renderer that silently omits unsupported features produces deceptive output. `kitty-pptx` establishes an honest visual contract:
+A PowerPoint renderer that silently omits unsupported features produces deceptive output. **Office Terminal** establishes an honest visual contract:
 1. **Zero Silent Degradation**: Every non-FULL element emission fires a typed `WarningEvent` ([PRD 06](./06-component-interface-contracts.md) §4).
 2. **Determinism**: Same input model $\to$ identical vector display list across runs.
 3. **Fail-Soft Isolation**: An element failure draws a labeled placeholder and never invalidates neighboring elements or the slide.

@@ -80,10 +80,7 @@ pub fn bench_page_transition_jump() -> BenchmarkResult {
 pub fn bench_page_transition_presenter() -> BenchmarkResult {
     let pipeline = BenchPipeline;
     let mut driver = BenchDriver::default();
-    let notes = vec![
-        Some("Slide notes to verify speaker notes formatting during transition.".to_string());
-        20
-    ];
+    let notes = vec![Some("Slide notes to verify speaker notes formatting during transition.".to_string()); 20];
     let mut state = PresentationState::new(20, notes);
     state.set_mode(AppMode::PresenterConsole);
     let mut syncer = GraphicsSyncer::new();

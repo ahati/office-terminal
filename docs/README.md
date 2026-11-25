@@ -1,6 +1,6 @@
 # Office Terminal (ot) — Product Requirements & Architecture Specifications
 
-Welcome to the design documentation and Product Requirements Documents (PRDs) for **Office Terminal (`ot` / `office-terminal`)**, a modern Rust CLI and TUI presentation and document viewer that renders PowerPoint (`.pptx`), PDF (`.pdf`), Word (`.docx`), and Excel (`.xlsx`) documents directly inside terminal emulators using the **Kitty Graphics Protocol** and compatible graphics standards, with headless vector SVG and high-resolution PNG batch export.
+Welcome to the design documentation and Product Requirements Documents (PRDs) for **Office Terminal (`ot` / `office-terminal`)**, a modern Rust CLI and TUI presentation and document viewer that renders PowerPoint (`.pptx`), PDF (`.pdf`), and Word (`.docx`) documents directly inside terminal emulators using the **Kitty Graphics Protocol** and compatible graphics standards, with headless vector SVG and high-resolution PNG batch export. Excel (`.xlsx`) is a post-v1 proposal and is not implemented.
 
 ---
 
@@ -29,7 +29,7 @@ Welcome to the design documentation and Product Requirements Documents (PRDs) fo
 16. **[14-pdf-input-support.md](./14-pdf-input-support.md)** — PDF Input Support: Slide Decks & Documents (`%PDF-` magic dispatch, `PageSource` deck contract, pure-Rust `hayro` engine with phased raster → vector bridges, CLI/export/dump parity, PDF fidelity policy, resource limits, milestones).
 17. **[14a-pdf-reader-ui-designs.md](./14a-pdf-reader-ui-designs.md)** — PDF Reader UI Designs (slide-vs-document mode detection from page geometry, focusable/zoomable/scrollable page panes, left-aligned side-by-side spread with right-pane clipping, fit modes over Kitty source-rect placements, reader keymap, windowed graphics-syncer slots & prefetch, wireframes, NFRs).
 18. **[15-docx-input-support.md](./15-docx-input-support.md)** — DOCX Input Support: WordprocessingML Documents & Vector Layout Bridge (OPC content sniffing, pluggable `DocxEngine` trait, `rdocx`/`oxml-layout` pagination engine, `PageFrame` $\to$ `VectorSlide` bridge, reader mode integration, vector SVG export with selectable text, honest degradation matrix, scope boundaries).
-19. **[16-xlsx-input-support.md](./16-xlsx-input-support.md)** — XLSX Input Support: SpreadsheetML Workbooks, Sheet Grid & Print Pagination (content-type sniffing, in-house SpreadsheetML parser on `ooxml-common`, MDW-driven grid geometry, number-format engine, DrawingML charts and cell-anchored pictures, complete print pagination engine, `SheetSource` grid surface plus `PageSource` print surface through a single canvas compiler, explicit out-of-scope register).
+19. **[16-xlsx-input-support.md](./16-xlsx-input-support.md)** — *Proposed, not implemented:* XLSX Input Support: SpreadsheetML Workbooks, Sheet Grid & Print Pagination (content-type sniffing, in-house SpreadsheetML parser on `ooxml-common`, MDW-driven grid geometry, number-format engine, DrawingML charts and cell-anchored pictures, print pagination engine, `SheetSource` grid surface plus `PageSource` print surface, explicit out-of-scope register). The current loader rejects `.xlsx`.
 
 ---
 
@@ -39,7 +39,7 @@ A two-stage pipeline: **DrawingML $\to$ Resolution-Independent Vector Display Li
 
 ```
                         ┌───────────────────────────────┐
-                        │      kitty-pptx Binary        │
+                        │      Office Terminal (ot)     │
                         │  clap · ratatui · crossterm   │
                         └───────────────┬───────────────┘
                                         │

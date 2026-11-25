@@ -71,19 +71,9 @@ pub(super) fn build_paragraphs(
     // One counter map per body: `autoNumCounters` (`renderer.ts:4876`).
     let mut counters = AutoNumCounters::new();
     for p in text_body.paragraphs.iter() {
-        let def_size = p
-            .def_font_size
-            .or(text_body.default_font_size)
-            .unwrap_or(18.0) as f32;
-        let def_color = p
-            .def_color
-            .as_deref()
-            .map(parse_hex_color)
-            .unwrap_or(default_color);
-        let def_family = p
-            .def_font_family
-            .clone()
-            .unwrap_or_else(|| "Calibri".into());
+        let def_size = p.def_font_size.or(text_body.default_font_size).unwrap_or(18.0) as f32;
+        let def_color = p.def_color.as_deref().map(parse_hex_color).unwrap_or(default_color);
+        let def_family = p.def_font_family.clone().unwrap_or_else(|| "Calibri".into());
         // `a:pPr@defTabSz` else PowerPoint's universal 1-inch grid
         // (renderer.ts:5702-5706); 0 disables the default grid.
         let tab_size = p.def_tab_sz.map(|v| v as f32).unwrap_or(914_400.0);
@@ -186,12 +176,7 @@ pub(super) fn build_paragraphs(
             }
             if let Some((end, text)) = previews.get(&run_index) {
                 preview_end = *end;
-                if let pptx_model::TextRun::Math {
-                    font_size,
-                    color,
-                    ..
-                } = &normalized_runs[run_index]
-                {
+                if let pptx_model::TextRun::Math { font_size, color, .. } = &normalized_runs[run_index] {
                     let sz_pt = font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
                     let id = measurer.push(StyleDef {
                         family: def_family.clone(),
@@ -199,10 +184,7 @@ pub(super) fn build_paragraphs(
                         size_pt: sz_pt,
                         bold: p.def_bold.or(text_body.default_bold).unwrap_or(false),
                         italic: p.def_italic.or(text_body.default_italic).unwrap_or(false),
-                        color: color
-                            .as_deref()
-                            .map(parse_hex_color)
-                            .unwrap_or(def_color),
+                        color: color.as_deref().map(parse_hex_color).unwrap_or(def_color),
                         underline: false,
                         underline_style: None,
                         underline_color: None,
@@ -230,16 +212,8 @@ pub(super) fn build_paragraphs(
                         .unwrap_or(&def_family);
                     let family = resolve_font_family(authored, warning_sink);
                     let sz_pt = data.font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
-                    let color = data
-                        .color
-                        .as_deref()
-                        .map(parse_hex_color)
-                        .unwrap_or(def_color);
-                    let bold = data
-                        .bold
-                        .or(p.def_bold)
-                        .or(text_body.default_bold)
-                        .unwrap_or(false);
+                    let color = data.color.as_deref().map(parse_hex_color).unwrap_or(def_color);
+                    let bold = data.bold.or(p.def_bold).or(text_body.default_bold).unwrap_or(false);
                     let italic = data
                         .italic
                         .or(p.def_italic)
@@ -254,10 +228,7 @@ pub(super) fn build_paragraphs(
                         color,
                         underline: data.underline,
                         underline_style: data.underline_style.clone(),
-                        underline_color: data
-                            .underline_color
-                            .as_deref()
-                            .map(parse_hex_color),
+                        underline_color: data.underline_color.as_deref().map(parse_hex_color),
                         strikethrough: data.strikethrough,
                         strike_double: data.strike_double,
                         // Run-only: neither `TextBody` nor `Paragraph` carries a
@@ -267,17 +238,11 @@ pub(super) fn build_paragraphs(
                         baseline: data.baseline,
                         // `rPr@spc` is points → EMU like any run size
                         // (`renderer.ts:1885`).
-                        letter_spacing_emu: data
-                            .letter_spacing
-                            .map(|spc| spc as f32 * 12700.0)
-                            .unwrap_or(0.0),
+                        letter_spacing_emu: data.letter_spacing.map(|spc| spc as f32 * 12700.0).unwrap_or(0.0),
                         // `rPr/a:highlight` (§21.1.2.3.4), resolved by the parser.
                         highlight: data.highlight.as_deref().map(parse_hex_color),
                         lang: data.lang.clone(),
-                        reflection: data
-                            .reflection
-                            .as_ref()
-                            .map(crate::compiler::shape_effects::reflection),
+                        reflection: data.reflection.as_ref().map(crate::compiler::shape_effects::reflection),
                     };
                     // Per-cluster `a:latin` / `a:ea` / `a:cs` slot dispatch
                     // (`renderer.ts:1930-1985`): one `BreakItem` per slot seam.
@@ -300,10 +265,7 @@ pub(super) fn build_paragraphs(
                     fallback_text,
                 } => {
                     let sz_pt = font_size.map(|s| s as f32).unwrap_or(def_size) * font_scale;
-                    let run_color = color
-                        .as_deref()
-                        .map(parse_hex_color)
-                        .unwrap_or(default_color);
+                    let run_color = color.as_deref().map(parse_hex_color).unwrap_or(default_color);
                     let id = measurer.push(StyleDef {
                         family: "Cambria Math".to_string(),
                         size_emu: sz_pt * 12700.0,
@@ -322,25 +284,23 @@ pub(super) fn build_paragraphs(
                         lang: None,
                         reflection: None,
                     });
-                    let layout = |items: Vec<BreakItem>, math: Vec<MathPiece>, alignment: String| {
-                        ParagraphLayout {
-                            items,
-                            math,
-                            alignment,
-                            mar_l: p.mar_l as f32,
-                            mar_r: p.mar_r as f32,
-                            indent: p.indent as f32,
-                            rtl: p.rtl,
-                            tab_stops: tab_stops.clone(),
-                            tab_size,
-                            ea_ln_brk: p.ea_ln_brk,
-                            space_line: space_of(&p.space_line),
-                            space_before: space_before(p),
-                            space_after: space_after(p),
-                            default_style,
-                            object_cursor: RefCell::new(0),
-                            marker: None,
-                        }
+                    let layout = |items: Vec<BreakItem>, math: Vec<MathPiece>, alignment: String| ParagraphLayout {
+                        items,
+                        math,
+                        alignment,
+                        mar_l: p.mar_l as f32,
+                        mar_r: p.mar_r as f32,
+                        indent: p.indent as f32,
+                        rtl: p.rtl,
+                        tab_stops: tab_stops.clone(),
+                        tab_size,
+                        ea_ln_brk: p.ea_ln_brk,
+                        space_line: space_of(&p.space_line),
+                        space_before: space_before(p),
+                        space_after: space_after(p),
+                        default_style,
+                        object_cursor: RefCell::new(0),
+                        marker: None,
                     };
                     let params = MathParams {
                         display: *display,
@@ -482,27 +442,17 @@ fn resolve_marker(
 /// The advance the marker reserves at the leading edge under an RTL base
 /// (`rtlMarkerReservePx`, `renderer.ts:5817-5830`): a label's measured width, or
 /// a picture marker's aspect-corrected width.
-pub(super) fn marker_advance(
-    measurer: &Measurer,
-    para: &ParagraphLayout,
-    bitmaps: Option<&dyn MarkerBitmap>,
-) -> f32 {
+pub(super) fn marker_advance(measurer: &Measurer, para: &ParagraphLayout, bitmaps: Option<&dyn MarkerBitmap>) -> f32 {
     match &para.marker {
         None => 0.0,
         Some(MarkerPlan::Label { text, style }) => measurer.advance(text, *style),
-        Some(MarkerPlan::Image { rel_id, size_emu }) => {
-            picture_width(rel_id, *size_emu, bitmaps).unwrap_or(0.0)
-        }
+        Some(MarkerPlan::Image { rel_id, size_emu }) => picture_width(rel_id, *size_emu, bitmaps).unwrap_or(0.0),
     }
 }
 
 /// The picture marker's painted width: height × the decoded bitmap's aspect
 /// ratio (`renderer.ts:5866-5867`).
-pub(super) fn picture_width(
-    rel_id: &str,
-    height_emu: f32,
-    bitmaps: Option<&dyn MarkerBitmap>,
-) -> Option<f32> {
+pub(super) fn picture_width(rel_id: &str, height_emu: f32, bitmaps: Option<&dyn MarkerBitmap>) -> Option<f32> {
     let (width_px, height_px) = bitmaps?.source_size(rel_id)?;
     if height_px == 0 {
         return Some(height_emu);

@@ -15,8 +15,8 @@ use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::{AffineTransform, PositionedGlyphRun, VectorCommand};
 use office_terminal_core::text::emit::compile_text_body;
 use office_terminal_core::text::vertical::{
-    ea_vert_frame, ea_vert_pieces, em_centre_above, layout_frame, orientation, vertical_form,
-    EaVertFrame, Orient, VertMode,
+    ea_vert_frame, ea_vert_pieces, em_centre_above, layout_frame, orientation, vertical_form, EaVertFrame, Orient,
+    VertMode,
 };
 
 const POINTS: f32 = 20.0;
@@ -58,20 +58,13 @@ fn han_column_stands_upright_down_the_column() {
     // The +90° frame sends layout +x (the column) to slide +y, so the glyph
     // origins only move down; the column axis (layout y) is constant.
     close(origins[0].0, origins[1].0, "column axis x");
-    assert!(
-        origins[1].1 > origins[0].1,
-        "second cell below the first: {origins:?}"
-    );
+    assert!(origins[1].1 > origins[0].1, "second cell below the first: {origins:?}");
     // Baseline origin = cell centre (mapped through the frame) + the em-box
     // centre offset that `textBaseline='middle'` would have applied.
     close(origins[0].1, advance * 0.5 + centre_above, "first cell y");
     close(origins[1].1, advance * 1.5 + centre_above, "second cell y");
     // A 200 x 100 box mirrors layout y into slide x (`200 - v`).
-    close(
-        origins[0].0,
-        200.0 - (baseline - centre_above) - advance * 0.5,
-        "x",
-    );
+    close(origins[0].0, 200.0 - (baseline - centre_above) - advance * 0.5, "x");
     // The em-box centre really lands on the frame-mapped cell centre.
     close(
         origins[0].0 + advance * 0.5,
@@ -161,13 +154,7 @@ fn mixed_han_and_latin_splits_into_upright_and_rotated_segments() {
         .collect();
     assert_eq!(
         shape,
-        vec![
-            (true, "日"),
-            (false, "A"),
-            (true, "本"),
-            (false, "bc"),
-            (true, "、"),
-        ]
+        vec![(true, "日"), (false, "A"), (true, "本"), (false, "bc"), (true, "、"),]
     );
 }
 
@@ -297,9 +284,9 @@ fn ea_vert_command_splits_upright_and_rotated_text() {
         "{texts:?}"
     );
     assert!(
-        texts.iter().any(|(runs, transform)| {
-            *transform == frame && runs.iter().any(|run| run.text.contains('A'))
-        }),
+        texts
+            .iter()
+            .any(|(runs, transform)| { *transform == frame && runs.iter().any(|run| run.text.contains('A')) }),
         "{texts:?}"
     );
 }

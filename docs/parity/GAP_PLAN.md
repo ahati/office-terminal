@@ -170,8 +170,7 @@ Effort = spec LOC ÷ 180, rounded to 0.5 d.
 
 ## 4. Wave sequencing
 
-Every agent runs with `CARGO_TARGET_DIR=/workspace/kitty-pptx/target/agent-<name>` (kache makes a
-cold build cheap, so worktrees are affordable). Merge order inside a wave is by contract gate first.
+Every agent runs with `CARGO_TARGET_DIR=target/agent-<name>` (the build cache makes a cold build cheap, so worktrees are affordable). Merge order inside a wave is by contract gate first.
 
 ### 4.1 Wave 3 — unblock the tree and freeze the contracts (9 agents)
 
@@ -394,7 +393,7 @@ test; the last column is what the workstream must make true):
 ### 6.4 Diagnostic ratchet
 
 Diagnostics may differ but must not drift. `agent-ledger` records every deck's metric line into
-`tests/parity/scores/external.json` (shape of `scores/sample-1.json`); `external_fixture_tests` fails
+`tests/parity/scores/external.json` (shape of `scores/synthetic-1.json`); `external_fixture_tests` fails
 when a recorded diagnostic regresses by `min_cell_pass_ratio −0.05` or `max_global_mean_abs_diff
 +2.0`, naming the deck and its owning workstream (§6.3). An unmapped deck blocks the wave.
 
@@ -408,8 +407,8 @@ when a recorded diagnostic regresses by `min_cell_pass_ratio −0.05` or `max_gl
 - [ ] All ≈150 portable platform cases ported; the 21 N/A files recorded with reasons.
 - [ ] Every workstream's named APIs exist with the signature in §3, and every "cases" count in §3
       resolves to a named test.
-- [ ] Fidelity: `match_pct` for each of the 9 slides never falls >0.5 pt below
-      `tests/parity/scores/sample-1.json`, and `diff_pct ≤ 20` (`FAIL_ABOVE_DIFF_PCT`);
+- [ ] Fidelity: `match_pct` for each of the 3 synthetic slides never falls >0.5 pt below
+      `tests/parity/scores/synthetic-1.json`, and `diff_pct ≤ 20` (`FAIL_ABOVE_DIFF_PCT`);
       `UPDATE_SCORES=1` may only raise a recorded score.
 - [x] Corpus: 418 compared + 1 known unrenderable + 0 errors; 4/4 strict pass; no diagnostic
       regression vs `tests/parity/scores/external.json`.

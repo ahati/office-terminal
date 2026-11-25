@@ -87,11 +87,7 @@ pub fn bounded_chart_context_text(
             break;
         }
         for (index, value) in series.values.iter().enumerate() {
-            let value = format!(
-                "{}{}",
-                if index == 0 { "" } else { ", " },
-                format_value(*value)
-            );
+            let value = format!("{}{}", if index == 0 { "" } else { ", " }, format_value(*value));
             if !append(&value, false, &mut chunks) {
                 return BoundedText {
                     text: Some(chunks.concat()),
@@ -109,4 +105,3 @@ pub fn bounded_chart_context_text(
         max_text_characters: max_units,
     }
 }
-

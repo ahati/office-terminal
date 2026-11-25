@@ -31,7 +31,8 @@ seconds of output draining after the start and after each key: raise them for
 large decks, whose canvas transmits are several megabytes over a pty.
 
 The terminal is a fresh pty sized 120x40 and the child runs with
-`KITTY_PPTX_PROTOCOL=kitty`, so no real Kitty terminal is required.
+`OT_PROTOCOL=kitty` (legacy `KITTY_PPTX_PROTOCOL` is also accepted), so no
+real Kitty terminal is required.
 """
 import fcntl
 import os
@@ -46,9 +47,9 @@ INITIAL_WAIT = float(os.environ.get("INITIAL_WAIT", "2.0"))
 KEY_WAIT = float(os.environ.get("KEY_WAIT", "1.5"))
 FINAL_WAIT = float(os.environ.get("FINAL_WAIT", "3.0"))
 BIN = os.path.abspath(
-    "target/release/kitty-pptx"
-    if os.path.exists("target/release/kitty-pptx")
-    else "target/debug/kitty-pptx"
+    "target/release/ot"
+    if os.path.exists("target/release/ot")
+    else "target/debug/ot"
 )
 
 # A complete kitty APC sequence ends with ST (ESC backslash): matching the
@@ -78,7 +79,7 @@ KEYS = {
 def spawn(deck, rows=40, cols=120):
     pid, fd = pty.fork()
     if pid == 0:
-        os.environ["KITTY_PPTX_PROTOCOL"] = "kitty"
+        os.environ["OT_PROTOCOL"] = "kitty"
         os.environ["TERM"] = "xterm-kitty"
         os.execv(BIN, [BIN, deck])
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))

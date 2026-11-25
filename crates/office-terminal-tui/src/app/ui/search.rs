@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::app::state::PresentationState;
 
@@ -35,10 +35,7 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
 
     // Clear and fill background behind modal so underlying graphics don't bleed through
     f.render_widget(Clear, modal_area);
-    f.render_widget(
-        Block::default().style(Style::default().bg(Color::Black)),
-        modal_area,
-    );
+    f.render_widget(Block::default().style(Style::default().bg(Color::Black)), modal_area);
 
     let modal_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -64,7 +61,10 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
 
     let query_line = Line::from(vec![
         Span::styled(" 🔍 ", Style::default().fg(Color::Yellow)),
-        Span::styled(search.query(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            search.query(),
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("█", Style::default().fg(Color::Cyan)), // Blinking input cursor simulation
     ]);
     f.render_widget(
@@ -136,7 +136,11 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
             if let Some(entry) = search.entry(entry_idx) {
                 let indent = "  ".repeat(entry.level);
                 let icon = if entry.has_children {
-                    if entry.expanded { "▾ " } else { "▸ " }
+                    if entry.expanded {
+                        "▾ "
+                    } else {
+                        "▸ "
+                    }
                 } else if entry.level > 0 {
                     "• "
                 } else {
@@ -166,13 +170,15 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                 let suffix_len = suffix.chars().count();
 
                 let q = search.query().trim().to_lowercase();
-                let is_direct_match = q.is_empty()
-                    || crate::app::search_state::calculate_match_score(&q, entry) > 0;
+                let is_direct_match = q.is_empty() || crate::app::search_state::calculate_match_score(&q, entry) > 0;
 
                 let notes_span_text = if !entry.notes.is_empty() {
                     let budget = 20.min(inner_width.saturating_sub(prefix_len + 15));
                     if budget >= 8 {
-                        Some(format!(" (Notes: {})", truncate_str(&entry.notes, budget.saturating_sub(9))))
+                        Some(format!(
+                            " (Notes: {})",
+                            truncate_str(&entry.notes, budget.saturating_sub(9))
+                        ))
                     } else {
                         None
                     }
@@ -181,9 +187,7 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                 };
                 let notes_len = notes_span_text.as_ref().map(|n| n.chars().count()).unwrap_or(0);
                 // Reserve the trailing page column before truncating the title.
-                let max_title_len = inner_width
-                    .saturating_sub(prefix_len + notes_len + suffix_len)
-                    .max(10);
+                let max_title_len = inner_width.saturating_sub(prefix_len + notes_len + suffix_len).max(10);
                 let title_text = truncate_str(&entry.title, max_title_len);
                 let title_len = title_text.chars().count();
 
@@ -216,8 +220,7 @@ pub fn render_search_modal(state: &PresentationState, f: &mut Frame, area: Rect)
                     spans.push(Span::styled(notes_text, notes_style));
                 }
                 if numbered {
-                    let padding = inner_width
-                        .saturating_sub(prefix_len + title_len + notes_len + suffix_len);
+                    let padding = inner_width.saturating_sub(prefix_len + title_len + notes_len + suffix_len);
                     spans.push(Span::styled(" ".repeat(padding), chrome_style));
                     spans.push(Span::styled(suffix, chrome_style));
                 }

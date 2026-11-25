@@ -2,9 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::contracts::{
-    AffineTransform, VectorGradient, VectorPaint, VectorPattern, VectorTextureFill,
-};
+use crate::contracts::{AffineTransform, VectorGradient, VectorPaint, VectorPattern, VectorTextureFill};
 
 use crate::metafile::MetafilePaint;
 

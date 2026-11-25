@@ -104,20 +104,10 @@ impl ClipStack {
                 return tiny_skia::Mask::new(place.width, place.height);
             };
             match &mut mask {
-                Some(existing) => existing.intersect_path(
-                    &ts_path,
-                    rule,
-                    true,
-                    tiny_skia::Transform::identity(),
-                ),
+                Some(existing) => existing.intersect_path(&ts_path, rule, true, tiny_skia::Transform::identity()),
                 None => {
                     let mut fresh = tiny_skia::Mask::new(place.width, place.height)?;
-                    fresh.fill_path(
-                        &ts_path,
-                        rule,
-                        true,
-                        tiny_skia::Transform::identity(),
-                    );
+                    fresh.fill_path(&ts_path, rule, true, tiny_skia::Transform::identity());
                     mask = Some(fresh);
                 }
             }
@@ -127,12 +117,7 @@ impl ClipStack {
 }
 
 /// Conservative device-pixel bounds of a slide-EMU clip path.
-fn clip_bounds_px(
-    path: &VectorPath,
-    scale: f32,
-    offset_x: f32,
-    offset_y: f32,
-) -> Option<(f32, f32, f32, f32)> {
+fn clip_bounds_px(path: &VectorPath, scale: f32, offset_x: f32, offset_y: f32) -> Option<(f32, f32, f32, f32)> {
     let (min_x, min_y, max_x, max_y) = path::local_bounds(path)?;
     let bounds = (
         offset_x + min_x * scale,
@@ -149,12 +134,7 @@ fn clip_bounds_px(
 }
 
 /// Convert a slide-EMU path into a device-space `tiny_skia::Path`.
-fn device_path(
-    path: &VectorPath,
-    scale: f32,
-    offset_x: f32,
-    offset_y: f32,
-) -> Option<tiny_skia::Path> {
+fn device_path(path: &VectorPath, scale: f32, offset_x: f32, offset_y: f32) -> Option<tiny_skia::Path> {
     let map = |x: f32, y: f32| -> Option<(f32, f32)> {
         let px = offset_x + x * scale;
         let py = offset_y + y * scale;
@@ -176,14 +156,7 @@ fn device_path(
                 let (px, py) = map(x, y)?;
                 builder.quad_to(c1x, c1y, px, py);
             }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 let (c1x, c1y) = map(x1, y1)?;
                 let (c2x, c2y) = map(x2, y2)?;
                 let (px, py) = map(x, y)?;

@@ -86,9 +86,7 @@ impl SlotState {
         match self.placed {
             None => true,
             Some(placed) => {
-                placed.id != id
-                    || placed.key != key
-                    || (compare_epoch && placed.epoch != self.staged_epoch)
+                placed.id != id || placed.key != key || (compare_epoch && placed.epoch != self.staged_epoch)
             }
         }
     }
@@ -189,11 +187,21 @@ mod tests {
     use super::*;
 
     fn bitmap(id: u32, page: usize) -> SlotBitmap {
-        SlotBitmap { id: ImageId(id), page, width: 4, height: 2 }
+        SlotBitmap {
+            id: ImageId(id),
+            page,
+            width: 4,
+            height: 2,
+        }
     }
 
     fn cells(col: u16) -> PlacedKey {
-        PlacedKey::Cells(CellRect { row: 0, col, rows: 2, cols: 4 })
+        PlacedKey::Cells(CellRect {
+            row: 0,
+            col,
+            rows: 2,
+            cols: 4,
+        })
     }
 
     #[test]
@@ -226,7 +234,12 @@ mod tests {
         // A different id, page, or bitmap size all demand a re-stage.
         assert!(slot.needs_stage(&bitmap(2, 0)));
         assert!(slot.needs_stage(&bitmap(1, 1)));
-        assert!(slot.needs_stage(&SlotBitmap { id: ImageId(1), page: 0, width: 8, height: 2 }));
+        assert!(slot.needs_stage(&SlotBitmap {
+            id: ImageId(1),
+            page: 0,
+            width: 8,
+            height: 2
+        }));
         assert_eq!(slot.staged_epoch(), 7);
     }
 

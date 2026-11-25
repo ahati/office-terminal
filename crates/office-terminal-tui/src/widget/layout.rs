@@ -1,5 +1,5 @@
-use ratatui::layout::Rect;
 use office_terminal_display::CellRect;
+use ratatui::layout::Rect;
 
 /// Standard aspect ratio constants
 pub const ASPECT_16_9: f32 = 16.0 / 9.0;

@@ -10,8 +10,8 @@ use crossbeam_channel::Sender;
 
 use super::decor;
 use super::emit::Measurer;
-use super::paragraphs::{self, MarkerPlan};
 use super::paint;
+use super::paragraphs::{self, MarkerPlan};
 use crate::compiler::math;
 use crate::contracts::{AffineTransform, PositionedGlyphRun, RectF32, VectorCommand, WarningEvent};
 use crate::text::bullets::MarkerBitmap;
@@ -77,8 +77,7 @@ fn push_clusters(
             let ch = cluster.chars().next().unwrap_or(' ');
             if is_ascii_bracket(ch) {
                 (cluster.to_string(), FRAC_PI_2, width)
-            } else if ch >= '\u{0080}'
-                && super::face_features::has_vrt2_feature(&def.family, def.bold, def.italic, ch)
+            } else if ch >= '\u{0080}' && super::face_features::has_vrt2_feature(&def.family, def.bold, def.italic, ch)
             {
                 // vrt2-only coverage outside Basic Latin (e.g. ∥ in Yu Gothic):
                 // stands unturned in a 1 em cell as its horizontal glyph.
@@ -260,17 +259,16 @@ fn push_stacked_decorations(
     }
 
     // Paragraph mark: an invisible cell after the paragraph's last glyph.
-    for (paragraph_index, slots) in slots
-        .iter()
-        .filter(|slot| slot.object.is_none())
-        .fold(Vec::<(usize, Vec<&vertical::StackedSlot>)>::new(), |mut acc, slot| {
+    for (paragraph_index, slots) in slots.iter().filter(|slot| slot.object.is_none()).fold(
+        Vec::<(usize, Vec<&vertical::StackedSlot>)>::new(),
+        |mut acc, slot| {
             match acc.last_mut() {
                 Some((index, list)) if *index == slot.paragraph => list.push(slot),
                 _ => acc.push((slot.paragraph, vec![slot])),
             }
             acc
-        })
-    {
+        },
+    ) {
         let Some(last) = slots.last() else {
             continue;
         };
@@ -419,20 +417,10 @@ pub(super) fn compile_stacked(
     );
     let mut runs: Vec<PositionedGlyphRun> = Vec::new();
     let mut commands: Vec<VectorCommand> = Vec::new();
-    push_stacked_decorations(
-        text_body,
-        &paragraphs,
-        &slots,
-        measurer,
-        base_transform,
-        &mut commands,
-    );
+    push_stacked_decorations(text_body, &paragraphs, &slots, measurer, base_transform, &mut commands);
     for slot in &slots {
         if let Some(object) = slot.object {
-            if let Some(piece) = paragraphs
-                .get(slot.paragraph)
-                .and_then(|para| para.math.get(object))
-            {
+            if let Some(piece) = paragraphs.get(slot.paragraph).and_then(|para| para.math.get(object)) {
                 for path in &piece.paths {
                     let shifted = math::translate_math_path(path, slot.x, slot.baseline);
                     commands.push(math::math_path_command(&shifted, base_transform));

@@ -56,7 +56,7 @@ Previously, hyperlinks were treated as degraded visual formatting (`DEGRADED` in
 3. **Seam 3 — Native Vector SVG Export**:
    - Serializes clickable elements into standard SVG anchor wrappers:
      `<a xlink:href="<URL>" href="<URL>" target="_blank" rel="noopener noreferrer">...</a>`.
-   - Maps internal slide jumps to relative anchor fragments (e.g. `#slide-5`), preserving multi-slide web navigation in vector decks exported via `kitty-pptx export --format svg`.
+   - Maps internal slide jumps to relative anchor fragments (e.g. `#slide-5`), preserving multi-slide web navigation in vector decks exported via `ot export --format svg`.
 
 ---
 
@@ -359,7 +359,7 @@ When mouse capture is enabled (`crossterm::event::EnableMouseCapture`):
 
 ## 6. Native Vector SVG Export
 
-When exporting vector presentations via `kitty-pptx export --format svg`:
+When exporting vector presentations via `ot export --format svg`:
 - Hyperlink descriptors wrap their underlying graphical elements using standard SVG `<a ...>` tags.
 - For `HyperlinkTarget::ExternalUri(url)`:
   ```xml

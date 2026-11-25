@@ -96,13 +96,7 @@ impl PayloadCache {
     /// Encode errors are skipped silently: the interactive syncer falls back
     /// to on-thread encoding through the driver, so a failed pre-encode must
     /// never panic or poison the worker.
-    pub fn stage(
-        &self,
-        encoder: &dyn TransmitEncoder,
-        index: usize,
-        target: RenderTargetSpec,
-        bitmap: &RgbaSlide,
-    ) {
+    pub fn stage(&self, encoder: &dyn TransmitEncoder, index: usize, target: RenderTargetSpec, bitmap: &RgbaSlide) {
         if let Ok(payload) = encoder.encode(bitmap) {
             self.put(index, target, payload);
         }

@@ -37,16 +37,13 @@ use std::sync::Arc;
 
 use crossbeam_channel::Sender;
 use office_terminal_core::contracts::{
-    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, VectorSlide,
-    WarningEvent,
+    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, VectorSlide, WarningEvent,
 };
 use office_terminal_core::loader::{
-    AssetStore, AssetStoreStats, DecodedImage, DefaultPresentationLoader, PresentationLoader,
-    SizeHint, Source,
+    AssetStore, AssetStoreStats, DecodedImage, DefaultPresentationLoader, PresentationLoader, SizeHint, Source,
 };
 use office_terminal_core::{
-    DefaultRenderPipeline, DefaultSlideCompiler, ParseError, RenderError, SlideCompiler,
-    TinySkiaRasterizer,
+    DefaultRenderPipeline, DefaultSlideCompiler, ParseError, RenderError, SlideCompiler, TinySkiaRasterizer,
 };
 use zip::write::SimpleFileOptions;
 
@@ -108,8 +105,7 @@ fn deck_with_broken_second_slide(broken: Option<&[u8]>) -> Vec<u8> {
     let mut cursor = Cursor::new(Vec::new());
     {
         let mut writer = zip::ZipWriter::new(&mut cursor);
-        let options =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         for (name, body) in files {
             writer.start_file(name, options).expect("start zip entry");
             writer.write_all(body.as_bytes()).expect("write zip entry");
@@ -168,10 +164,7 @@ fn a_broken_slide_is_never_treated_as_hidden() {
 fn a_healthy_deck_reports_no_part_failure() {
     let presentation = load(deck_with_broken_second_slide(None)).expect("deck loads");
     assert_eq!(presentation.slides.len(), 2);
-    assert!(presentation
-        .slides
-        .iter()
-        .all(|slide| slide.parse_error.is_none()));
+    assert!(presentation.slides.iter().all(|slide| slide.parse_error.is_none()));
     assert!(presentation.slides.iter().all(|slide| !slide.hidden));
 }
 
@@ -188,8 +181,7 @@ fn broken_slide_paints_the_error_placeholder() {
     use office_terminal_core::compiler::{CompileOptions, ErrorPlaceholder, PartFailure};
     use office_terminal_core::contracts::VectorCommand;
 
-    let presentation = load(deck_with_broken_second_slide(Some(&[0xff, 0xfe, 0x00])))
-        .expect("the deck still loads");
+    let presentation = load(deck_with_broken_second_slide(Some(&[0xff, 0xfe, 0x00]))).expect("the deck still loads");
     let seen: Arc<Mutex<Vec<PartFailure>>> = Arc::new(Mutex::new(Vec::new()));
     let capture = Arc::clone(&seen);
     let options = CompileOptions::with_placeholder_fn(move |failure| {
@@ -209,9 +201,7 @@ fn broken_slide_paints_the_error_placeholder() {
             .commands
             .into_iter()
             .flat_map(|command| match command {
-                VectorCommand::DrawText { runs, .. } => {
-                    runs.into_iter().map(|run| run.text).collect::<Vec<_>>()
-                }
+                VectorCommand::DrawText { runs, .. } => runs.into_iter().map(|run| run.text).collect::<Vec<_>>(),
                 _ => Vec::new(),
             })
             .collect()
@@ -239,20 +229,12 @@ fn broken_slide_paints_the_error_placeholder() {
     // Static text form: `{ title: 'Static' }` keeps the built-in detail.
     let static_options = CompileOptions::with_placeholder_text("Static", None);
     let static_texts: Vec<String> = compiler
-        .compile_opts(
-            &presentation.slides[1],
-            9_144_000,
-            6_858_000,
-            &static_options,
-            &tx,
-        )
+        .compile_opts(&presentation.slides[1], 9_144_000, 6_858_000, &static_options, &tx)
         .expect("slide compiles")
         .commands
         .into_iter()
         .flat_map(|command| match command {
-            VectorCommand::DrawText { runs, .. } => {
-                runs.into_iter().map(|run| run.text).collect::<Vec<_>>()
-            }
+            VectorCommand::DrawText { runs, .. } => runs.into_iter().map(|run| run.text).collect::<Vec<_>>(),
             _ => Vec::new(),
         })
         .collect();
@@ -387,10 +369,7 @@ fn a_failed_slide_replays_its_error_on_every_later_read() {
     assert_eq!(pipeline.workers().get_failed(1), Some(recorded));
     match pipeline.entry(1) {
         PipelineEntry::Failed { error } => assert_eq!(error, error_of(&pipeline)),
-        other => panic!(
-            "a poisoned slide reports Failed, got {}",
-            entry_name(&other)
-        ),
+        other => panic!("a poisoned slide reports Failed, got {}", entry_name(&other)),
     }
 }
 
@@ -415,10 +394,7 @@ fn entry_name(entry: &PipelineEntry) -> &'static str {
 #[test]
 fn clearing_the_poison_allows_a_fresh_attempt() {
     let pipeline = failing_pipeline(2, 1);
-    pipeline
-        .render_sync(0, &TARGET)
-        .map(|_| ())
-        .expect("slide 0 renders");
+    pipeline.render_sync(0, &TARGET).map(|_| ()).expect("slide 0 renders");
     assert!(pipeline.render_sync(1, &TARGET).is_err());
 
     pipeline.workers().clear_failed();
@@ -446,21 +422,11 @@ fn destroy_is_idempotent() {
         &TARGET,
     );
     pipeline.workers().shutdown();
-    let after_first = (
-        pipeline.workers().in_flight_count(),
-        pipeline.workers().queue_len(),
-    );
-    assert_eq!(
-        after_first,
-        (0, 0),
-        "destroy drains in-flight and queued work"
-    );
+    let after_first = (pipeline.workers().in_flight_count(), pipeline.workers().queue_len());
+    assert_eq!(after_first, (0, 0), "destroy drains in-flight and queued work");
     pipeline.workers().shutdown();
     assert_eq!(
-        (
-            pipeline.workers().in_flight_count(),
-            pipeline.workers().queue_len()
-        ),
+        (pipeline.workers().in_flight_count(), pipeline.workers().queue_len()),
         (0, 0),
         "a second destroy is a no-op"
     );
@@ -477,10 +443,7 @@ fn destroy_is_idempotent() {
 #[test]
 fn deck_reload_cancels_in_flight_work_and_drops_the_caches() {
     let pipeline = failing_pipeline(5, usize::MAX);
-    pipeline
-        .render_sync(0, &TARGET)
-        .map(|_| ())
-        .expect("slide 0 renders");
+    pipeline.render_sync(0, &TARGET).map(|_| ()).expect("slide 0 renders");
     assert!(pipeline.cache().has_vector(0));
     assert!(pipeline.cache().contains_raster(0, &TARGET));
 
@@ -497,11 +460,7 @@ fn deck_reload_cancels_in_flight_work_and_drops_the_caches() {
     pipeline.invalidate(InvalidateCause::DeckReload);
 
     assert_eq!(pipeline.current_generation(), generation + 1);
-    assert_eq!(
-        pipeline.workers().in_flight_count(),
-        0,
-        "in-flight cancelled"
-    );
+    assert_eq!(pipeline.workers().in_flight_count(), 0, "in-flight cancelled");
     assert_eq!(pipeline.workers().queue_len(), 0, "queue purged");
     assert!(!pipeline.cache().has_vector(0));
     assert!(!pipeline.cache().contains_raster(0, &TARGET));
@@ -518,10 +477,7 @@ fn deck_reload_cancels_in_flight_work_and_drops_the_caches() {
 #[test]
 fn resize_invalidation_keeps_both_cache_tiers() {
     let pipeline = failing_pipeline(2, usize::MAX);
-    pipeline
-        .render_sync(0, &TARGET)
-        .map(|_| ())
-        .expect("render");
+    pipeline.render_sync(0, &TARGET).map(|_| ()).expect("render");
     pipeline.invalidate(InvalidateCause::Resize);
     assert!(pipeline.cache().has_vector(0));
     assert!(pipeline.cache().contains_raster(0, &TARGET));

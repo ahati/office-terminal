@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::geometry::RectF32;
+use serde::{Deserialize, Serialize};
 
 /// Maximum accepted hyperlink URI length in bytes.
 pub const MAX_HYPERLINK_URL_LEN: usize = 2048;
@@ -81,24 +81,14 @@ pub fn sanitize_hyperlink_url(raw_url: &str) -> Result<String, SecurityError> {
     }
 
     let Some(colon) = trimmed.find(':') else {
-        return Err(SecurityError::InvalidUri(
-            "URI has no scheme component".to_string(),
-        ));
+        return Err(SecurityError::InvalidUri("URI has no scheme component".to_string()));
     };
-    if trimmed[..colon]
-        .chars()
-        .any(|ch| ch == '/' || ch == '?' || ch == '#')
-    {
-        return Err(SecurityError::InvalidUri(
-            "URI has no scheme component".to_string(),
-        ));
+    if trimmed[..colon].chars().any(|ch| ch == '/' || ch == '?' || ch == '#') {
+        return Err(SecurityError::InvalidUri("URI has no scheme component".to_string()));
     }
     let scheme = &trimmed[..colon];
     if scheme.is_empty()
-        || !scheme
-            .chars()
-            .next()
-            .is_some_and(|ch| ch.is_ascii_alphabetic())
+        || !scheme.chars().next().is_some_and(|ch| ch.is_ascii_alphabetic())
         || !scheme
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'))
@@ -113,17 +103,13 @@ pub fn sanitize_hyperlink_url(raw_url: &str) -> Result<String, SecurityError> {
         "http" | "https" => {
             let authority = rest.strip_prefix("//").unwrap_or("");
             if authority.is_empty() || authority.starts_with('/') {
-                return Err(SecurityError::InvalidUri(
-                    "http(s) URI has no authority".to_string(),
-                ));
+                return Err(SecurityError::InvalidUri("http(s) URI has no authority".to_string()));
             }
             Ok(trimmed.to_string())
         }
         "mailto" => {
             if rest.trim().is_empty() {
-                return Err(SecurityError::InvalidUri(
-                    "mailto URI has no address".to_string(),
-                ));
+                return Err(SecurityError::InvalidUri("mailto URI has no address".to_string()));
             }
             Ok(trimmed.to_string())
         }
@@ -158,10 +144,7 @@ impl SlideLinkIndex {
         let links: Vec<IndexedHyperlink> = links
             .into_iter()
             .enumerate()
-            .map(|(index, link)| IndexedHyperlink {
-                id: index + 1,
-                link,
-            })
+            .map(|(index, link)| IndexedHyperlink { id: index + 1, link })
             .collect();
         let mut y_order: Vec<usize> = (0..links.len()).collect();
         y_order.sort_by(|&a, &b| {
@@ -201,9 +184,7 @@ impl SlideLinkIndex {
             if y_emu < bounds.y {
                 break;
             }
-            if bounds.contains(x_emu, y_emu)
-                && best.is_none_or(|current| candidate.id > current.id)
-            {
+            if bounds.contains(x_emu, y_emu) && best.is_none_or(|current| candidate.id > current.id) {
                 best = Some(candidate);
             }
         }
@@ -296,10 +277,7 @@ mod tests {
         assert_eq!(index.len(), 2);
         assert!(index.hit_test(10.0, 10.0).is_some());
         let hit = index.hit_test(50.0, 50.0).expect("overlap hit");
-        assert_eq!(
-            hit.target,
-            HyperlinkTarget::ExternalUri("https://b.example".into())
-        );
+        assert_eq!(hit.target, HyperlinkTarget::ExternalUri("https://b.example".into()));
         assert!(index.hit_test(200.0, 200.0).is_none());
         assert_eq!(index.links_in_rect(rect(30.0, 30.0, 20.0, 20.0)).len(), 2);
         assert_eq!(index.indexed_links()[0].id, 1);

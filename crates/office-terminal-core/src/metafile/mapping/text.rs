@@ -7,8 +7,8 @@
 //! become a rotation about that anchor.
 
 use crate::contracts::{
-    AffineTransform, DecorationLine, FillRule, PathSegment, PositionedGlyph, PositionedGlyphRun,
-    RectF32, TextDecorations, VectorPath,
+    AffineTransform, DecorationLine, FillRule, PathSegment, PositionedGlyph, PositionedGlyphRun, RectF32,
+    TextDecorations, VectorPath,
 };
 
 use crate::metafile::diagnostics::MetafileDiagnostic;
@@ -143,10 +143,7 @@ pub fn map_text_run(run: &MetafileTextRun, unit_to_emu: &AffineTransform) -> Opt
         } else {
             size_emu * 0.6 * chars.len() as f32 * advance_ratio
         };
-        (
-            vec![run_with_glyphs(&text, &family, size_emu, run, glyphs)],
-            advance,
-        )
+        (vec![run_with_glyphs(&text, &family, size_emu, run, glyphs)], advance)
     };
 
     if let Some(ref glyph_ids) = run.glyph_indices {
@@ -267,13 +264,7 @@ fn shaping_with_dx(
     let mut cursor = 0.0f32;
     for (ch, advance) in chars.iter().zip(dx.iter()) {
         let text = ch.to_string();
-        let shaped = crate::text::shape::shape(
-            &text,
-            family,
-            placement.size_emu,
-            source.bold,
-            source.italic,
-        );
+        let shaped = crate::text::shape::shape(&text, family, placement.size_emu, source.bold, source.italic);
         // The first glyph sits at the cursor; a combining mark or an
         // unshapeable character still gets a positioned (empty) origin so the
         // character stream stays aligned with the advances.
@@ -288,13 +279,7 @@ fn shaping_with_dx(
                 warp_u: None,
             })
             .collect();
-        runs.push(run_with_glyphs(
-            &text,
-            family,
-            placement.size_emu,
-            source,
-            glyphs,
-        ));
+        runs.push(run_with_glyphs(&text, family, placement.size_emu, source, glyphs));
         cursor += advance * placement.scale_x;
     }
     (runs, cursor)
@@ -352,20 +337,13 @@ fn rotation_about(x: f32, y: f32, degrees: f32) -> AffineTransform {
         .post_concat(&AffineTransform::translate(-x, -y))
 }
 
-fn background(
-    rect: RectF32,
-    color: [u8; 4],
-    unit_to_emu: &AffineTransform,
-) -> Option<(VectorPath, [u8; 4])> {
+fn background(rect: RectF32, color: [u8; 4], unit_to_emu: &AffineTransform) -> Option<(VectorPath, [u8; 4])> {
     if rect.w <= 0.0 || rect.h <= 0.0 {
         return None;
     }
     let path = VectorPath::new(
         vec![
-            PathSegment::MoveTo {
-                x: rect.x,
-                y: rect.y,
-            },
+            PathSegment::MoveTo { x: rect.x, y: rect.y },
             PathSegment::LineTo {
                 x: rect.x + rect.w,
                 y: rect.y,

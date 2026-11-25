@@ -81,10 +81,7 @@ fn retracts_kinsoku_at_cjk_seams() {
 #[test]
 fn carries_an_overflowing_tab_to_the_next_line() {
     // ref break.test.ts:63-66 (C11): the tab seats its cell at the 72 stop.
-    assert_eq!(
-        wrap_full(&["abc\tdef"], 85.0, 72.0, true),
-        ["abc", "\td", "ef"]
-    );
+    assert_eq!(wrap_full(&["abc\tdef"], 85.0, 72.0, true), ["abc", "\td", "ef"]);
 }
 
 #[test]
@@ -105,15 +102,9 @@ fn nbsp_binds_the_adjacent_words() {
 #[test]
 fn breaks_an_overwide_word_at_grapheme_boundaries() {
     // ref break.test.ts:59-61 (C09).
-    assert_eq!(
-        wrap(&["supercalifragilistic"], 80.0),
-        ["supercal", "ifragili", "stic"]
-    );
+    assert_eq!(wrap(&["supercalifragilistic"], 80.0), ["supercal", "ifragili", "stic"]);
     // A base + combining mark is one atom, so "a◌́" is never torn apart.
-    assert_eq!(
-        wrap(&["a\u{301}ba\u{301}b"], 25.0),
-        ["a\u{301}", "b", "a\u{301}", "b"]
-    );
+    assert_eq!(wrap(&["a\u{301}ba\u{301}b"], 25.0), ["a\u{301}", "b", "a\u{301}", "b"]);
 }
 
 #[test]
@@ -169,10 +160,7 @@ fn ealnbrk_lifts_the_east_asian_rules() {
         wrap_full(&["日本語「", "日本語"], 20.0, 0.0, false),
         ["日本", "語「", "日本", "語"]
     );
-    assert_eq!(
-        wrap(&["日本語「", "日本語"], 20.0),
-        ["日本", "語", "「日", "本語"]
-    );
+    assert_eq!(wrap(&["日本語「", "日本語"], 20.0), ["日本", "語", "「日", "本語"]);
     assert_eq!(wrap_full(&["「abc"], 30.0, 0.0, false), ["「", "abc"]);
     assert_eq!(wrap(&["「abc"], 30.0), ["「ab", "c"]);
 }

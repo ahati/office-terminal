@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use office_terminal_core::{HyperlinkTarget, SlideAction, SlideLink};
 
@@ -69,10 +69,7 @@ pub fn render_link_picker(state: &PresentationState, f: &mut Frame, area: Rect) 
             "   No hyperlinks on this slide.",
             Style::default().fg(Color::DarkGray),
         )));
-        f.render_widget(
-            Paragraph::new(lines).style(Style::default().bg(Color::Black)),
-            inner,
-        );
+        f.render_widget(Paragraph::new(lines).style(Style::default().bg(Color::Black)), inner);
         return;
     }
 
@@ -86,13 +83,7 @@ pub fn render_link_picker(state: &PresentationState, f: &mut Frame, area: Rect) 
         0
     };
 
-    for (index, link) in picker
-        .links()
-        .iter()
-        .enumerate()
-        .skip(scroll_top)
-        .take(visible_links)
-    {
+    for (index, link) in picker.links().iter().enumerate().skip(scroll_top).take(visible_links) {
         let highlighted = index == selected;
         let (kind, title) = describe_target(link);
         let key = if index < 9 {
@@ -149,24 +140,15 @@ pub fn render_link_picker(state: &PresentationState, f: &mut Frame, area: Rect) 
         )));
     }
 
-    f.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(Color::Black)),
-        inner,
-    );
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(Color::Black)), inner);
 }
 
 fn describe_target(link: &SlideLink) -> (&'static str, String) {
     match &link.target {
-        HyperlinkTarget::ExternalUri(url) if url.to_ascii_lowercase().starts_with("mailto:") => {
-            ("MAIL", url.clone())
-        }
+        HyperlinkTarget::ExternalUri(url) if url.to_ascii_lowercase().starts_with("mailto:") => ("MAIL", url.clone()),
         HyperlinkTarget::ExternalUri(url) => ("WEB", url.clone()),
-        HyperlinkTarget::SlideIndex(index) => {
-            ("SLIDE", format!("Jump to Slide {}", index + 1))
-        }
-        HyperlinkTarget::Action(action) => {
-            ("ACTION", format!("Jump to {}", action_name(*action)))
-        }
+        HyperlinkTarget::SlideIndex(index) => ("SLIDE", format!("Jump to Slide {}", index + 1)),
+        HyperlinkTarget::Action(action) => ("ACTION", format!("Jump to {}", action_name(*action))),
     }
 }
 
@@ -184,9 +166,6 @@ fn truncate(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
     }
-    let kept: String = value
-        .chars()
-        .take(max_chars.saturating_sub(3))
-        .collect();
+    let kept: String = value.chars().take(max_chars.saturating_sub(3)).collect();
     format!("{kept}...")
 }

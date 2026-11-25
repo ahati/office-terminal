@@ -32,8 +32,8 @@ mod golden_support;
 use crossbeam_channel::unbounded;
 use golden_support::{compare_or_update, render_deck, sample_fractional, DeckConfig, Thresholds};
 use office_terminal_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RgbaSlide, SlideCompiler,
-    SlideRasterizer, Source, TinySkiaRasterizer,
+    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RgbaSlide, SlideCompiler, SlideRasterizer,
+    Source, TinySkiaRasterizer,
 };
 
 /// One row per committed fixture deck.

@@ -27,9 +27,7 @@ pub mod unpack;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
-use crate::contracts::{
-    AffineTransform, FidelityClass, FillRule, PathSegment, RectF32, VectorPath, WarningEvent,
-};
+use crate::contracts::{AffineTransform, FidelityClass, FillRule, PathSegment, RectF32, VectorPath, WarningEvent};
 
 pub use cache::{clear_global_cache, global_resolver, CompiledMetafile, MetafileResolver};
 pub use classify::{classify_bytes, classify_path, is_metafile_path};
@@ -206,10 +204,7 @@ pub struct MetafilePath {
 
 impl MetafilePath {
     pub fn new(segments: Vec<PathSegment>, fill_rule: FillRule) -> Self {
-        Self {
-            segments,
-            fill_rule,
-        }
+        Self { segments, fill_rule }
     }
 }
 
@@ -319,11 +314,7 @@ pub trait MetafileEngine: Send + Sync {
     /// The engine maps EMF window/viewport transforms before calling the
     /// renderer, so playback coordinates need not match the header bounds.
     /// Engines that cannot report it up front fall back to `inspect` bounds.
-    fn output_bounds(
-        &self,
-        bytes: &[u8],
-        limits: &MetafileLimits,
-    ) -> Result<Option<RectF32>, MetafileError> {
+    fn output_bounds(&self, bytes: &[u8], limits: &MetafileLimits) -> Result<Option<RectF32>, MetafileError> {
         let _ = limits;
         Ok(self.inspect(bytes)?.bounds)
     }

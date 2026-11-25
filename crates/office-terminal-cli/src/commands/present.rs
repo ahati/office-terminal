@@ -57,17 +57,13 @@ pub fn run_interactive(
     // Resizes later re-resolve via the ioctl, keeping the sticky CSI cell.
     office_terminal_display::probe::geometry::prime_cell_metrics();
 
-    let doc_title = file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("document");
+    let doc_title = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("document");
 
     let mut app = match deck {
         DeckSource::Pptx(presentation, asset_store) => {
             let pres_arc = Arc::new(presentation);
             let total = pres_arc.slides.len();
-            let notes: Vec<Option<String>> =
-                pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
+            let notes: Vec<Option<String>> = pres_arc.slides.iter().map(|s| s.notes.clone()).collect();
             // Interactive renders are worker-async; the loop stages rasters
             // on worker completion events, and the first frame is rendered
             // synchronously below (PresentationApp::run). Sync fallback stays
@@ -110,14 +106,8 @@ pub fn run_interactive(
         // Both document sources share one reader-capable app builder; they
         // differ only in how `--mode auto` resolves (issue #40 §7.12).
         DeckSource::Pdf(pdf_source) => build_document_app(
-            pdf_source,
-            mode,
-            /* auto classifies by page geometry */
-            false,
-            presenter,
-            doc_title,
-            rasterizer,
-            driver,
+            pdf_source, mode, /* auto classifies by page geometry */
+            false, presenter, doc_title, rasterizer, driver,
         ),
         DeckSource::Docx(docx_source) => build_document_app(
             docx_source,
@@ -176,11 +166,7 @@ fn build_document_app(
         DeckModeArg::Reader => true,
         DeckModeArg::Slides => false,
         DeckModeArg::Auto => {
-            auto_reader
-                || (total > 0
-                    && classify_mode(&page_sizes)
-                        .map(|d| d.is_reader())
-                        .unwrap_or(false))
+            auto_reader || (total > 0 && classify_mode(&page_sizes).map(|d| d.is_reader()).unwrap_or(false))
         }
     };
 
@@ -189,12 +175,8 @@ fn build_document_app(
     // the first frame is rendered synchronously below (PresentationApp::run).
     // Sync fallback stays off so page turns never rasterize on the UI thread.
     let pipeline = Arc::new(
-        DefaultRenderPipeline::from_page_source_with_workers(
-            Arc::clone(&source),
-            rasterizer,
-            background_workers(),
-        )
-        .with_transmit_encoder(Arc::new(office_terminal_display::KittyTransmitEncoder)),
+        DefaultRenderPipeline::from_page_source_with_workers(Arc::clone(&source), rasterizer, background_workers())
+            .with_transmit_encoder(Arc::new(office_terminal_display::KittyTransmitEncoder)),
     );
     let render_events = pipeline.completion_receiver();
     let notes = vec![None; total];

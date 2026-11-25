@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use crossbeam_channel::Sender;
 use office_terminal_core::{
-    AssetStore, PageSource, RenderError, RenderTargetSpec, RgbaSlide, SearchCorpus, TocEntry,
-    VectorSlide, WarningEvent, EMU_PER_PT,
+    AssetStore, PageSource, RenderError, RenderTargetSpec, RgbaSlide, SearchCorpus, TocEntry, VectorSlide,
+    WarningEvent, EMU_PER_PT,
 };
+use std::sync::Arc;
 
 use crate::engine::{HayroEngine, PdfEngine};
 use crate::error::PdfError;
@@ -50,17 +50,10 @@ impl PageSource for PdfPageSource {
 
     fn page_size_emu(&self, index: usize) -> (i64, i64) {
         let (w_pt, h_pt) = self.engine.page_size_pt(index);
-        (
-            (w_pt * EMU_PER_PT).round() as i64,
-            (h_pt * EMU_PER_PT).round() as i64,
-        )
+        ((w_pt * EMU_PER_PT).round() as i64, (h_pt * EMU_PER_PT).round() as i64)
     }
 
-    fn compile_page(
-        &self,
-        index: usize,
-        warnings: &Sender<WarningEvent>,
-    ) -> Result<VectorSlide, RenderError> {
+    fn compile_page(&self, index: usize, warnings: &Sender<WarningEvent>) -> Result<VectorSlide, RenderError> {
         if index >= self.len() {
             return Err(RenderError::CompilationFailed(format!(
                 "PDF page {} out of bounds (total pages: {})",
@@ -88,11 +81,7 @@ impl PageSource for PdfPageSource {
             .map_err(|e| RenderError::CompilationFailed(format!("PDF page {}: {}", index, e)))
     }
 
-    fn render_raster(
-        &self,
-        index: usize,
-        target: &RenderTargetSpec,
-    ) -> Option<Result<RgbaSlide, RenderError>> {
+    fn render_raster(&self, index: usize, target: &RenderTargetSpec) -> Option<Result<RgbaSlide, RenderError>> {
         Some(
             self.engine
                 .render_raster(index, target)

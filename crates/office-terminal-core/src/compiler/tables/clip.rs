@@ -30,11 +30,7 @@ fn is_horizontal(vert: &str) -> bool {
 ///   including the schema default, clips.
 ///
 /// ref renderer.ts:7861-7878
-pub(super) fn cell_clip(
-    job: &CellJob<'_>,
-    grid: &Grid<'_>,
-    transform: &AffineTransform,
-) -> Option<VectorPath> {
+pub(super) fn cell_clip(job: &CellJob<'_>, grid: &Grid<'_>, transform: &AffineTransform) -> Option<VectorPath> {
     let body = job.cell.text_body.as_ref()?;
     if !is_horizontal(&body.vert) {
         return None;
@@ -43,12 +39,7 @@ pub(super) fn cell_clip(
         return None;
     }
     let band = grid.row_h.iter().sum::<f32>().max(1.0);
-    let local = rect_path(
-        job.col_x,
-        job.row_y - band,
-        job.cell_w,
-        job.cell_h + 2.0 * band,
-    );
+    let local = rect_path(job.col_x, job.row_y - band, job.cell_w, job.cell_h + 2.0 * band);
     Some(map_path(&local, transform))
 }
 
@@ -72,25 +63,11 @@ fn map_path(path: &VectorPath, transform: &AffineTransform) -> VectorPath {
                 let (x, y) = transform.transform_point(*x, *y);
                 PathSegment::QuadTo { x1, y1, x, y }
             }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 let (x1, y1) = transform.transform_point(*x1, *y1);
                 let (x2, y2) = transform.transform_point(*x2, *y2);
                 let (x, y) = transform.transform_point(*x, *y);
-                PathSegment::CubicTo {
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    x,
-                    y,
-                }
+                PathSegment::CubicTo { x1, y1, x2, y2, x, y }
             }
             PathSegment::Close => PathSegment::Close,
         })

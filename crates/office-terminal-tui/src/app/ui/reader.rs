@@ -4,28 +4,21 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-pub use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
-pub use crate::app::ui::reader_layout::{
-    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, horizontal_rest_inset_px,
-    plan_row_columns, PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
-};
 use crate::app::bindings::FrameBindings;
+pub use crate::app::reader_scroll::VERTICAL_GUTTER_ROWS;
 use crate::app::reader_state::ReaderState;
-use crate::app::reader_types::{
-    page_image_id, reader_viewport_metrics, ReaderLayout, ReaderSlotPlacement,
-};
+use crate::app::reader_types::{page_image_id, reader_viewport_metrics, ReaderLayout, ReaderSlotPlacement};
 use crate::app::state::PresentationState;
+pub use crate::app::ui::reader_layout::{
+    compute_horizontal_pane_metrics, compute_pane_metrics_cropped, horizontal_rest_inset_px, plan_row_columns,
+    PaneCellArea, PaneCropSpan, PaneLayoutContext, GUTTER_COLS, MIN_PANE_COLS,
+};
 
 /// Renders the current reader viewport (Single, Spread, or Horizontal mode).
 ///
 /// The exact pane geometry this frame places is recorded into `bindings`
 /// instead of being written back into state during the draw.
-pub fn render_reader(
-    state: &PresentationState,
-    f: &mut Frame<'_>,
-    area: Rect,
-    bindings: &mut FrameBindings,
-) {
+pub fn render_reader(state: &PresentationState, f: &mut Frame<'_>, area: Rect, bindings: &mut FrameBindings) {
     if area.width < MIN_PANE_COLS || area.height < 3 {
         return;
     }
@@ -42,8 +35,7 @@ pub fn render_reader(
     let viewport_area = Rect::new(area.x, area.y, area.width, viewport_height);
     let status_area = Rect::new(area.x, area.y + viewport_height, area.width, 1);
 
-    let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) =
-        reader_viewport_metrics(area.width, area.height);
+    let (viewport_w_px, viewport_h_px, cell_w_px, cell_h_px) = reader_viewport_metrics(area.width, area.height);
 
     let gutter_cols = GUTTER_COLS;
     let gutter_px = (gutter_cols as f32) * cell_w_px;
@@ -84,13 +76,7 @@ pub fn render_reader(
         // flip, final) page rests centered when narrower than the viewport.
         // The inset unwinds linearly with the slide, so the frame where the
         // anchor flips is geometrically identical to the flush-left stream.
-        let rest_inset_px = horizontal_rest_inset_px(
-            reader,
-            render_anchor,
-            displayed,
-            viewport_w_px,
-            viewport_h_px,
-        );
+        let rest_inset_px = horizontal_rest_inset_px(reader, render_anchor, displayed, viewport_w_px, viewport_h_px);
         let mut col_x = viewport_area.x;
         let mut p = render_anchor;
         // The smoothed value drives placement so horizontal slides glide. A
@@ -131,9 +117,7 @@ pub fn render_reader(
                     is_primary: true,
                 });
 
-                col_x = pane_col_x
-                    .saturating_add(m.cell_rect.cols)
-                    .saturating_add(gutter_cols);
+                col_x = pane_col_x.saturating_add(m.cell_rect.cols).saturating_add(gutter_cols);
                 p += 1;
             } else {
                 break;
@@ -216,13 +200,7 @@ pub fn render_reader(
             displayed = 0.0;
             break;
         }
-        displayed += reader.row_stride_for_anchor(
-            prev,
-            viewport_h_px,
-            slot_w_px,
-            cell_w_px,
-            cell_h_px,
-        );
+        displayed += reader.row_stride_for_anchor(prev, viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
         render_anchor = prev;
     }
     // Retreat flips (scrolling up) leave the display ABOVE the new row's
@@ -232,13 +210,7 @@ pub fn render_reader(
     // Step forward, consuming the stride of each row LEFT, until the
     // display lands inside the row it names.
     while displayed > 0.0 {
-        let leaving = reader.row_stride_for_anchor(
-            render_anchor,
-            viewport_h_px,
-            slot_w_px,
-            cell_w_px,
-            cell_h_px,
-        );
+        let leaving = reader.row_stride_for_anchor(render_anchor, viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
         let next = next_row_anchor(reader, render_anchor);
         if displayed < leaving || next == render_anchor || next >= reader.total_pages() {
             break;
@@ -320,13 +292,8 @@ pub fn render_reader(
             // The deep-gutter stride is the RENDER anchor's row — after a
             // lag-compensated walk-back that is not the state anchor's row,
             // and the rows of a mixed-height document differ (§6.4).
-            let row_0_stride_px = reader.row_stride_for_anchor(
-                render_anchor,
-                viewport_h_px,
-                slot_w_px,
-                cell_w_px,
-                cell_h_px,
-            );
+            let row_0_stride_px =
+                reader.row_stride_for_anchor(render_anchor, viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
             let y1_px = row_0_stride_px - displayed;
             let offset_rows = (y1_px / cell_h_px).round() as i16;
             if offset_rows > 0 {
@@ -418,9 +385,7 @@ fn render_row(row: &RowRender<'_>, placements: &mut Vec<ReaderSlotPlacement>) ->
         .pages
         .iter()
         .map(|&page| {
-            let (base_w_px, _) = row
-                .reader
-                .pane_fit(page, row.ctx.viewport_h_px, row.slot_w_px);
+            let (base_w_px, _) = row.reader.pane_fit(page, row.ctx.viewport_h_px, row.slot_w_px);
             base_w_px * row.reader.page_view(page).zoom
         })
         .collect();
@@ -441,8 +406,8 @@ fn render_row(row: &RowRender<'_>, placements: &mut Vec<ReaderSlotPlacement>) ->
     } else {
         // Flush-left content walk. A walk narrower than the viewport still
         // centers (PRD 14a §6.2); an overflowing one keeps the pan origin.
-        let total_row_w: f32 = pane_widths.iter().sum::<f32>()
-            + (row.pages.len().saturating_sub(1)) as f32 * row.gutter_px;
+        let total_row_w: f32 =
+            pane_widths.iter().sum::<f32>() + (row.pages.len().saturating_sub(1)) as f32 * row.gutter_px;
         let row_start = ((row.viewport_w_px - total_row_w) / 2.0).max(0.0);
         let mut starts = Vec::with_capacity(row.pages.len());
         let mut cursor = row_start;
@@ -517,7 +482,6 @@ fn render_row(row: &RowRender<'_>, placements: &mut Vec<ReaderSlotPlacement>) ->
             max_scroll_x: m.max_scroll_x,
             is_primary: row.is_primary,
         });
-
     }
 
     occupied_rows

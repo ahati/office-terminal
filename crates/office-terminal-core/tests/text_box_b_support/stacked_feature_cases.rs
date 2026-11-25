@@ -20,11 +20,7 @@ fn horizontal_cluster_stays_in_the_base_segment() {
 
 #[test]
 fn horizontal_cluster_split_across_runs_stays_in_the_base_segment() {
-    let seams = [
-        ("葛", "\u{e0100}"),
-        ("「", "\u{fe0f}"),
-        ("가", "\u{11a8}"),
-    ];
+    let seams = [("葛", "\u{e0100}"), ("「", "\u{fe0f}"), ("가", "\u{11a8}")];
     for (base, ext) in seams {
         let mut text_body = body(base, "horz");
         if let pptx_model::TextRun::Text(run) = &mut text_body.paragraphs[0].runs[0] {
@@ -45,11 +41,17 @@ fn horizontal_cluster_split_across_runs_stays_in_the_base_segment() {
             "color": "000000",
             "fontFamily": "Yu Gothic",
         });
-        text_body.paragraphs[0].runs.push(serde_json::from_value(second).expect("second run"));
+        text_body.paragraphs[0]
+            .runs
+            .push(serde_json::from_value(second).expect("second run"));
         let commands = compile(&text_body, 10_000.0, 100.0);
         let runs = draw_runs(&commands);
         let run_texts: Vec<String> = runs.iter().map(|r| r.text.clone()).collect();
-        assert_eq!(run_texts, [format!("{base}{ext}"), "B".to_string()], "seam {base}+{ext}");
+        assert_eq!(
+            run_texts,
+            [format!("{base}{ext}"), "B".to_string()],
+            "seam {base}+{ext}"
+        );
         assert!(runs[0].font_family.contains("Yu Gothic"));
         assert!(!runs[0].bold, "base cluster not bold");
         assert!(runs[1].bold, "second run bold");
@@ -68,21 +70,24 @@ fn stacked_equation_without_an_engine_keeps_the_blank_column() {
                 "display": display,
                 "fontSize": 18
             });
-            b.paragraphs[0].runs.push(serde_json::from_value(equation).expect("equation"));
+            b.paragraphs[0]
+                .runs
+                .push(serde_json::from_value(equation).expect("equation"));
             let text_b = json!({
                 "type": "text", "text": "B", "bold": null, "italic": null,
                 "underline": false, "strikethrough": false, "strikeDouble": false,
                 "hyperlinkUsesTextFill": false, "fieldType": null,
                 "fontSize": FONT_PX, "color": "000000", "fontFamily": "Arial"
             });
-            b.paragraphs[0].runs.push(serde_json::from_value(text_b).expect("run B"));
+            b.paragraphs[0]
+                .runs
+                .push(serde_json::from_value(text_b).expect("run B"));
             b
         };
         for vert in ["wordArtVert", "wordArtVertRtl"] {
             let commands = compile(&make_body(vert), 300.0, 300.0);
             let runs = draw_runs(&commands);
-            let calls: Vec<&PositionedGlyphRun> =
-                runs.iter().filter(|r| r.text == "A" || r.text == "B").collect();
+            let calls: Vec<&PositionedGlyphRun> = runs.iter().filter(|r| r.text == "A" || r.text == "B").collect();
             assert_eq!(calls.len(), 2, "both A and B drawn");
             if !display {
                 let dy = (calls[1].glyphs[0].y - calls[0].glyphs[0].y).abs();
@@ -105,14 +110,18 @@ fn stacked_equation_conversion_failure_draws_the_fallback_text() {
         "display": false,
         "fontSize": 18
     });
-    b.paragraphs[0].runs.push(serde_json::from_value(equation).expect("equation"));
+    b.paragraphs[0]
+        .runs
+        .push(serde_json::from_value(equation).expect("equation"));
     let text_b = json!({
         "type": "text", "text": "B", "bold": null, "italic": null,
         "underline": false, "strikethrough": false, "strikeDouble": false,
         "hyperlinkUsesTextFill": false, "fieldType": null,
         "fontSize": FONT_PX, "color": "000000", "fontFamily": "Arial"
     });
-    b.paragraphs[0].runs.push(serde_json::from_value(text_b).expect("run B"));
+    b.paragraphs[0]
+        .runs
+        .push(serde_json::from_value(text_b).expect("run B"));
     let commands = compile(&b, 300.0, 300.0);
     let runs = draw_runs(&commands);
     let texts: Vec<String> = runs.iter().map(|r| r.text.clone()).collect();
@@ -132,14 +141,18 @@ fn stacked_equation_rasterization_failure_draws_the_fallback_text() {
         "display": false,
         "fontSize": 18
     });
-    b.paragraphs[0].runs.push(serde_json::from_value(equation).expect("equation"));
+    b.paragraphs[0]
+        .runs
+        .push(serde_json::from_value(equation).expect("equation"));
     let text_b = json!({
         "type": "text", "text": "B", "bold": null, "italic": null,
         "underline": false, "strikethrough": false, "strikeDouble": false,
         "hyperlinkUsesTextFill": false, "fieldType": null,
         "fontSize": FONT_PX, "color": "000000", "fontFamily": "Arial"
     });
-    b.paragraphs[0].runs.push(serde_json::from_value(text_b).expect("run B"));
+    b.paragraphs[0]
+        .runs
+        .push(serde_json::from_value(text_b).expect("run B"));
     let commands = compile(&b, 300.0, 300.0);
     let runs = draw_runs(&commands);
     let texts: Vec<String> = runs.iter().map(|r| r.text.clone()).collect();
@@ -180,6 +193,12 @@ fn font_catalogue_per_family_vert_vrt2_matrix() {
     assert!(has_vert_feature("MS Gothic", false, false, 'ー'), "MS Gothic vert ー");
 
     // Microsoft JhengHei: regular has vert for ー, bold does NOT
-    assert!(has_vert_feature("Microsoft JhengHei", false, false, 'ー'), "JhengHei regular vert ー");
-    assert!(!has_vert_feature("Microsoft JhengHei", true, false, 'ー'), "JhengHei bold lacks vert ー");
+    assert!(
+        has_vert_feature("Microsoft JhengHei", false, false, 'ー'),
+        "JhengHei regular vert ー"
+    );
+    assert!(
+        !has_vert_feature("Microsoft JhengHei", true, false, 'ー'),
+        "JhengHei bold lacks vert ー"
+    );
 }

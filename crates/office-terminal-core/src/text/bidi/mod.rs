@@ -109,10 +109,7 @@ pub fn segments_have_rtl(segments: &[BidiSegment<'_>]) -> bool {
 /// `computeSegmentLineVisualOrder` (`segment-line.ts:293`) with the DrawingML
 /// `isTab` hook: concatenate the logical segments, resolve UAX#9 levels over the
 /// line, then return the L2 visual order and each segment's direction.
-pub fn compute_line_visual_order(
-    segments: &[BidiSegment<'_>],
-    base_rtl: bool,
-) -> LineVisualOrder {
+pub fn compute_line_visual_order(segments: &[BidiSegment<'_>], base_rtl: bool) -> LineVisualOrder {
     let count = segments.len();
     if count == 0 {
         return LineVisualOrder::default();

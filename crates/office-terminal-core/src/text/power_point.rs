@@ -176,12 +176,7 @@ pub fn font_algn_reference(
 /// `t` puts the run's box top on the reference, `ctr` its centre, `b` the
 /// midpoint of its descent. Every offset is a whole export unit; `None` when
 /// the face has no box for the model.
-pub fn font_algn_offset(
-    font_algn: FontAlgn,
-    run: &AlignedRun<'_>,
-    compat_off: bool,
-    unit_px: f64,
-) -> Option<f32> {
+pub fn font_algn_offset(font_algn: FontAlgn, run: &AlignedRun<'_>, compat_off: bool, unit_px: f64) -> Option<f32> {
     let box_ = run_box(run, compat_off)?;
     let unit = unit_px;
     let ascent = box_.ascent as f64 * run.size_px as f64;
@@ -233,10 +228,7 @@ mod tests {
         };
         // The reference takes the largest ascent (10 = 0.5·20) over the
         // largest descent (12 = 0.6·20); no rescale to 1.2 × size.
-        assert_eq!(
-            compat_off_natural_line(&[(10.0, a), (20.0, b)]),
-            (10.0, 12.0)
-        );
+        assert_eq!(compat_off_natural_line(&[(10.0, a), (20.0, b)]), (10.0, 12.0));
         assert_eq!(compat_off_natural_line(&[]), (0.0, 0.0));
     }
 
@@ -254,10 +246,7 @@ mod tests {
             font_algn_reference(FontAlgn::Center, &[run], false, 0.72),
             Some((60.0, 60.0))
         );
-        assert_eq!(
-            font_algn_offset(FontAlgn::Center, &run, false, 0.72),
-            Some(35.28)
-        );
+        assert_eq!(font_algn_offset(FontAlgn::Center, &run, false, 0.72), Some(35.28));
     }
 
     #[test]
@@ -265,10 +254,7 @@ mod tests {
         let arial = face(0.81, (0.9, 0.2), (0.94, 0.2));
         let run = AlignedRun::new(100.0, &arial);
         // 0.2 · 100 / 2 = 10 pt → 13.888… units → 14 units = 10.08 pt down.
-        assert_eq!(
-            font_algn_offset(FontAlgn::Bottom, &run, false, 0.72),
-            Some(-10.08)
-        );
+        assert_eq!(font_algn_offset(FontAlgn::Bottom, &run, false, 0.72), Some(-10.08));
         // A face without a box makes the caller keep the baseline model.
         let bare = FaceMetricsFull {
             share: 0.8,

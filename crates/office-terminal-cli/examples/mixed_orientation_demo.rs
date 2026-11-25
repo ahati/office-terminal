@@ -1,4 +1,4 @@
-//! Demo: renders kitty-pptx Reader frames for a mixed-orientation PDF and
+//! Demo: renders Office Terminal Reader frames for a mixed-orientation PDF and
 //! composites them into terminal-screenshot PNGs (one per row turn, plus a
 //! continuous j-scroll glide through the first orientation change).
 //!
@@ -77,9 +77,7 @@ fn main() {
     let cell_h = metrics.height_px.max(8.0) as u32;
     let canvas_w = cols as u32 * cell_w;
     let canvas_h = rows as u32 * cell_h;
-    println!(
-        "\nterminal {cols}x{rows} cells, cell {cell_w}x{cell_h}px, canvas {canvas_w}x{canvas_h}px"
-    );
+    println!("\nterminal {cols}x{rows} cells, cell {cell_w}x{cell_h}px, canvas {canvas_w}x{canvas_h}px");
 
     // Raster cache: (page, target width) -> rendered slide.
     let mut cache: HashMap<(usize, u32), RgbaSlide> = HashMap::new();
@@ -101,10 +99,11 @@ fn main() {
         }
         anchor = placements[0].page;
 
-        let status = state
-            .reader_state()
-            .unwrap()
-            .status_line("mixed_orientation.pdf", placements, bindings.reader_columns);
+        let status =
+            state
+                .reader_state()
+                .unwrap()
+                .status_line("mixed_orientation.pdf", placements, bindings.reader_columns);
         println!(
             "\nframe {frame}: anchor page {anchor} (0-based), {} panes, columns {}",
             placements.len(),
@@ -184,15 +183,13 @@ fn main() {
                 })
                 .collect();
             println!("  step {step:>2}: {}", cols_line.join("  "));
-            let mut canvas =
-                RgbaImage::from_pixel(canvas_w, canvas_h, image::Rgba([20, 23, 33, 255]));
+            let mut canvas = RgbaImage::from_pixel(canvas_w, canvas_h, image::Rgba([20, 23, 33, 255]));
             for p in placements {
                 let key = (p.page, p.page_target.width_px);
                 let slide = match cache.get(&key) {
                     Some(s) => s.clone(),
                     None => {
-                        let s =
-                            engine.render_raster(p.page, &p.page_target).expect("render page");
+                        let s = engine.render_raster(p.page, &p.page_target).expect("render page");
                         cache.insert(key, s.clone());
                         s
                     }
@@ -242,8 +239,7 @@ fn blit_placement(
         let y1 = (y0 + 1).min(src_y + src_h - 1);
         let ty = fy - y0 as f32;
         for dx in 0..dst_w {
-            let fx =
-                src_x as f32 + (dx as f32 / dst_w.max(1) as f32) * (src_w.saturating_sub(1)) as f32;
+            let fx = src_x as f32 + (dx as f32 / dst_w.max(1) as f32) * (src_w.saturating_sub(1)) as f32;
             let x0 = fx.floor() as u32;
             let x1 = (x0 + 1).min(src_x + src_w - 1);
             let tx = fx - x0 as f32;
@@ -252,9 +248,8 @@ fn blit_placement(
             let c10 = sample(x1, y0);
             let c01 = sample(x0, y1);
             let c11 = sample(x1, y1);
-            let mix = |a: u8, b: u8, t: f32| -> u8 {
-                (a as f32 * (1.0 - t) + b as f32 * t).round().clamp(0.0, 255.0) as u8
-            };
+            let mix =
+                |a: u8, b: u8, t: f32| -> u8 { (a as f32 * (1.0 - t) + b as f32 * t).round().clamp(0.0, 255.0) as u8 };
             let top = [
                 mix(c00[0], c10[0], tx),
                 mix(c00[1], c10[1], tx),

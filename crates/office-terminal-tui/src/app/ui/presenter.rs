@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Wrap};
+use ratatui::Frame;
 
 use crate::app::bindings::FrameBindings;
 use crate::app::state::PresentationState;
@@ -11,12 +11,7 @@ use crate::widget::layout::DEFAULT_CELL_ASPECT_RATIO;
 use crate::widget::zoom_fit::compute_zoomed_slide_fit;
 
 /// Render the split-pane presenter mode console.
-pub fn render_presenter(
-    state: &PresentationState,
-    f: &mut Frame,
-    area: Rect,
-    bindings: &mut FrameBindings,
-) {
+pub fn render_presenter(state: &PresentationState, f: &mut Frame, area: Rect, bindings: &mut FrameBindings) {
     let vert = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(6), Constraint::Length(3)])
@@ -30,7 +25,11 @@ pub fn render_presenter(
     // 1. Left pane: Current slide (large)
     let current_slide_area = main_split[0];
     let slide_block = Block::default()
-        .title(format!(" Current Slide ({}/{}) ", state.current_slide() + 1, state.total_slides()))
+        .title(format!(
+            " Current Slide ({}/{}) ",
+            state.current_slide() + 1,
+            state.total_slides()
+        ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Blue));
     let inner_slide_area = slide_block.inner(current_slide_area);
@@ -81,8 +80,7 @@ pub fn render_presenter(
         let next_widget = preview_slide_widget(state, next_id).with_fit(preview_fit);
         f.render_widget(next_widget, inner_preview_area);
     } else {
-        let end_msg = Paragraph::new("End of presentation")
-            .style(Style::default().fg(Color::DarkGray));
+        let end_msg = Paragraph::new("End of presentation").style(Style::default().fg(Color::DarkGray));
         f.render_widget(end_msg, inner_preview_area);
     }
 
@@ -95,8 +93,7 @@ pub fn render_presenter(
     let inner_notes_area = notes_block.inner(notes_area);
     f.render_widget(notes_block, notes_area);
 
-    let notes_text = state.current_notes()
-        .unwrap_or("No speaker notes for this slide.");
+    let notes_text = state.current_notes().unwrap_or("No speaker notes for this slide.");
     let notes_widget = Paragraph::new(notes_text)
         .wrap(Wrap { trim: true })
         .style(Style::default().fg(Color::White));
@@ -119,16 +116,35 @@ pub fn render_presenter(
         ])
     } else {
         let mut spans = vec![
-            Span::styled(" PRESENTER ", Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD)),
-            Span::raw(format!(" Slide {} / {} | ", state.current_slide() + 1, state.total_slides())),
-            Span::styled(format!("Elapsed: {} ", state.elapsed_formatted()), Style::default().fg(Color::Green)),
+            Span::styled(
+                " PRESENTER ",
+                Style::default()
+                    .bg(Color::Yellow)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                " Slide {} / {} | ",
+                state.current_slide() + 1,
+                state.total_slides()
+            )),
+            Span::styled(
+                format!("Elapsed: {} ", state.elapsed_formatted()),
+                Style::default().fg(Color::Green),
+            ),
             Span::raw("| "),
-            Span::styled(format!("Clock: {} ", state.wall_clock_formatted()), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("Clock: {} ", state.wall_clock_formatted()),
+                Style::default().fg(Color::Cyan),
+            ),
             Span::raw("| "),
         ];
 
         if state.current_slide_has_media() {
-            spans.push(Span::styled("[m] Media | ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(
+                "[m] Media | ",
+                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            ));
         }
 
         if state.current_slide_link_count() > 0 {
@@ -139,17 +155,28 @@ pub fn render_presenter(
         }
 
         if let Some(toast) = state.toast() {
-            spans.push(Span::styled(format!("📢 {} | ", toast), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(
+                format!("📢 {} | ", toast),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
         }
 
-        spans.push(Span::styled("[p] Fullscreen | [Tab/s] Sorter | [?] Help | [b/w] Blank | [q] Quit", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            "[p] Fullscreen | [Tab/s] Sorter | [?] Help | [b/w] Blank | [q] Quit",
+            Style::default().fg(Color::DarkGray),
+        ));
         Line::from(spans)
     };
     f.render_widget(Paragraph::new(timer_line), bottom_split[0]);
 
     // Progress gauge
     let ratio = state.progress_ratio();
-    let gauge_label = format!("{}/{} ({:.0}%)", state.current_slide() + 1, state.total_slides(), ratio * 100.0);
+    let gauge_label = format!(
+        "{}/{} ({:.0}%)",
+        state.current_slide() + 1,
+        state.total_slides(),
+        ratio * 100.0
+    );
     let gauge = Gauge::default()
         .ratio(ratio)
         .label(gauge_label)

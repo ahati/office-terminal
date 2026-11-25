@@ -3,10 +3,7 @@ use crate::contracts::{AffineTransform, PositionedGlyphRun};
 use rustybuzz::ttf_parser::{Face, OutlineBuilder};
 
 pub(super) fn needs_affine_text(transform: &AffineTransform) -> bool {
-    transform.kx.abs() > 1.0e-4
-        || transform.ky.abs() > 1.0e-4
-        || transform.sx < 0.0
-        || transform.sy < 0.0
+    transform.kx.abs() > 1.0e-4 || transform.ky.abs() > 1.0e-4 || transform.sx < 0.0 || transform.sy < 0.0
 }
 
 /// Paint one run by outlining its shaped glyphs and mapping every outline
@@ -92,16 +89,7 @@ pub(super) fn render_affine_run(
                 .flatten()
             {
                 for offset in super::decorations::band_offsets(&line).into_iter().flatten() {
-                    any |= paint_affine_bar(
-                        pixmap,
-                        run,
-                        transform,
-                        scale,
-                        offset_x,
-                        offset_y,
-                        &line,
-                        offset,
-                    );
+                    any |= paint_affine_bar(pixmap, run, transform, scale, offset_x, offset_y, &line, offset);
                 }
             }
             any

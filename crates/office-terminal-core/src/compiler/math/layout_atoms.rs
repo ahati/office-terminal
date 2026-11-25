@@ -38,8 +38,7 @@ pub fn layout_fraction(
     };
 
     let num_shift = shift_up.max(m.axis_height + thickness * 0.5 + m.frac_num_gap + num_box.depth);
-    let den_shift =
-        shift_down.max(thickness * 0.5 + m.frac_den_gap + den_box.height - m.axis_height);
+    let den_shift = shift_down.max(thickness * 0.5 + m.frac_den_gap + den_box.height - m.axis_height);
 
     let content_w = num_box.width.max(den_box.width);
     let total_w = content_w + 2.0 * m.frac_margin;
@@ -205,9 +204,8 @@ pub fn layout_nary(
     let sup_box = (!sup.is_empty()).then(|| layout_nodes(sup, script_style, ctx, depth));
 
     let loc = lim_loc.trim().to_ascii_lowercase();
-    let under_over = loc == "undovr"
-        || loc == "undover"
-        || (loc.is_empty() && style.is_display() && is_under_over_operator(op));
+    let under_over =
+        loc == "undovr" || loc == "undover" || (loc.is_empty() && style.is_display() && is_under_over_operator(op));
 
     let with_limits = if under_over {
         stacked_limits(op_box, sub_box, sup_box, m)
@@ -224,12 +222,7 @@ pub fn layout_nary(
 }
 
 /// Stack limits under/over an operator, centred on the operator's axis.
-fn stacked_limits(
-    op: MathBox,
-    sub: Option<MathBox>,
-    sup: Option<MathBox>,
-    m: MathMetrics,
-) -> MathBox {
+fn stacked_limits(op: MathBox, sub: Option<MathBox>, sup: Option<MathBox>, m: MathMetrics) -> MathBox {
     let wide = op
         .width
         .max(sub.as_ref().map_or(0.0, |b| b.width))
@@ -318,8 +311,7 @@ mod tests {
             let base = MathBox::glyph_run("X", 18.0, [0, 0, 0, 255]);
             let sub = layout_nodes(&[run("i")], MathStyle::text().sup_style(), ctx, 0);
             let sup = layout_nodes(&[run("2")], MathStyle::text().sup_style(), ctx, 0);
-            let composed =
-                attach_scripts(base.clone(), Some(sub), Some(sup), MathStyle::text(), ctx);
+            let composed = attach_scripts(base.clone(), Some(sub), Some(sup), MathStyle::text(), ctx);
             assert!(composed.height > base.height, "superscript raised");
             assert!(composed.depth > base.depth, "subscript lowered");
             assert!(composed.width > base.width);
@@ -381,9 +373,6 @@ mod tests {
     #[test]
     fn text_width_is_monotone_in_length() {
         let em = 18.0 * 12700.0;
-        assert!(
-            super::super::box_model::text_width("ab", em)
-                > super::super::box_model::text_width("a", em)
-        );
+        assert!(super::super::box_model::text_width("ab", em) > super::super::box_model::text_width("a", em));
     }
 }

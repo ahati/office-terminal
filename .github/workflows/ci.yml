@@ -26,6 +26,17 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Rustfmt (first-party crates)
+        run: >
+          cargo fmt
+          -p office-terminal-core
+          -p office-terminal-display
+          -p office-terminal-pdf
+          -p office-terminal-docx
+          -p office-terminal-tui
+          -p office-terminal-cli
+          -- --check
+
       - name: Check workspace
         run: cargo check --workspace
 
@@ -43,3 +54,31 @@ jobs:
             echo "$oversized"
             exit 1
           fi
+
+  msrv:
+    name: MSRV (Rust 1.93)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.93
+        uses: dtolnay/rust-toolchain@1.93.0
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace on the declared MSRV
+        run: cargo check --workspace
+
+  licenses:
+    name: Licenses, sources & bans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses sources bans
+          arguments: ""
+          rust-version: "1.93.0"

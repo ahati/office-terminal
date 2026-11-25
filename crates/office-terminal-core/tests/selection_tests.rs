@@ -1,11 +1,11 @@
 //! Element selection contexts (`element-selection.test.ts`, V3).
 
 use office_terminal_core::selection::{
-    bounded_chart_context_text, find_element_bounds_by_ids, hit_test_slide_context,
-    hit_test_slide_element, limit_element_context, ElementContextOptions, SlidePoint,
+    bounded_chart_context_text, find_element_bounds_by_ids, hit_test_slide_context, hit_test_slide_element,
+    limit_element_context, ElementContextOptions, SlidePoint,
 };
-use pptx_model::{ChartElement, ChartModel, Slide, SlideElement, SlideElementSource};
 use ooxml_common::chart::ChartSeries;
+use pptx_model::{ChartElement, ChartModel, Slide, SlideElement, SlideElementSource};
 
 fn text_body(text: &str) -> serde_json::Value {
     serde_json::json!({
@@ -114,38 +114,16 @@ fn topmost_element_context_reports_identity_and_origin() {
 #[test]
 fn rotation_inversion_and_line_tolerance() {
     let rotated = shape(25, 0, 50, 100, 90.0, "rect", "1", "Rotated", None);
-    assert!(hit_test_slide_element(
-        &rotated,
-        SlidePoint { x: 0.0, y: 25.0 },
-        0.0
-    ));
+    assert!(hit_test_slide_element(&rotated, SlidePoint { x: 0.0, y: 25.0 }, 0.0));
 
     let line = shape(0, 0, 100, 0, 0.0, "line", "2", "Line", None);
-    assert!(!hit_test_slide_element(
-        &line,
-        SlidePoint { x: 50.0, y: 4.0 },
-        3.0
-    ));
-    assert!(hit_test_slide_element(
-        &line,
-        SlidePoint { x: 50.0, y: 4.0 },
-        5.0
-    ));
+    assert!(!hit_test_slide_element(&line, SlidePoint { x: 50.0, y: 4.0 }, 3.0));
+    assert!(hit_test_slide_element(&line, SlidePoint { x: 50.0, y: 4.0 }, 5.0));
 }
 
 #[test]
 fn bounded_element_text_never_splits_unicode() {
-    let shape = shape(
-        0,
-        0,
-        100,
-        50,
-        0.0,
-        "rect",
-        "1",
-        "Text",
-        Some(text_body("\u{1F600}x")),
-    );
+    let shape = shape(0, 0, 100, 50, 0.0, "rect", "1", "Text", Some(text_body("\u{1F600}x")));
     let slide = slide(vec![shape]);
     let point = SlidePoint { x: 10.0, y: 10.0 };
     let empty = hit_test_slide_context(

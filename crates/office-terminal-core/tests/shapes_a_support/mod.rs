@@ -81,10 +81,7 @@ pub fn square() -> Value {
 pub fn contour() -> Vec<PathSegment> {
     vec![
         PathSegment::MoveTo { x: 0.0, y: 0.0 },
-        PathSegment::LineTo {
-            x: 914_400.0,
-            y: 0.0,
-        },
+        PathSegment::LineTo { x: 914_400.0, y: 0.0 },
         PathSegment::LineTo {
             x: 914_400.0,
             y: 914_400.0,

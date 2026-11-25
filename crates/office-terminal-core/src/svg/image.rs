@@ -1,9 +1,9 @@
 use std::fmt::Write as _;
 
-use base64::prelude::*;
-use crate::contracts::{AffineTransform, EMU_PER_PX, NormalizedRect, RectF32, VectorImageFill, VectorPattern};
-use crate::loader::{AssetStore, SizeHint};
 use super::path::format_transform_attr;
+use crate::contracts::{AffineTransform, NormalizedRect, RectF32, VectorImageFill, VectorPattern, EMU_PER_PX};
+use crate::loader::{AssetStore, SizeHint};
+use base64::prelude::*;
 
 #[allow(clippy::too_many_arguments)]
 pub fn serialize_svg_image(
@@ -22,11 +22,7 @@ pub fn serialize_svg_image(
         Some(source) => source,
         None => return String::new(),
     };
-    if !dest_rect.w.is_finite()
-        || !dest_rect.h.is_finite()
-        || dest_rect.w <= 0.0
-        || dest_rect.h <= 0.0
-    {
+    if !dest_rect.w.is_finite() || !dest_rect.h.is_finite() || dest_rect.w <= 0.0 || dest_rect.h <= 0.0 {
         return String::new();
     }
 
@@ -46,10 +42,7 @@ pub fn serialize_svg_image(
         // Encode decoded RGBA back to PNG
         let mut png_bytes = Vec::new();
         if let Some(rgba) = image::RgbaImage::from_raw(decoded.width, decoded.height, pixels) {
-            let _ = rgba.write_to(
-                &mut std::io::Cursor::new(&mut png_bytes),
-                image::ImageFormat::Png,
-            );
+            let _ = rgba.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png);
         }
         (png_bytes, "image/png".to_string())
     } else {
@@ -74,13 +67,7 @@ pub fn serialize_svg_image(
         // the pre-crop serializer output.
         return format!(
             r#"  <image href="{}" x="{}" y="{}" width="{}" height="{}"{}{}/>"#,
-            data_uri,
-            dest_rect.x,
-            dest_rect.y,
-            dest_rect.w,
-            dest_rect.h,
-            opacity_attr,
-            transform_attr
+            data_uri, dest_rect.x, dest_rect.y, dest_rect.w, dest_rect.h, opacity_attr, transform_attr
         );
     }
 
@@ -91,10 +78,7 @@ pub fn serialize_svg_image(
     // rather than letterboxing it (`drawImageCropped`, crop.ts:191-231).
     // A `<g>` carries the shape transform so the nested viewport geometry stays
     // in untransformed picture-local EMU coordinates.
-    let view_box = format!(
-        "{:.6} {:.6} {:.6} {:.6}",
-        source.x, source.y, source.w, source.h
-    );
+    let view_box = format!("{:.6} {:.6} {:.6} {:.6}", source.x, source.y, source.w, source.h);
     let viewport = format!(
         r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox="{}" preserveAspectRatio="none">"#,
         dest_rect.x, dest_rect.y, dest_rect.w, dest_rect.h, view_box
@@ -137,10 +121,7 @@ fn sanitized_source_window(src: &NormalizedRect) -> Option<NormalizedRect> {
 
 fn is_full_window(src: &NormalizedRect) -> bool {
     const EPS: f32 = 1e-6;
-    src.x.abs() < EPS
-        && src.y.abs() < EPS
-        && (src.w - 1.0).abs() < EPS
-        && (src.h - 1.0).abs() < EPS
+    src.x.abs() < EPS && src.y.abs() < EPS && (src.w - 1.0).abs() < EPS && (src.h - 1.0).abs() < EPS
 }
 
 fn detect_mime(path: &str, bytes: &[u8]) -> String {
@@ -235,16 +216,18 @@ pub fn emit_image_fill_def(
             &fill.effects,
         )
     };
-    let tile_w = cell_w / if fill.tile.as_ref().is_some_and(|t| t.flip_x()) {
-        2.0
-    } else {
-        1.0
-    };
-    let tile_h = cell_h / if fill.tile.as_ref().is_some_and(|t| t.flip_y()) {
-        2.0
-    } else {
-        1.0
-    };
+    let tile_w = cell_w
+        / if fill.tile.as_ref().is_some_and(|t| t.flip_x()) {
+            2.0
+        } else {
+            1.0
+        };
+    let tile_h = cell_h
+        / if fill.tile.as_ref().is_some_and(|t| t.flip_y()) {
+            2.0
+        } else {
+            1.0
+        };
     let cell = tile_element(tile_w, tile_h);
     if cell.is_empty() {
         return false;
@@ -305,10 +288,18 @@ pub fn emit_pattern_fill_def(defs: &mut String, id: &str, pattern: &VectorPatter
     let rows: Vec<&str> = rows.split('/').collect();
     let cell = crate::contracts::PATTERN_CELL_EMU;
     let midpoint = [
-        u16::from(pattern.fg[0]).wrapping_add(u16::from(pattern.bg[0])).div_ceil(2) as u8,
-        u16::from(pattern.fg[1]).wrapping_add(u16::from(pattern.bg[1])).div_ceil(2) as u8,
-        u16::from(pattern.fg[2]).wrapping_add(u16::from(pattern.bg[2])).div_ceil(2) as u8,
-        u16::from(pattern.fg[3]).wrapping_add(u16::from(pattern.bg[3])).div_ceil(2) as u8,
+        u16::from(pattern.fg[0])
+            .wrapping_add(u16::from(pattern.bg[0]))
+            .div_ceil(2) as u8,
+        u16::from(pattern.fg[1])
+            .wrapping_add(u16::from(pattern.bg[1]))
+            .div_ceil(2) as u8,
+        u16::from(pattern.fg[2])
+            .wrapping_add(u16::from(pattern.bg[2]))
+            .div_ceil(2) as u8,
+        u16::from(pattern.fg[3])
+            .wrapping_add(u16::from(pattern.bg[3]))
+            .div_ceil(2) as u8,
     ];
     let _ = writeln!(
         defs,
@@ -371,11 +362,7 @@ fn tile_anchor(algn: &str, box_w: f32, box_h: f32, tile_w: f32, tile_h: f32) -> 
 }
 
 /// Serializes an inline bitmap (`VectorCommand::DrawBitmap`) as a data URI.
-pub fn serialize_svg_bitmap(
-    png: &[u8],
-    placement: &AffineTransform,
-    opacity: f32,
-) -> String {
+pub fn serialize_svg_bitmap(png: &[u8], placement: &AffineTransform, opacity: f32) -> String {
     let b64 = BASE64_STANDARD.encode(png);
     let transform_attr = format_transform_attr(placement);
     let opacity_attr = if (opacity - 1.0).abs() > 1e-3 {
@@ -392,11 +379,7 @@ pub fn serialize_svg_bitmap(
 ///
 /// Also used for an unexpanded `DrawMetafile` marker. A dashed frame keeps the
 /// failure visible; no `<image>` with an empty data URI is emitted.
-pub fn serialize_svg_missing_picture(
-    dest_rect: &RectF32,
-    transform: &AffineTransform,
-    opacity: f32,
-) -> String {
+pub fn serialize_svg_missing_picture(dest_rect: &RectF32, transform: &AffineTransform, opacity: f32) -> String {
     let opacity = opacity.clamp(0.0, 1.0);
     if opacity <= 0.0 {
         return String::new();
@@ -418,10 +401,7 @@ pub fn serialize_svg_missing_picture(
 }
 
 /// Backwards-compatible name for the metafile-marker fallback.
-pub fn serialize_svg_missing_metafile(
-    dest_rect: &RectF32,
-    transform: &AffineTransform,
-) -> String {
+pub fn serialize_svg_missing_metafile(dest_rect: &RectF32, transform: &AffineTransform) -> String {
     serialize_svg_missing_picture(dest_rect, transform, 1.0)
 }
 

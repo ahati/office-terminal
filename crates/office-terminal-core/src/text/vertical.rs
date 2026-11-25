@@ -311,28 +311,15 @@ impl EaVertFrame {
     /// `centre_x` is the cell centre along the column, `baseline_y` the line's
     /// alphabetic baseline (layout y) and `centre_above` the em-box centre above
     /// that baseline ([`em_centre_above`]); `advance` is the cell width.
-    pub fn upright_origin(
-        &self,
-        centre_x: f32,
-        baseline_y: f32,
-        advance: f32,
-        centre_above: f32,
-    ) -> (f32, f32) {
-        let (x, y) = self
-            .frame
-            .transform_point(centre_x, baseline_y - centre_above);
+    pub fn upright_origin(&self, centre_x: f32, baseline_y: f32, advance: f32, centre_above: f32) -> (f32, f32) {
+        let (x, y) = self.frame.transform_point(centre_x, baseline_y - centre_above);
         (x - advance * 0.5, y + centre_above)
     }
 }
 
 /// The per-glyph uprighting frame for `eaVert`, `None` for every other mode
 /// (`renderer.ts:5083` passes `eaVertUpright` only for `eaVert`).
-pub fn ea_vert_frame(
-    mode: VertMode,
-    box_w: i64,
-    box_h: i64,
-    base: &AffineTransform,
-) -> Option<EaVertFrame> {
+pub fn ea_vert_frame(mode: VertMode, box_w: i64, box_h: i64, base: &AffineTransform) -> Option<EaVertFrame> {
     if mode != VertMode::EaVert {
         return None;
     }
@@ -382,9 +369,7 @@ pub fn graphemes(text: &str) -> Vec<&str> {
             Some(previous) => {
                 is_extend(ch)
                     || previous == '\u{200d}'
-                    || (is_regional_indicator(ch)
-                        && is_regional_indicator(previous)
-                        && regional_run % 2 == 1)
+                    || (is_regional_indicator(ch) && is_regional_indicator(previous) && regional_run % 2 == 1)
             }
         };
         if !extends && prev.is_some() {
@@ -451,10 +436,7 @@ mod tests {
     }
 
     fn close(actual: f32, expected: f32) {
-        assert!(
-            (actual - expected).abs() < 0.01,
-            "expected {expected}, got {actual}"
-        );
+        assert!((actual - expected).abs() < 0.01, "expected {expected}, got {actual}");
     }
 
     /// ref renderer.ts:5034-5042: `vert` rotates +90 (canvas), `vert270` -90.
@@ -464,18 +446,9 @@ mod tests {
         assert_eq!(VertMode::of(""), VertMode::Horz);
         assert_eq!(VertMode::of("vert"), VertMode::Rotated { angle_deg: 90.0 });
         assert_eq!(VertMode::of("eaVert"), VertMode::EaVert);
-        assert_eq!(
-            VertMode::of("vert270"),
-            VertMode::Rotated { angle_deg: -90.0 }
-        );
-        assert_eq!(
-            VertMode::of("wordArtVert"),
-            VertMode::Stacked { rtl: false }
-        );
-        assert_eq!(
-            VertMode::of("wordArtVertRtl"),
-            VertMode::Stacked { rtl: true }
-        );
+        assert_eq!(VertMode::of("vert270"), VertMode::Rotated { angle_deg: -90.0 });
+        assert_eq!(VertMode::of("wordArtVert"), VertMode::Stacked { rtl: false });
+        assert_eq!(VertMode::of("wordArtVertRtl"), VertMode::Stacked { rtl: true });
     }
 
     /// `vert` (canvas +90, i.e. -90 in the y-up convention) sends the layout's

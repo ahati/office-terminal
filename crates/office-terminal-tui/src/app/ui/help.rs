@@ -8,11 +8,11 @@
 //! `events::handle_sorter_key`, the slides table from the base handler.
 
 use crate::app::mode::AppMode;
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 /// One help row: (keys, action) as bound in the mode's key handler.
 type HelpRow = (&'static str, &'static str);
@@ -29,7 +29,10 @@ const READER_HELP: &[HelpSection] = &[
         title: "Reading:",
         rows: &[
             ("j / k, Down / Up", "continuous column scroll"),
-            ("PgDn / PgUp, n / p", "next / previous row (Space, Enter, Backspace too)"),
+            (
+                "PgDn / PgUp, n / p",
+                "next / previous row (Space, Enter, Backspace too)",
+            ),
             ("Right / Left", "slide zoomed row / advance row at fit"),
             ("d / u", "half-page scroll"),
         ],
@@ -97,29 +100,24 @@ const SLIDES_HELP: &[HelpSection] = &[
     },
     HelpSection {
         title: "Help & Exit:",
-        rows: &[
-            ("? / h", "toggle help"),
-            ("q / Esc, Ctrl-C", "quit presentation"),
-        ],
+        rows: &[("? / h", "toggle help"), ("q / Esc, Ctrl-C", "quit presentation")],
     },
 ];
 
 /// The sorter keymap (`events::handle_sorter_key`).
-const SORTER_HELP: &[HelpSection] = &[
-    HelpSection {
-        title: "Page Sorter:",
-        rows: &[
-            ("Arrows / h j k l", "move the selection"),
-            ("Enter", "open the selected page"),
-            ("Esc / Tab / s", "return without selecting"),
-            ("PgUp / PgDn, Home / End", "page / jump the selection"),
-            ("m / c", "slide media / reviewer comments"),
-            ("/  ·  Ctrl+F", "TOC search · find in document"),
-            ("?", "toggle help"),
-            ("q / Esc", "quit"),
-        ],
-    },
-];
+const SORTER_HELP: &[HelpSection] = &[HelpSection {
+    title: "Page Sorter:",
+    rows: &[
+        ("Arrows / h j k l", "move the selection"),
+        ("Enter", "open the selected page"),
+        ("Esc / Tab / s", "return without selecting"),
+        ("PgUp / PgDn, Home / End", "page / jump the selection"),
+        ("m / c", "slide media / reviewer comments"),
+        ("/  ·  Ctrl+F", "TOC search · find in document"),
+        ("?", "toggle help"),
+        ("q / Esc", "quit"),
+    ],
+}];
 
 /// The help table for the base view that opened the modal.
 fn sections_for(base: AppMode) -> &'static [HelpSection] {

@@ -1,15 +1,13 @@
-use pptx_model::ChartModel;
-use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPath,
-    VectorStroke, EMU_PER_PT,
-};
-use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::{resolve_series_color, resolve_series_line_color};
 use super::layout::{
-    data_label_position, make_simple_run, series_data_label_font_pt, series_shows_value_labels,
-    ChartLayout,
+    data_label_position, make_simple_run, series_data_label_font_pt, series_shows_value_labels, ChartLayout,
 };
 use super::types::ChartDataBounds;
+use crate::compiler::shapes::arc::decompose_arc_to_cubic;
+use crate::contracts::{
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPath, VectorStroke, EMU_PER_PT,
+};
+use pptx_model::ChartModel;
 
 pub fn compile_lines(
     chart: &ChartModel,
@@ -62,12 +60,7 @@ pub fn compile_lines(
             ..VectorStroke::default()
         };
 
-        commands.push(VectorCommand::draw_path(
-            line_path,
-            None,
-            Some(stroke),
-            transform,
-        ));
+        commands.push(VectorCommand::draw_path(line_path, None, Some(stroke), transform));
 
         // 2. Draw point markers
         let symbol = s.marker_symbol.as_deref().unwrap_or("circle").to_lowercase();
@@ -90,23 +83,56 @@ pub fn compile_lines(
             for &(px, py, _) in &points {
                 let marker_segs = match symbol.as_str() {
                     "square" => vec![
-                        PathSegment::MoveTo { x: px - marker_r, y: py - marker_r },
-                        PathSegment::LineTo { x: px + marker_r, y: py - marker_r },
-                        PathSegment::LineTo { x: px + marker_r, y: py + marker_r },
-                        PathSegment::LineTo { x: px - marker_r, y: py + marker_r },
+                        PathSegment::MoveTo {
+                            x: px - marker_r,
+                            y: py - marker_r,
+                        },
+                        PathSegment::LineTo {
+                            x: px + marker_r,
+                            y: py - marker_r,
+                        },
+                        PathSegment::LineTo {
+                            x: px + marker_r,
+                            y: py + marker_r,
+                        },
+                        PathSegment::LineTo {
+                            x: px - marker_r,
+                            y: py + marker_r,
+                        },
                         PathSegment::Close,
                     ],
                     "diamond" => vec![
-                        PathSegment::MoveTo { x: px, y: py - marker_r },
-                        PathSegment::LineTo { x: px + marker_r, y: py },
-                        PathSegment::LineTo { x: px, y: py + marker_r },
-                        PathSegment::LineTo { x: px - marker_r, y: py },
+                        PathSegment::MoveTo {
+                            x: px,
+                            y: py - marker_r,
+                        },
+                        PathSegment::LineTo {
+                            x: px + marker_r,
+                            y: py,
+                        },
+                        PathSegment::LineTo {
+                            x: px,
+                            y: py + marker_r,
+                        },
+                        PathSegment::LineTo {
+                            x: px - marker_r,
+                            y: py,
+                        },
                         PathSegment::Close,
                     ],
                     "triangle" => vec![
-                        PathSegment::MoveTo { x: px, y: py - marker_r },
-                        PathSegment::LineTo { x: px + marker_r, y: py + marker_r },
-                        PathSegment::LineTo { x: px - marker_r, y: py + marker_r },
+                        PathSegment::MoveTo {
+                            x: px,
+                            y: py - marker_r,
+                        },
+                        PathSegment::LineTo {
+                            x: px + marker_r,
+                            y: py + marker_r,
+                        },
+                        PathSegment::LineTo {
+                            x: px - marker_r,
+                            y: py + marker_r,
+                        },
                         PathSegment::Close,
                     ],
                     _ => {

@@ -275,14 +275,7 @@ pub fn camera_rotation(prst: &str, rot: Option<Rot3d>) -> Mat3 {
 /// Camera-to-scene distance for a perspective lens, including the 2 % view-Z
 /// grace gap that keeps a rear face from crossing the near plane
 /// (ref `scene3d-camera.ts:311-352`).
-fn camera_distance(
-    camera: &CameraInput,
-    def: &PresetDef,
-    rotation: &Mat3,
-    w: f64,
-    h: f64,
-    surface_depth: f64,
-) -> f64 {
+fn camera_distance(camera: &CameraInput, def: &PresetDef, rotation: &Mat3, w: f64, h: f64, surface_depth: f64) -> f64 {
     let fov_deg = camera.fov.unwrap_or(def.fov_deg);
     let fov = fov_deg.clamp(1.0, 179.0).to_radians();
     let numerator = match def.scene_inches {
@@ -303,12 +296,7 @@ fn camera_distance(
 ///
 /// `surface_depth` is the back surface's distance along object −Z in the same
 /// units as `w`/`h` (MS-OI29500 §2.1.1268: `bevelB` sits at the extrusion base).
-pub fn compute_scene3d_quad(
-    camera: &CameraInput,
-    w: f64,
-    h: f64,
-    surface_depth: f64,
-) -> Scene3dQuad {
+pub fn compute_scene3d_quad(camera: &CameraInput, w: f64, h: f64, surface_depth: f64) -> Scene3dQuad {
     if w <= 0.0 || h <= 0.0 {
         return Scene3dQuad {
             corners: [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)],
@@ -352,7 +340,11 @@ pub fn compute_scene3d_quad(
         .iter()
         .zip(reference)
         .all(|(p, r)| (p.0 - r.0).abs() <= eps && (p.1 - r.1).abs() <= eps);
-    Scene3dQuad { corners: projected, is_affine, is_identity }
+    Scene3dQuad {
+        corners: projected,
+        is_affine,
+        is_identity,
+    }
 }
 
 /// Whether the camera `prst` is one of the modelled modern presets (they carry
@@ -369,12 +361,7 @@ fn is_modern_perspective(camera: &CameraInput) -> bool {
 /// solid's rear extent along object −Z (extrusion height). A face-on camera
 /// whose rear plane contracts inside the front face is an identity for the
 /// planar compositor and keeps the cheaper flat path.
-pub fn is_scene3d_non_identity(
-    camera: &CameraInput,
-    w: Option<f64>,
-    h: Option<f64>,
-    depth: f64,
-) -> bool {
+pub fn is_scene3d_non_identity(camera: &CameraInput, w: Option<f64>, h: Option<f64>, depth: f64) -> bool {
     if let (Some(w), Some(h)) = (w, h) {
         if w <= 0.0 || h <= 0.0 {
             return false;

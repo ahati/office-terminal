@@ -5,20 +5,19 @@
 //! 700-799) and `packages/core/src/chart/shared/title.ts` / `shared/legend.ts`
 //! for the measured bands (see [`super::bands`]).
 
+use super::types::ChartFamily;
+use crate::compiler::style::parse_hex_color;
+use crate::contracts::{
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun, VectorCommand,
+    VectorPaint, VectorPath, VectorStroke, EMU_PER_PT, EMU_PER_PX,
+};
 use ooxml_common::chart::{ChartManualLayout, ChartSeries};
 use pptx_model::ChartModel;
-use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun,
-    VectorCommand, VectorPaint, VectorPath, VectorStroke, EMU_PER_PX, EMU_PER_PT,
-};
-use crate::compiler::style::parse_hex_color;
-use super::types::ChartFamily;
 
 pub use super::bands::{
-    axis_label_font_pt, axis_title_font_pt, axis_title_margin, chart_text_font_pt, elide_to_width,
-    legend_bands, legend_font_pt, make_axis_title, measure_legend, pack_rows,
-    series_data_label_font_pt, text_width, title_band, AxisTitleBand, ChartTitleBand, LegendItem,
-    LegendReserve, CHART_FONT,
+    axis_label_font_pt, axis_title_font_pt, axis_title_margin, chart_text_font_pt, elide_to_width, legend_bands,
+    legend_font_pt, make_axis_title, measure_legend, pack_rows, series_data_label_font_pt, text_width, title_band,
+    AxisTitleBand, ChartTitleBand, LegendItem, LegendReserve, CHART_FONT,
 };
 
 /// Legend side inset and per-side horizontal padding
@@ -64,8 +63,16 @@ fn resolve_manual_rect(
     let edge = |mode: &str| mode.eq_ignore_ascii_case("edge");
     let (cx, cy, cw, ch) = chart;
     let (dx, dy, dw, dh) = default;
-    let x = if edge(&ml.x_mode) { cx + ml.x as f32 * cw } else { dx + ml.x as f32 * cw };
-    let y = if edge(&ml.y_mode) { cy + ml.y as f32 * ch } else { dy + ml.y as f32 * ch };
+    let x = if edge(&ml.x_mode) {
+        cx + ml.x as f32 * cw
+    } else {
+        dx + ml.x as f32 * cw
+    };
+    let y = if edge(&ml.y_mode) {
+        cy + ml.y as f32 * ch
+    } else {
+        dy + ml.y as f32 * ch
+    };
     let w = match ml.w {
         None => dw,
         Some(v) if edge(&ml.w_mode) => cx + v as f32 * cw - x,
@@ -86,8 +93,7 @@ pub fn compute_chart_layout(chart: &ChartModel, w: f32, h: f32, family: ChartFam
     let w = w.max(1.0);
     let h = h.max(1.0);
     let legend = measure_legend(chart, w, h, family);
-    let (leg_l, leg_r, leg_t, leg_b) =
-        legend_bands(legend.as_ref(), chart.legend_overlay == Some(true));
+    let (leg_l, leg_r, leg_t, leg_b) = legend_bands(legend.as_ref(), chart.legend_overlay == Some(true));
     let mut title = title_band(chart, h, family);
 
     let cartesian = family.is_cartesian();
@@ -148,12 +154,7 @@ pub fn compute_chart_layout(chart: &ChartModel, w: f32, h: f32, family: ChartFam
     }
 
     let (mut plot_x, mut plot_y, mut plot_w, mut plot_h) = if cartesian {
-        (
-            left,
-            top,
-            (w - left - right).max(1.0),
-            (h - top - bottom).max(1.0),
-        )
+        (left, top, (w - left - right).max(1.0), (h - top - bottom).max(1.0))
     } else {
         // ref layout.ts:730-737: radial charts centre the plot in the space the
         // title and legend bands leave, minus the radial gap.
@@ -325,11 +326,7 @@ pub fn compile_chart_background(
     commands
 }
 
-pub fn compile_chart_title(
-    chart: &ChartModel,
-    layout: &ChartLayout,
-    transform: AffineTransform,
-) -> Vec<VectorCommand> {
+pub fn compile_chart_title(chart: &ChartModel, layout: &ChartLayout, transform: AffineTransform) -> Vec<VectorCommand> {
     let band = &layout.title;
     let (_bx, by, _bw, _bh) = match layout.title_box {
         Some(box_) => box_,
@@ -345,8 +342,7 @@ pub fn compile_chart_title(
         .unwrap_or([40, 40, 40, 255]);
     // ref shared/title.ts:150-170: the title draws top-aligned at `band.topPad`
     // inside the reserved band, centred on the frame minus the legend bands.
-    let (leg_l, leg_r, _, _) =
-        legend_bands(layout.legend.as_ref(), chart.legend_overlay == Some(true));
+    let (leg_l, leg_r, _, _) = legend_bands(layout.legend.as_ref(), chart.legend_overlay == Some(true));
     let avail = (layout.w - leg_l - leg_r).max(1.0);
     let cx = leg_l + avail / 2.0;
     let baseline = by + band.top_pad + band.font_pt * EMU_PER_PT * 0.8;
@@ -405,7 +401,10 @@ pub fn compile_chart_legend(
                 let seg = VectorPath::new(
                     vec![
                         PathSegment::MoveTo { x: pen, y: row_y },
-                        PathSegment::LineTo { x: pen + leg.swatch, y: row_y },
+                        PathSegment::LineTo {
+                            x: pen + leg.swatch,
+                            y: row_y,
+                        },
                     ],
                     FillRule::NonZero,
                 );
@@ -477,10 +476,7 @@ pub fn series_shows_value_labels(chart: &ChartModel, series: &ChartSeries) -> bo
     match series.series_data_labels.as_ref() {
         Some(labels) if labels.deleted == Some(true) => false,
         Some(labels) => {
-            let authored_flag = labels.show_val
-                || labels.show_cat_name
-                || labels.show_ser_name
-                || labels.show_percent;
+            let authored_flag = labels.show_val || labels.show_cat_name || labels.show_ser_name || labels.show_percent;
             if authored_flag {
                 labels.show_val
             } else {
@@ -500,10 +496,7 @@ pub fn series_shows_percent_labels(chart: &ChartModel, series: &ChartSeries) -> 
     match series.series_data_labels.as_ref() {
         Some(labels) if labels.deleted == Some(true) => false,
         Some(labels) => {
-            let authored_flag = labels.show_val
-                || labels.show_cat_name
-                || labels.show_ser_name
-                || labels.show_percent;
+            let authored_flag = labels.show_val || labels.show_cat_name || labels.show_ser_name || labels.show_percent;
             if authored_flag {
                 labels.show_percent || labels.show_val
             } else {

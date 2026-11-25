@@ -21,8 +21,8 @@
 mod kernels;
 
 use kernels::{
-    box_blur_horizontal_alpha, box_blur_horizontal_rgba, box_blur_vertical_alpha,
-    box_blur_vertical_rgba, premultiply, unpremultiply,
+    box_blur_horizontal_alpha, box_blur_horizontal_rgba, box_blur_vertical_alpha, box_blur_vertical_rgba, premultiply,
+    unpremultiply,
 };
 
 use crate::contracts::VectorOuterShadow;
@@ -67,10 +67,7 @@ pub fn box_radii_for_sigma(sigma: f32) -> [usize; 3] {
 
 /// Variance of the cascaded box filters, used to validate the approximation.
 pub fn cascaded_variance(radii: [usize; 3]) -> f32 {
-    radii
-        .iter()
-        .map(|&r| (r * (r + 1)) as f32 / 3.0)
-        .sum()
+    radii.iter().map(|&r| (r * (r + 1)) as f32 / 3.0).sum()
 }
 
 /// Blur a straight-alpha RGBA8 buffer. Alpha is honoured during convolution.
@@ -115,8 +112,22 @@ pub(crate) fn gaussian_blur_premultiplied_with(
         if radius == 0 {
             continue;
         }
-        box_blur_horizontal_rgba(&rgba_a[..len], &mut rgba_b[..len], width, height, radius, &mut prefix[..width + 1]);
-        box_blur_vertical_rgba(&rgba_b[..len], &mut rgba_a[..len], width, height, radius, &mut prefix[..height + 1]);
+        box_blur_horizontal_rgba(
+            &rgba_a[..len],
+            &mut rgba_b[..len],
+            width,
+            height,
+            radius,
+            &mut prefix[..width + 1],
+        );
+        box_blur_vertical_rgba(
+            &rgba_b[..len],
+            &mut rgba_a[..len],
+            width,
+            height,
+            radius,
+            &mut prefix[..height + 1],
+        );
     }
     buf[..len].copy_from_slice(&rgba_a[..len]);
 }
@@ -146,7 +157,10 @@ pub(crate) fn gaussian_blur_alpha_with(
     }
 
     let EffectScratch {
-        alpha_a, alpha_b, prefix, ..
+        alpha_a,
+        alpha_b,
+        prefix,
+        ..
     } = scratch;
     alpha_a.resize(len, 0);
     alpha_a[..len].copy_from_slice(&mask[..len]);
@@ -156,8 +170,22 @@ pub(crate) fn gaussian_blur_alpha_with(
         if radius == 0 {
             continue;
         }
-        box_blur_horizontal_alpha(&alpha_a[..len], &mut alpha_b[..len], width, height, radius, &mut prefix[..width + 1]);
-        box_blur_vertical_alpha(&alpha_b[..len], &mut alpha_a[..len], width, height, radius, &mut prefix[..height + 1]);
+        box_blur_horizontal_alpha(
+            &alpha_a[..len],
+            &mut alpha_b[..len],
+            width,
+            height,
+            radius,
+            &mut prefix[..width + 1],
+        );
+        box_blur_vertical_alpha(
+            &alpha_b[..len],
+            &mut alpha_a[..len],
+            width,
+            height,
+            radius,
+            &mut prefix[..height + 1],
+        );
     }
     mask[..len].copy_from_slice(&alpha_a[..len]);
 }
@@ -185,24 +213,14 @@ pub struct MaskAffine {
 impl MaskAffine {
     /// Identity transform (no resampling needed).
     pub fn is_identity(&self) -> bool {
-        self.a == 1.0
-            && self.b == 0.0
-            && self.c == 0.0
-            && self.d == 1.0
-            && self.tx == 0.0
-            && self.ty == 0.0
+        self.a == 1.0 && self.b == 0.0 && self.c == 0.0 && self.d == 1.0 && self.tx == 0.0 && self.ty == 0.0
     }
 }
 
 /// Resample a single-channel alpha mask through `m` with bilinear sampling.
 /// Samples outside the buffer read as zero alpha, matching the transparent
 /// margin the reference aux canvases provide (ref effects.ts:computeCrop).
-pub fn warp_mask_affine(
-    mask: &[u8],
-    width: usize,
-    height: usize,
-    m: &MaskAffine,
-) -> Vec<u8> {
+pub fn warp_mask_affine(mask: &[u8], width: usize, height: usize, m: &MaskAffine) -> Vec<u8> {
     if width == 0 || height == 0 || mask.len() < width * height || m.is_identity() {
         return mask[..width * height].to_vec();
     }
@@ -241,7 +259,14 @@ pub fn shift_mask_subpixel(mask: &[u8], width: usize, height: usize, dx: f32, dy
         mask,
         width,
         height,
-        &MaskAffine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: dx, ty: dy },
+        &MaskAffine {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            tx: dx,
+            ty: dy,
+        },
     )
 }
 
@@ -301,10 +326,8 @@ pub(crate) fn feather_alpha_bleed_with(
             // destination-in(blurred coverage).
             let feather = feathered[index] as f32 / 255.0;
             for channel in 0..4 {
-                let value = bleed[channel] * (1.0 - coverage)
-                    + layer[index * 4 + channel] as f32;
-                layer[index * 4 + channel] =
-                    (value * feather).round().clamp(0.0, 255.0) as u8;
+                let value = bleed[channel] * (1.0 - coverage) + layer[index * 4 + channel] as f32;
+                layer[index * 4 + channel] = (value * feather).round().clamp(0.0, 255.0) as u8;
             }
         }
     }
@@ -328,10 +351,7 @@ pub fn warp_shadow_mask(
     let sy = shadow.scale_y.max(1e-3);
     let kx = shadow.skew_x_deg.to_radians().tan();
     let ky = shadow.skew_y_deg.to_radians().tan();
-    let scaled = (sx - 1.0).abs() > 1e-4
-        || (sy - 1.0).abs() > 1e-4
-        || kx.abs() > 1e-4
-        || ky.abs() > 1e-4;
+    let scaled = (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4 || kx.abs() > 1e-4 || ky.abs() > 1e-4;
     if rotation_deg.abs() <= 1e-6 {
         if scaled {
             // Nearest-neighbour stretch about the layer centre, then the exact
@@ -381,13 +401,16 @@ pub fn clamp_reach_px(radius_emu: i64, scale: f32, cap: f32) -> f32 {
 type Mat2 = [[f32; 2]; 2];
 
 fn mat_mul(a: Mat2, b: Mat2) -> Mat2 {
-    [[
-        a[0][0] * b[0][0] + a[0][1] * b[1][0],
-        a[0][0] * b[0][1] + a[0][1] * b[1][1],
-    ], [
-        a[1][0] * b[0][0] + a[1][1] * b[1][0],
-        a[1][0] * b[0][1] + a[1][1] * b[1][1],
-    ]]
+    [
+        [
+            a[0][0] * b[0][0] + a[0][1] * b[1][0],
+            a[0][0] * b[0][1] + a[0][1] * b[1][1],
+        ],
+        [
+            a[1][0] * b[0][0] + a[1][1] * b[1][0],
+            a[1][0] * b[0][1] + a[1][1] * b[1][1],
+        ],
+    ]
 }
 
 fn mat_apply(m: Mat2, v: (f32, f32)) -> (f32, f32) {
@@ -397,7 +420,6 @@ fn mat_apply(m: Mat2, v: (f32, f32)) -> (f32, f32) {
 fn mat_transpose(m: Mat2) -> Mat2 {
     [[m[0][0], m[1][0]], [m[0][1], m[1][1]]]
 }
-
 
 fn sample_mask_bilinear(mask: &[u8], width: usize, height: usize, x: f32, y: f32) -> u8 {
     if x < 0.0 || y < 0.0 || x > (width - 1) as f32 || y > (height - 1) as f32 {

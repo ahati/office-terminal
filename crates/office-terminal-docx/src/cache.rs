@@ -44,10 +44,7 @@ impl IrCache {
         compile: impl FnOnce() -> Result<VectorSlide, RenderError>,
     ) -> Result<Arc<VectorSlide>, RenderError> {
         {
-            let mut inner = self
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             inner.clock += 1;
             let tick = inner.clock;
             if let Some((slide, clock)) = inner.entries.get_mut(&index) {
@@ -59,10 +56,7 @@ impl IrCache {
         let slide = Arc::new(compile()?);
 
         let cost = estimate_slide_bytes(&slide);
-        let mut inner = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.clock += 1;
         let tick = inner.clock;
         insert(&mut inner, index, Arc::clone(&slide), tick, cost);
@@ -170,17 +164,13 @@ mod tests {
     fn entry_cap_evicts_least_recently_used() {
         let cache = IrCache::new(2, 32 * 1024 * 1024);
         for index in 0..3 {
-            cache
-                .get_or_compile(index, || Ok(slide(index as u8)))
-                .expect("compile");
+            cache.get_or_compile(index, || Ok(slide(index as u8))).expect("compile");
         }
         // Touch page 2 so page 1 becomes the LRU victim.
         let _ = cache.get_or_compile(2, || unreachable!()).expect("cached");
         // Compile page 3; with a 2-entry cap the victim must be page 1
         // (page 2 was just touched).
-        let _ = cache
-            .get_or_compile(3, || Ok(slide(3)))
-            .expect("compile");
+        let _ = cache.get_or_compile(3, || Ok(slide(3))).expect("compile");
         let missing = cache.get_or_compile(1, || Err(RenderError::CompilationFailed("evicted".into())));
         assert!(missing.is_err());
     }

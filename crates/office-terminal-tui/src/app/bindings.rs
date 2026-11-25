@@ -78,34 +78,16 @@ impl FrameBindings {
 
     /// Zoom-aware placement for `area`, replicating the [`SlideWidget`]'s fit
     /// exactly (default terminal cell aspect, zero-area guard).
-    fn fitted_placement(
-        area: Rect,
-        aspect_ratio: f32,
-        zoom: f32,
-        pan: (f32, f32),
-    ) -> Option<SlidePlacement> {
+    fn fitted_placement(area: Rect, aspect_ratio: f32, zoom: f32, pan: (f32, f32)) -> Option<SlidePlacement> {
         if area.width == 0 || area.height == 0 {
             return None;
         }
-        let fit = compute_zoomed_slide_fit(
-            area,
-            aspect_ratio,
-            DEFAULT_CELL_ASPECT_RATIO,
-            zoom,
-            pan.0,
-            pan.1,
-        );
+        let fit = compute_zoomed_slide_fit(area, aspect_ratio, DEFAULT_CELL_ASPECT_RATIO, zoom, pan.0, pan.1);
         Self::fit_to_placement(&fit, zoom)
     }
 
     /// Records the zoom-aware placement of the full-screen current slide.
-    pub fn record_current(
-        &mut self,
-        area: Rect,
-        aspect_ratio: f32,
-        zoom: f32,
-        pan: (f32, f32),
-    ) {
+    pub fn record_current(&mut self, area: Rect, aspect_ratio: f32, zoom: f32, pan: (f32, f32)) {
         self.current = Self::fitted_placement(area, aspect_ratio, zoom, pan);
     }
 
@@ -123,11 +105,7 @@ impl FrameBindings {
         // the plain letterbox one.
         if let Some(placement) = Self::fitted_placement(area, aspect_ratio, 1.0, (0.0, 0.0)) {
             let rect = placement.rect;
-            match self
-                .thumbnails
-                .iter_mut()
-                .find(|(index, _)| *index == slide_index)
-            {
+            match self.thumbnails.iter_mut().find(|(index, _)| *index == slide_index) {
                 Some(entry) => entry.1 = rect,
                 None => self.thumbnails.push((slide_index, rect)),
             }
@@ -149,11 +127,7 @@ mod tests {
         let mut bindings = FrameBindings::default();
         bindings.record_current(area(80, 24), 16.0 / 9.0, 1.0, (0.0, 0.0));
 
-        let expected_rect = rect_to_cell_rect(compute_slide_rect(
-            area(80, 24),
-            16.0 / 9.0,
-            DEFAULT_CELL_ASPECT_RATIO,
-        ));
+        let expected_rect = rect_to_cell_rect(compute_slide_rect(area(80, 24), 16.0 / 9.0, DEFAULT_CELL_ASPECT_RATIO));
         let placed = bindings.current.expect("current placement");
         assert_eq!(placed.rect, expected_rect);
         assert_eq!(placed.crop, None);
@@ -208,11 +182,7 @@ mod tests {
         assert_eq!(bindings.thumbnails[0].0, 4);
         assert_eq!(
             bindings.thumbnails[0].1,
-            rect_to_cell_rect(compute_slide_rect(
-                area(20, 12),
-                16.0 / 9.0,
-                DEFAULT_CELL_ASPECT_RATIO
-            ))
+            rect_to_cell_rect(compute_slide_rect(area(20, 12), 16.0 / 9.0, DEFAULT_CELL_ASPECT_RATIO))
         );
         assert_eq!(bindings.thumbnails[1].0, 5);
     }

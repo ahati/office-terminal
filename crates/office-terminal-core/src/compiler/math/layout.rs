@@ -67,12 +67,7 @@ impl<'a> LayoutCtx<'a> {
 }
 
 /// Lay out a node list as a baseline-aligned horizontal row.
-pub fn layout_nodes(
-    nodes: &[MathNode],
-    style: MathStyle,
-    ctx: &mut LayoutCtx,
-    depth: usize,
-) -> MathBox {
+pub fn layout_nodes(nodes: &[MathNode], style: MathStyle, ctx: &mut LayoutCtx, depth: usize) -> MathBox {
     if !ctx.check_depth(depth) {
         return MathBox::empty();
     }
@@ -96,24 +91,12 @@ fn layout_node(node: &MathNode, style: MathStyle, ctx: &mut LayoutCtx, depth: us
     let child_depth = depth + 1;
     match node {
         MathNode::Run { text, .. } => layout_run(text, style, ctx),
-        MathNode::Fraction { num, den, bar } => {
-            layout_fraction(num, den, bar.unwrap_or(true), style, ctx, child_depth)
-        }
-        MathNode::Radical { index, radicand } => {
-            layout_radical(index, radicand, style, ctx, child_depth)
-        }
-        MathNode::Sup { base, sup } => {
-            layout_scripts(base, None, Some(sup), style, ctx, child_depth)
-        }
-        MathNode::Sub { base, sub } => {
-            layout_scripts(base, Some(sub), None, style, ctx, child_depth)
-        }
-        MathNode::SubSup { base, sub, sup } => {
-            layout_scripts(base, Some(sub), Some(sup), style, ctx, child_depth)
-        }
-        MathNode::SPre { sub, sup, base } => {
-            layout_pre_scripts(sub, sup, base, style, ctx, child_depth)
-        }
+        MathNode::Fraction { num, den, bar } => layout_fraction(num, den, bar.unwrap_or(true), style, ctx, child_depth),
+        MathNode::Radical { index, radicand } => layout_radical(index, radicand, style, ctx, child_depth),
+        MathNode::Sup { base, sup } => layout_scripts(base, None, Some(sup), style, ctx, child_depth),
+        MathNode::Sub { base, sub } => layout_scripts(base, Some(sub), None, style, ctx, child_depth),
+        MathNode::SubSup { base, sub, sup } => layout_scripts(base, Some(sub), Some(sup), style, ctx, child_depth),
+        MathNode::SPre { sub, sup, base } => layout_pre_scripts(sub, sup, base, style, ctx, child_depth),
         MathNode::Nary {
             op,
             lim_loc,
@@ -129,12 +112,8 @@ fn layout_node(node: &MathNode, style: MathStyle, ctx: &mut LayoutCtx, depth: us
         MathNode::Array { rows, align } => layout_array(rows, align, style, ctx, child_depth),
         MathNode::Accent { chr, base } => layout_accent(chr, base, style, ctx, child_depth),
         MathNode::Bar { pos, base } => layout_bar(pos, base, style, ctx, child_depth),
-        MathNode::GroupChr { chr, pos, base } => {
-            layout_group_chr(chr, pos, base, style, ctx, child_depth)
-        }
-        MathNode::Limit { base, lower, upper } => {
-            layout_limit(base, lower, upper, style, ctx, child_depth)
-        }
+        MathNode::GroupChr { chr, pos, base } => layout_group_chr(chr, pos, base, style, ctx, child_depth),
+        MathNode::Limit { base, lower, upper } => layout_limit(base, lower, upper, style, ctx, child_depth),
         MathNode::Func { name, arg } => {
             let name_box = layout_nodes(name, style, ctx, child_depth);
             let arg_box = layout_nodes(arg, style, ctx, child_depth);
@@ -177,11 +156,7 @@ fn layout_node(node: &MathNode, style: MathStyle, ctx: &mut LayoutCtx, depth: us
             base,
         } => {
             let inner = layout_nodes(base, style, ctx, child_depth);
-            let kind = if *show {
-                inner.kind
-            } else {
-                MathBoxKind::Empty
-            };
+            let kind = if *show { inner.kind } else { MathBoxKind::Empty };
             MathBox::new(
                 kind,
                 if *zero_wid { 0.0 } else { inner.width },
@@ -274,12 +249,11 @@ enum AtomClass {
 
 fn atom_class(ch: char) -> Option<AtomClass> {
     match ch {
-        '=' | '<' | '>' | '\u{2264}' | '\u{2265}' | '\u{2260}' | '\u{2248}' | '\u{2261}'
-        | '\u{223C}' | '\u{2245}' | '\u{2192}' | '\u{2190}' | '\u{2194}' | '\u{21D2}'
-        | '\u{21D4}' | '\u{2208}' | '\u{2209}' | '\u{2282}' | '\u{2283}' | '\u{2286}'
-        | '\u{2287}' | '|' => Some(AtomClass::Relation),
-        '+' | '-' | '\u{2212}' | '\u{00B1}' | '\u{2213}' | '\u{00D7}' | '\u{00F7}' | '\u{00B7}'
-        | '\u{22C5}' | '\u{222A}' | '\u{2229}' | '\u{2295}' | '\u{2297}' => Some(AtomClass::Binary),
+        '=' | '<' | '>' | '\u{2264}' | '\u{2265}' | '\u{2260}' | '\u{2248}' | '\u{2261}' | '\u{223C}' | '\u{2245}'
+        | '\u{2192}' | '\u{2190}' | '\u{2194}' | '\u{21D2}' | '\u{21D4}' | '\u{2208}' | '\u{2209}' | '\u{2282}'
+        | '\u{2283}' | '\u{2286}' | '\u{2287}' | '|' => Some(AtomClass::Relation),
+        '+' | '-' | '\u{2212}' | '\u{00B1}' | '\u{2213}' | '\u{00D7}' | '\u{00F7}' | '\u{00B7}' | '\u{22C5}'
+        | '\u{222A}' | '\u{2229}' | '\u{2295}' | '\u{2297}' => Some(AtomClass::Binary),
         ',' | ';' | ':' => Some(AtomClass::Punctuation),
         _ => None,
     }
@@ -348,12 +322,7 @@ mod tests {
     #[test]
     fn relation_adds_medium_spacing_between_runs() {
         let mut ctx = ctx();
-        let row = layout_nodes(
-            &[run("x"), run("="), run("1")],
-            MathStyle::text(),
-            &mut ctx,
-            0,
-        );
+        let row = layout_nodes(&[run("x"), run("="), run("1")], MathStyle::text(), &mut ctx, 0);
         let single = layout_nodes(&[run("x"), run("1")], MathStyle::text(), &mut ctx, 0);
         assert!(row.width > single.width);
     }

@@ -35,9 +35,8 @@
 const MAX_YIQ_DELTA: f64 = 35215.0;
 
 /// Alpha checkerboard stride (`colorDelta`, `pixelmatch@7.1.0/index.js:227`).
-/// The reference literal is `1.618033988749895`, which is bit-identical to
-/// `std::f64::consts::GOLDEN_RATIO`.
-const PHI: f64 = std::f64::consts::GOLDEN_RATIO;
+/// Reference literal `1.618033988749895`.
+const PHI: f64 = 1.618_033_988_749_895;
 /// Second checkerboard stride; `phi^2` truncated to the reference literal.
 const PHI2: f64 = 2.618_033_988_749_895;
 
@@ -140,18 +139,13 @@ pub fn compare_rgba(a: &[u8], b: &[u8], w: u32, h: u32, o: &DiffOptions) -> Diff
             }
 
             // ref `index.js:70`: identical 32-bit words contribute delta 0.
-            let delta = if pa == pb {
-                0.0
-            } else {
-                color_delta(pa, pb, pos, false)
-            };
+            let delta = if pa == pb { 0.0 } else { color_delta(pa, pb, pos, false) };
 
             if delta.abs() > max_delta {
                 // ref `index.js:73-76`: `isAA` is only consumed when `includeAA`
                 // is false, so it is evaluated lazily here.
-                let is_aa = !o.include_aa
-                    && (antialiased(a, x, y, width, height, b)
-                        || antialiased(b, x, y, width, height, a));
+                let is_aa =
+                    !o.include_aa && (antialiased(a, x, y, width, height, b) || antialiased(b, x, y, width, height, a));
                 if !is_aa {
                     diff_mask[i] = 255;
                     diff_pixels += 1;
@@ -205,12 +199,7 @@ pub fn pad_to_white(px: &[u8], w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
 /// Reads `pos .. pos + 4` as RGBA; missing bytes read as opaque white.
 #[inline]
 fn px4(buf: &[u8], pos: usize) -> [u8; 4] {
-    [
-        ch(buf, pos),
-        ch(buf, pos + 1),
-        ch(buf, pos + 2),
-        ch(buf, pos + 3),
-    ]
+    [ch(buf, pos), ch(buf, pos + 1), ch(buf, pos + 2), ch(buf, pos + 3)]
 }
 
 #[inline]
@@ -276,14 +265,7 @@ fn trunc_div(n: usize, divisor: f64) -> i64 {
 /// ref `pixelmatch@7.1.0/index.js:121-171` (`antialiased`). Neighbour scan
 /// order (`x` outer, `y` inner, ascending) is preserved because ties on
 /// `min`/`max` keep the first candidate, which decides `has_many_siblings`.
-fn antialiased(
-    img: &[u8],
-    x1: usize,
-    y1: usize,
-    width: usize,
-    height: usize,
-    other: &[u8],
-) -> bool {
+fn antialiased(img: &[u8], x1: usize, y1: usize, width: usize, height: usize, other: &[u8]) -> bool {
     if width == 0 || height == 0 {
         return false;
     }
@@ -335,8 +317,7 @@ fn antialiased(
     // ref `index.js:169-170`: the extreme must sit in a flat region in *both*
     // images at that coordinate.
     let flat_in_both = |(x, y): (usize, usize)| {
-        has_many_siblings(img, x, y, width, height)
-            && has_many_siblings(other, x, y, width, height)
+        has_many_siblings(img, x, y, width, height) && has_many_siblings(other, x, y, width, height)
     };
     flat_in_both(min_xy) || flat_in_both(max_xy)
 }

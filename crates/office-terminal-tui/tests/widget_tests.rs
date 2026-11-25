@@ -1,7 +1,5 @@
 use office_terminal_display::{ImageId, PlacementMode};
-use office_terminal_tui::widget::layout::{
-    compute_slide_rect, ASPECT_16_9, DEFAULT_CELL_ASPECT_RATIO,
-};
+use office_terminal_tui::widget::layout::{compute_slide_rect, ASPECT_16_9, DEFAULT_CELL_ASPECT_RATIO};
 use office_terminal_tui::widget::SlideWidget;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -9,17 +7,12 @@ use ratatui::widgets::Widget;
 
 #[test]
 fn test_widget_fits_the_slide_and_reserves_the_canvas() {
-    let widget =
-        SlideWidget::new(ImageId(10), PlacementMode::Interactive).with_aspect_ratio(ASPECT_16_9);
+    let widget = SlideWidget::new(ImageId(10), PlacementMode::Interactive).with_aspect_ratio(ASPECT_16_9);
 
     let mut buf = Buffer::empty(Rect::new(0, 0, 100, 40));
     widget.render(Rect::new(0, 0, 100, 40), &mut buf);
 
-    let expected_fitted = compute_slide_rect(
-        Rect::new(0, 0, 100, 40),
-        ASPECT_16_9,
-        DEFAULT_CELL_ASPECT_RATIO,
-    );
+    let expected_fitted = compute_slide_rect(Rect::new(0, 0, 100, 40), ASPECT_16_9, DEFAULT_CELL_ASPECT_RATIO);
 
     // The fitted area becomes a transparent graphics canvas.
     let center_cell = buf

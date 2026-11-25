@@ -13,11 +13,7 @@ pub fn expand(
     rel_id: &str,
     mime: &str,
     bytes: Vec<u8>,
-) -> (
-    VectorSlide,
-    metafile::MetafileExpansionSummary,
-    Vec<WarningEvent>,
-) {
+) -> (VectorSlide, metafile::MetafileExpansionSummary, Vec<WarningEvent>) {
     metafile::clear_global_cache();
     let (compile_tx, _compile_rx) = crossbeam_channel::unbounded();
     let mut scene = support::compile_slide(&support::picture_slide(rel_id, mime), &compile_tx);

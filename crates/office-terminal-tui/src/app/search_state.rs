@@ -1,6 +1,6 @@
-use pptx_model::Slide;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
+use pptx_model::Slide;
 
 /// Extracted search metadata for a single presentation slide or outline node.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -175,12 +175,7 @@ impl SearchState {
     }
 
     /// Populate search entries from slide models and speaker notes.
-    pub fn sync_entries(
-        &mut self,
-        slides: &[Slide],
-        notes: &[Option<String>],
-        total_slides: usize,
-    ) {
+    pub fn sync_entries(&mut self, slides: &[Slide], notes: &[Option<String>], total_slides: usize) {
         self.sync_entries_filtered(slides, notes, total_slides, &[], false);
     }
 
@@ -207,10 +202,7 @@ impl SearchState {
                 format!("Slide {}", slide_number)
             };
 
-            let note_text = notes.get(i)
-                .and_then(|n| n.as_deref())
-                .unwrap_or("")
-                .to_string();
+            let note_text = notes.get(i).and_then(|n| n.as_deref()).unwrap_or("").to_string();
 
             self.entries.push(SlideSearchEntry {
                 slide_index: i,
@@ -247,10 +239,7 @@ impl SearchState {
         if toc.is_empty() {
             for i in 0..total_pages {
                 let title = format!("Page {}", i + 1);
-                let expanded = existing_expanded
-                    .get(&(i, title.clone()))
-                    .copied()
-                    .unwrap_or(true);
+                let expanded = existing_expanded.get(&(i, title.clone())).copied().unwrap_or(true);
                 self.entries.push(SlideSearchEntry {
                     slide_index: i,
                     slide_number: i + 1,
@@ -268,9 +257,12 @@ impl SearchState {
             for (idx, t) in toc.iter().enumerate() {
                 let level = depths[idx];
                 let has_children = depths.get(idx + 1).is_some_and(|&next| next > level);
-                let clean_title = t.title
+                let clean_title = t
+                    .title
                     .chars()
-                    .filter(|&c| c != '\0' && c != '\u{FEFF}' && c != '\u{FFFD}' && (!c.is_control() || c == ' ' || c == '\t'))
+                    .filter(|&c| {
+                        c != '\0' && c != '\u{FEFF}' && c != '\u{FFFD}' && (!c.is_control() || c == ' ' || c == '\t')
+                    })
                     .collect::<String>()
                     .split_whitespace()
                     .collect::<Vec<_>>()
@@ -405,7 +397,10 @@ impl PresentationState {
         self.sync_search_entries();
         self.search.clear_query();
         if let Some(pos) = self.search.matched_indices().iter().position(|&idx| {
-            self.search.entry(idx).map(|e| e.slide_index == self.current_slide()).unwrap_or(false)
+            self.search
+                .entry(idx)
+                .map(|e| e.slide_index == self.current_slide())
+                .unwrap_or(false)
         }) {
             self.search.set_selected_cursor(pos);
         } else {

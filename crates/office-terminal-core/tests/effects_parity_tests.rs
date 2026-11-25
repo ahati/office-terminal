@@ -38,10 +38,22 @@ fn slide_with(effects: ShapeEffects, transform: AffineTransform, fill: [u8; 4]) 
     slide.commands.push(VectorCommand::DrawPath {
         path: VectorPath::new(
             vec![
-                PathSegment::MoveTo { x: 100_000.0, y: 100_000.0 },
-                PathSegment::LineTo { x: 900_000.0, y: 100_000.0 },
-                PathSegment::LineTo { x: 900_000.0, y: 500_000.0 },
-                PathSegment::LineTo { x: 100_000.0, y: 500_000.0 },
+                PathSegment::MoveTo {
+                    x: 100_000.0,
+                    y: 100_000.0,
+                },
+                PathSegment::LineTo {
+                    x: 900_000.0,
+                    y: 100_000.0,
+                },
+                PathSegment::LineTo {
+                    x: 900_000.0,
+                    y: 500_000.0,
+                },
+                PathSegment::LineTo {
+                    x: 100_000.0,
+                    y: 500_000.0,
+                },
                 PathSegment::Close,
             ],
             FillRule::NonZero,
@@ -81,7 +93,12 @@ fn px(img: &RgbaSlide, x: usize, y: usize) -> [u8; 4] {
 
 fn px_in(img: &RgbaSlide, width: u32, x: usize, y: usize) -> [u8; 4] {
     let base = (y * width as usize + x) * 4;
-    [img.pixels[base], img.pixels[base + 1], img.pixels[base + 2], img.pixels[base + 3]]
+    [
+        img.pixels[base],
+        img.pixels[base + 1],
+        img.pixels[base + 2],
+        img.pixels[base + 3],
+    ]
 }
 
 /// Alpha of a black effect composited over the white background.
@@ -189,7 +206,10 @@ fn glow_has_no_hot_rim() {
     // ref renderer.ts:2701 — `shadowBlur = rad` ⇒ sigma = rad / 2 with no
     // intensity curve, so the halo at the silhouette edge is half strength.
     let effects = ShapeEffects {
-        glow: Some(VectorGlow { color: [255, 0, 0, 255], radius_emu: 200_000 }),
+        glow: Some(VectorGlow {
+            color: [255, 0, 0, 255],
+            radius_emu: 200_000,
+        }),
         ..Default::default()
     };
     // Body painted in the glow colour so rim and centre compare directly.
@@ -236,8 +256,8 @@ fn inner_shadow_paints_only_inside_the_body() {
     let effects = ShapeEffects {
         inner_shadow: Some(VectorInnerShadow {
             color: [0, 0, 0, 255],
-            blur_radius_emu: 20_000,  // 2 px
-            distance_emu: 100_000,    // 10 px
+            blur_radius_emu: 20_000, // 2 px
+            distance_emu: 100_000,   // 10 px
             direction_deg: 90.0,
         }),
         ..Default::default()
@@ -282,7 +302,6 @@ fn rot_with_shape_controls_the_shadow_offset_frame() {
     assert!(black_alpha(&shape, 50, 75) < 0.05, "no shadow below the body");
 }
 
-
 // ---------------------------------------------------------------------------
 // Reflection — ECMA-376 §20.1.8.50, ref effects.ts:562-640 `applyReflection`.
 // The body is the rect x 10..90, y 10..50 px; the mirrored copy hangs off its
@@ -290,13 +309,7 @@ fn rot_with_shape_controls_the_shadow_offset_frame() {
 // covers y 50..90. Every probe uses a black body, so R = 255·(1 - alpha).
 // ---------------------------------------------------------------------------
 
-fn refl(
-    st_a: f32,
-    end_a: f32,
-    st_pos: f32,
-    end_pos: f32,
-    dist_emu: i64,
-) -> VectorReflection {
+fn refl(st_a: f32, end_a: f32, st_pos: f32, end_pos: f32, dist_emu: i64) -> VectorReflection {
     VectorReflection {
         blur_radius_emu: 0,
         start_opacity: st_a,
@@ -311,7 +324,10 @@ fn refl(
 
 /// Rasterize a reflection-only scene and return it with the alpha probes.
 fn refl_image(r: VectorReflection) -> RgbaSlide {
-    let effects = ShapeEffects { reflection: Some(r), ..Default::default() };
+    let effects = ShapeEffects {
+        reflection: Some(r),
+        ..Default::default()
+    };
     raster_filled(effects, AffineTransform::default(), [0, 0, 0, 255])
 }
 
@@ -420,7 +436,11 @@ fn reflection_distance_leaves_a_gap() {
     let img = refl_image(refl(1.0, 1.0, 0.0, 1.0, 100_000));
 
     for y in [51, 55, 58] {
-        assert_eq!(px(&img, 50, y), [255, 255, 255, 255], "dist must leave a 10 px gap (y {y})");
+        assert_eq!(
+            px(&img, 50, y),
+            [255, 255, 255, 255],
+            "dist must leave a 10 px gap (y {y})"
+        );
     }
     close(black_alpha(&img, 50, 62), 1.0, 0.02, "copy starts after the gap");
     close(black_alpha(&img, 50, 95), 1.0, 0.02, "copy shifted down by dist");
@@ -464,7 +484,10 @@ fn reflection_blur_uses_the_authored_radius_as_sigma() {
     let near = black_alpha(&img, 50, 91);
     let mid = black_alpha(&img, 50, 94);
     let far = black_alpha(&img, 50, 98);
-    assert!((0.25..0.7).contains(&near), "sigma=5 px must bleed past the edge, got {near}");
+    assert!(
+        (0.25..0.7).contains(&near),
+        "sigma=5 px must bleed past the edge, got {near}"
+    );
     assert!(near > mid && mid > far, "the bleed must decay: {near} / {mid} / {far}");
 
     // Control: no blur ⇒ a hard edge exactly at the band bottom.

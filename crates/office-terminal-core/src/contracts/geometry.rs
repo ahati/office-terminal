@@ -16,10 +16,28 @@ pub enum FillRule {
 /// A segment in a 2D vector path.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PathSegment {
-    MoveTo { x: f32, y: f32 },
-    LineTo { x: f32, y: f32 },
-    QuadTo { x1: f32, y1: f32, x: f32, y: f32 },
-    CubicTo { x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32 },
+    MoveTo {
+        x: f32,
+        y: f32,
+    },
+    LineTo {
+        x: f32,
+        y: f32,
+    },
+    QuadTo {
+        x1: f32,
+        y1: f32,
+        x: f32,
+        y: f32,
+    },
+    CubicTo {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        x: f32,
+        y: f32,
+    },
     Close,
 }
 
@@ -140,10 +158,7 @@ impl AffineTransform {
 
     /// Apply transform to a point (x, y)
     pub fn transform_point(&self, x: f32, y: f32) -> (f32, f32) {
-        (
-            self.sx * x + self.kx * y + self.tx,
-            self.ky * x + self.sy * y + self.ty,
-        )
+        (self.sx * x + self.kx * y + self.tx, self.ky * x + self.sy * y + self.ty)
     }
 }
 
@@ -198,10 +213,7 @@ impl RectF32 {
     }
 
     pub fn intersects(&self, other: &RectF32) -> bool {
-        self.x <= other.right()
-            && self.right() >= other.x
-            && self.y <= other.bottom()
-            && self.bottom() >= other.y
+        self.x <= other.right() && self.right() >= other.x && self.y <= other.bottom() && self.bottom() >= other.y
     }
 
     pub fn intersection_area(&self, other: &RectF32) -> f32 {

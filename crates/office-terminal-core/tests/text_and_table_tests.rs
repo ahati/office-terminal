@@ -1,5 +1,5 @@
-use office_terminal_core::*;
 use crossbeam_channel::unbounded;
+use office_terminal_core::*;
 use pptx_model::*;
 
 #[test]

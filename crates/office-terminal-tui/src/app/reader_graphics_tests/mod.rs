@@ -1,10 +1,8 @@
 //! L2 Layout and protocol golden tests for Reader mode (PRD 14a §11, Issues #24 & #26).
 
-use std::sync::{Arc, Mutex};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use office_terminal_core::{
-    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-    RgbaSlide,
+    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
 };
 use office_terminal_display::{
     CellRect, DriverCaps, ImageId, PixelRect, Placement, PlacementMode, TerminalGraphicsDriver,
@@ -12,6 +10,7 @@ use office_terminal_display::{
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
+use std::sync::{Arc, Mutex};
 
 use crate::app::bindings::FrameBindings;
 use crate::app::events::handle_key_event;
@@ -45,11 +44,7 @@ fn reader_fixture(
 /// Draws one reader frame at `width`×45, publishes the frame bindings onto
 /// the state exactly like the run loop, and returns them for geometry
 /// assertions.
-fn draw_reader(
-    state: &mut PresentationState,
-    terminal: &mut Terminal<TestBackend>,
-    width: u16,
-) -> FrameBindings {
+fn draw_reader(state: &mut PresentationState, terminal: &mut Terminal<TestBackend>, width: u16) -> FrameBindings {
     let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| render_reader(state, f, Rect::new(0, 0, width, 45), &mut bindings))
@@ -137,7 +132,16 @@ impl TerminalGraphicsDriver for MockRecordingDriver {
         let mut r = self.record.lock().unwrap();
         match placement {
             Placement::Cells(rect) => {
-                r.presented.push((id.0, rect, PixelRect { x: 0, y: 0, width: 0, height: 0 }));
+                r.presented.push((
+                    id.0,
+                    rect,
+                    PixelRect {
+                        x: 0,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    },
+                ));
             }
             Placement::CellsSubrect { rect, src } => {
                 r.presented.push((id.0, rect, src));
@@ -178,7 +182,10 @@ fn test_spread_zoom_layout_goldens_issue_24() {
         p1[0].cell_rect.col, 11,
         "Row centered: the 138-col row gets (160 - 138) / 2 = 11 margin cols"
     );
-    assert_eq!(p1[0].pixel_src.width, 1280, "Left pane full page width at fit (1280 class)");
+    assert_eq!(
+        p1[0].pixel_src.width, 1280,
+        "Left pane full page width at fit (1280 class)"
+    );
     assert_eq!(p1[1].cell_rect.col, 81, "Right starts at col 81 (11 + 68 + 2 gutter)");
     assert_eq!(p1[1].cell_rect.cols, 68, "Right pane fits at 68 cols");
     assert_eq!(p1[1].pixel_src.width, 1280, "Right pane full page width (1280 class)");
@@ -272,7 +279,10 @@ fn test_fractional_column_scroll_goldens_issue_26() {
 
         // Next row is partially visible below it with vertical gutter
         let next_row_placements: Vec<_> = placements.iter().filter(|p| p.page >= 2).collect();
-        assert!(!next_row_placements.is_empty(), "Next row visible below clipped top row");
+        assert!(
+            !next_row_placements.is_empty(),
+            "Next row visible below clipped top row"
+        );
         assert_eq!(
             next_row_placements[0].cell_rect.row,
             top_pane.cell_rect.rows + crate::app::ui::reader::VERTICAL_GUTTER_ROWS
@@ -328,11 +338,16 @@ fn test_recording_driver_scroll_zero_re_render_issue_26() {
     let (mut driver, log) = MockRecordingDriver::new();
     let pipeline = MockPdfPipeline;
     let mut syncer = GraphicsSyncer::new();
-    let canvas_target = RenderTargetSpec { width_px: 2560, height_px: 3312 };
+    let canvas_target = RenderTargetSpec {
+        width_px: 2560,
+        height_px: 3312,
+    };
 
     // Initial render
     let bindings = draw_reader(&mut state, &mut terminal, 160);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings)
+        .unwrap();
 
     let initial_stages = log.lock().unwrap().staged.len();
     assert_eq!(initial_stages, 2, "Initially stages 2 spread pages");
@@ -345,20 +360,34 @@ fn test_recording_driver_scroll_zero_re_render_issue_26() {
     let metrics = office_terminal_display::probe_cell_pixel_size();
     let cell_w_px = metrics.width_px.max(4.0) as f32;
     let cell_h_px = metrics.height_px.max(8.0) as f32;
-    let row_h = state.reader_state().unwrap().current_row_height_px(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px);
+    let row_h = state
+        .reader_state()
+        .unwrap()
+        .current_row_height_px(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px);
 
     // Step scroll within the row 4 times
     for step in 1..=4 {
         let offset = (step as f32 * row_h / 8.0).round() as i64;
         state.reader_state_mut().unwrap().scroll_px = offset;
         let bindings = draw_reader(&mut state, &mut terminal, 160);
-        syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings).unwrap();
+        syncer
+            .sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings)
+            .unwrap();
     }
 
     // Zero stage calls for new bitmaps of existing visible panes on pure movement
     let (id_p0, id_p1) = (page_image_id(0).0, page_image_id(1).0);
-    let re_stages_of_existing = log.lock().unwrap().staged.iter().filter(|&&id| id == id_p0 || id == id_p1).count();
-    assert_eq!(re_stages_of_existing, 2, "Zero re-stages for initial pages during scroll");
+    let re_stages_of_existing = log
+        .lock()
+        .unwrap()
+        .staged
+        .iter()
+        .filter(|&&id| id == id_p0 || id == id_p1)
+        .count();
+    assert_eq!(
+        re_stages_of_existing, 2,
+        "Zero re-stages for initial pages during scroll"
+    );
 }
 
 #[test]
@@ -389,7 +418,10 @@ fn test_zoomed_spread_horizontal_row_slide_arrow_keys() {
 
     let p_fit = &b_fit.reader;
     assert_eq!(p_fit.len(), 2);
-    assert_eq!(p_fit[1].cell_rect.col, 81, "Centered fit row: right pane at 11 + 68 + 2");
+    assert_eq!(
+        p_fit[1].cell_rect.col, 81,
+        "Centered fit row: right pane at 11 + 68 + 2"
+    );
 
     // Fit-width: panes fill their 79-col slots and the row exactly fills
     // the viewport. The zoom reflow keeps two columns at moderate zoom
@@ -480,11 +512,16 @@ fn test_horizontal_mode_zero_restaging_on_advance() {
     let (mut driver, log) = MockRecordingDriver::new();
     let pipeline = MockPdfPipeline;
     let mut syncer = GraphicsSyncer::new();
-    let canvas_target = RenderTargetSpec { width_px: 2560, height_px: 3312 };
+    let canvas_target = RenderTargetSpec {
+        width_px: 2560,
+        height_px: 3312,
+    };
 
     // Initial draw and sync
     let bindings = draw_reader(&mut state, &mut terminal, 160);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings)
+        .unwrap();
 
     let initial_staged = log.lock().unwrap().staged.clone();
     assert!(!initial_staged.is_empty());
@@ -492,7 +529,9 @@ fn test_horizontal_mode_zero_restaging_on_advance() {
     // Advance anchor by 1 page
     handle_key_event(make_key(KeyCode::PageDown), &mut state);
     let bindings = draw_reader(&mut state, &mut terminal, 160);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings).unwrap();
+    syncer
+        .sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings)
+        .unwrap();
 
     let post_staged = log.lock().unwrap().staged.clone();
     // Image IDs for pages that were already visible/staged should NOT appear a second time in staged list
@@ -502,79 +541,4 @@ fn test_horizontal_mode_zero_restaging_on_advance() {
     }
 }
 
-#[test]
-fn test_row_transition_zero_restage_stable_ids() {
-    let (mut terminal, mut state) = reader_fixture(160, 10, vec![(612.0, 792.0); 10]);
-
-    let (mut driver, log) = MockRecordingDriver::new();
-    let pipeline = MockPdfPipeline;
-    let mut syncer = GraphicsSyncer::new();
-    let canvas_target = RenderTargetSpec { width_px: 2560, height_px: 3312 };
-
-    // Initial draw and sync: spread [0, 1] stages under stable per-page ids.
-    let bindings = draw_reader(&mut state, &mut terminal, 160);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings).unwrap();
-
-    let metrics = office_terminal_display::probe_cell_pixel_size();
-    let cell_w_px = metrics.width_px.max(4.0) as f32;
-    let cell_h_px = metrics.height_px.max(8.0) as f32;
-    let (row_stride, base_h) = {
-        let reader = state.reader_state().unwrap();
-        (
-            reader.current_row_stride_px(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px, cell_h_px),
-            reader.current_row_height_px(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px),
-        )
-    };
-
-    // Scroll near the row boundary so pages 2,3 peek from below and stage.
-    state.reader_state_mut().unwrap().scroll_px = (row_stride - 8.0).round() as i64;
-    let bindings = draw_reader(&mut state, &mut terminal, 160);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings).unwrap();
-
-    let peek_placements: Vec<_> = bindings
-        .reader
-        .iter()
-        .filter(|p| p.page >= 2)
-        .collect();
-    assert!(peek_placements.len() >= 2, "Next-row pages peek from below");
-    for p in &peek_placements {
-        assert_eq!(p.id, page_image_id(p.page), "pane ids are page-stable, not row-parity");
-    }
-    let staged_before = log.lock().unwrap().staged.len();
-    let presented_before = log.lock().unwrap().presented.len();
-    assert_eq!(staged_before, 4, "All four visible panes staged exactly once");
-
-    // Cross the row boundary exactly like the j handler does: pages 2,3
-    // become the primary row with the SAME stable ids.
-    state.reader_state_mut().unwrap().scroll_px = (row_stride + 4.0).round() as i64;
-    let geo = {
-        let metrics = office_terminal_display::probe_cell_pixel_size();
-        let cell_w_px = metrics.width_px.max(4.0) as f32;
-        let cell_h_px = metrics.height_px.max(8.0) as f32;
-        let reader = state.reader_state().unwrap();
-        crate::app::reader_scroll::RowGeometry {
-            viewport_h_px: 44.0 * cell_h_px,
-            slot_w_px: reader.slot_width(160.0 * cell_w_px, 44.0 * cell_h_px, cell_w_px),
-            cell_w_px,
-            cell_h_px,
-        }
-    };
-    let _ = state
-        .reader_state_mut()
-        .unwrap()
-        .scroll_column_detailed(0, row_stride, base_h, geo);
-    assert_eq!(state.reader_state().unwrap().anchor, 2, "Anchor advanced to the next row");
-
-    let bindings = draw_reader(&mut state, &mut terminal, 160);
-    syncer.sync(&mut state, &pipeline, &mut driver, &canvas_target, &bindings).unwrap();
-
-    assert_eq!(
-        log.lock().unwrap().staged.len(),
-        staged_before,
-        "row transition re-places panes without re-transmitting them"
-    );
-    assert!(
-        log.lock().unwrap().presented.len() > presented_before,
-        "the moved panes were re-placed at their new cells"
-    );
-}
+mod row_transition;

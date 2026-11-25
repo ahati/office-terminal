@@ -147,8 +147,7 @@ impl LineOracle {
                     let j = rel - item.first_atom;
                     let mut advance = text_prefix_px(table, text, bytes[j]) * 12700.0;
                     if table.spacing_emu != 0.0 {
-                        advance +=
-                            table.spacing_emu * (chars[j].saturating_sub(1)) as f32;
+                        advance += table.spacing_emu * (chars[j].saturating_sub(1)) as f32;
                     }
                     acc += advance;
                 }
@@ -162,11 +161,7 @@ impl LineOracle {
 
 /// Freeze the pending text run into an oracle item through the measurer's
 /// word-level capability; `None` makes the caller fall back to probing.
-fn freeze(
-    items: &mut Vec<OracleItem>,
-    pending: Option<PendingText>,
-    o: &BreakOptions<'_>,
-) -> Option<()> {
+fn freeze(items: &mut Vec<OracleItem>, pending: Option<PendingText>, o: &BreakOptions<'_>) -> Option<()> {
     let Some(item) = pending else {
         return Some(());
     };
@@ -274,7 +269,10 @@ fn fold_words(words: &[crate::text::measure::WrapWord]) -> f32 {
 fn split_trailing_blanks(
     words: &[crate::text::measure::WrapWord],
     last: usize,
-) -> (&[crate::text::measure::WrapWord], Option<&[crate::text::measure::WrapWord]>) {
+) -> (
+    &[crate::text::measure::WrapWord],
+    Option<&[crate::text::measure::WrapWord]>,
+) {
     if !words[last].blank {
         return (&words[..=last], None);
     }

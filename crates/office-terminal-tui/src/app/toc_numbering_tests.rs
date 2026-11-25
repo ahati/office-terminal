@@ -10,19 +10,13 @@ fn depths_of(levels: &[usize]) -> Vec<usize> {
 
 #[test]
 fn numbers_follow_preorder_tree() {
-    assert_eq!(
-        nums(&[0, 1, 2, 1, 0]),
-        vec!["1", "1.1", "1.1.1", "1.2", "2"]
-    );
+    assert_eq!(nums(&[0, 1, 2, 1, 0]), vec!["1", "1.1", "1.1.1", "1.2", "2"]);
     assert_eq!(depths_of(&[0, 1, 2, 1, 0]), vec![0, 1, 2, 1, 0]);
 }
 
 #[test]
 fn siblings_share_depth_and_reset_when_parent_changes() {
-    assert_eq!(
-        nums(&[0, 0, 1, 1, 0, 1]),
-        vec!["1", "2", "2.1", "2.2", "3", "3.1"]
-    );
+    assert_eq!(nums(&[0, 0, 1, 1, 0, 1]), vec!["1", "2", "2.1", "2.2", "3", "3.1"]);
     assert_eq!(depths_of(&[0, 0, 1, 1, 0, 1]), vec![0, 0, 1, 1, 0, 1]);
 }
 

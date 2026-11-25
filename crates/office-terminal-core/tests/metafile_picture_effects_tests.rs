@@ -1,19 +1,17 @@
 //! Tests for picture-level blip effects and opacity on metafile expansion (Issue #7).
 
-use std::path::Path;
-use std::sync::Arc;
 use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::{
-    AffineTransform, BlipEffect, NormalizedRect, RectF32, RenderTargetSpec, VectorCommand,
-    VectorPaint, VectorPath, VectorSlide,
+    AffineTransform, BlipEffect, NormalizedRect, RectF32, RenderTargetSpec, VectorCommand, VectorPaint, VectorPath,
+    VectorSlide,
 };
-use office_terminal_core::loader::{
-    DefaultAssetStore, DefaultPresentationLoader, PresentationLoader, Source,
-};
+use office_terminal_core::loader::{DefaultAssetStore, DefaultPresentationLoader, PresentationLoader, Source};
 use office_terminal_core::metafile::effects::apply_metafile_effects;
 use office_terminal_core::metafile::expand_metafiles;
 use office_terminal_core::rasterizer::{SlideRasterizer, TinySkiaRasterizer};
 use office_terminal_core::{DefaultSlideCompiler, SlideCompiler};
+use std::path::Path;
+use std::sync::Arc;
 
 #[test]
 fn color_change_white_to_transparent_remaps_fill_and_preserves_background() {
@@ -145,9 +143,7 @@ fn metafile_marker_carries_effects_through_expansion() {
 
 #[test]
 fn tdf113163_regression_test() {
-    let fixture_path = Path::new(
-        "target/external/fixtures/2ddb63be403dcead26b52f657ba869d28785c038/tdf113163.pptx",
-    );
+    let fixture_path = Path::new("target/external/fixtures/2ddb63be403dcead26b52f657ba869d28785c038/tdf113163.pptx");
     if !fixture_path.exists() {
         return;
     }
@@ -196,7 +192,11 @@ fn tdf113163_regression_test() {
 
     // After expansion: NO opaque white DrawPath may exist
     for cmd in &vector_slide.commands {
-        if let VectorCommand::DrawPath { fill: Some(VectorPaint::Solid(color)), .. } = cmd {
+        if let VectorCommand::DrawPath {
+            fill: Some(VectorPaint::Solid(color)),
+            ..
+        } = cmd
+        {
             assert!(
                 *color != [255, 255, 255, 255],
                 "tdf113163 must not contain opaque white DrawPath after expansion"

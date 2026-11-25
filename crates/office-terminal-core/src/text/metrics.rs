@@ -110,10 +110,7 @@ pub fn natural_line_box(runs: &[(f32, FaceMetrics)]) -> (f32, f32) {
     let measurable = ascent + descent;
     // `!(ascent + descent > 0)` in the reference, NaN included.
     if measurable.is_nan() || measurable <= 0.0 {
-        return (
-            height * SYNTHETIC_ASCENT_EM,
-            height * SYNTHETIC_DESCENT_EM,
-        );
+        return (height * SYNTHETIC_ASCENT_EM, height * SYNTHETIC_DESCENT_EM);
     }
     let above = height * ascent / measurable;
     (above, height - above)
@@ -135,13 +132,7 @@ pub fn natural_line_box(runs: &[(f32, FaceMetrics)]) -> (f32, f32) {
 /// `H`. `spcPts` is rounded to whole points first
 /// (`renderer.ts:5440-5441`); the percentage itself is **not** rounded by the
 /// PowerPoint path.
-pub fn spaced_line_box(
-    ascent: f32,
-    descent: f32,
-    space: SpaceLine,
-    px_per_pt: f32,
-    reduction: f32,
-) -> (f32, f32) {
+pub fn spaced_line_box(ascent: f32, descent: f32, space: SpaceLine, px_per_pt: f32, reduction: f32) -> (f32, f32) {
     let natural = ascent + descent;
     let space = match space {
         Some((false, val)) => Some((false, exact_line_points(val))),
@@ -193,14 +184,7 @@ pub fn paragraph_spacing(space: SpaceLine, natural_line_height: f32, px_per_pt: 
 /// taller than the box overflows both edges; `b` clamps at the rectangle
 /// bottom. Anything else (`t`, `just`, `dist`, omitted) returns the rectangle
 /// top.
-pub fn block_top(
-    anchor: &str,
-    box_top: f32,
-    box_h: f32,
-    inset_t: f32,
-    inset_b: f32,
-    content_h: f32,
-) -> f32 {
+pub fn block_top(anchor: &str, box_top: f32, box_h: f32, inset_t: f32, inset_b: f32, content_h: f32) -> f32 {
     let rect_top = box_top + inset_t;
     let rect_h = (box_h - inset_t - inset_b).max(0.0);
     match anchor {
@@ -219,13 +203,7 @@ pub fn block_top(
 /// renderer uses for both the `ctr` and `r` pen at `renderer.ts:5888` and
 /// `5895`). Under `rtl`, an `l`/omitted alignment puts the line at the right
 /// edge of the region.
-pub fn align_x(
-    alignment: &str,
-    region_left: f32,
-    region_width: f32,
-    natural: f32,
-    rtl: bool,
-) -> f32 {
+pub fn align_x(alignment: &str, region_left: f32, region_width: f32, natural: f32, rtl: bool) -> f32 {
     let slack = region_width - natural;
     if alignment == "ctr" {
         return region_left + slack / 2.0;
@@ -268,18 +246,13 @@ mod tests {
     fn baselines(size: f32, count: usize, space: SpaceLine) -> Vec<i32> {
         let (a, d) = natural_line_box(&[(size, ARIAL)]);
         let (a, d) = spaced_line_box(a, d, space, 1.0, 0.0);
-        (0..count)
-            .map(|i| snap(a + i as f32 * (a + d)))
-            .collect()
+        (0..count).map(|i| snap(a + i as f32 * (a + d))).collect()
     }
 
     const PCT100: SpaceLine = Some((true, 100_000.0));
 
     fn close(actual: f32, expected: f32) {
-        assert!(
-            (actual - expected).abs() < 1e-4,
-            "expected {expected}, got {actual}"
-        );
+        assert!((actual - expected).abs() < 1e-4, "expected {expected}, got {actual}");
     }
 
     #[test]
@@ -300,10 +273,7 @@ mod tests {
     #[test]
     fn fractional_sizes_keep_an_exact_1_2_line() {
         // Z-* control: 10.5 pt Arial, eight lines.
-        assert_eq!(
-            baselines(10.5, 8, PCT100),
-            [14, 32, 49, 67, 84, 102, 119, 137]
-        );
+        assert_eq!(baselines(10.5, 8, PCT100), [14, 32, 49, 67, 84, 102, 119, 137]);
     }
 
     #[test]
@@ -346,7 +316,8 @@ mod tests {
         close(a + d, 19.2);
         // Exactly one pitch, so the second baseline steps by 19.2.
         let second = a + (a + d);
-        close(second - a, 19.2);    }
+        close(second - a, 19.2);
+    }
 
     #[test]
     fn line_height_follows_drawingml_rule() {
@@ -436,19 +407,13 @@ mod tests {
         // 20 pt line (24 pt unit): spcBef 50 % adds 12 pt; a 40 pt line
         // (48 pt unit) adds 48 pt at 100 % — percentage-paragraph-spacing.
         close(paragraph_spacing(Some((true, 50_000.0)), 24.0, 1.0), 12.0);
-        close(
-            paragraph_spacing(Some((true, 100_000.0)), 40.0 * 1.2, 1.0),
-            48.0,
-        );
+        close(paragraph_spacing(Some((true, 100_000.0)), 40.0 * 1.2, 1.0), 48.0);
         // The base does not follow the paragraph's own lnSpc: the 40 pt
         // line's 80 % box is 38.4 pt, but 100 % spcBef still adds 48 pt.
         let (a, d) = natural_line_box(&[(40.0, ARIAL)]);
         let (a, d) = spaced_line_box(a, d, Some((true, 80_000.0)), 1.0, 0.0);
         close(a + d, 38.4);
-        close(
-            paragraph_spacing(Some((true, 100_000.0)), 1.2 * 40.0, 1.0),
-            48.0,
-        );
+        close(paragraph_spacing(Some((true, 100_000.0)), 1.2 * 40.0, 1.0), 48.0);
         // spcPts is absolute, omitted spacing adds nothing.
         close(paragraph_spacing(Some((false, 18.0)), 48.0, 1.0), 18.0);
         close(paragraph_spacing(Some((false, 18.0)), 48.0, 2.0), 36.0);

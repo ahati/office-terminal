@@ -1,9 +1,8 @@
-use std::fmt::Write;
 use crate::compiler::style::gradient;
 use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint,
-    VectorPath, VectorStroke,
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorGradient, VectorPaint, VectorPath, VectorStroke,
 };
+use std::fmt::Write;
 
 pub fn path_to_svg_d(path: &VectorPath) -> String {
     let mut d = String::new();
@@ -25,14 +24,7 @@ pub fn path_to_svg_d(path: &VectorPath) -> String {
                     round_coord(*y)
                 );
             }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 let _ = write!(
                     &mut d,
                     "C {} {}, {} {}, {} {} ",
@@ -75,14 +67,7 @@ pub fn path_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
                 add(*x1, *y1);
                 add(*x, *y);
             }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 add(*x1, *y1);
                 add(*x2, *y2);
                 add(*x, *y);
@@ -114,12 +99,12 @@ pub fn format_fill_attr(fill: Option<&VectorPaint>, gradient_id: Option<&str>) -
         // §20.1.8.14 / §20.1.8.40 brushes: both reference a paint-server def
         // (`<pattern>`) collected with the gradients; without one the path keeps
         // an unpainted fill (ref renderer.ts:2620-2700, paint.ts:459-479).
-        Some(VectorPaint::Image(_))
-        | Some(VectorPaint::Pattern(_))
-        | Some(VectorPaint::Texture(_)) => match gradient_id {
-            Some(id) => format!(r#"fill="url(#{})""#, id),
-            None => r#"fill="none""#.to_string(),
-        },
+        Some(VectorPaint::Image(_)) | Some(VectorPaint::Pattern(_)) | Some(VectorPaint::Texture(_)) => {
+            match gradient_id {
+                Some(id) => format!(r#"fill="url(#{})""#, id),
+                None => r#"fill="none""#.to_string(),
+            }
+        }
         None => r#"fill="none""#.to_string(),
     }
 }
@@ -227,12 +212,7 @@ fn round_coord(v: f32) -> String {
 /// Emit a linear gradient definition in the path's local user space using the
 /// same frame math as the rasterizer.
 /// ref packages/core/src/shape/paint.ts:290-300
-pub fn emit_linear_gradient_def(
-    defs: &mut String,
-    id: &str,
-    grad: &VectorGradient,
-    path: &VectorPath,
-) {
+pub fn emit_linear_gradient_def(defs: &mut String, id: &str, grad: &VectorGradient, path: &VectorPath) {
     if let Some(((x1, y1), (x2, y2))) = gradient::linear_axis_for_path(grad, path) {
         emit_linear_gradient_range(defs, id, grad, x1, y1, x2, y2);
     }
@@ -249,22 +229,11 @@ pub fn emit_linear_gradient_def_for_box(
     w: f32,
     h: f32,
 ) {
-    let ((x1, y1), (x2, y2)) = gradient::linear_axis(
-        grad,
-        gradient::GradientBox { x, y, w, h },
-    );
+    let ((x1, y1), (x2, y2)) = gradient::linear_axis(grad, gradient::GradientBox { x, y, w, h });
     emit_linear_gradient_range(defs, id, grad, x1, y1, x2, y2);
 }
 
-fn emit_linear_gradient_range(
-    defs: &mut String,
-    id: &str,
-    grad: &VectorGradient,
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32,
-) {
+fn emit_linear_gradient_range(defs: &mut String, id: &str, grad: &VectorGradient, x1: f32, y1: f32, x2: f32, y2: f32) {
     let _ = writeln!(
         defs,
         r#"    <linearGradient id="{}" gradientUnits="userSpaceOnUse" x1="{}" y1="{}" x2="{}" y2="{}">"#,
@@ -280,12 +249,7 @@ fn emit_linear_gradient_range(
 
 /// Emit a radial gradient definition in the path's local user space.
 /// ref packages/core/src/shape/paint.ts:114-140
-pub fn emit_radial_gradient_def(
-    defs: &mut String,
-    id: &str,
-    grad: &VectorGradient,
-    path: &VectorPath,
-) {
+pub fn emit_radial_gradient_def(defs: &mut String, id: &str, grad: &VectorGradient, path: &VectorPath) {
     let Some(((cx, cy), radius)) = gradient::radial_frame_for_path(grad, path) else {
         return;
     };

@@ -18,8 +18,7 @@ impl ReaderState {
     }
 
     fn set_displayed_scroll_px(&self, value: f32) {
-        self.displayed_scroll_px
-            .store(value.to_bits(), Ordering::Relaxed);
+        self.displayed_scroll_px.store(value.to_bits(), Ordering::Relaxed);
     }
 
     /// Shifts the displayed scroll by the same amount the target wrapped when

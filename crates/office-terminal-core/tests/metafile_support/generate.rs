@@ -16,10 +16,7 @@ pub fn gzip(data: &[u8]) -> Vec<u8> {
 }
 
 pub fn synthetic_wmf_placeable() -> Vec<u8> {
-    let records = [
-        wmf_rect([10, 10, 120, 80]),
-        wmf_ext_text([20, 60], b"Hi", 0, &[]),
-    ];
+    let records = [wmf_rect([10, 10, 120, 80]), wmf_ext_text([20, 60], b"Hi", 0, &[])];
     wmf_placeable(&records)
 }
 
@@ -59,11 +56,7 @@ pub fn synthetic_emf_hatch() -> Vec<u8> {
     brush.extend_from_slice(&2u32.to_le_bytes()); // BS_HATCHED
     brush.extend_from_slice(&0x0000_00FFu32.to_le_bytes()); // red
     brush.extend_from_slice(&0u32.to_le_bytes()); // HS_HORIZONTAL
-    let records = [
-        record(39, &brush),
-        select_object(2),
-        rectangle([10, 10, 120, 80]),
-    ];
+    let records = [record(39, &brush), select_object(2), rectangle([10, 10, 120, 80])];
     emf(&records)
 }
 
@@ -144,10 +137,7 @@ pub fn ensure_synthetic_fixtures(fixture_dir: &Path) -> std::io::Result<()> {
             "synthetic-emfplus-linear-gradient.emf",
             synthetic_emfplus_linear_gradient(),
         ),
-        (
-            "synthetic-emfplus-path-gradient.emf",
-            synthetic_emfplus_path_gradient(),
-        ),
+        ("synthetic-emfplus-path-gradient.emf", synthetic_emfplus_path_gradient()),
         (
             "synthetic-emfplus-text-transform.emf",
             synthetic_emfplus_text_transform(),
@@ -160,7 +150,9 @@ pub fn ensure_synthetic_fixtures(fixture_dir: &Path) -> std::io::Result<()> {
 
     for (name, bytes) in fixtures {
         let dest = fixture_dir.join(name);
-        if !dest.exists() || std::env::var("KITTY_PPTX_UPDATE_METAFILE_GOLDENS").is_ok() {
+        let update = std::env::var("OT_UPDATE_METAFILE_GOLDENS").is_ok()
+            || std::env::var("KITTY_PPTX_UPDATE_METAFILE_GOLDENS").is_ok();
+        if !dest.exists() || update {
             fs::write(&dest, bytes)?;
         }
     }

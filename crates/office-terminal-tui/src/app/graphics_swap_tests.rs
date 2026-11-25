@@ -29,12 +29,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use office_terminal_core::{
-    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-    RgbaSlide,
+    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
 };
 use office_terminal_display::{
-    DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver, CURRENT_IMAGE_ID_SLOTS,
-    CURRENT_IMAGE_ID_BASE, PREVIEW_IMAGE_ID_BASE, THUMBNAIL_IMAGE_ID_BASE,
+    DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver, CURRENT_IMAGE_ID_BASE,
+    CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE, THUMBNAIL_IMAGE_ID_BASE,
 };
 use ratatui::layout::Rect;
 
@@ -101,9 +100,7 @@ impl ScriptedPipeline {
 
     fn resolve(&self, index: usize) -> PipelineEntry {
         if let Some(size) = self.sizes.lock().unwrap().get(&index).copied() {
-            return PipelineEntry::Ready {
-                bitmap: bitmap(size),
-            };
+            return PipelineEntry::Ready { bitmap: bitmap(size) };
         }
         if self.rendering.lock().unwrap().contains(&index) {
             return PipelineEntry::Rendering;
@@ -161,12 +158,7 @@ pub(crate) struct LoggingDriver {
 impl LoggingDriver {
     pub(crate) fn new() -> (Self, Arc<Mutex<CallLog>>) {
         let log = Arc::new(Mutex::new(CallLog::default()));
-        (
-            Self {
-                log: Arc::clone(&log),
-            },
-            log,
-        )
+        (Self { log: Arc::clone(&log) }, log)
     }
 }
 
@@ -348,9 +340,9 @@ fn the_sorter_grid_survives_until_the_slide_is_on_screen() {
     {
         let log = log.lock().unwrap();
         assert!(
-            log.calls.iter().any(|c| c.starts_with(&format!(
-                "stage id={THUMBNAIL_IMAGE_ID_BASE}"
-            ))),
+            log.calls
+                .iter()
+                .any(|c| c.starts_with(&format!("stage id={THUMBNAIL_IMAGE_ID_BASE}"))),
             "cards live in the sorter id range: {:?}",
             log.calls
         );
@@ -409,8 +401,8 @@ fn renders_in_flight_and_queued_completions_keep_the_loop_awake() {
     let pipeline = Arc::new(ScriptedPipeline::default());
     let (driver, _log) = LoggingDriver::new();
     let (done_tx, done_rx) = crossbeam_channel::unbounded();
-    let mut app = PresentationApp::new(pipeline.clone(), Box::new(driver), 8, vec![None; 8])
-        .with_render_events(done_rx);
+    let mut app =
+        PresentationApp::new(pipeline.clone(), Box::new(driver), 8, vec![None; 8]).with_render_events(done_rx);
     // Hide the status line: no clock deadline, so an idle slide view has no
     // reason to wake on its own.
     app.state_mut().toggle_status_line();

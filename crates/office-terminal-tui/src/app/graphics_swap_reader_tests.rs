@@ -32,8 +32,18 @@ fn pane(page: usize, row: u16) -> ReaderSlotPlacement {
     ReaderSlotPlacement {
         page,
         id: page_image_id(page),
-        cell_rect: CellRect { row, col: 0, rows: 40, cols: 60 },
-        pixel_src: PixelRect { x: 0, y: 0, width: 2560, height: 800 },
+        cell_rect: CellRect {
+            row,
+            col: 0,
+            rows: 40,
+            cols: 60,
+        },
+        pixel_src: PixelRect {
+            x: 0,
+            y: 0,
+            width: 2560,
+            height: 800,
+        },
         page_target: PAGE_TARGET,
         max_scroll_x: 0,
         is_primary: true,
@@ -154,11 +164,7 @@ fn a_rendering_page_keeps_the_displayed_image_until_the_raster_lands() {
     // swap atomically once it lands: present first, release after. The
     // release-into-a-blank discipline flickered at every transition when a
     // held key outran the rasterizer.
-    let pipeline = ScriptedPipeline::ready(&[
-        (5, CARD_RASTER),
-        (17, CARD_RASTER),
-        (29, CARD_RASTER),
-    ]);
+    let pipeline = ScriptedPipeline::ready(&[(5, CARD_RASTER), (17, CARD_RASTER), (29, CARD_RASTER)]);
     let (mut driver, log) = LoggingDriver::new();
     let mut syncer = GraphicsSyncer::new();
     let mut state = reader_state(30);
@@ -270,7 +276,9 @@ fn a_page_kept_while_rendering_returns_instantly() {
         log.calls
     );
     assert!(
-        log.calls.iter().any(|call| call.starts_with(&format!("present id={id}"))),
+        log.calls
+            .iter()
+            .any(|call| call.starts_with(&format!("present id={id}"))),
         "the pane is placed from the resident bitmap"
     );
 }
@@ -293,7 +301,10 @@ fn the_sorter_teardown_waits_for_the_reader_to_present() {
         .sync(&mut state, &pipeline, &mut driver, &CANVAS, &reader_bindings)
         .unwrap();
     assert!(
-        log.lock().unwrap().position(&format!("present id={}", page_image_id(5).0)).is_some(),
+        log.lock()
+            .unwrap()
+            .position(&format!("present id={}", page_image_id(5).0))
+            .is_some(),
         "the reader pane is on screen"
     );
 
@@ -301,8 +312,24 @@ fn the_sorter_teardown_waits_for_the_reader_to_present() {
     state.open_sorter();
     let sorter_bindings = FrameBindings {
         thumbnails: vec![
-            (5, CellRect { row: 0, col: 0, rows: 10, cols: 40 }),
-            (6, CellRect { row: 0, col: 40, rows: 10, cols: 40 }),
+            (
+                5,
+                CellRect {
+                    row: 0,
+                    col: 0,
+                    rows: 10,
+                    cols: 40,
+                },
+            ),
+            (
+                6,
+                CellRect {
+                    row: 0,
+                    col: 40,
+                    rows: 10,
+                    cols: 40,
+                },
+            ),
         ],
         ..FrameBindings::default()
     };

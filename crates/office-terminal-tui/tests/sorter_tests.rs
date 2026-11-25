@@ -230,15 +230,7 @@ fn test_sorter_ui_rendering_smoke() {
     for y in 0..buffer.area.height {
         let mut line_str = String::new();
         for x in 0..buffer.area.width {
-            line_str.push(
-                buffer
-                    .cell((x, y))
-                    .unwrap()
-                    .symbol()
-                    .chars()
-                    .next()
-                    .unwrap_or(' '),
-            );
+            line_str.push(buffer.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '));
         }
         if line_str.contains("SLIDE SORTER") {
             text_found = true;
@@ -267,11 +259,7 @@ fn test_sorter_cards_reserve_a_thumbnail_canvas() {
         .unwrap();
 
     let cards = bindings.thumbnails.clone();
-    assert_eq!(
-        cards.len(),
-        12,
-        "every visible card records a thumbnail rect"
-    );
+    assert_eq!(cards.len(), 12, "every visible card records a thumbnail rect");
 
     let buffer = terminal.backend().buffer();
     for (slide, rect) in &cards {
@@ -339,10 +327,7 @@ fn test_sorter_44_slides_scrolling_and_navigation() {
         .unwrap();
 
     let prev_cards = bindings.thumbnails.clone();
-    assert!(
-        prev_cards.iter().any(|(s, _)| *s == 39),
-        "slide 39 is visible"
-    );
+    assert!(prev_cards.iter().any(|(s, _)| *s == 39), "slide 39 is visible");
     assert!(
         prev_cards.iter().any(|(s, _)| *s == 43),
         "slide 43 remains visible due to scroll hysteresis"
@@ -380,11 +365,7 @@ fn test_reproduce_sorter_search_exit_trapped() {
     // 4. Return from Slide Sorter to main view via Enter
     let action_sorter_enter = handle_key_event(make_key(KeyCode::Enter), &mut state);
     assert_eq!(action_sorter_enter, AppAction::SlideChanged);
-    assert_eq!(
-        state.mode(),
-        AppMode::Reader,
-        "Should return to Reader (main view)"
-    );
+    assert_eq!(state.mode(), AppMode::Reader, "Should return to Reader (main view)");
     assert_eq!(state.current_slide(), 3);
 
     // 5. Test exiting via Esc, Tab, and 's' after opening search

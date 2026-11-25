@@ -1,8 +1,8 @@
 //! Normalized AST serializer and comparison for metafile tests (PRD 13a §5.1).
 
 use office_terminal_core::contracts::{
-    AffineTransform, BitmapSampling, DecorationLine, FillRule, PathSegment, PositionedGlyphRun,
-    VectorCommand, VectorPaint, VectorPath, VectorSlide, VectorStroke,
+    AffineTransform, BitmapSampling, DecorationLine, FillRule, PathSegment, PositionedGlyphRun, VectorCommand,
+    VectorPaint, VectorPath, VectorSlide, VectorStroke,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -125,14 +125,7 @@ pub fn segment_to_ast(seg: &PathSegment) -> Value {
         PathSegment::QuadTo { x1, y1, x, y } => {
             json!({ "type": "quadTo", "x1": r4(x1), "y1": r4(y1), "x": r4(x), "y": r4(y) })
         }
-        PathSegment::CubicTo {
-            x1,
-            y1,
-            x2,
-            y2,
-            x,
-            y,
-        } => json!({
+        PathSegment::CubicTo { x1, y1, x2, y2, x, y } => json!({
             "type": "cubicTo",
             "x1": r4(x1), "y1": r4(y1),
             "x2": r4(x2), "y2": r4(y2),
@@ -230,11 +223,7 @@ pub fn scene_to_ast(scene: &VectorSlide) -> Value {
     })
 }
 
-pub fn compare_ast_commands(
-    actual: &Value,
-    expected: &Value,
-    fixture_id: &str,
-) -> Result<(), String> {
+pub fn compare_ast_commands(actual: &Value, expected: &Value, fixture_id: &str) -> Result<(), String> {
     let act_cmds = actual["commands"]
         .as_array()
         .ok_or_else(|| "Actual AST missing commands array".to_string())?;

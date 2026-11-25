@@ -12,9 +12,7 @@ use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
 use crate::app::ui::render_app;
 use crate::widget::canvas::clear_letterbox;
-use crate::widget::layout::{
-    compute_slide_rect, ASPECT_16_9, ASPECT_4_3, DEFAULT_CELL_ASPECT_RATIO,
-};
+use crate::widget::layout::{compute_slide_rect, ASPECT_16_9, ASPECT_4_3, DEFAULT_CELL_ASPECT_RATIO};
 use crate::widget::zoom_fit::compute_zoomed_slide_fit;
 
 /// Benchmarks fullscreen presentation rendering at multiple terminal resolutions.
@@ -45,10 +43,8 @@ pub fn bench_render_presenter() -> Vec<BenchmarkResult> {
     for (label, w, h) in sizes {
         let backend = TestBackend::new(w, h);
         let mut terminal = Terminal::new(backend).expect("valid terminal backend");
-        let notes = vec![
-            Some("Detailed speaker notes to benchmark presenter text formatting and wrapping.".to_string());
-            10
-        ];
+        let notes =
+            vec![Some("Detailed speaker notes to benchmark presenter text formatting and wrapping.".to_string()); 10];
         let mut state = PresentationState::new(10, notes);
         state.set_mode(AppMode::PresenterConsole);
 
@@ -105,38 +101,17 @@ pub fn bench_compute_zoomed_slide_fit() -> Vec<BenchmarkResult> {
     let mut results = Vec::with_capacity(3);
 
     results.push(run_benchmark("compute_zoomed_fit_1.0x", 100, 2000, || {
-        let fit = compute_zoomed_slide_fit(
-            area,
-            ASPECT_16_9,
-            DEFAULT_CELL_ASPECT_RATIO,
-            1.0,
-            0.0,
-            0.0,
-        );
+        let fit = compute_zoomed_slide_fit(area, ASPECT_16_9, DEFAULT_CELL_ASPECT_RATIO, 1.0, 0.0, 0.0);
         std::hint::black_box(fit);
     }));
 
     results.push(run_benchmark("compute_zoomed_fit_2.0x_panned", 100, 2000, || {
-        let fit = compute_zoomed_slide_fit(
-            area,
-            ASPECT_16_9,
-            DEFAULT_CELL_ASPECT_RATIO,
-            2.0,
-            10.5,
-            -5.2,
-        );
+        let fit = compute_zoomed_slide_fit(area, ASPECT_16_9, DEFAULT_CELL_ASPECT_RATIO, 2.0, 10.5, -5.2);
         std::hint::black_box(fit);
     }));
 
     results.push(run_benchmark("compute_zoomed_fit_4.0x_panned", 100, 2000, || {
-        let fit = compute_zoomed_slide_fit(
-            area,
-            ASPECT_16_9,
-            DEFAULT_CELL_ASPECT_RATIO,
-            4.0,
-            -25.0,
-            15.0,
-        );
+        let fit = compute_zoomed_slide_fit(area, ASPECT_16_9, DEFAULT_CELL_ASPECT_RATIO, 4.0, -25.0, 15.0);
         std::hint::black_box(fit);
     }));
 

@@ -80,11 +80,7 @@ pub fn shape(text: &str, family: &str, size_emu: f32, bold: bool, italic: bool) 
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
             for glyph in run.glyphs {
-                glyphs.push((
-                    glyph.glyph_id,
-                    glyph.x * 12700.0,
-                    glyph.w * 12700.0,
-                ));
+                glyphs.push((glyph.glyph_id, glyph.x * 12700.0, glyph.w * 12700.0));
                 font_ids.push(glyph.font_id);
             }
         }
@@ -172,13 +168,7 @@ pub struct ShapedWords {
 /// a word shaped to no glyphs, or the reproduced fold differing from the
 /// buffer's own `line_w` by a single bit — which also keeps a future
 /// cosmic-text version change from silently altering wrap decisions.
-pub fn shape_words(
-    text: &str,
-    family: &str,
-    size_emu: f32,
-    bold: bool,
-    italic: bool,
-) -> Option<ShapedWords> {
+pub fn shape_words(text: &str, family: &str, size_emu: f32, bold: bool, italic: bool) -> Option<ShapedWords> {
     if text.is_empty() {
         return None;
     }
@@ -239,38 +229,35 @@ pub fn shape_words(
             // taking `unicode-bidi` as a direct dependency.
             let level = span.level;
             let owned_family = family.to_string();
-            let fragment = Box::new(
-                move |text: &str, start: usize, cut: usize, line_rtl: bool| {
-                    super::fonts::with_font_system(|font_system| {
-                        let size_px = (size_emu / 12700.0).max(0.5);
-                        let mut attrs =
-                            Attrs::new().family(Family::Name(&owned_family));
-                        if bold {
-                            attrs = attrs.weight(Weight::BOLD);
-                        }
-                        if italic {
-                            attrs = attrs.style(Style::Italic);
-                        }
-                        let attrs_list = AttrsList::new(attrs);
-                        let mut word = ShapeWord::new(
-                            font_system,
-                            text,
-                            &attrs_list,
-                            start..cut,
-                            level,
-                            false,
-                            Shaping::Advanced,
-                        );
-                        // The line folds RTL-line words over reversed glyphs
-                        // (cosmic-text shape.rs:733-736); the probe folds the
-                        // same order to stay bit-identical.
-                        if line_rtl {
-                            word.glyphs.reverse();
-                        }
-                        word.width(size_px)
-                    })
-                },
-            );
+            let fragment = Box::new(move |text: &str, start: usize, cut: usize, line_rtl: bool| {
+                super::fonts::with_font_system(|font_system| {
+                    let size_px = (size_emu / 12700.0).max(0.5);
+                    let mut attrs = Attrs::new().family(Family::Name(&owned_family));
+                    if bold {
+                        attrs = attrs.weight(Weight::BOLD);
+                    }
+                    if italic {
+                        attrs = attrs.style(Style::Italic);
+                    }
+                    let attrs_list = AttrsList::new(attrs);
+                    let mut word = ShapeWord::new(
+                        font_system,
+                        text,
+                        &attrs_list,
+                        start..cut,
+                        level,
+                        false,
+                        Shaping::Advanced,
+                    );
+                    // The line folds RTL-line words over reversed glyphs
+                    // (cosmic-text shape.rs:733-736); the probe folds the
+                    // same order to stay bit-identical.
+                    if line_rtl {
+                        word.glyphs.reverse();
+                    }
+                    word.width(size_px)
+                })
+            });
             spans.push(ShapedSpan {
                 first,
                 last: words.len(),
@@ -436,12 +423,7 @@ fn face_ascent_share(db: &fontdb::Database, family: &str, bold: bool, italic: bo
 }
 
 /// Run a closure over the raw face data of `family` at the given weight/style.
-pub(crate) fn with_face_data<R>(
-    family: &str,
-    bold: bool,
-    italic: bool,
-    f: impl FnOnce(&[u8], u32) -> R,
-) -> Option<R> {
+pub(crate) fn with_face_data<R>(family: &str, bold: bool, italic: bool, f: impl FnOnce(&[u8], u32) -> R) -> Option<R> {
     super::fonts::with_face_db(|db| {
         let weight = if bold {
             fontdb::Weight::BOLD

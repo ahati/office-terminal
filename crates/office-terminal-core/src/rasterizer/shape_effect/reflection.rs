@@ -12,10 +12,10 @@
 //! the copy to the right of the shape. With `dir = 90°` the matrix reduces to
 //! the reference's `translate(bbox.x, bottom) · scale(sx, sy) · translate(-…)`.
 
+use super::filters;
 use crate::contracts::VectorReflection;
 use crate::rasterizer::mask::pixmap_from_premultiplied;
 use crate::rasterizer::scratch::EffectScratch;
-use super::filters;
 
 /// `(x, y, w, h)` box in the coordinate space of the target canvas.
 pub(crate) type Bbox = (f32, f32, f32, f32);
@@ -149,9 +149,7 @@ pub(super) fn composite(
     if lw == 0 || lh == 0 || bw <= 0.0 || bh <= 0.0 {
         return;
     }
-    if reflection.start_opacity.clamp(0.0, 1.0) <= 0.0
-        && reflection.end_opacity.clamp(0.0, 1.0) <= 0.0
-    {
+    if reflection.start_opacity.clamp(0.0, 1.0) <= 0.0 && reflection.end_opacity.clamp(0.0, 1.0) <= 0.0 {
         return;
     }
 
@@ -187,8 +185,7 @@ pub(super) fn composite(
     //    maps source pixels through `transform`, so the layer origin is folded
     //    into the translation.
     let m = mirror_matrix(reflection, bbox, scale);
-    let transform =
-        tiny_skia::Transform::from_row(m[0], m[1], m[2], m[3], m[4] + origin.0, m[5] + origin.1);
+    let transform = tiny_skia::Transform::from_row(m[0], m[1], m[2], m[3], m[4] + origin.0, m[5] + origin.1);
     let paint = tiny_skia::PixmapPaint {
         quality: tiny_skia::FilterQuality::Bilinear,
         ..tiny_skia::PixmapPaint::default()

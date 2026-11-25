@@ -156,9 +156,7 @@ struct RawProfile {
 /// Parse the pinned data once. A corrupt asset degrades to an empty catalogue
 /// (every face then takes the ordinary line model) rather than panicking.
 fn parse_catalogue() -> Catalogue {
-    let raw: RawCatalogue = match serde_json::from_str(include_str!(
-        "../../assets/fonts/office-face-metrics.json"
-    )) {
+    let raw: RawCatalogue = match serde_json::from_str(include_str!("../../assets/fonts/office-face-metrics.json")) {
         Ok(raw) => raw,
         Err(_) => {
             return Catalogue {
@@ -190,10 +188,7 @@ fn parse_catalogue() -> Catalogue {
             decoration: profile.decoration,
         });
     }
-    Catalogue {
-        profiles,
-        alias_index,
-    }
+    Catalogue { profiles, alias_index }
 }
 
 /// `normalizeFamilyName` (`reference-font-metrics.ts:95-101`): trim, collapse
@@ -403,8 +398,7 @@ fn excel_ratios(profile: &Profile) -> Option<[f64; 2]> {
         (ascender + line_gap.max(0.0), -descender)
     } else {
         let glyph_box = win_ascent + win_descent;
-        let external_leading =
-            (hhea_gap - (glyph_box - (hhea_ascent - hhea_descent))).max(0.0);
+        let external_leading = (hhea_gap - (glyph_box - (hhea_ascent - hhea_descent))).max(0.0);
         (win_ascent + external_leading, win_descent)
     };
     if !is_non_negative(ascent) || !is_non_negative(descent) || !is_positive(ascent + descent) {
@@ -438,8 +432,7 @@ fn resolve_decoration(family: &str, bold: bool, italic: bool) -> Option<Decorati
     let mut geometry: Option<DecorationGeometry> = None;
     for index in chosen_profiles(family, bold, italic) {
         let profile = &cat.profiles[index];
-        let [underline_position, underline_thickness, strikeout_position, strikeout_size] =
-            profile.decoration?;
+        let [underline_position, underline_thickness, strikeout_position, strikeout_size] = profile.decoration?;
         let em = profile.units_per_em;
         if !is_positive(em)
             || !is_positive(underline_thickness)
@@ -492,11 +485,7 @@ pub fn power_point_ascent_share(family: &str, bold: bool, italic: bool) -> Optio
 
 /// `powerPointFaceMetrics` (`powerpoint-line-metrics.ts:244-270`): the line
 /// metrics of a face, or `None` when its share is unresolvable.
-pub fn power_point_face_metrics(
-    family: &str,
-    bold: bool,
-    italic: bool,
-) -> Option<Arc<FaceMetricsFull>> {
+pub fn power_point_face_metrics(family: &str, bold: bool, italic: bool) -> Option<Arc<FaceMetricsFull>> {
     let key = cache_key(family, bold, italic);
     if let Some(hit) = face_cache::faces().get(&key).cloned() {
         return hit;

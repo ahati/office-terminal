@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::app::state::PresentationState;
 
@@ -15,10 +15,7 @@ pub fn render_comments_drawer(state: &PresentationState, f: &mut Frame, area: Re
     let drawer_width = 46.min(area.width.saturating_sub(2));
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(drawer_width),
-        ])
+        .constraints([Constraint::Min(0), Constraint::Length(drawer_width)])
         .split(area);
 
     let drawer_area = chunks[1];

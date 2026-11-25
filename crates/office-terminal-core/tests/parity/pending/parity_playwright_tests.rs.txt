@@ -1,5 +1,5 @@
 // ARCHIVE — NOT COMPILED.  Blocked cases removed from
-// crates/kitty-pptx-core/tests/parity_playwright_tests.rs
+// crates/office-terminal-core/tests/parity_playwright_tests.rs
 //
 // Rule: a test that is included must run, so no #[ignore] is left in the
 // compiled test tree. Every case below is blocked on a production API that

@@ -25,10 +25,22 @@ fn slide_with(reflection: VectorReflection) -> VectorSlide {
     slide.commands.push(VectorCommand::DrawPath {
         path: VectorPath::new(
             vec![
-                PathSegment::MoveTo { x: 100_000.0, y: 100_000.0 },
-                PathSegment::LineTo { x: 900_000.0, y: 100_000.0 },
-                PathSegment::LineTo { x: 900_000.0, y: 500_000.0 },
-                PathSegment::LineTo { x: 100_000.0, y: 500_000.0 },
+                PathSegment::MoveTo {
+                    x: 100_000.0,
+                    y: 100_000.0,
+                },
+                PathSegment::LineTo {
+                    x: 900_000.0,
+                    y: 100_000.0,
+                },
+                PathSegment::LineTo {
+                    x: 900_000.0,
+                    y: 500_000.0,
+                },
+                PathSegment::LineTo {
+                    x: 100_000.0,
+                    y: 500_000.0,
+                },
                 PathSegment::Close,
             ],
             FillRule::NonZero,
@@ -46,11 +58,7 @@ fn slide_with(reflection: VectorReflection) -> VectorSlide {
 
 fn svg_for(reflection: VectorReflection) -> String {
     DefaultSlideSvgSerializer::new()
-        .serialize_svg(
-            &slide_with(reflection),
-            &NoAssets,
-            SvgTextMode::SelectableText,
-        )
+        .serialize_svg(&slide_with(reflection), &NoAssets, SvgTextMode::SelectableText)
         .expect("serialize svg")
 }
 
@@ -108,14 +116,7 @@ fn reflection_transform(svg: &str) -> String {
     attr(group, "transform")
 }
 
-fn refl(
-    st_a: f32,
-    st_pos: f32,
-    end_a: f32,
-    end_pos: f32,
-    dist: i64,
-    dir: f64,
-) -> VectorReflection {
+fn refl(st_a: f32, st_pos: f32, end_a: f32, end_pos: f32, dist: i64, dir: f64) -> VectorReflection {
     VectorReflection {
         start_opacity: st_a,
         start_pos: st_pos,
@@ -144,7 +145,10 @@ fn bare_reflection_uses_reference_defaults() {
     assert!(transform.contains("rotate(0)"), "dir 90 ⇒ dir-90 = 0: {transform}");
     assert!(transform.contains("scale(1, -1)"), "default sx/sy: {transform}");
     // Bottom-centre `algn` pivot of the 100k..900k × 100k..500k body.
-    assert_eq!(transform, "translate(500000, 500000) rotate(0) scale(1, -1) translate(-500000, -500000)");
+    assert_eq!(
+        transform,
+        "translate(500000, 500000) rotate(0) scale(1, -1) translate(-500000, -500000)"
+    );
 
     let values = table_values(&svg);
     assert_eq!(values.len(), 101);
@@ -186,9 +190,9 @@ fn alpha_table_reflects_authored_band() {
 
     // The mask gradient is a pure position ramp; the table above turns it into
     // the authored alpha band.
-    assert!(svg.contains(
-        r#"<linearGradient id="refl-grad-0" gradientUnits="userSpaceOnUse" x1="0" y1="1" x2="0" y2="0">"#
-    ));
+    assert!(
+        svg.contains(r#"<linearGradient id="refl-grad-0" gradientUnits="userSpaceOnUse" x1="0" y1="1" x2="0" y2="0">"#)
+    );
     assert!(svg.contains(r#"stop-opacity="0""#));
     assert!(svg.contains(r#"stop-opacity="1""#));
 }
@@ -252,4 +256,3 @@ fn reflection_svg_parses_with_mirror_blur_and_offset() {
     let options = resvg::usvg::Options::default();
     resvg::usvg::Tree::from_str(&svg, &options).expect("reflection SVG must parse");
 }
-

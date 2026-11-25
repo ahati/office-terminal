@@ -5,9 +5,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use office_terminal_core::{
-    DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-};
+use office_terminal_core::{DisplayError, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use office_terminal_display::{
     ImageId, Placement, TerminalGraphicsDriver, READER_IMAGE_ID_BASE, READER_IMAGE_ID_SLOTS,
 };
@@ -46,9 +44,7 @@ impl ReaderGraphicsSyncer {
     fn staged_equivalent(&self, want: &SlotBitmap) -> Option<ImageId> {
         self.slots.iter().find_map(|slot| {
             slot.staged().and_then(|staged| {
-                (staged.page == want.page
-                    && staged.width == want.width
-                    && staged.height == want.height)
+                (staged.page == want.page && staged.width == want.width && staged.height == want.height)
                     .then_some(staged.id)
             })
         })
@@ -96,10 +92,7 @@ impl ReaderGraphicsSyncer {
         self.slots.iter().any(|slot| slot.placed().is_some())
     }
 
-    pub(crate) fn release_all(
-        &mut self,
-        driver: &mut dyn TerminalGraphicsDriver,
-    ) -> Result<(), DisplayError> {
+    pub(crate) fn release_all(&mut self, driver: &mut dyn TerminalGraphicsDriver) -> Result<(), DisplayError> {
         for slot in &mut self.slots {
             if let Some(placed) = slot.release_stale(false) {
                 let _ = driver.release(placed.id);
@@ -153,8 +146,7 @@ impl ReaderGraphicsSyncer {
             for i in 0..cols {
                 let page = next_anchor + i;
                 if page < reader.total_pages() && !targets.iter().any(|&(p, _)| p == page) {
-                    let pane_w = reader
-                        .pane_width_px_for(page, viewport_w_px, viewport_h_px, cell_w_px, cols);
+                    let pane_w = reader.pane_width_px_for(page, viewport_w_px, viewport_h_px, cell_w_px, cols);
                     targets.push((page, reader.page_render_target(page, pane_w)));
                 }
             }
@@ -165,27 +157,19 @@ impl ReaderGraphicsSyncer {
             // in flight (keyed by page, not target), so a stale-class job
             // would otherwise suppress the correct one and the pane would
             // stay `NotLoaded` (blank) forever.
-            let placement_unscheduled = placements.iter().any(|p| {
-                matches!(
-                    pipeline.entry_at(p.page, &p.page_target),
-                    PipelineEntry::NotLoaded
-                )
-            });
+            let placement_unscheduled = placements
+                .iter()
+                .any(|p| matches!(pipeline.entry_at(p.page, &p.page_target), PipelineEntry::NotLoaded));
             if self.last_prefetch.as_ref() != Some(&targets) || placement_unscheduled {
-                let center_target = reader.page_render_target(center, reader.pane_width_px(
+                let center_target = reader.page_render_target(
                     center,
-                    viewport_w_px,
-                    viewport_h_px,
-                    cell_w_px,
-                ));
-                let page_bytes =
-                    (center_target.width_px as usize) * (center_target.height_px as usize) * 4;
+                    reader.pane_width_px(center, viewport_w_px, viewport_h_px, cell_w_px),
+                );
+                let page_bytes = (center_target.width_px as usize) * (center_target.height_px as usize) * 4;
                 let max_cached_pages = (READER_CACHE_BUDGET_BYTES / page_bytes.max(1)).clamp(4, 32);
                 let behind = (cols + 1).min(max_cached_pages / 4);
                 let visible_count = reader.visible_pages().len();
-                let max_ahead = max_cached_pages
-                    .saturating_sub(visible_count + behind)
-                    .max(1);
+                let max_ahead = max_cached_pages.saturating_sub(visible_count + behind).max(1);
                 let ahead = (cols * 2 + 1).min(max_ahead);
                 let plan = PrefetchPlan {
                     center,
@@ -242,18 +226,12 @@ impl ReaderGraphicsSyncer {
                                 // back to staging the bitmap directly when no
                                 // payload is cached (or the driver cannot take
                                 // prebuilt bytes).
-                                let prebuilt_sent =
-                                    match pipeline.staged_payload(page, &placement.page_target) {
-                                        Some(payload) => driver
-                                            .transmit_prebuilt(
-                                                id,
-                                                bitmap.width,
-                                                bitmap.height,
-                                                &payload,
-                                            )
-                                            .is_ok(),
-                                        None => false,
-                                    };
+                                let prebuilt_sent = match pipeline.staged_payload(page, &placement.page_target) {
+                                    Some(payload) => driver
+                                        .transmit_prebuilt(id, bitmap.width, bitmap.height, &payload)
+                                        .is_ok(),
+                                    None => false,
+                                };
                                 if !prebuilt_sent {
                                     driver.stage(&bitmap, id)?;
                                 }
@@ -265,15 +243,16 @@ impl ReaderGraphicsSyncer {
                     let idx = Self::slot_index(id);
                     active_slots[idx] = true;
 
-                    let key =
-                        PlacedKey::Subrect { rect: placement.cell_rect, src: placement.pixel_src };
+                    let key = PlacedKey::Subrect {
+                        rect: placement.cell_rect,
+                        src: placement.pixel_src,
+                    };
                     let placed_epoch = self.slots[idx].staged_epoch();
                     if self.slots[idx].needs_place(id, key, true) {
                         // The pane's previous placement may live in its
                         // nominal slot (pre-swap) or in this one; collect
                         // both, present first, release afterwards.
-                        let mut outgoing: VecDeque<PlacedRecord> =
-                            self.slots[idx].take_placed().into_iter().collect();
+                        let mut outgoing: VecDeque<PlacedRecord> = self.slots[idx].take_placed().into_iter().collect();
                         if preferred_idx != idx {
                             outgoing.extend(self.slots[preferred_idx].take_placed());
                         }

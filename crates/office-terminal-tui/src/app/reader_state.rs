@@ -155,13 +155,7 @@ impl ReaderState {
 
     /// Zoomed pane width in device pixels for `page` under the current
     /// layout — the input basis for [`ReaderState::page_render_target`].
-    pub fn pane_width_px(
-        &self,
-        page: usize,
-        viewport_w_px: f32,
-        viewport_h_px: f32,
-        cell_w_px: f32,
-    ) -> f32 {
+    pub fn pane_width_px(&self, page: usize, viewport_w_px: f32, viewport_h_px: f32, cell_w_px: f32) -> f32 {
         let slot_w = self.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         let (base_w, _) = self.pane_fit(page, viewport_h_px, slot_w);
         base_w * self.page_view(page).zoom
@@ -232,12 +226,8 @@ impl ReaderState {
         // Aspect-true height in the rasterizer's supported range; the lower
         // bound keeps the original 2560→1024 ratio (2:5) at every class so
         // wide pages never distort.
-        let height_px = ((width_px as f32 / ar).round() as u32)
-            .clamp((width_px * 2 / 5).max(1), 8192);
-        RenderTargetSpec {
-            width_px,
-            height_px,
-        }
+        let height_px = ((width_px as f32 / ar).round() as u32).clamp((width_px * 2 / 5).max(1), 8192);
+        RenderTargetSpec { width_px, height_px }
     }
 
     /// Total stride in pixels of the current row, including the inter-row
@@ -247,13 +237,7 @@ impl ReaderState {
     /// width directly, so callers that already computed it (the row
     /// renderer) do not re-derive it. `cell_w_px` is accepted for signature
     /// symmetry with [`ReaderState::scroll_step_px`].
-    pub fn row_stride_px(
-        &self,
-        viewport_h_px: f32,
-        slot_w_px: f32,
-        cell_w_px: f32,
-        cell_h_px: f32,
-    ) -> f32 {
+    pub fn row_stride_px(&self, viewport_h_px: f32, slot_w_px: f32, cell_w_px: f32, cell_h_px: f32) -> f32 {
         self.row_stride_for_anchor(self.anchor, viewport_h_px, slot_w_px, cell_w_px, cell_h_px)
     }
 
@@ -283,13 +267,7 @@ impl ReaderState {
 
     /// One-eighth of the current row stride, floored at 24 px so every
     /// continuous-scroll key press moves a visible distance.
-    pub fn scroll_step_px(
-        &self,
-        viewport_h_px: f32,
-        slot_w_px: f32,
-        cell_w_px: f32,
-        cell_h_px: f32,
-    ) -> i64 {
+    pub fn scroll_step_px(&self, viewport_h_px: f32, slot_w_px: f32, cell_w_px: f32, cell_h_px: f32) -> i64 {
         let stride = self.row_stride_px(viewport_h_px, slot_w_px, cell_w_px, cell_h_px);
         ((stride / 8.0).round() as i64).max(24)
     }
@@ -415,13 +393,7 @@ impl ReaderState {
     /// [`Self::slot_width`] for an explicit column count — the render path
     /// passes its freshly planned count so the slot always matches the
     /// frame's own layout (the stored count trails by one publish).
-    pub fn slot_width_for(
-        &self,
-        viewport_w_px: f32,
-        viewport_h_px: f32,
-        cell_w_px: f32,
-        cols: usize,
-    ) -> f32 {
+    pub fn slot_width_for(&self, viewport_w_px: f32, viewport_h_px: f32, cell_w_px: f32, cols: usize) -> f32 {
         let gutter_px = 2.0 * cell_w_px;
         if cols <= 1 {
             return viewport_w_px;
@@ -532,11 +504,23 @@ impl ReaderState {
         let clamped = page_0based.min(self.total_pages - 1);
         if self.layout == ReaderLayout::Spread {
             if self.cover_alone && clamped > 0 {
-                self.anchor = if !clamped.is_multiple_of(2) { clamped } else { clamped - 1 };
-                self.focus = if !clamped.is_multiple_of(2) { Slot::Left } else { Slot::Right };
+                self.anchor = if !clamped.is_multiple_of(2) {
+                    clamped
+                } else {
+                    clamped - 1
+                };
+                self.focus = if !clamped.is_multiple_of(2) {
+                    Slot::Left
+                } else {
+                    Slot::Right
+                };
             } else if !self.cover_alone {
                 self.anchor = (clamped / 2) * 2;
-                self.focus = if clamped.is_multiple_of(2) { Slot::Left } else { Slot::Right };
+                self.focus = if clamped.is_multiple_of(2) {
+                    Slot::Left
+                } else {
+                    Slot::Right
+                };
             } else {
                 self.anchor = clamped;
                 self.focus = Slot::Left;
@@ -570,7 +554,12 @@ fn dominant_page_pt(sizes: &[(f32, f32)]) -> (f32, f32) {
         let key = bucket(size);
         match acc.iter_mut().find(|b| b.key == key) {
             Some(entry) => entry.count += 1,
-            None => acc.push(Bucket { key, count: 1, first: i, size }),
+            None => acc.push(Bucket {
+                key,
+                count: 1,
+                first: i,
+                size,
+            }),
         }
     }
     // Highest count wins; ties go to the earliest first occurrence.

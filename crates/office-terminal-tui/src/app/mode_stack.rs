@@ -119,10 +119,7 @@ impl Overlay {
             AppMode::TocSearchModal => Some(Overlay::Toc),
             AppMode::FindModal => Some(Overlay::Find),
             AppMode::LinkPickerModal => Some(Overlay::LinkPicker),
-            AppMode::Fullscreen
-            | AppMode::PresenterConsole
-            | AppMode::Sorter
-            | AppMode::Reader => None,
+            AppMode::Fullscreen | AppMode::PresenterConsole | AppMode::Sorter | AppMode::Reader => None,
         }
     }
 }

@@ -10,11 +10,7 @@ use hayro_syntax::xref::XRef;
 
 /// Compute the display label for every page, or `None` when the catalog
 /// carries no `/PageLabels` tree (callers fall back to physical numbers).
-pub fn parse_page_labels(
-    root: &Dict<'_>,
-    xref: &XRef,
-    page_count: usize,
-) -> Option<Vec<String>> {
+pub fn parse_page_labels(root: &Dict<'_>, xref: &XRef, page_count: usize) -> Option<Vec<String>> {
     let labels_dict = root.get::<Dict<'_>>(b"PageLabels")?;
     let nums = labels_dict.get::<Array<'_>>(b"Nums")?;
 
@@ -78,10 +74,7 @@ impl LabelRange {
         let style = dict
             .get::<Name<'_>>(b"S")
             .and_then(|n| LabelStyle::from_name(n.as_ref()));
-        let first_number = dict
-            .get::<Number>(b"St")
-            .map(|n| n.as_i64().max(0))
-            .unwrap_or(1);
+        let first_number = dict.get::<Number>(b"St").map(|n| n.as_i64().max(0)).unwrap_or(1);
         Self {
             prefix,
             style,

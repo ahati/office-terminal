@@ -44,10 +44,7 @@ fn test_zoomed_slide_replaces_the_placement_without_retransmitting() {
         let log = log.lock().unwrap();
         assert_eq!(log.staged.len(), 1, "zoom must not re-transmit pixels");
         assert_eq!(log.presented_forms.len(), 2, "the placement is replaced");
-        assert!(matches!(
-            log.presented_forms[1],
-            (1, Placement::CellsSubrect { .. })
-        ));
+        assert!(matches!(log.presented_forms[1], (1, Placement::CellsSubrect { .. })));
     }
 
     // 3. Pan: same id, re-placed crop window, still no re-transmit.
@@ -60,10 +57,7 @@ fn test_zoomed_slide_replaces_the_placement_without_retransmitting() {
         let log = log.lock().unwrap();
         assert_eq!(log.staged.len(), 1, "pan must not re-transmit pixels");
         assert_eq!(log.presented_forms.len(), 3);
-        assert!(matches!(
-            log.presented_forms[2],
-            (1, Placement::CellsSubrect { .. })
-        ));
+        assert!(matches!(log.presented_forms[2], (1, Placement::CellsSubrect { .. })));
     }
 
     // 4. Back to the plain fit: whole-canvas placement again, still no stage.

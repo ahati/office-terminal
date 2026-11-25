@@ -1,14 +1,13 @@
-use pptx_model::ChartModel;
-use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPaint,
-    VectorPath, VectorStroke, EMU_PER_PT,
-};
-use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::resolve_slice_color;
 use super::layout::{
-    data_label_position, make_simple_run, series_data_label_font_pt,
-    series_shows_percent_labels, ChartLayout,
+    data_label_position, make_simple_run, series_data_label_font_pt, series_shows_percent_labels, ChartLayout,
 };
+use crate::compiler::shapes::arc::decompose_arc_to_cubic;
+use crate::contracts::{
+    AffineTransform, FillRule, LineCap, LineJoin, PathSegment, VectorCommand, VectorPaint, VectorPath, VectorStroke,
+    EMU_PER_PT,
+};
+use pptx_model::ChartModel;
 
 pub fn compile_pie(
     chart: &ChartModel,
@@ -23,12 +22,7 @@ pub fn compile_pie(
         None => return commands,
     };
 
-    let total: f64 = first_series
-        .values
-        .iter()
-        .filter_map(|v| *v)
-        .filter(|v| *v > 0.0)
-        .sum();
+    let total: f64 = first_series.values.iter().filter_map(|v| *v).filter(|v| *v > 0.0).sum();
 
     if total <= 0.0 {
         return commands;
@@ -130,7 +124,11 @@ pub fn compile_pie(
             let outside = matches!(pos.as_str(), "outEnd" | "bestFit");
             // Inside labels paint white over the slice, moved-outside labels use
             // the dark data-label ink (ref shared/data-labels.ts:187 default).
-            let label_color = if outside { [60, 60, 60, 255] } else { [255, 255, 255, 255] };
+            let label_color = if outside {
+                [60, 60, 60, 255]
+            } else {
+                [255, 255, 255, 255]
+            };
             let font = slice_label_pt * EMU_PER_PT;
             let r_label = if outside {
                 r_outer + font * 0.5

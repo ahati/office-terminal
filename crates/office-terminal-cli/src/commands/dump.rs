@@ -1,14 +1,13 @@
-use std::path::PathBuf;
-use std::process::ExitCode;
-use office_terminal_core::metafile::expand_metafiles;
-use office_terminal_core::{
-    DeckSource, DefaultPresentationLoader, DefaultSlideCompiler, PageSource, PresentationLoader,
-    SlideCompiler,
-};
-use serde_json::Value;
-use std::sync::Arc;
 use crate::commands::dump_ast;
 use crate::commands::source_from_path;
+use office_terminal_core::metafile::expand_metafiles;
+use office_terminal_core::{
+    DeckSource, DefaultPresentationLoader, DefaultSlideCompiler, PageSource, PresentationLoader, SlideCompiler,
+};
+use serde_json::Value;
+use std::path::PathBuf;
+use std::process::ExitCode;
+use std::sync::Arc;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,13 +50,9 @@ pub fn run_dump(
         // Both document sources share the corpus-based paged dump; DOCX has
         // no speaker notes or rendered comments, exactly like PDF
         // (issue #40 §7.12).
-        DeckSource::Pdf(page_source) | DeckSource::Docx(page_source) => dump_paged(
-            page_source,
-            notes,
-            comments,
-            markdown,
-            json,
-        ),
+        DeckSource::Pdf(page_source) | DeckSource::Docx(page_source) => {
+            dump_paged(page_source, notes, comments, markdown, json)
+        }
     }
 }
 
@@ -206,13 +201,7 @@ fn dump_pptx(
     ExitCode::SUCCESS
 }
 
-fn dump_paged(
-    page_source: Arc<dyn PageSource>,
-    notes: bool,
-    comments: bool,
-    markdown: bool,
-    json: bool,
-) -> ExitCode {
+fn dump_paged(page_source: Arc<dyn PageSource>, notes: bool, comments: bool, markdown: bool, json: bool) -> ExitCode {
     let any_flag = notes || comments || markdown || json;
     let total = page_source.len();
     if !any_flag {

@@ -35,12 +35,7 @@ fn arrow() -> serde_json::Value {
 }
 
 /// A connector leader fixture at (100, 100) px with the authored stroke ends.
-fn connector_leader(
-    geometry: &str,
-    width_px: f32,
-    height_px: f32,
-    stroke: serde_json::Value,
-) -> serde_json::Value {
+fn connector_leader(geometry: &str, width_px: f32, height_px: f32, stroke: serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "type": "shape",
         "x": 100 * 9525,
@@ -95,9 +90,7 @@ fn connector_tail_end_trims_the_shaft_and_paints_the_open_arrow() {
         .iter()
         .filter_map(|command| match command {
             VectorCommand::DrawPath {
-                path,
-                stroke: Some(_),
-                ..
+                path, stroke: Some(_), ..
             } => Some(path),
             _ => None,
         })
@@ -137,9 +130,7 @@ fn connector_tail_end_trims_the_shaft_and_paints_the_open_arrow() {
         .segments
         .iter()
         .filter_map(|segment| match segment {
-            PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => {
-                Some(abs_px((100.0, 100.0), *x, *y))
-            }
+            PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => Some(abs_px((100.0, 100.0), *x, *y)),
             _ => None,
         })
         .collect();
@@ -178,12 +169,9 @@ fn connector_tail_end_trims_the_shaft_and_paints_the_open_arrow() {
     let svg = DefaultSlideSvgSerializer::new()
         .serialize_svg(&slide, &NoAssets, SvgTextMode::SelectableText)
         .expect("serialize svg");
+    assert_eq!(svg.matches("<path ").count(), 2, "shaft + decoration paths:\n{svg}");
     assert_eq!(
-        svg.matches("<path ").count(),
-        2,
-        "shaft + decoration paths:\n{svg}"
-    );
-    assert_eq!(        svg.matches("stroke=\"rgb(0,0,0)\"").count(),
+        svg.matches("stroke=\"rgb(0,0,0)\"").count(),
         2,
         "both are stroked with the line paint:\n{svg}"
     );
@@ -208,9 +196,7 @@ fn compound_double_connector_paints_two_trimmed_rails() {
         .iter()
         .filter_map(|command| match command {
             VectorCommand::DrawPath {
-                path,
-                stroke: Some(_),
-                ..
+                path, stroke: Some(_), ..
             } => Some(path),
             _ => None,
         })
@@ -243,8 +229,7 @@ fn compound_double_connector_paints_two_trimmed_rails() {
         .iter()
         .filter_map(|command| match command {
             VectorCommand::DrawPath {
-                stroke: Some(stroke),
-                ..
+                stroke: Some(stroke), ..
             } => Some(stroke.width_emu),
             _ => None,
         })
@@ -279,9 +264,7 @@ fn both_arrow_ends_consume_a_short_compound_run() {
     for command in &slide.commands {
         match command {
             VectorCommand::DrawPath {
-                path,
-                stroke: Some(_),
-                ..
+                path, stroke: Some(_), ..
             } => {
                 let starts_at_origin = matches!(
                     path.segments.first(),
@@ -289,10 +272,7 @@ fn both_arrow_ends_consume_a_short_compound_run() {
                         if abs_px((100.0, 100.0), *x, *y).0 < 100.5
                             && (abs_px((100.0, 100.0), *x, *y).1 - 100.0).abs() < 0.5
                 );
-                assert!(
-                    !starts_at_origin,
-                    "the consumed run must paint no shaft: {path:?}"
-                );
+                assert!(!starts_at_origin, "the consumed run must paint no shaft: {path:?}");
             }
             VectorCommand::DrawLineEnd { .. } => decorations += 1,
             _ => {}
@@ -320,9 +300,7 @@ fn curved_connector_shaft_stops_at_the_vertex_on_its_curve() {
         .iter()
         .find_map(|command| match command {
             VectorCommand::DrawPath {
-                path,
-                stroke: Some(_),
-                ..
+                path, stroke: Some(_), ..
             } => Some(path.clone()),
             _ => None,
         })
@@ -364,9 +342,7 @@ fn bent_connector_short_leg_stops_at_the_vertex() {
         .iter()
         .find_map(|command| match command {
             VectorCommand::DrawPath {
-                path,
-                stroke: Some(_),
-                ..
+                path, stroke: Some(_), ..
             } => Some(path.clone()),
             _ => None,
         })
@@ -409,10 +385,7 @@ fn retraction_matches_the_reference_table_across_line_widths() {
         );
         // stealth: the `lg` notch, 3e behind the tip.
         let stealth = line_end::retract(width_emu, &lg(LineEndKind::Stealth));
-        assert!(
-            (stealth - 3.0 * e).abs() < 0.01,
-            "stealth at {width_px} px: {stealth}"
-        );
+        assert!((stealth - 3.0 * e).abs() < 0.01, "stealth at {width_px} px: {stealth}");
         // arrow: `(lw/2) / sin(atan2(2.5e, 4.5e))`.
         let open = line_end::retract(width_emu, &lg(LineEndKind::Arrow));
         let expected = (lw / 2.0) / (2.5f32).atan2(4.5).sin();
@@ -429,7 +402,11 @@ fn retraction_matches_the_reference_table_across_line_widths() {
             width_emu,
             &LineEnd::new(LineEndKind::Triangle, LineEndSize::Med, LineEndSize::Med),
         );
-        let base = if width_px < 2.0 { 2.0 * PT_TO_EMU } else { width_emu as f32 };
+        let base = if width_px < 2.0 {
+            2.0 * PT_TO_EMU
+        } else {
+            width_emu as f32
+        };
         assert!((med_triangle - (3.0 * base - base / 2.0)).abs() < 0.01);
     }
 }
@@ -511,8 +488,7 @@ fn authored_miter_limit_reaches_the_ir_and_the_svg() {
         .iter()
         .find_map(|command| match command {
             VectorCommand::DrawPath {
-                stroke: Some(stroke),
-                ..
+                stroke: Some(stroke), ..
             } => Some(stroke.clone()),
             _ => None,
         })
@@ -525,8 +501,5 @@ fn authored_miter_limit_reaches_the_ir_and_the_svg() {
     let svg = DefaultSlideSvgSerializer::new()
         .serialize_svg(&slide, &NoAssets, SvgTextMode::SelectableText)
         .expect("serialize svg");
-    assert!(
-        svg.contains(r#"stroke-miterlimit="2""#),
-        "authored miter limit:\n{svg}"
-    );
+    assert!(svg.contains(r#"stroke-miterlimit="2""#), "authored miter limit:\n{svg}");
 }

@@ -229,12 +229,7 @@ fn paint_table_background(
     let Some(paint) = tbl.background.as_ref().and_then(|fill| compile_fill(fill, 1.0)) else {
         return;
     };
-    let rect = rect_path(
-        0.0,
-        0.0,
-        grid.col_w.iter().sum(),
-        grid.row_h.iter().sum(),
-    );
+    let rect = rect_path(0.0, 0.0, grid.col_w.iter().sum(), grid.row_h.iter().sum());
     out.push(VectorCommand::draw_path(rect, Some(paint), None, *transform));
 }
 
@@ -258,8 +253,7 @@ fn paint_cell_fills_and_text(
             if let Some(path) = &clip {
                 out.push(VectorCommand::PushClip(path.clone()));
             }
-            let cell_transform =
-                transform.post_concat(&AffineTransform::translate(job.col_x, job.row_y));
+            let cell_transform = transform.post_concat(&AffineTransform::translate(job.col_x, job.row_y));
             out.extend(compile_text_body(
                 &body,
                 job.cell_w.round() as i64,
@@ -410,19 +404,16 @@ fn paint_cell_borders(
                 }
                 let right = grid.job_at(rj as i64, right_nbr_ci);
                 let facing = right.and_then(|b| {
-                    if grid.rtl { b.cell.border_r.as_ref() } else { b.cell.border_l.as_ref() }
+                    if grid.rtl {
+                        b.cell.border_r.as_ref()
+                    } else {
+                        b.cell.border_l.as_ref()
+                    }
                 });
                 if let Some(spec) = resolve_border_conflict(phys_right, facing) {
                     let top = grid.row_top[rj];
                     let bottom = grid.row_top[r_end] + grid.row_h[r_end];
-                    stroke_segment(
-                        out,
-                        transform,
-                        spec,
-                        warning_sink,
-                        (right_x, top),
-                        (right_x, bottom),
-                    );
+                    stroke_segment(out, transform, spec, warning_sink, (right_x, top), (right_x, bottom));
                 }
                 rj = r_end + 1;
             }

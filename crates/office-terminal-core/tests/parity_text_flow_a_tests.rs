@@ -24,14 +24,7 @@ use support::{close, item, line_from_items, plan, B, S};
 #[test]
 fn c01_just_leaves_the_last_line_null() {
     assert_eq!(
-        justify_line(
-            &[item("日本語", 60.0)],
-            120.0,
-            60.0,
-            JustifyMode::Just,
-            true,
-            false
-        ),
+        justify_line(&[item("日本語", 60.0)], 120.0, 60.0, JustifyMode::Just, true, false),
         None
     );
 }
@@ -40,14 +33,7 @@ fn c01_just_leaves_the_last_line_null() {
 /// 60 → perGap 30 with `splitBefore` `[1, 2]`.
 #[test]
 fn c02_dist_justifies_the_last_line() {
-    let p = plan(
-        &[item("日本語", 60.0)],
-        120.0,
-        60.0,
-        JustifyMode::Dist,
-        true,
-        false,
-    );
+    let p = plan(&[item("日本語", 60.0)], 120.0, 60.0, JustifyMode::Dist, true, false);
     close(p.per_gap, 30.0, "perGap");
     assert_eq!(p.gap_positions(), [1, 2]);
 }
@@ -56,14 +42,7 @@ fn c02_dist_justifies_the_last_line() {
 /// boundaries (`[1, 3, 4]`, ◌ื stays glued to ม), slack 30 → 10 each.
 #[test]
 fn c03_thai_dist_opens_sea_cluster_boundaries() {
-    let p = plan(
-        &[item("เมือง", 60.0)],
-        90.0,
-        60.0,
-        JustifyMode::ThaiDist,
-        false,
-        false,
-    );
+    let p = plan(&[item("เมือง", 60.0)], 90.0, 60.0, JustifyMode::ThaiDist, false, false);
     close(p.per_gap, 10.0, "perGap");
     assert_eq!(p.gap_positions(), [1, 3, 4]);
 }
@@ -72,14 +51,7 @@ fn c03_thai_dist_opens_sea_cluster_boundaries() {
 #[test]
 fn c04_dist_leaves_space_free_thai_ragged() {
     assert_eq!(
-        justify_line(
-            &[item("เมือง", 60.0)],
-            90.0,
-            60.0,
-            JustifyMode::Dist,
-            false,
-            false
-        ),
+        justify_line(&[item("เมือง", 60.0)], 90.0, 60.0, JustifyMode::Dist, false, false),
         None
     );
 }
@@ -104,14 +76,7 @@ fn c05_latin_widens_inter_word_spaces() {
 /// glyph.
 #[test]
 fn c06_cjk_widens_inner_gaps_only() {
-    let p = plan(
-        &[item("日本語", 60.0)],
-        120.0,
-        60.0,
-        JustifyMode::Just,
-        false,
-        false,
-    );
+    let p = plan(&[item("日本語", 60.0)], 120.0, 60.0, JustifyMode::Just, false, false);
     close(p.per_gap, 30.0, "perGap");
     assert_eq!(p.gap_positions(), [1, 2]);
 }
@@ -152,14 +117,7 @@ fn c08_leading_indent_whitespace_stays_fixed() {
 /// slack 40).
 #[test]
 fn c09_trailing_whitespace_does_not_stretch() {
-    let p = plan(
-        &[item("日本 ", 60.0)],
-        100.0,
-        60.0,
-        JustifyMode::Just,
-        false,
-        false,
-    );
+    let p = plan(&[item("日本 ", 60.0)], 100.0, 60.0, JustifyMode::Just, false, false);
     close(p.per_gap, 40.0, "perGap");
     assert_eq!(p.gap_positions(), [1]);
 }
@@ -233,14 +191,7 @@ fn c14_stretch_sums_to_the_slack() {
 #[test]
 fn c15_no_slack_returns_null() {
     assert_eq!(
-        justify_line(
-            &[item("日本語", 60.0)],
-            60.2,
-            60.0,
-            JustifyMode::Just,
-            false,
-            false
-        ),
+        justify_line(&[item("日本語", 60.0)], 60.2, 60.0, JustifyMode::Just, false, false),
         None
     );
 }
@@ -249,14 +200,7 @@ fn c15_no_slack_returns_null() {
 #[test]
 fn c16_single_latin_word_returns_null() {
     assert_eq!(
-        justify_line(
-            &[item("Hello", 50.0)],
-            200.0,
-            50.0,
-            JustifyMode::Just,
-            false,
-            false
-        ),
+        justify_line(&[item("Hello", 50.0)], 200.0, 50.0, JustifyMode::Just, false, false),
         None
     );
 }
@@ -265,14 +209,7 @@ fn c16_single_latin_word_returns_null() {
 #[test]
 fn c17_single_cjk_glyph_returns_null() {
     assert_eq!(
-        justify_line(
-            &[item("日", 20.0)],
-            200.0,
-            20.0,
-            JustifyMode::Just,
-            false,
-            false
-        ),
+        justify_line(&[item("日", 20.0)], 200.0, 20.0, JustifyMode::Just, false, false),
         None
     );
 }
@@ -306,14 +243,7 @@ fn c18_items_and_styles_are_never_rewritten() {
 /// before the CJK predicate); `日　本` slack 60 → 60 at offset 2.
 #[test]
 fn c19_ideographic_space_is_one_gap() {
-    let p = plan(
-        &[item("日　本", 60.0)],
-        120.0,
-        60.0,
-        JustifyMode::Just,
-        false,
-        false,
-    );
+    let p = plan(&[item("日　本", 60.0)], 120.0, 60.0, JustifyMode::Just, false, false);
     close(p.per_gap, 60.0, "perGap");
     assert_eq!(p.gap_positions(), [2]);
 }
@@ -322,14 +252,7 @@ fn c19_ideographic_space_is_one_gap() {
 /// neighbours: `日　本で` → gaps at 2 and 3, slack 80 → 40.
 #[test]
 fn c20_ideographic_space_with_neighbours() {
-    let p = plan(
-        &[item("日　本で", 60.0)],
-        140.0,
-        60.0,
-        JustifyMode::Just,
-        false,
-        false,
-    );
+    let p = plan(&[item("日　本で", 60.0)], 140.0, 60.0, JustifyMode::Just, false, false);
     close(p.per_gap, 40.0, "perGap");
     assert_eq!(p.gap_positions(), [2, 3]);
 }

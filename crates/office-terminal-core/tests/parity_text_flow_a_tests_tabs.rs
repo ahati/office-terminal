@@ -36,10 +36,7 @@ fn c21_ltr_right_stop_ends_the_cell_on_the_stop() {
 fn c22_supports_n_tab_cells_per_line() {
     let out = tab_widths(
         &mut [cell(50.0), tab_item(), cell(40.0), tab_item(), cell(40.0)],
-        &[
-            stop(200.0, TabAlign::Right),
-            stop(400.0, TabAlign::Right),
-        ],
+        &[stop(200.0, TabAlign::Right), stop(400.0, TabAlign::Right)],
         0.0,
         600.0,
         0.0,

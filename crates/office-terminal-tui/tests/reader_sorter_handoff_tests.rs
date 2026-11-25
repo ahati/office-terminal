@@ -71,10 +71,7 @@ fn zoom_out_hands_off_to_the_sorter_at_the_floor() {
     assert_eq!(state.mode(), AppMode::Sorter, "the floor hands off to the sorter");
     assert_eq!(state.selected_sorter_index(), 8, "the sorter selects the read page");
     let zoom_after = state.reader_state().unwrap().default_zoom;
-    assert_eq!(
-        zoom, zoom_after,
-        "the handoff does not zoom past the floor"
-    );
+    assert_eq!(zoom, zoom_after, "the handoff does not zoom past the floor");
 }
 
 #[test]
@@ -100,7 +97,8 @@ fn sorter_enter_returns_to_the_reader_on_the_selected_page() {
         "the reader re-anchors onto the selected row (page 9 pairs with 8)"
     );
     assert_eq!(
-        state.current_slide(), 9,
+        state.current_slide(),
+        9,
         "the applied selection is the page the sorter chose"
     );
     assert_eq!(
@@ -168,7 +166,8 @@ fn sorter_enter_on_the_already_selected_page_still_returns() {
     );
     assert_eq!(state.reader_state().unwrap().anchor, 8);
     assert_eq!(
-        state.reader_state().unwrap().default_zoom, 1.0,
+        state.reader_state().unwrap().default_zoom,
+        1.0,
         "the same-page selection also lands at fit"
     );
 }

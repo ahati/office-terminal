@@ -15,12 +15,9 @@
 use std::sync::{Arc, Mutex};
 
 use office_terminal_core::{
-    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-    RgbaSlide,
+    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
 };
-use office_terminal_display::{
-    DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver,
-};
+use office_terminal_display::{DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver};
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
@@ -90,10 +87,13 @@ impl RenderPipeline for SplitReadinessPipeline {
     }
 
     fn entry(&self, index: usize) -> PipelineEntry {
-        self.entry_at(index, &RenderTargetSpec {
-            width_px: 1920,
-            height_px: 2485,
-        })
+        self.entry_at(
+            index,
+            &RenderTargetSpec {
+                width_px: 1920,
+                height_px: 2485,
+            },
+        )
     }
 
     fn prefetch(&self, _plan: &PrefetchPlan, _target: &RenderTargetSpec) {}
@@ -202,9 +202,7 @@ fn syncer_refires_prefetch_while_peek_raster_is_unscheduled() {
             .draw(|f| render_reader(state, f, Rect::new(0, 0, WIDTH, HEIGHT), &mut bindings))
             .unwrap();
         state.publish_frame_bindings(bindings.clone());
-        syncer
-            .sync(state, pipeline, driver, &canvas, &bindings)
-            .unwrap();
+        syncer.sync(state, pipeline, driver, &canvas, &bindings).unwrap();
     };
 
     frame(&mut state, &mut syncer, &mut driver, dyn_pipeline.as_ref());

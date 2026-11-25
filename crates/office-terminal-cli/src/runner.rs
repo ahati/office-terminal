@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
-use clap::Parser;
 use crate::cli::{Cli, Commands, MetafileModeArg};
 use crate::commands::export::run_export_with_options;
 use crate::commands::*;
 use crate::config::Config;
+use clap::Parser;
 use office_terminal_core::{
     DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, TinySkiaRasterizer,
 };
@@ -77,21 +77,8 @@ pub fn run() -> ExitCode {
             markdown,
             json,
             embed_bitmaps,
-        }) => run_dump(
-            file,
-            notes,
-            comments,
-            markdown,
-            json,
-            embed_bitmaps,
-            &loader,
-        ),
-        Some(Commands::View {
-            file,
-            slide,
-            all,
-            fit,
-        }) => {
+        }) => run_dump(file, notes, comments, markdown, json, embed_bitmaps, &loader),
+        Some(Commands::View { file, slide, all, fit }) => {
             let fit = fit.unwrap_or_else(|| config.resolved_fit());
             run_view(file, slide, all, fit, &loader, &compiler, &rasterizer)
         }

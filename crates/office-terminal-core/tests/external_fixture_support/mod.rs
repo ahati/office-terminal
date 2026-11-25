@@ -71,9 +71,7 @@ impl Fixture {
     }
 
     pub fn golden(&self, goldens_dir: &Path, slide: usize) -> PathBuf {
-        goldens_dir
-            .join(&self.name)
-            .join(format!("slide_{slide:03}.png"))
+        goldens_dir.join(&self.name).join(format!("slide_{slide:03}.png"))
     }
 }
 
@@ -115,10 +113,12 @@ impl Corpus {
         let manifest = load_manifest(&manifest_path);
         let commit = manifest.commit.clone();
         let fixtures_dir = cache_dir(
+            "OT_EXTERNAL_FIXTURES",
             "KITTY_PPTX_EXTERNAL_FIXTURES",
             repo_root().join(CACHE_RELATIVE).join("fixtures").join(&commit),
         );
         let goldens_dir = cache_dir(
+            "OT_EXTERNAL_GOLDENS",
             "KITTY_PPTX_EXTERNAL_GOLDENS",
             repo_root().join(CACHE_RELATIVE).join("goldens").join(&commit),
         );
@@ -171,9 +171,7 @@ impl Corpus {
                 missing_fixtures.push(fixture.name.clone());
                 continue;
             }
-            let complete = (1..=fixture.slides).all(|slide| {
-                self.golden_is_present(fixture, slide)
-            });
+            let complete = (1..=fixture.slides).all(|slide| self.golden_is_present(fixture, slide));
             if complete {
                 compare.push(index);
             } else {
@@ -207,10 +205,9 @@ impl Corpus {
 }
 
 pub fn load_manifest(path: &Path) -> Manifest {
-    let text = std::fs::read_to_string(path)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
+    let text =
+        std::fs::read_to_string(path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
 }
 
 fn read_stamp(goldens_dir: &Path) -> Result<Option<Stamp>, String> {
@@ -219,9 +216,8 @@ fn read_stamp(goldens_dir: &Path) -> Result<Option<Stamp>, String> {
         // A partial cache has no stamp; per-deck completeness still governs.
         return Ok(None);
     }
-    let text = std::fs::read_to_string(&path).map_err(|error| {
-        unavailable(format!("failed to read {}: {error}", path.display()))
-    })?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| unavailable(format!("failed to read {}: {error}", path.display())))?;
     serde_json::from_str(&text)
         .map(Some)
         .map_err(|error| unavailable(format!("{} is not a render stamp: {error}", path.display())))
@@ -242,10 +238,10 @@ fn check_stamp(stamp: &Stamp, manifest: &Manifest, goldens_dir: &Path) -> Result
         .map(|fixture| (fixture.name.as_str(), (fixture.sha256.as_str(), fixture.slides)))
         .collect();
     let matches = stamp.fixtures.len() == wanted.len()
-        && stamp.fixtures.iter().all(|entry| {
-            wanted.get(entry.name.as_str())
-                == Some(&(entry.sha256.as_str(), entry.slides))
-        });
+        && stamp
+            .fixtures
+            .iter()
+            .all(|entry| wanted.get(entry.name.as_str()) == Some(&(entry.sha256.as_str(), entry.slides)));
     if !matches {
         return Err(unavailable(format!(
             "references in {} do not match fixtures.json",
@@ -278,8 +274,9 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn cache_dir(variable: &str, fallback: PathBuf) -> PathBuf {
+fn cache_dir(variable: &str, legacy: &str, fallback: PathBuf) -> PathBuf {
     std::env::var_os(variable)
+        .or_else(|| std::env::var_os(legacy))
         .map(PathBuf::from)
         .unwrap_or(fallback)
 }

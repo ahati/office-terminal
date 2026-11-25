@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use office_terminal_core::*;
+use std::sync::Arc;
 
 struct MockAssetStore {
     sample_png: Vec<u8>,
@@ -10,11 +10,8 @@ impl MockAssetStore {
         // Generate a 2x2 solid red PNG in memory
         let img = image::RgbaImage::from_fn(2, 2, |_, _| image::Rgba([255, 0, 0, 255]));
         let mut png_bytes = Vec::new();
-        img.write_to(
-            &mut std::io::Cursor::new(&mut png_bytes),
-            image::ImageFormat::Png,
-        )
-        .unwrap();
+        img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+            .unwrap();
         Self { sample_png: png_bytes }
     }
 }
@@ -68,39 +65,35 @@ fn test_svg_export_modes_and_image_embedding() {
 
     // Add a text command
     slide.commands.push(VectorCommand::DrawText {
-        runs: vec![
-            PositionedGlyphRun {
-                text: "Hello Vector World".to_string(),
-                font_family: "DejaVu Sans".to_string(),
-                font_size_pt: 20.0,
-                color: [10, 20, 30, 255],
-                bold: false,
-                italic: false,
-                glyphs: vec![
-                    PositionedGlyph {
-                        glyph_id: 0,
-                        x: 200000.0,
-                        y: 300000.0,
-                        advance: 50000.0,
-                        warp_u: None,
-                    },
-                ],
-                decorations: office_terminal_core::contracts::TextDecorations {
-                    underline: Some(office_terminal_core::contracts::DecorationLine {
-                        color: [10, 20, 30, 255],
-                        top_emu: -152_400.0,
-                        thickness_emu: 12_700.0,
-                        gap_emu: 0.0,
-                        style: office_terminal_core::contracts::DecorationStyle::Solid,
-                    }),
-                    strike: None,
-                },
-                single_face: false,
-                face: None,
-                warp: None,
-                reflection: None,
+        runs: vec![PositionedGlyphRun {
+            text: "Hello Vector World".to_string(),
+            font_family: "DejaVu Sans".to_string(),
+            font_size_pt: 20.0,
+            color: [10, 20, 30, 255],
+            bold: false,
+            italic: false,
+            glyphs: vec![PositionedGlyph {
+                glyph_id: 0,
+                x: 200000.0,
+                y: 300000.0,
+                advance: 50000.0,
+                warp_u: None,
+            }],
+            decorations: office_terminal_core::contracts::TextDecorations {
+                underline: Some(office_terminal_core::contracts::DecorationLine {
+                    color: [10, 20, 30, 255],
+                    top_emu: -152_400.0,
+                    thickness_emu: 12_700.0,
+                    gap_emu: 0.0,
+                    style: office_terminal_core::contracts::DecorationStyle::Solid,
+                }),
+                strike: None,
             },
-        ],
+            single_face: false,
+            face: None,
+            warp: None,
+            reflection: None,
+        }],
         transform: AffineTransform::default(),
     });
 
@@ -127,7 +120,10 @@ fn test_svg_export_modes_and_image_embedding() {
 
     // 3. Test Rasterizer on the same slide
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 640, height_px: 480 };
+    let target = RenderTargetSpec {
+        width_px: 640,
+        height_px: 480,
+    };
     let rendered = rasterizer
         .rasterize(&slide, &target, mock_assets.as_ref())
         .expect("rasterization failed");

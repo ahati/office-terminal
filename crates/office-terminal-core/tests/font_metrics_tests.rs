@@ -1,23 +1,15 @@
 //! Font-metric regression for the bundled Nunito Sans faces.
 //!
-//! The committed `sample-1` reference PNGs are the reference project's adopted
-//! canvas outputs (see `tests/fixtures/parity/README.md`). Their title metrics
-//! are Arial, not Nunito Sans: the measured ink widths (`STATE OF` ~448 px,
-//! `THE` ~186 px, `FOREST` ~380 px) match Arial/Arimo (`446.9` / `185.7` /
-//! `379.3` at 96 px/em), and Arial's `THE FOREST` advance is `608.0 px`, just
-//! over the 606 px title budget, which is why the reference wraps onto three
-//! lines. The capture host therefore substituted the unavailable webfont with
-//! its generic sans fallback.
-//!
-//! The reference renderer requests Nunito Sans and its fixture loads Nunito
-//! Sans v19 via `@fontsource/nunito-sans@5.2.7`; that face's HarfBuzz-kerned
-//! `THE FOREST` advance is `570.7 px`, so it wraps onto two lines. We bundle
-//! the same face (see `assets/fonts/NOTICE.md`): the upright static weights are
-//! 5-9 % narrower than the Arial-substituted reference on `FOREST`, and no
-//! instance satisfies both reference numbers and the 606 px wrap condition
-//! (reaching 606 px requires a width scale that pushes `STATE OF` past 455 px).
 //! These tests pin the bundled metrics so a face swap cannot silently change
-//! wrapping away from the reference renderer's own face.
+//! wrapping. The upstream demo deck that originally motivated the wrap guard is
+//! not distributed because it embedded uncleared media; the numbers here are
+//! measured directly from the bundled face and do not depend on that fixture.
+//!
+//! The reference renderer requested Nunito Sans v19 via
+//! `@fontsource/nunito-sans@5.2.7`; that face's HarfBuzz-kerned `THE FOREST`
+//! advance is `570.7 px`, so it wraps onto two lines. We bundle the same face
+//! (see `assets/fonts/NOTICE.md`). These tests keep the bundled static weights
+//! stable and guard the 606 px title budget used by the historical comparison.
 //!
 //! Run with `--nocapture` to print the measured table.
 
@@ -28,8 +20,7 @@ const EMU_PER_EM_96: f32 = 96.0 * EMU_PER_PX;
 /// scale. The production measurer is `cosmic-text`/HarfBuzz, so kerning is
 /// applied exactly as the canvas renderer applies it.
 fn px(text: &str, bold: bool, italic: bool) -> f32 {
-    office_terminal_core::text::shape::measure(text, "Nunito Sans", EMU_PER_EM_96, bold, italic)
-        / EMU_PER_PX
+    office_terminal_core::text::shape::measure(text, "Nunito Sans", EMU_PER_EM_96, bold, italic) / EMU_PER_PX
 }
 
 fn assert_px(actual: f32, expected: f32, label: &str) {
@@ -53,10 +44,7 @@ fn bundled_family_resolves_by_name() {
         bold > regular,
         "bold face did not resolve or is not wider: regular {regular:.1}, bold {bold:.1}"
     );
-    assert!(
-        italic > 0.0,
-        "italic face did not resolve through text::shape::measure"
-    );
+    assert!(italic > 0.0, "italic face did not resolve through text::shape::measure");
     assert_px(italic, regular, "italic 400 advance");
 }
 

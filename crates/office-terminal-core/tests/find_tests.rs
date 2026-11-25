@@ -90,10 +90,7 @@ fn maps_shared_search_results_and_highlights_to_slides() {
     let mut find = FindController::from_presentation(&deck);
     let matches = find.find("hello", false);
     assert_eq!(matches.len(), 2);
-    assert_eq!(
-        matches.iter().map(|item| item.slide).collect::<Vec<_>>(),
-        vec![0, 1]
-    );
+    assert_eq!(matches.iter().map(|item| item.slide).collect::<Vec<_>>(), vec![0, 1]);
     assert_eq!(find.next().map(|item| item.slide), Some(0));
     assert_eq!(find.active_slide(), Some(0));
 

@@ -1,16 +1,10 @@
-use crate::contracts::{BackgroundTile, NormalizedRect, RectF32, VectorBackground, VectorGradient};
 use super::style::parse_hex_color;
+use crate::contracts::{BackgroundTile, NormalizedRect, RectF32, VectorBackground, VectorGradient};
 
 pub fn compile_slide_background(bg: Option<&pptx_model::Fill>) -> Option<VectorBackground> {
     match bg {
-        Some(pptx_model::Fill::Solid { color }) => {
-            Some(VectorBackground::Solid(parse_hex_color(color)))
-        }
-        Some(pptx_model::Fill::Gradient {
-            stops,
-            angle,
-            ..
-        }) => {
+        Some(pptx_model::Fill::Solid { color }) => Some(VectorBackground::Solid(parse_hex_color(color))),
+        Some(pptx_model::Fill::Gradient { stops, angle, .. }) => {
             let gradient_stops: Vec<(f32, [u8; 4])> = stops
                 .iter()
                 .map(|stop| (stop.position as f32, parse_hex_color(&stop.color)))
@@ -89,10 +83,7 @@ fn background_tile(tile: &pptx_model::TileInfo) -> BackgroundTile {
 /// authored modulation is the effective multiplier — the same value the
 /// reference stores as `fill.alpha` and paints through `globalAlpha`
 /// (ref renderer.ts:2315).
-fn image_opacity(
-    legacy_alpha: Option<&f64>,
-    blip_effects: &[ooxml_common::blip::BlipEffect],
-) -> f32 {
+fn image_opacity(legacy_alpha: Option<&f64>, blip_effects: &[ooxml_common::blip::BlipEffect]) -> f32 {
     if let Some(alpha) = legacy_alpha {
         return (*alpha as f32).clamp(0.0, 1.0);
     }

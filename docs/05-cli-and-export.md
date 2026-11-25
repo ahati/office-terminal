@@ -7,11 +7,11 @@
 Built using [`clap`](https://crates.io/crates/clap) with derive macros:
 
 ```bash
-kitty-pptx [OPTIONS] <FILE>              # Interactive TUI presenter (default)
-kitty-pptx view <FILE> [OPTIONS]         # One-shot inline terminal scrollback preview
-kitty-pptx export <FILE> --out <DIR>     # Headless batch PNG / vector SVG export
-kitty-pptx dump <FILE> [OPTIONS]         # Plaintext / markdown / AST extraction
-kitty-pptx info <FILE>                   # Deck structure & metadata summary
+ot [OPTIONS] <FILE>                 # Interactive TUI presenter (default)
+ot view <FILE> [OPTIONS]            # One-shot inline terminal scrollback preview
+ot export <FILE> --out <DIR>        # Headless batch PNG / vector SVG export
+ot dump <FILE> [OPTIONS]            # Plaintext / markdown / AST extraction
+ot info <FILE>                      # Deck structure & metadata summary
 ```
 
 ---
@@ -19,17 +19,17 @@ kitty-pptx info <FILE>                   # Deck structure & metadata summary
 ## 2. Command Specifications
 
 ### 2.1 Default Command (Interactive TUI)
-`kitty-pptx deck.pptx` launches the full-screen interactive presenter ([PRD 04](./04-interactive-tui-presenter.md)).
+`ot deck.pptx` launches the full-screen interactive presenter ([PRD 04](./04-interactive-tui-presenter.md)).
 - `--slide <N>`: Start presentation directly on slide $N$ (1-based).
 - `--presenter`: Launch directly in split-pane presenter console mode.
-- `KITTY_PPTX_PROTOCOL=kitty`: Bypass the capability query for debugging. No other protocol is supported.
+- `OT_PROTOCOL=kitty` (legacy `KITTY_PPTX_PROTOCOL`): Bypass the capability query for debugging. No other protocol is supported.
 
 ### 2.2 Subcommand: `view` (One-Shot Inline Pager)
 Prints slides directly into the terminal scrollback buffer and terminates immediately:
 ```bash
-kitty-pptx view presentation.pptx             # Renders slide 1
-kitty-pptx view presentation.pptx -n 4        # Renders slide 4
-kitty-pptx view presentation.pptx --all       # Renders all slides sequentially
+ot view presentation.pptx             # Renders slide 1
+ot view presentation.pptx -n 4        # Renders slide 4
+ot view presentation.pptx --all       # Renders all slides sequentially
 ```
 
 | Flag | Type | Description |
@@ -46,9 +46,9 @@ kitty-pptx view presentation.pptx --all       # Renders all slides sequentially
 Renders slides directly into PNG raster images or clean vector SVG files without any display dependencies (CI/CD, web documentation, thumbnails, LLM indexing).
 
 ```bash
-kitty-pptx export deck.pptx --out ./dist/ --format png --dpi 200
-kitty-pptx export deck.pptx --out ./vector/ --format svg --svg-text paths
-kitty-pptx export deck.pptx --out ./all/ --format all --slides 1-5,8
+ot export deck.pptx --out ./dist/ --format png --dpi 200
+ot export deck.pptx --out ./vector/ --format svg --svg-text paths
+ot export deck.pptx --out ./all/ --format all --slides 1-5,8
 ```
 
 | Flag | Type | Default | Description |
@@ -103,7 +103,10 @@ Warnings:       2 (1 font substitution, 1 placeholder chart)
 
 ## 3. Configuration File (`config.toml`)
 
-Loaded from `$XDG_CONFIG_HOME/kitty-pptx/config.toml` (default `~/.config/kitty-pptx/config.toml`):
+Loaded from `$XDG_CONFIG_HOME/ot/config.toml` (default `~/.config/ot/config.toml`).
+The pre-rebrand locations `~/.config/office-terminal/config.toml` and
+`~/.config/kitty-pptx/config.toml`, plus `office-terminal.toml` and
+`kitty-pptx.toml` in the current directory, remain accepted as fallbacks.
 
 ```toml
 [display]

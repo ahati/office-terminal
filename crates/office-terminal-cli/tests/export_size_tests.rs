@@ -35,22 +35,13 @@ fn fixture_deck_keeps_reference_aspect() {
 #[test]
 fn explicit_width_reproduces_reference_canvas() {
     // The reference's 1600x1066 canvas is `targetWidth = 1600` over the fixture.
-    assert_eq!(
-        export_target_size_for_width(FIXTURE_W, FIXTURE_H, 1600),
-        (1600, 1066)
-    );
+    assert_eq!(export_target_size_for_width(FIXTURE_W, FIXTURE_H, 1600), (1600, 1066));
 }
 
 #[test]
 fn explicit_width_is_exact_for_sixteen_nine() {
-    assert_eq!(
-        export_target_size_for_width(12_192_000, 6_858_000, 1280),
-        (1280, 720)
-    );
-    assert_eq!(
-        export_target_size_for_width(12_192_000, 6_858_000, 1920),
-        (1920, 1080)
-    );
+    assert_eq!(export_target_size_for_width(12_192_000, 6_858_000, 1280), (1280, 720));
+    assert_eq!(export_target_size_for_width(12_192_000, 6_858_000, 1920), (1920, 1080));
 }
 
 #[test]

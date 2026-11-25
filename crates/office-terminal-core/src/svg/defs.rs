@@ -6,8 +6,8 @@ use std::fmt::Write;
 
 use super::{image, path};
 use crate::contracts::{
-    sanitize_hyperlink_url, AffineTransform, FillRule, HyperlinkTarget, PathSegment, RectF32,
-    SlideLink, VectorCommand, VectorPaint, VectorPath, VectorStroke,
+    sanitize_hyperlink_url, AffineTransform, FillRule, HyperlinkTarget, PathSegment, RectF32, SlideLink, VectorCommand,
+    VectorPaint, VectorPath, VectorStroke,
 };
 use crate::loader::AssetStore;
 
@@ -38,14 +38,9 @@ pub(super) fn emit_fill_def(
         VectorPaint::Image(image_fill) => {
             *counter += 1;
             let id = format!("imgfill_{}", counter);
-            let fill_box = path::path_bounds(path)
-                .map(|(x0, y0, x1, y1)| (x0, y0, x1 - x0, y1 - y0));
+            let fill_box = path::path_bounds(path).map(|(x0, y0, x1, y1)| (x0, y0, x1 - x0, y1 - y0));
             match fill_box {
-                Some(fill_box)
-                    if image::emit_image_fill_def(assets, defs, &id, image_fill, fill_box) =>
-                {
-                    Some(id)
-                }
+                Some(fill_box) if image::emit_image_fill_def(assets, defs, &id, image_fill, fill_box) => Some(id),
                 _ => None,
             }
         }
@@ -98,23 +93,13 @@ pub(super) fn emit_stroke_def(
 
 /// Bounds of a path after its command transform, control points included
 /// (matching the rasterizer's conservative bounds).
-pub(super) fn transformed_path_bounds(
-    path: &VectorPath,
-    transform: &AffineTransform,
-) -> Option<RectF32> {
+pub(super) fn transformed_path_bounds(path: &VectorPath, transform: &AffineTransform) -> Option<RectF32> {
     let mut bounds: Option<RectF32> = None;
     for segment in &path.segments {
         let points: &[(f32, f32)] = match segment {
             PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => &[(*x, *y)],
             PathSegment::QuadTo { x1, y1, x, y } => &[(*x1, *y1), (*x, *y)],
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => &[(*x1, *y1), (*x2, *y2), (*x, *y)],
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => &[(*x1, *y1), (*x2, *y2), (*x, *y)],
             PathSegment::Close => &[],
         };
         for &(x, y) in points {
@@ -131,11 +116,7 @@ pub(super) fn emit_clip_path_def(defs: &mut String, id: &str, path: &crate::cont
         FillRule::NonZero => r#" clip-rule="nonzero""#,
         FillRule::EvenOdd => r#" clip-rule="evenodd""#,
     };
-    let _ = writeln!(
-        defs,
-        r#"    <clipPath id="{}" clipPathUnits="userSpaceOnUse">"#,
-        id
-    );
+    let _ = writeln!(defs, r#"    <clipPath id="{}" clipPathUnits="userSpaceOnUse">"#, id);
     let _ = writeln!(defs, r#"      <path d="{}"{}/>"#, d, rule);
     let _ = writeln!(defs, "    </clipPath>");
 }
@@ -160,16 +141,10 @@ pub(super) fn find_command_link<'a>(links: &'a [SlideLink], command: &VectorComm
 
 pub(super) fn command_bounds(command: &VectorCommand) -> Option<crate::contracts::RectF32> {
     match command {
-        VectorCommand::DrawPath {
-            path, transform, ..
-        } => transformed_path_bounds(path, transform),
-        VectorCommand::DrawLineEnd {
-            path, transform, ..
-        } => transformed_path_bounds(path, transform),
+        VectorCommand::DrawPath { path, transform, .. } => transformed_path_bounds(path, transform),
+        VectorCommand::DrawLineEnd { path, transform, .. } => transformed_path_bounds(path, transform),
         VectorCommand::DrawImage {
-            dest_rect,
-            transform,
-            ..
+            dest_rect, transform, ..
         } => Some(transform_rect(dest_rect, transform)),
         VectorCommand::DrawText { runs, transform } => {
             let mut bounds: Option<crate::contracts::RectF32> = None;
@@ -194,9 +169,7 @@ pub(super) fn command_bounds(command: &VectorCommand) -> Option<crate::contracts
             placement,
         )),
         VectorCommand::DrawMetafile {
-            dest_rect,
-            transform,
-            ..
+            dest_rect, transform, ..
         } => Some(transform_rect(dest_rect, transform)),
         VectorCommand::PushClip(_) | VectorCommand::PopClip => None,
     }
@@ -243,17 +216,12 @@ pub(super) fn wrap_svg_anchor(element: &str, link: &SlideLink) -> String {
             };
             (safe_url, "_blank", " rel=\"noopener noreferrer\"")
         }
-        HyperlinkTarget::SlideIndex(index) => {
-            (format!("#slide-{}", index + 1), "_self", "")
-        }
+        HyperlinkTarget::SlideIndex(index) => (format!("#slide-{}", index + 1), "_self", ""),
         HyperlinkTarget::Action(_) => return element.to_string(),
     };
     let href = xml_escape_attr(&href);
     let mut out = String::new();
-    let _ = writeln!(
-        out,
-        r#"  <a xlink:href="{href}" href="{href}" target="{target}"{rel}>"#
-    );
+    let _ = writeln!(out, r#"  <a xlink:href="{href}" href="{href}" target="{target}"{rel}>"#);
     if let Some(tooltip) = &link.tooltip {
         let _ = writeln!(out, "    <title>{}</title>", xml_escape_attr(tooltip));
     }

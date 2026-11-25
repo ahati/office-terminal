@@ -77,10 +77,9 @@ fn install_signal_restore() {
     use std::sync::Once;
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
-        let Ok(mut signals) = signal_hook::iterator::Signals::new([
-            signal_hook::consts::SIGINT,
-            signal_hook::consts::SIGTERM,
-        ]) else {
+        let Ok(mut signals) =
+            signal_hook::iterator::Signals::new([signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM])
+        else {
             return;
         };
         std::thread::spawn(move || {

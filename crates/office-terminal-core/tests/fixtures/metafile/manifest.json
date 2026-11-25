@@ -75,7 +75,7 @@
       "format": "wmf",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_record_ignored"],
@@ -92,7 +92,7 @@
       "format": "emf",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["FontSubstituted", "metafile_record_ignored"],
@@ -109,7 +109,7 @@
       "format": "emf",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["FontSubstituted", "metafile_record_ignored"],
@@ -126,7 +126,7 @@
       "format": "emf",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_record_ignored"],
@@ -143,7 +143,7 @@
       "format": "emf",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_hatch"],
@@ -160,7 +160,7 @@
       "format": "emfplus-dual",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_emfplus_fallback", "metafile_record_ignored"],
@@ -177,7 +177,7 @@
       "format": "emfplus-only",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_record_ignored"],
@@ -194,7 +194,7 @@
       "format": "emfplus-only",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_record_ignored"],
@@ -211,7 +211,7 @@
       "format": "emfplus-only",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_gradient", "metafile_record_ignored"],
@@ -228,7 +228,7 @@
       "format": "emfplus-only",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_record_ignored"],
@@ -245,7 +245,7 @@
       "format": "emz",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_record_ignored"],
@@ -262,7 +262,7 @@
       "format": "wmz",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "full",
         "diagnostics": [],
@@ -279,7 +279,7 @@
       "format": "emz",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "degraded",
         "diagnostics": ["metafile_record_ignored"],
@@ -296,7 +296,7 @@
       "format": "emz",
       "source": "synthetic",
       "license": "MIT",
-      "attribution": "kitty-pptx test corpus",
+      "attribution": "Office Terminal test corpus",
       "expect": {
         "class": "placeholder",
         "diagnostics": ["metafile_parse"],

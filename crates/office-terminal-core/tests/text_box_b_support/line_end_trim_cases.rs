@@ -92,10 +92,7 @@ fn shaft_ends(element: Value) -> Vec<(f32, f32)> {
 /// trimmed curve keeps its `CubicTo`/`QuadTo`, so the endpoint (not a control
 /// point) is the recorded end; the command transform carries the shape origin
 /// the reference's `ctx.translate` had already applied.
-fn last_point(
-    path: &office_terminal_core::contracts::VectorPath,
-    transform: &AffineTransform,
-) -> Option<(f32, f32)> {
+fn last_point(path: &office_terminal_core::contracts::VectorPath, transform: &AffineTransform) -> Option<(f32, f32)> {
     path.segments.iter().rev().find_map(|segment| {
         let (x, y) = match segment {
             PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => (*x, *y),
@@ -186,10 +183,7 @@ fn custom_geometry_arc_shaft_stays_on_its_ellipse() {
         // The IR has no arc segment, so `custgeom::arc_to` flattens the arc to
         // cubics; the endpoint then sits ≤1e-3 px off the true ellipse, which is
         // 3.5e-6 in this normalized metric (measured: 1.0000035).
-        assert!(
-            (on_ellipse - 1.0).abs() < 1e-5,
-            "on the ellipse: {on_ellipse}"
-        );
+        assert!((on_ellipse - 1.0).abs() < 1e-5, "on the ellipse: {on_ellipse}");
     }
 }
 

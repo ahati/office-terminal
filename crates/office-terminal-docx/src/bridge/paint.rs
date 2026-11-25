@@ -1,9 +1,7 @@
 //! `oxml_layout::Paint` / `Stroke` → core `VectorPaint` / `VectorStroke`
 //! (issue #40 §7.7.4).
 
-use office_terminal_core::contracts::{
-    VectorGradient, VectorPaint, VectorStroke, DEFAULT_MITER_LIMIT,
-};
+use office_terminal_core::contracts::{VectorGradient, VectorPaint, VectorStroke, DEFAULT_MITER_LIMIT};
 use oxml_layout::paint::{GradientStop, LineCap, LineJoin, Paint, Stroke};
 
 use super::BridgeContext;
@@ -20,13 +18,7 @@ pub(crate) fn rgba(color: &oxml_layout::Color) -> [u8; 4] {
 
 /// RGBA conversion with an explicit opacity multiplier (group opacity folds
 /// into leaf paint alpha — no group-opacity command exists in the IR).
-pub(crate) fn rgba_with_opacity(
-    r: f64,
-    g: f64,
-    b: f64,
-    a: f64,
-    opacity: f32,
-) -> [u8; 4] {
+pub(crate) fn rgba_with_opacity(r: f64, g: f64, b: f64, a: f64, opacity: f32) -> [u8; 4] {
     let alpha = channel(a) as f32 * opacity.clamp(0.0, 1.0);
     [
         channel(r),
@@ -46,12 +38,7 @@ pub(crate) fn map_gradient_stops(stops: &[GradientStop], opacity: f32) -> Vec<(f
         .iter()
         .map(|stop| {
             (
-                (if stop.offset.is_finite() {
-                    stop.offset
-                } else {
-                    0.0
-                })
-                .clamp(0.0, 1.0) as f32,
+                (if stop.offset.is_finite() { stop.offset } else { 0.0 }).clamp(0.0, 1.0) as f32,
                 rgba_scaled(&stop.color, opacity),
             )
         })
@@ -75,17 +62,10 @@ pub(crate) fn gradient_angle_deg(start: &oxml_layout::Point, end: &oxml_layout::
 /// Solid and linear paints map exactly; radial projects onto the core's
 /// gradient model with a warning; grid flattens to its mean colour; tile
 /// (engine-internal media reference) degrades to `None` with a warning.
-pub(crate) fn map_paint(
-    paint: &Paint,
-    opacity: f32,
-    ctx: &BridgeContext<'_>,
-    element_id: &str,
-) -> Option<VectorPaint> {
+pub(crate) fn map_paint(paint: &Paint, opacity: f32, ctx: &BridgeContext<'_>, element_id: &str) -> Option<VectorPaint> {
     match paint {
         Paint::Solid(color) => Some(VectorPaint::Solid(rgba_scaled(color, opacity))),
-        Paint::Linear {
-            start, end, stops, ..
-        } => Some(VectorPaint::LinearGradient(VectorGradient::new(
+        Paint::Linear { start, end, stops, .. } => Some(VectorPaint::LinearGradient(VectorGradient::new(
             gradient_angle_deg(start, end),
             map_gradient_stops(stops, opacity),
         ))),
@@ -118,7 +98,8 @@ pub(crate) fn map_fill(
     ctx: &BridgeContext<'_>,
     element_id: &str,
 ) -> Option<VectorPaint> {
-    fill.as_ref().and_then(|paint| map_paint(paint, opacity, ctx, element_id))
+    fill.as_ref()
+        .and_then(|paint| map_paint(paint, opacity, ctx, element_id))
 }
 
 /// Map a layout stroke: widths in points become EMU, dash lengths are
@@ -186,8 +167,9 @@ pub(crate) fn map_stroke(
 /// Representative flat colour of a non-solid paint (first gradient stop).
 fn first_solid_color(paint: &VectorPaint) -> Option<[u8; 4]> {
     match paint {
-        VectorPaint::LinearGradient(gradient)
-        | VectorPaint::RadialGradient(gradient) => gradient.stops.first().map(|(_, color)| *color),
+        VectorPaint::LinearGradient(gradient) | VectorPaint::RadialGradient(gradient) => {
+            gradient.stops.first().map(|(_, color)| *color)
+        }
         VectorPaint::Solid(color) => Some(*color),
         _ => None,
     }
@@ -196,10 +178,7 @@ fn first_solid_color(paint: &VectorPaint) -> Option<[u8; 4]> {
 /// Mean colour of a grid paint with folded opacity; `None` for an empty grid
 /// (unreachable through `Paint::grid`, which requires `columns * rows`
 /// colours), so each caller supplies its own fallback.
-pub(crate) fn average_color(
-    colors: &[oxml_layout::Color],
-    opacity: f32,
-) -> Option<[u8; 4]> {
+pub(crate) fn average_color(colors: &[oxml_layout::Color], opacity: f32) -> Option<[u8; 4]> {
     if colors.is_empty() {
         return None;
     }
@@ -283,8 +262,14 @@ mod tests {
                 Point { x: 0.0, y: 0.0 },
                 Point { x: 10.0, y: 0.0 },
                 vec![
-                    GradientStop { offset: 0.0, color: Color::BLACK },
-                    GradientStop { offset: 1.0, color: Color::WHITE },
+                    GradientStop {
+                        offset: 0.0,
+                        color: Color::BLACK,
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: Color::WHITE,
+                    },
                 ],
                 (false, false),
             ),
@@ -303,8 +288,14 @@ mod tests {
             5.0,
             Point { x: 0.0, y: 0.0 },
             vec![
-                GradientStop { offset: 0.0, color: Color::WHITE },
-                GradientStop { offset: 1.0, color: Color::BLACK },
+                GradientStop {
+                    offset: 0.0,
+                    color: Color::WHITE,
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: Color::BLACK,
+                },
             ],
             (false, false),
         );

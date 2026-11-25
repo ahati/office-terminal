@@ -19,11 +19,7 @@ use pptx_model::Slide;
 /// for relative targets. A root-absolute (`/…`) or canonical (`ppt/…`) target
 /// ignores that base. Duplicate part names resolve to the earliest slide
 /// (`sldIdLst` scan order). ref slide-nav.ts:32-70
-pub fn resolve_internal_slide(
-    raw_target: &str,
-    source_part: &str,
-    deck: &[Slide],
-) -> Option<usize> {
+pub fn resolve_internal_slide(raw_target: &str, source_part: &str, deck: &[Slide]) -> Option<usize> {
     if deck.is_empty() {
         return None;
     }
@@ -74,8 +70,7 @@ pub fn resolve_internal_slide(
 pub(crate) fn looks_like_slide_part(target: &str) -> bool {
     let path = target.split('#').next().unwrap_or(target);
     let lower = path.to_ascii_lowercase();
-    lower.ends_with(".xml")
-        && (lower.contains("slide") || lower.contains("slides/") || lower.contains("/ppt/"))
+    lower.ends_with(".xml") && (lower.contains("slide") || lower.contains("slides/") || lower.contains("/ppt/"))
 }
 
 /// Normalize an OPC relationship target to a root-relative part name.
@@ -131,10 +126,7 @@ mod tests {
 
     #[test]
     fn relative_root_absolute_and_canonical_targets_normalize_identically() {
-        let deck = vec![
-            slide(0, "ppt/slides/slide1.xml"),
-            slide(1, "ppt/slides/slide2.xml"),
-        ];
+        let deck = vec![slide(0, "ppt/slides/slide1.xml"), slide(1, "ppt/slides/slide2.xml")];
         for target in [
             "../slides/slide2.xml",
             "/ppt/slides/slide2.xml",

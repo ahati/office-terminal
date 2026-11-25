@@ -6,7 +6,7 @@
 
 ## 1. Architectural Role & Two-Stage Pipeline Seam
 
-Historically, shape styling in terminal presentation tools either omitted effects entirely or collapsed them into unaccelerated pixel shaders. In `kitty-pptx`, shape effects and 3D scenes are first-class visual constructs governed by the strict **two-stage architecture**:
+Historically, shape styling in terminal presentation tools either omitted effects entirely or collapsed them into unaccelerated pixel shaders. In **Office Terminal**, shape effects and 3D scenes are first-class visual constructs governed by the strict **two-stage architecture**:
 
 1. **Stage 1: Compilation (`SlideCompiler`)**: Compiles DrawingML `<a:effectLst>`, `<a:sp3d>`, and `<a:scene3d>` trees into a typed, resolution-independent intermediate representation (`ShapeEffects`) attached to `VectorCommand::DrawPath` and `VectorCommand::DrawImage` on `VectorSlide`.
 2. **Stage 2: Target Rasterization & Serialization**:
@@ -317,7 +317,7 @@ impl ScratchPixmapPool {
 
 ## 5. Backend Implementation: Standalone Vector SVG Serializer
 
-In SVG exports (`kitty-pptx export --format svg`), shape effects serialize into pure, standard W3C SVG filters within `<defs>`. This ensures zero rasterization artifacts and microsecond export speeds.
+In SVG exports (`ot export --format svg`), shape effects serialize into pure, standard W3C SVG filters within `<defs>`. This ensures zero rasterization artifacts and microsecond export speeds.
 
 ### 5.1 Normative SVG `<filter>` Templates
 

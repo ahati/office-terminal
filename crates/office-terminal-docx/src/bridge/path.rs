@@ -1,8 +1,6 @@
 //! Path, line and rectangle geometry mapping (issue #40 §7.7.4).
 
-use office_terminal_core::contracts::{
-    FillRule as CoreFillRule, PathSegment, VectorCommand, VectorPath,
-};
+use office_terminal_core::contracts::{FillRule as CoreFillRule, PathSegment, VectorCommand, VectorPath};
 use oxml_layout::path::{FillRule, Path as LayoutPath, PathCommand};
 use oxml_layout::{Point, Rect};
 
@@ -200,10 +198,7 @@ mod tests {
 
     #[test]
     fn filled_paths_keep_geometry_fill_rule_and_transform() {
-        let page = letter_page(vec![path_element(
-            Some(Paint::Solid(Color::BLACK)),
-            None,
-        )]);
+        let page = letter_page(vec![path_element(Some(Paint::Solid(Color::BLACK)), None)]);
         let engine = FixtureEngine::new(Vec::new());
         let (slide, warnings) = compile(&page, &engine);
         assert!(warnings.is_empty());
@@ -213,7 +208,10 @@ mod tests {
         };
         assert_eq!(path.segments.len(), 4);
         assert_eq!(path.fill_rule, CoreFillRule::EvenOdd);
-        assert_eq!(fill, &Some(office_terminal_core::contracts::VectorPaint::Solid([0, 0, 0, 255])));
+        assert_eq!(
+            fill,
+            &Some(office_terminal_core::contracts::VectorPaint::Solid([0, 0, 0, 255]))
+        );
     }
 
     #[test]

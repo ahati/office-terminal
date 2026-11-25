@@ -93,13 +93,7 @@ pub enum FitMode {
 }
 
 /// Fits image dimensions (cols, rows) within (max_cols, max_rows) preserving image aspect ratio.
-pub fn fit_aspect_ratio(
-    img_w: u32,
-    img_h: u32,
-    max_cols: u16,
-    max_rows: u16,
-    cell_aspect_ratio: f64,
-) -> (u16, u16) {
+pub fn fit_aspect_ratio(img_w: u32, img_h: u32, max_cols: u16, max_rows: u16, cell_aspect_ratio: f64) -> (u16, u16) {
     if img_w == 0 || img_h == 0 || max_cols == 0 || max_rows == 0 {
         return (max_cols.max(1), max_rows.max(1));
     }
@@ -120,12 +114,7 @@ pub fn fit_aspect_ratio(
 }
 
 /// Calculates a centered CellRect within a container area while preserving image aspect ratio.
-pub fn calculate_centered_placement(
-    img_w: u32,
-    img_h: u32,
-    container: CellRect,
-    cell_aspect_ratio: f64,
-) -> CellRect {
+pub fn calculate_centered_placement(img_w: u32, img_h: u32, container: CellRect, cell_aspect_ratio: f64) -> CellRect {
     fit_cell_aspect(img_w, img_h, container, cell_aspect_ratio, FitMode::Contain)
 }
 
@@ -145,9 +134,7 @@ pub fn fit_cell_aspect(
     let img_ar = image_width as f64 / image_height as f64;
 
     let (cols, rows) = match mode {
-        FitMode::Contain => {
-            fit_aspect_ratio(image_width, image_height, bounds.cols, bounds.rows, cell_aspect_ratio)
-        }
+        FitMode::Contain => fit_aspect_ratio(image_width, image_height, bounds.cols, bounds.rows, cell_aspect_ratio),
         FitMode::FillWidth => {
             let cols = bounds.cols;
             let rows = ((cols as f64) * (aspect_ratio / img_ar)).round() as u16;

@@ -1,8 +1,8 @@
 //! PDF Destination resolution for outline items and hyperlinks.
 
-use std::collections::HashMap;
 use hayro_syntax::object::{Array, Dict, MaybeRef, Name, Number, Object, ObjectIdentifier, String as PdfString};
 use hayro_syntax::xref::XRef;
+use std::collections::HashMap;
 
 /// Resolve the 0-based page index targeted by an outline or link dictionary.
 pub fn resolve_destination(
@@ -59,10 +59,7 @@ fn resolve_dest_value(
     None
 }
 
-fn resolve_array_dest(
-    arr: &Array<'_>,
-    page_map: &HashMap<ObjectIdentifier, usize>,
-) -> Option<usize> {
+fn resolve_array_dest(arr: &Array<'_>, page_map: &HashMap<ObjectIdentifier, usize>) -> Option<usize> {
     let mut iter = arr.raw_iter();
     let first = iter.next()?;
     match first {

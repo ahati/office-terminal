@@ -33,8 +33,8 @@ use golden_support::{compare_or_update, render_deck, DeckConfig, Thresholds};
 use office_terminal_core::compiler::text_warp::warp_point;
 use office_terminal_core::contracts::{PositionedGlyphRun, RunWarp, VectorCommand};
 use office_terminal_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec,
-    RgbaSlide, SlideCompiler, SlideRasterizer, Source, TinySkiaRasterizer,
+    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec, RgbaSlide, SlideCompiler,
+    SlideRasterizer, Source, TinySkiaRasterizer,
 };
 
 /// 16:9 slide: at the golden width of 800 px the target is exactly 800x450.
@@ -111,10 +111,7 @@ fn ensure_fixture() -> PathBuf {
             "cannot write the {} fixture ({error}) and no committed copy exists",
             path.display()
         );
-        eprintln!(
-            "note: keeping the committed fixture at {} ({error})",
-            path.display()
-        );
+        eprintln!("note: keeping the committed fixture at {} ({error})", path.display());
     }
     path
 }
@@ -144,10 +141,7 @@ fn compiled_warp_runs() -> Vec<PositionedGlyphRun> {
 
     let mut runs = Vec::new();
     for command in &vector.commands {
-        if let VectorCommand::DrawText {
-            runs: text_runs, ..
-        } = command
-        {
+        if let VectorCommand::DrawText { runs: text_runs, .. } = command {
             for text_run in text_runs {
                 if text_run.warp.is_some() {
                     runs.push(text_run.clone());
@@ -223,9 +217,7 @@ fn textdeflate_emits_three_lines_with_ink() {
             "run {index} has no advance ({advance}); glyphs cannot be placed"
         );
         for glyph in &run.glyphs {
-            let u = glyph
-                .warp_u
-                .unwrap_or_else(|| panic!("run {index}: glyph without u"));
+            let u = glyph.warp_u.unwrap_or_else(|| panic!("run {index}: glyph without u"));
             assert!(
                 (0.0..=1.0).contains(&u),
                 "run {index}: glyph u {u} outside the envelope"
@@ -296,8 +288,7 @@ fn textdeflate_lines_keep_their_own_baselines() {
                 "line {index}: baseline y {y} at u {u} left the shape box"
             );
         }
-        let mean =
-            probe.samples.iter().map(|(_, _, y)| *y).sum::<f32>() / probe.samples.len() as f32;
+        let mean = probe.samples.iter().map(|(_, _, y)| *y).sum::<f32>() / probe.samples.len() as f32;
         assert!(
             mean > previous_mean,
             "line {index}: mean baseline {mean} is above the previous line {previous_mean}"
@@ -326,10 +317,8 @@ fn textdeflate_glyph_scale_stays_near_authored_size() {
             let u = glyph.warp_u.expect("warped glyph has u");
             let advance = glyph.advance.max(1.0);
             let half = advance * 0.5 / line_w;
-            let left = warp_point(&warp.envelope, (u - half).max(0.0), warp.band_frac)
-                .expect("paired envelope");
-            let right = warp_point(&warp.envelope, (u + half).min(1.0), warp.band_frac)
-                .expect("paired envelope");
+            let left = warp_point(&warp.envelope, (u - half).max(0.0), warp.band_frac).expect("paired envelope");
+            let right = warp_point(&warp.envelope, (u + half).min(1.0), warp.band_frac).expect("paired envelope");
             let mapped_advance = (right.0 - left.0).hypot(right.1 - left.1);
             let h_ratio = mapped_advance / advance;
             assert!(
@@ -339,8 +328,7 @@ fn textdeflate_glyph_scale_stays_near_authored_size() {
             );
 
             let baseline = warp_point(&warp.envelope, u, warp.band_frac).expect("paired envelope");
-            let top =
-                warp_point(&warp.envelope, u, warp.band_frac - v_em).expect("paired envelope");
+            let top = warp_point(&warp.envelope, u, warp.band_frac - v_em).expect("paired envelope");
             let mapped_em = (baseline.0 - top.0).hypot(baseline.1 - top.1);
             let v_ratio = mapped_em / em;
             assert!(
@@ -377,9 +365,7 @@ fn textdeflate_golden_renders_legible_warp() {
         .as_chunks::<4>()
         .0
         .iter()
-        .filter(|pixel| {
-            pixel[3] > 8 && (u32::from(pixel[0]) + u32::from(pixel[1]) + u32::from(pixel[2])) < 384
-        })
+        .filter(|pixel| pixel[3] > 8 && (u32::from(pixel[0]) + u32::from(pixel[1]) + u32::from(pixel[2])) < 384)
         .count();
     let ink_fraction = ink as f64 / (rendered.width_px as f64 * rendered.height_px as f64);
     assert!(
@@ -432,14 +418,10 @@ fn render_deck_file(path: &Path, width_px: u32) -> RgbaSlide {
     let (presentation, assets) = loader
         .load(Source::File(path.to_path_buf()))
         .unwrap_or_else(|error| panic!("failed to load {}: {error}", path.display()));
-    let height_px = (width_px as f64 * presentation.slide_height as f64
-        / presentation.slide_width as f64)
+    let height_px = (width_px as f64 * presentation.slide_height as f64 / presentation.slide_width as f64)
         .round()
         .max(1.0) as u32;
-    let target = RenderTargetSpec {
-        width_px,
-        height_px,
-    };
+    let target = RenderTargetSpec { width_px, height_px };
     let compiler = DefaultSlideCompiler::new();
     let rasterizer = TinySkiaRasterizer::new();
     let (tx, _rx) = unbounded();
@@ -487,13 +469,7 @@ fn textdeflate_matches_reference_viewer() {
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", reference.display()))
         .to_rgba8();
     let (width, height) = (expected.width(), expected.height());
-    let actual = pixelmatch::pad_to_white(
-        &rendered.pixels,
-        rendered.width,
-        rendered.height,
-        width,
-        height,
-    );
+    let actual = pixelmatch::pad_to_white(&rendered.pixels, rendered.width, rendered.height, width, height);
     let result = pixelmatch::compare_rgba(
         &actual,
         expected.as_raw(),

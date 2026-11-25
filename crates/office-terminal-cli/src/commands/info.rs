@@ -1,7 +1,7 @@
+use crate::commands::source_from_path;
+use office_terminal_core::{DeckSource, DefaultPresentationLoader, PresentationLoader, EMU_PER_PT, EMU_PER_PX};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use office_terminal_core::{DeckSource, DefaultPresentationLoader, PresentationLoader, EMU_PER_PT, EMU_PER_PX};
-use crate::commands::source_from_path;
 
 pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
     let source = source_from_path(file.clone());
@@ -50,13 +50,20 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
             let mut slide_media_count = 0;
             for s in &presentation.slides {
                 for el in &s.elements {
-                    if matches!(el, pptx_model::SlideElement::Picture(_) | pptx_model::SlideElement::Media(_)) {
+                    if matches!(
+                        el,
+                        pptx_model::SlideElement::Picture(_) | pptx_model::SlideElement::Media(_)
+                    ) {
                         slide_media_count += 1;
                     }
                 }
             }
             let stats = asset_store.stats();
-            let count = if stats.cached_entries > 0 { stats.cached_entries } else { slide_media_count };
+            let count = if stats.cached_entries > 0 {
+                stats.cached_entries
+            } else {
+                slide_media_count
+            };
             let mb = stats.cached_bytes as f64 / (1024.0 * 1024.0);
             println!("Media Assets:   {} images ({:.1} MB)", count, mb);
         }
@@ -109,7 +116,13 @@ pub fn run_info(file: PathBuf, loader: &DefaultPresentationLoader) -> ExitCode {
                 let (w_emu, h_emu) = pdf_source.page_size_emu(0);
                 let pt_w = w_emu as f64 / f64::from(EMU_PER_PT);
                 let pt_h = h_emu as f64 / f64::from(EMU_PER_PT);
-                println!("Dimensions:     {:.1} x {:.1} pt ({:.0} x {:.0} mm)", pt_w, pt_h, pt_w * 25.4 / 72.0, pt_h * 25.4 / 72.0);
+                println!(
+                    "Dimensions:     {:.1} x {:.1} pt ({:.0} x {:.0} mm)",
+                    pt_w,
+                    pt_h,
+                    pt_w * 25.4 / 72.0,
+                    pt_h * 25.4 / 72.0
+                );
                 let ratio_str = format_aspect_ratio(w_emu, h_emu);
                 println!("Aspect Ratio:   {}", ratio_str);
             }
@@ -191,7 +204,11 @@ fn format_aspect_ratio(w: i64, h: i64) -> String {
         "16:10".to_string()
     } else {
         fn gcd(a: i64, b: i64) -> i64 {
-            if b == 0 { a } else { gcd(b, a % b) }
+            if b == 0 {
+                a
+            } else {
+                gcd(b, a % b)
+            }
         }
         let g = gcd(w, h);
         if g > 0 && w / g < 100 && h / g < 100 {

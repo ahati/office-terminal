@@ -1,6 +1,6 @@
-use office_terminal_core::WarningEvent;
 use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
+use office_terminal_core::WarningEvent;
 
 /// Fidelity warning attached to a presentation slide or general session.
 #[derive(Clone, Debug, PartialEq)]
@@ -101,7 +101,11 @@ impl PresentationState {
     }
 
     pub fn add_warning(&mut self, event: WarningEvent) {
-        let slide = if self.total_slides() > 0 { Some(self.current_slide()) } else { None };
+        let slide = if self.total_slides() > 0 {
+            Some(self.current_slide())
+        } else {
+            None
+        };
         self.warnings.add_warning(slide, event);
     }
 

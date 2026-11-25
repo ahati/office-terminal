@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use office_terminal_core::*;
+use std::sync::Arc;
 
 #[test]
 fn test_asset_store_caching_and_lru_eviction() {
@@ -12,11 +12,8 @@ fn test_asset_store_caching_and_lru_eviction() {
         // 1. Create a 4x4 PNG
         let img1 = image::RgbaImage::from_fn(4, 4, |_, _| image::Rgba([10, 20, 30, 255]));
         let mut png1 = Vec::new();
-        img1.write_to(
-            &mut std::io::Cursor::new(&mut png1),
-            image::ImageFormat::Png,
-        )
-        .unwrap();
+        img1.write_to(&mut std::io::Cursor::new(&mut png1), image::ImageFormat::Png)
+            .unwrap();
 
         zip.start_file("ppt/media/image1.png", options).unwrap();
         std::io::Write::write_all(&mut zip, &png1).unwrap();
@@ -24,11 +21,8 @@ fn test_asset_store_caching_and_lru_eviction() {
         // 2. Create another 4x4 PNG
         let img2 = image::RgbaImage::from_fn(4, 4, |_, _| image::Rgba([40, 50, 60, 255]));
         let mut png2 = Vec::new();
-        img2.write_to(
-            &mut std::io::Cursor::new(&mut png2),
-            image::ImageFormat::Png,
-        )
-        .unwrap();
+        img2.write_to(&mut std::io::Cursor::new(&mut png2), image::ImageFormat::Png)
+            .unwrap();
 
         zip.start_file("ppt/media/image2.png", options).unwrap();
         std::io::Write::write_all(&mut zip, &png2).unwrap();

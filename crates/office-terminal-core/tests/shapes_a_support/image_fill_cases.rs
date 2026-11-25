@@ -49,11 +49,7 @@ fn image_fill_fails_closed_when_the_fill_mode_is_omitted() {
     assert_eq!((stroke.width_emu, stroke.color), (EMU, [0, 0, 0, 255]));
 
     // ref `expect(calls.some(drawImage)).toBe(false)`: the blip is not painted.
-    let store = RecordingStore::new(vec![(
-        Image::solid("ppt/media/mode.png", 2, 1, [0, 0, 0, 255]),
-        2,
-        1,
-    )]);
+    let store = RecordingStore::new(vec![(Image::solid("ppt/media/mode.png", 2, 1, [0, 0, 0, 255]), 2, 1)]);
     let rendered = rasterize(&slide, &store);
     assert_eq!(pixel(&rendered, 20, 140), [255, 255, 255, 255], "no blip");
 }
@@ -80,11 +76,7 @@ fn image_fill_fails_closed_when_tile_and_stretch_conflict() {
     assert_eq!(strokes.len(), 1);
     assert_eq!(strokes[0].as_ref().map(|s| s.width_emu), Some(EMU));
 
-    let store = RecordingStore::new(vec![(
-        Image::solid("ppt/media/mode.png", 2, 1, [0, 0, 0, 255]),
-        2,
-        1,
-    )]);
+    let store = RecordingStore::new(vec![(Image::solid("ppt/media/mode.png", 2, 1, [0, 0, 0, 255]), 2, 1)]);
     let rendered = rasterize(&slide, &store);
     assert_eq!(pixel(&rendered, 20, 140), [255, 255, 255, 255], "no blip");
     assert!(
@@ -204,10 +196,7 @@ mod support_checks {
         match compiled.paint.as_deref() {
             Some(VectorPaint::LinearGradient(gradient)) => {
                 assert_eq!(gradient.angle_deg, 0.0);
-                assert_eq!(
-                    gradient.stops,
-                    vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]
-                );
+                assert_eq!(gradient.stops, vec![(0.0, [0, 0, 0, 255]), (1.0, [255, 255, 255, 255])]);
             }
             other => panic!("the line's gradient paint must survive, got {other:?}"),
         }
@@ -218,17 +207,11 @@ mod support_checks {
     #[test]
     fn darken_fold_matches_the_reference_overlay() {
         assert_eq!(
-            apply_path_fill_mode(
-                Some(&VectorPaint::Solid([0x33, 0x66, 0x99, 255])),
-                PathFill::Darken
-            ),
+            apply_path_fill_mode(Some(&VectorPaint::Solid([0x33, 0x66, 0x99, 255])), PathFill::Darken),
             Some(VectorPaint::Solid([31, 61, 92, 255]))
         );
         assert_eq!(
-            apply_path_fill_mode(
-                Some(&VectorPaint::Solid([0x33, 0x66, 0x99, 255])),
-                PathFill::None
-            ),
+            apply_path_fill_mode(Some(&VectorPaint::Solid([0x33, 0x66, 0x99, 255])), PathFill::None),
             None
         );
     }

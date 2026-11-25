@@ -10,11 +10,9 @@ use crate::contracts::{AffineTransform, PositionedGlyphRun, VectorReflection};
 use crate::rasterizer::filters;
 use crate::rasterizer::mask::pixmap_from_premultiplied;
 use crate::rasterizer::reflection_blur::reflection_blur_bands;
-use crate::rasterizer::shape_effect::reflection::{
-    band_alpha, mirror_matrix, padding, Bbox,
-};
-use crate::rasterizer::shape_effect::MAX_LAYER_PIXELS;
 use crate::rasterizer::scratch::EffectScratch;
+use crate::rasterizer::shape_effect::reflection::{band_alpha, mirror_matrix, padding, Bbox};
+use crate::rasterizer::shape_effect::MAX_LAYER_PIXELS;
 
 /// Render the distance-aware reflection under a single text run.
 #[allow(clippy::too_many_arguments)]
@@ -33,9 +31,7 @@ pub(crate) fn render_reflected_run(
     if run.text.is_empty() || run.glyphs.is_empty() {
         return;
     }
-    if reflection.start_opacity.clamp(0.0, 1.0) <= 0.0
-        && reflection.end_opacity.clamp(0.0, 1.0) <= 0.0
-    {
+    if reflection.start_opacity.clamp(0.0, 1.0) <= 0.0 && reflection.end_opacity.clamp(0.0, 1.0) <= 0.0 {
         return;
     }
 
@@ -107,12 +103,7 @@ pub(crate) fn render_reflected_run(
         swash_cache,
     );
 
-    let layer_bbox: Bbox = (
-        body_bbox.0 - min_layer_x,
-        body_bbox.1 - min_layer_y,
-        body_w,
-        body_h,
-    );
+    let layer_bbox: Bbox = (body_bbox.0 - min_layer_x, body_bbox.1 - min_layer_y, body_w, body_h);
 
     // 2. Distance-aware blur bands (S8)
     let bands = reflection_blur_bands(layer_bbox, sigma);
@@ -164,14 +155,7 @@ pub(crate) fn render_reflected_run(
 
     // 4. Mirrored blit under the run
     let m = mirror_matrix(reflection, layer_bbox, scale);
-    let blit_transform = tiny_skia::Transform::from_row(
-        m[0],
-        m[1],
-        m[2],
-        m[3],
-        m[4] + min_layer_x,
-        m[5] + min_layer_y,
-    );
+    let blit_transform = tiny_skia::Transform::from_row(m[0], m[1], m[2], m[3], m[4] + min_layer_x, m[5] + min_layer_y);
     let paint = tiny_skia::PixmapPaint {
         quality: tiny_skia::FilterQuality::Bilinear,
         ..tiny_skia::PixmapPaint::default()

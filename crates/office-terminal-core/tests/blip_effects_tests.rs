@@ -1,19 +1,17 @@
-use std::sync::Arc;
 use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::{
-    AffineTransform, FidelityClass, NormalizedRect, RectF32, RenderTargetSpec, VectorCommand,
-    VectorSlide, WarningEvent,
+    AffineTransform, FidelityClass, NormalizedRect, RectF32, RenderTargetSpec, VectorCommand, VectorSlide, WarningEvent,
 };
 use office_terminal_core::error::AssetError;
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::rasterizer::effects::{
-    apply_alpha_mod, apply_bilevel, apply_blip_effects, apply_duotone, apply_grayscale,
-    bt709_luma_u8,
+    apply_alpha_mod, apply_bilevel, apply_blip_effects, apply_duotone, apply_grayscale, bt709_luma_u8,
 };
 use office_terminal_core::rasterizer::{SlideRasterizer, TinySkiaRasterizer};
 use office_terminal_core::{DefaultSlideCompiler, SlideCompiler};
 use ooxml_common::blip::BlipEffect;
 use pptx_model::*;
+use std::sync::Arc;
 
 #[test]
 fn test_bt709_grayscale_conversion() {
@@ -26,11 +24,11 @@ fn test_bt709_grayscale_conversion() {
 
     // Test buffer conversion and alpha preservation
     let mut pixels = vec![
-        255, 0, 0, 200,   // Red
-        0, 255, 0, 150,   // Green
-        0, 0, 255, 100,   // Blue
+        255, 0, 0, 200, // Red
+        0, 255, 0, 150, // Green
+        0, 0, 255, 100, // Blue
         255, 255, 255, 50, // White
-        0, 0, 0, 25,      // Black
+        0, 0, 0, 25, // Black
         100, 150, 200, 255, // Mixed
     ];
 
@@ -48,11 +46,11 @@ fn test_bt709_grayscale_conversion() {
 fn test_bilevel_thresholding() {
     // Threshold 0.5 (127.5 on 0..255 scale)
     let mut pixels = vec![
-        255, 0, 0, 255,   // Red: luma 54.213 <= 127.5 -> black
-        0, 255, 0, 255,   // Green: luma 182.376 > 127.5 -> white
-        0, 0, 255, 128,   // Blue: luma 18.411 <= 127.5 -> black, alpha preserved
+        255, 0, 0, 255, // Red: luma 54.213 <= 127.5 -> black
+        0, 255, 0, 255, // Green: luma 182.376 > 127.5 -> white
+        0, 0, 255, 128, // Blue: luma 18.411 <= 127.5 -> black, alpha preserved
         255, 255, 255, 80, // White: luma 255 > 127.5 -> white, alpha preserved
-        0, 0, 0, 255,     // Black: luma 0 <= 127.5 -> black
+        0, 0, 0, 255, // Black: luma 0 <= 127.5 -> black
     ];
 
     apply_bilevel(&mut pixels, 0.5);
@@ -73,7 +71,7 @@ fn test_bilevel_thresholding() {
 fn test_duotone_linear_interpolation() {
     // Dark endpoint: Blue (0000FF); Light endpoint: Yellow (FFFF00)
     let mut pixels = vec![
-        0, 0, 0, 255,       // Black: luma 0.0 -> Blue (0, 0, 255)
+        0, 0, 0, 255, // Black: luma 0.0 -> Blue (0, 0, 255)
         255, 255, 255, 200, // White: luma 1.0 -> Yellow (255, 255, 0), alpha preserved
     ];
 
@@ -91,10 +89,7 @@ fn test_duotone_linear_interpolation() {
 
 #[test]
 fn test_alpha_modulation() {
-    let mut pixels = vec![
-        100, 150, 200, 255,
-        100, 150, 200, 100,
-    ];
+    let mut pixels = vec![100, 150, 200, 255, 100, 150, 200, 100];
 
     // Modulate by 0.5
     apply_alpha_mod(&mut pixels, 0.5);
@@ -111,10 +106,7 @@ fn test_alpha_modulation() {
 fn test_apply_blip_effects_sequence() {
     let mut pixels = vec![255, 0, 0, 255]; // Red
 
-    let effects = vec![
-        BlipEffect::Grayscale,
-        BlipEffect::AlphaModFix { amt: 0.5 },
-    ];
+    let effects = vec![BlipEffect::Grayscale, BlipEffect::AlphaModFix { amt: 0.5 }];
 
     apply_blip_effects(&mut pixels, &effects);
     assert_eq!(&pixels, &[54, 54, 54, 128]);
@@ -179,7 +171,11 @@ fn test_warning_events_blip_effects() {
 
     for w in &warnings {
         match w {
-            WarningEvent::FidelityDegraded { element_id, feature, class } => {
+            WarningEvent::FidelityDegraded {
+                element_id,
+                feature,
+                class,
+            } => {
                 assert_eq!(*feature, "blip_effect");
                 assert_eq!(*class, FidelityClass::Degraded);
                 assert!(element_id == "ppt/media/photo.jpg" || element_id == "ppt/media/logo.png");
@@ -274,9 +270,14 @@ fn test_rasterize_with_blip_effects() {
     });
 
     // Asset returns pure red [255, 0, 0, 255]
-    let assets = SinglePixelAssetStore { color: [255, 0, 0, 255] };
+    let assets = SinglePixelAssetStore {
+        color: [255, 0, 0, 255],
+    };
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 10, height_px: 10 };
+    let target = RenderTargetSpec {
+        width_px: 10,
+        height_px: 10,
+    };
 
     let rendered = rasterizer.rasterize(&slide, &target, &assets).expect("rasterize");
 

@@ -110,23 +110,13 @@ fn emf_text_escapement_rotates_the_run() {
         })
         .expect("rotated text command");
     // 90 degrees CCW in screen coordinates: x-axis maps onto -y.
-    assert!(
-        transform.kx.abs() > 0.5,
-        "expected rotation, got {transform:?}"
-    );
-    assert!(
-        transform.ky.abs() > 0.5,
-        "expected rotation, got {transform:?}"
-    );
+    assert!(transform.kx.abs() > 0.5, "expected rotation, got {transform:?}");
+    assert!(transform.ky.abs() > 0.5, "expected rotation, got {transform:?}");
 }
 
 #[test]
 fn emf_text_dx_positions_each_character() {
-    let (scene, summary, _) = expand(
-        "ppt/media/image1.emf",
-        EMF,
-        text_emf(0x0018, 0, Some(&[10, 30])),
-    );
+    let (scene, summary, _) = expand("ppt/media/image1.emf", EMF, text_emf(0x0018, 0, Some(&[10, 30])));
     assert_eq!(summary.expanded, 1);
     let runs = text_runs(&scene);
     assert_eq!(runs.len(), 2, "dx overrides emit one run per character");
@@ -202,11 +192,7 @@ fn text_mapper_tags_size_clamping_and_dx_mismatch() {
         &office_terminal_core::contracts::AffineTransform::scale(9525.0, 9525.0),
     )
     .expect("mapped");
-    let tags: Vec<&str> = mapped
-        .diagnostics
-        .iter()
-        .map(|diagnostic| diagnostic.tag)
-        .collect();
+    let tags: Vec<&str> = mapped.diagnostics.iter().map(|diagnostic| diagnostic.tag).collect();
     assert!(tags.contains(&"metafile_text_size"), "{tags:?}");
     assert!(tags.contains(&"metafile_text_dx"), "{tags:?}");
     let pt = mapped.runs[0].font_size_pt;

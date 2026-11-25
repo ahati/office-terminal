@@ -3,8 +3,8 @@
 use crate::contracts::{AffineTransform, ShapeEffects, VectorCommand};
 
 use crate::metafile::{
-    mapping, MetafileBitmap, MetafileClip, MetafileDiagnostic, MetafileError, MetafilePaint,
-    MetafilePath, MetafilePen, MetafileSink, MetafileTextRun,
+    mapping, MetafileBitmap, MetafileClip, MetafileDiagnostic, MetafileError, MetafilePaint, MetafilePath, MetafilePen,
+    MetafileSink, MetafileTextRun,
 };
 
 /// Accumulates commands in element-local EMU for one metafile playback.

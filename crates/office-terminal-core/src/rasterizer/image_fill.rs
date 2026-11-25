@@ -18,10 +18,8 @@
 //! ref packages/pptx/src/renderer.ts:2434-2585 (`paintTiledBackground`),
 //! 2620-2700 (`paintPreparedShapeImageFill`).
 
-use crate::contracts::{
-    AffineTransform, NormalizedRect, EMU_PER_PX, VectorImageFill, VectorPattern, VectorTile,
-};
 use crate::contracts::PATTERN_CELL_EMU;
+use crate::contracts::{AffineTransform, NormalizedRect, VectorImageFill, VectorPattern, VectorTile, EMU_PER_PX};
 use crate::error::RenderError;
 use crate::loader::{AssetStore, DecodedImage, SizeHint};
 
@@ -84,8 +82,16 @@ pub fn tile_source_extent_emu(fill: &VectorImageFill, decoded: &DecodedImage) ->
     } else {
         EMU_PER_PX
     };
-    let logical_w = if fill.src_rect.w.is_finite() { fill.src_rect.w } else { 1.0 };
-    let logical_h = if fill.src_rect.h.is_finite() { fill.src_rect.h } else { 1.0 };
+    let logical_w = if fill.src_rect.w.is_finite() {
+        fill.src_rect.w
+    } else {
+        1.0
+    };
+    let logical_h = if fill.src_rect.h.is_finite() {
+        fill.src_rect.h
+    } else {
+        1.0
+    };
     (
         decoded.width as f32 * pixel_to_emu * logical_w,
         decoded.height as f32 * pixel_to_emu * logical_h,
@@ -96,26 +102,19 @@ pub fn tile_source_extent_emu(fill: &VectorImageFill, decoded: &DecodedImage) ->
 /// before the resource budget. A flipped tile repeats a 2×2 mirrored super-cell
 /// so the seam between repeats is a mirror line.
 /// ref renderer.ts:2462-2471.
-pub fn tile_cell_pixels(
-    source: (f32, f32),
-    tile: &VectorTile,
-) -> Result<(u32, u32), RenderError> {
+pub fn tile_cell_pixels(source: (f32, f32), tile: &VectorTile) -> Result<(u32, u32), RenderError> {
     // `source` is the authored tile extent; the retained cell holds one period
     // per author unit, doubled on each mirrored axis.
     let cell_w = source.0 * if tile.flip_x() { 2.0 } else { 1.0 };
     let cell_h = source.1 * if tile.flip_y() { 2.0 } else { 1.0 };
     if !(cell_w.is_finite() && cell_h.is_finite()) {
         // ref renderer.ts:2475-2477 — "Unrepresentable picture tile cell".
-        return Err(RenderError::UnsupportedImageEffect(
-            "unrepresentable picture tile cell",
-        ));
+        return Err(RenderError::UnsupportedImageEffect("unrepresentable picture tile cell"));
     }
     let scratch_w = cell_w.abs().ceil().max(1.0);
     let scratch_h = cell_h.abs().ceil().max(1.0);
     if !(scratch_w > 0.0 && scratch_h > 0.0) {
-        return Err(RenderError::UnsupportedImageEffect(
-            "unrepresentable picture tile size",
-        ));
+        return Err(RenderError::UnsupportedImageEffect("unrepresentable picture tile size"));
     }
     Ok((scratch_w as u32, scratch_h as u32))
 }
@@ -138,13 +137,8 @@ pub fn prepare_image_fill(
     offset_y: f32,
 ) -> Result<Option<ImageFillBrush>, RenderError> {
     let (box_x, box_y, box_w, box_h) = box_local;
-    if ![box_x, box_y, box_w, box_h, scale].iter().all(|v| v.is_finite())
-        || box_w < 0.0
-        || box_h < 0.0
-    {
-        return Err(RenderError::UnsupportedImageEffect(
-            "invalid image fill geometry",
-        ));
+    if ![box_x, box_y, box_w, box_h, scale].iter().all(|v| v.is_finite()) || box_w < 0.0 || box_h < 0.0 {
+        return Err(RenderError::UnsupportedImageEffect("invalid image fill geometry"));
     }
     // ref renderer.ts:2626, 2629: empty box or no decodable blip paints nothing.
     if box_w <= 0.0 || box_h <= 0.0 || !fill.mode_is_paintable() {
@@ -173,9 +167,7 @@ pub fn prepare_image_fill(
             let tile_w = source_w * tile.sx;
             let tile_h = source_h * tile.sy;
             if !(tile_w.is_finite() && tile_h.is_finite() && tile_w > 0.0 && tile_h > 0.0) {
-                return Err(RenderError::UnsupportedImageEffect(
-                    "unrepresentable picture tile size",
-                ));
+                return Err(RenderError::UnsupportedImageEffect("unrepresentable picture tile size"));
             }
             let (ax, ay) = tile_anchor(&tile.algn, box_w, box_h, tile_w, tile_h);
             let start_x = ax + tile.tx;
@@ -217,14 +209,9 @@ pub fn prepare_image_fill(
         Some(tile) => {
             // The retained grid is the bitmap extent, doubled per mirrored axis;
             // the pattern transform stretches it onto the authored period.
-            let cell = tile_cell_pixels(
-                (pixmap.width() as f32, pixmap.height() as f32),
-                tile,
-            )?;
+            let cell = tile_cell_pixels((pixmap.width() as f32, pixmap.height() as f32), tile)?;
             if cell.0 > MAX_TILE_CELL_DIMENSION || cell.1 > MAX_TILE_CELL_DIMENSION {
-                return Err(RenderError::UnsupportedImageEffect(
-                    "unrepresentable picture tile cell",
-                ));
+                return Err(RenderError::UnsupportedImageEffect("unrepresentable picture tile cell"));
             }
             if tile.flip_x() || tile.flip_y() {
                 pixmap = mirror_super_cell(&pixmap, tile.flip_x(), tile.flip_y());
@@ -242,9 +229,7 @@ pub fn prepare_image_fill(
         // ref renderer.ts:2484-2508.
         pixmap = crop_to_budget(&pixmap, MAX_TILE_CELL_PIXELS);
         if pixmap.width() == 0 || pixmap.height() == 0 {
-            return Err(RenderError::UnsupportedImageEffect(
-                "picture tile surface unavailable",
-            ));
+            return Err(RenderError::UnsupportedImageEffect("picture tile surface unavailable"));
         }
     }
 
@@ -260,14 +245,7 @@ pub fn prepare_image_fill(
     let rotate = rotation_about(rotation, center_x, center_y);
     let device = compose_device(transform, scale, offset_x, offset_y);
     let brush = device.post_concat(&rotate).post_concat(&local);
-    let brush_transform = tiny_skia::Transform::from_row(
-        brush.sx,
-        brush.ky,
-        brush.kx,
-        brush.sy,
-        brush.tx,
-        brush.ty,
-    );
+    let brush_transform = tiny_skia::Transform::from_row(brush.sx, brush.ky, brush.kx, brush.sy, brush.tx, brush.ty);
 
     Ok(Some(ImageFillBrush {
         pixmap,
@@ -298,10 +276,7 @@ fn crop_to_budget(cell: &tiny_skia::Pixmap, budget: u64) -> tiny_skia::Pixmap {
         0,
         cell.as_ref(),
         &paint,
-        tiny_skia::Transform::from_scale(
-            out_w as f32 / cell.width() as f32,
-            out_h as f32 / cell.height() as f32,
-        ),
+        tiny_skia::Transform::from_scale(out_w as f32 / cell.width() as f32, out_h as f32 / cell.height() as f32),
         None,
     );
     out
@@ -329,16 +304,10 @@ pub fn fill_path_with_image(
     let Some(bounds) = super::path::local_bounds(path_local) else {
         return Ok(());
     };
-    let box_local = (
-        bounds.0,
-        bounds.1,
-        bounds.2 - bounds.0,
-        bounds.3 - bounds.1,
-    );
+    let box_local = (bounds.0, bounds.1, bounds.2 - bounds.0, bounds.3 - bounds.1);
     // Fail-soft on the paint path: the typed diagnostic is available from
     // `prepare_image_fill`, and a broken brush must not abort the slide.
-    let brush = prepare_image_fill(assets, fill, box_local, transform, scale, offset_x, offset_y)
-        .unwrap_or_default();
+    let brush = prepare_image_fill(assets, fill, box_local, transform, scale, offset_x, offset_y).unwrap_or_default();
     let Some(brush) = brush else {
         return Ok(());
     };
@@ -358,9 +327,7 @@ pub fn fill_path_with_pattern(
     offset_x: f32,
     offset_y: f32,
 ) {
-    let Some(pixels) =
-        crate::compiler::pattern::build_pattern_bitmap(&pattern.preset, pattern.fg, pattern.bg)
-    else {
+    let Some(pixels) = crate::compiler::pattern::build_pattern_bitmap(&pattern.preset, pattern.fg, pattern.bg) else {
         // Unknown preset: the reference falls back to the foreground colour, but
         // `compile_shape_fill` already replaced those, so nothing is painted.
         return;
@@ -404,22 +371,11 @@ fn fill_path_with_brush(
         brush.opacity.clamp(0.0, 1.0),
         brush.transform,
     );
-    pixmap.fill_path(
-        path,
-        &paint,
-        fill_rule,
-        tiny_skia::Transform::identity(),
-        None,
-    );
+    pixmap.fill_path(path, &paint, fill_rule, tiny_skia::Transform::identity(), None);
 }
 
 /// Slide EMU → canvas pixels.
-fn compose_device(
-    transform: &AffineTransform,
-    scale: f32,
-    offset_x: f32,
-    offset_y: f32,
-) -> AffineTransform {
+fn compose_device(transform: &AffineTransform, scale: f32, offset_x: f32, offset_y: f32) -> AffineTransform {
     let device = AffineTransform {
         sx: scale,
         ky: 0.0,
@@ -568,4 +524,3 @@ pub(crate) fn premultiply_into(dst: &mut [u8], src: &[u8]) {
         }
     }
 }
-

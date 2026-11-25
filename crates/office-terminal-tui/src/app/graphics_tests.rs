@@ -3,12 +3,10 @@
 use std::sync::{Arc, Mutex};
 
 use office_terminal_core::{
-    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-    RgbaSlide, TransmitPayload,
+    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
+    TransmitPayload,
 };
-use office_terminal_display::{
-    CellRect, DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver,
-};
+use office_terminal_display::{CellRect, DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
@@ -83,12 +81,7 @@ pub(super) struct MockDriver {
 impl MockDriver {
     pub(super) fn new() -> (Self, Arc<Mutex<DriverLog>>) {
         let log = Arc::new(Mutex::new(DriverLog::default()));
-        (
-            Self {
-                log: Arc::clone(&log),
-            },
-            log,
-        )
+        (Self { log: Arc::clone(&log) }, log)
     }
 }
 
@@ -150,9 +143,7 @@ fn draw_frame(state: &PresentationState, width: u16, height: u16) -> FrameBindin
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     let mut bindings = FrameBindings::default();
-    terminal
-        .draw(|f| render_app(state, f, &mut bindings))
-        .unwrap();
+    terminal.draw(|f| render_app(state, f, &mut bindings)).unwrap();
     bindings
 }
 
@@ -168,10 +159,7 @@ fn test_direct_positioning_stages_and_presents_once() {
         .sync(&mut state, &pipeline, &mut driver, &canvas(), &bindings)
         .unwrap();
 
-    let expected = bindings
-        .current
-        .expect("slide placement recorded")
-        .rect;
+    let expected = bindings.current.expect("slide placement recorded").rect;
     {
         let log = log.lock().unwrap();
         assert_eq!(log.staged, vec![1]);
@@ -271,10 +259,7 @@ fn test_presenter_navigation_keeps_current_image() {
         .unwrap();
 
     let log = log.lock().unwrap();
-    assert!(
-        log.released.contains(&10),
-        "old preview id 10 should be released"
-    );
+    assert!(log.released.contains(&10), "old preview id 10 should be released");
     assert!(
         !log.released.contains(&2),
         "new current id 2 must not be released by preview cleanup"
@@ -342,8 +327,8 @@ fn test_blank_screen_suppresses_graphics_once_then_resumes() {
 fn test_resize_preserves_slide_aspect_ratio() {
     let pipeline: Arc<dyn RenderPipeline> = Arc::new(MockPipeline { slides: 1 });
     let (driver, _) = MockDriver::new();
-    let mut app = PresentationApp::new(pipeline, Box::new(driver), 1, vec![])
-        .with_slide_dimensions(10_000_000, 7_500_000); // 4:3
+    let mut app =
+        PresentationApp::new(pipeline, Box::new(driver), 1, vec![]).with_slide_dimensions(10_000_000, 7_500_000); // 4:3
 
     app.handle_resize(80, 24);
     let target = app.current_target;
@@ -365,9 +350,7 @@ impl RenderPipeline for FailingPipeline {
     fn prefetch(&self, _plan: &PrefetchPlan, _target: &RenderTargetSpec) {}
     fn entry(&self, _index: usize) -> PipelineEntry {
         PipelineEntry::Failed {
-            error: office_terminal_core::RenderError::RasterizationError(
-                "boom: glyph atlas overflow".to_string(),
-            ),
+            error: office_terminal_core::RenderError::RasterizationError("boom: glyph atlas overflow".to_string()),
         }
     }
     fn invalidate(&self, _cause: InvalidateCause) {}
@@ -390,9 +373,7 @@ fn a_failed_render_is_surfaced_in_state_and_not_staged() {
         log.lock().unwrap().staged.is_empty(),
         "nothing can be staged from a Failed entry"
     );
-    let (slide, message) = state
-        .render_failure()
-        .expect("the failure is recorded on the state");
+    let (slide, message) = state.render_failure().expect("the failure is recorded on the state");
     assert_eq!(slide, 0);
     assert!(message.contains("boom"), "message preserved: {message}");
     assert_eq!(state.warnings.len(), 1, "exactly one drawer entry");
@@ -444,9 +425,7 @@ fn a_failed_render_draws_a_note_on_the_canvas() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
     let mut bindings = FrameBindings::default();
-    terminal
-        .draw(|f| render_app(&state, f, &mut bindings))
-        .unwrap();
+    terminal.draw(|f| render_app(&state, f, &mut bindings)).unwrap();
 
     let text: String = terminal
         .backend()
@@ -470,9 +449,7 @@ fn a_failed_render_draws_a_note_on_the_canvas() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
     let mut other_bindings = FrameBindings::default();
-    terminal
-        .draw(|f| render_app(&other, f, &mut other_bindings))
-        .unwrap();
+    terminal.draw(|f| render_app(&other, f, &mut other_bindings)).unwrap();
     let text: String = terminal
         .backend()
         .buffer()
@@ -502,11 +479,7 @@ impl RenderPipeline for PrebuiltPipeline {
             PipelineEntry::NotLoaded
         }
     }
-    fn staged_payload(
-        &self,
-        _index: usize,
-        _target: &RenderTargetSpec,
-    ) -> Option<TransmitPayload> {
+    fn staged_payload(&self, _index: usize, _target: &RenderTargetSpec) -> Option<TransmitPayload> {
         Some(TransmitPayload {
             base64: "".into(),
             base64_len: 0,

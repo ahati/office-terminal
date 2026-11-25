@@ -198,10 +198,7 @@ fn text_reflection_svg_export_parses_and_contains_mirror() {
         svg_selectable.contains("refl-text-mask-"),
         "SVG must contain reflection mask"
     );
-    assert!(
-        svg_selectable.contains("scale("),
-        "SVG must contain mirror scale"
-    );
+    assert!(svg_selectable.contains("scale("), "SVG must contain mirror scale");
 
     // Verify SVG is well-formed XML and parseable by usvg/resvg
     let opt = resvg::usvg::Options::default();

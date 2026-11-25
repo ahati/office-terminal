@@ -1,14 +1,12 @@
-use pptx_model::ChartModel;
-use crate::contracts::{
-    AffineTransform, FillRule, LineCap, LineJoin, NormalizedRect, PathSegment,
-    VectorCommand, VectorGradient, VectorPaint, VectorPath, VectorStroke,
-};
-use crate::compiler::shapes::arc::decompose_arc_to_cubic;
 use super::color::resolve_series_color;
-use super::layout::{
-    make_simple_run, series_data_label_font_pt, series_shows_value_labels, ChartLayout,
-};
+use super::layout::{make_simple_run, series_data_label_font_pt, series_shows_value_labels, ChartLayout};
 use super::types::ChartDataBounds;
+use crate::compiler::shapes::arc::decompose_arc_to_cubic;
+use crate::contracts::{
+    AffineTransform, FillRule, LineCap, LineJoin, NormalizedRect, PathSegment, VectorCommand, VectorGradient,
+    VectorPaint, VectorPath, VectorStroke,
+};
+use pptx_model::ChartModel;
 
 /// Compile a bubble / bubble3D chart series into vector display list commands.
 pub fn compile_bubbles(
@@ -37,11 +35,7 @@ pub fn compile_bubbles(
                         continue;
                     }
                     let abs_sz = sz.abs() as f32;
-                    let mag = if size_represents_w {
-                        abs_sz
-                    } else {
-                        abs_sz.sqrt()
-                    };
+                    let mag = if size_represents_w { abs_sz } else { abs_sz.sqrt() };
                     if mag > max_magnitude {
                         max_magnitude = mag;
                     }
@@ -66,11 +60,7 @@ pub fn compile_bubbles(
     let mut x_max = chart.cat_axis_max.unwrap_or(f64::MIN);
     let mut numeric_x = chart.cat_axis_min.is_some() || chart.cat_axis_max.is_some();
 
-    let cats: Vec<Option<f64>> = chart
-        .categories
-        .iter()
-        .map(|c| c.trim().parse::<f64>().ok())
-        .collect();
+    let cats: Vec<Option<f64>> = chart.categories.iter().map(|c| c.trim().parse::<f64>().ok()).collect();
     if cats.iter().any(|c| c.is_some()) {
         numeric_x = true;
         for c in cats.iter().flatten() {
@@ -120,11 +110,7 @@ pub fn compile_bubbles(
             }
 
             let abs_sz = raw_size.abs() as f32;
-            let mag = if size_represents_w {
-                abs_sz
-            } else {
-                abs_sz.sqrt()
-            };
+            let mag = if size_represents_w { abs_sz } else { abs_sz.sqrt() };
             let diameter = (mag * scale_factor).max(12700.0); // min 1 pt diameter
             let radius = diameter / 2.0;
 
@@ -148,12 +134,7 @@ pub fn compile_bubbles(
             if is_3d {
                 commands.push(VectorCommand::PushClip(circle.clone()));
 
-                let rect = super::layout::rect_path(
-                    cx - radius,
-                    cy - radius,
-                    radius * 2.0,
-                    radius * 2.0,
-                );
+                let rect = super::layout::rect_path(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
 
                 // Layer 1: Diffuse highlight (4 stops)
                 let diffuse_paint = bubble_3d_gradient(
@@ -217,12 +198,7 @@ pub fn compile_bubbles(
                         (1.00, [255, 255, 255, 0]),
                     ],
                 );
-                commands.push(VectorCommand::draw_path(
-                    rect,
-                    Some(rim_paint),
-                    None,
-                    transform,
-                ));
+                commands.push(VectorCommand::draw_path(rect, Some(rim_paint), None, transform));
 
                 commands.push(VectorCommand::PopClip);
             }
@@ -241,12 +217,7 @@ pub fn compile_bubbles(
                 paint: None,
                 ..VectorStroke::default()
             };
-            commands.push(VectorCommand::draw_path(
-                circle,
-                None,
-                Some(stroke),
-                transform,
-            ));
+            commands.push(VectorCommand::draw_path(circle, None, Some(stroke), transform));
 
             // Data label
             if show_labels {
@@ -278,10 +249,7 @@ fn circle_path(cx: f32, cy: f32, r: f32) -> VectorPath {
     VectorPath::new(segs, FillRule::NonZero)
 }
 
-fn bubble_3d_gradient(
-    fill_to_rect: NormalizedRect,
-    stops: Vec<(f32, [u8; 4])>,
-) -> VectorPaint {
+fn bubble_3d_gradient(fill_to_rect: NormalizedRect, stops: Vec<(f32, [u8; 4])>) -> VectorPaint {
     let mut grad = VectorGradient::new(0.0, stops);
     grad.frame.fill_to_rect = Some(fill_to_rect);
     VectorPaint::RadialGradient(grad)

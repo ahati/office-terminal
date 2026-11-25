@@ -59,7 +59,7 @@ HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
 API = "https://api.github.com/repos/LibreOffice/core"
 RAW = "https://raw.githubusercontent.com/LibreOffice/core"
-USER_AGENT = "kitty-pptx-manifest-generator/1.0"
+USER_AGENT = "office-terminal-manifest-generator/1.0"
 _print_lock = threading.Lock()
 
 

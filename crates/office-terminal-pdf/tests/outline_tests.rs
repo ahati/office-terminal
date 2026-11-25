@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use office_terminal_pdf::{HayroEngine, PdfEngine};
+use std::sync::Arc;
 
 fn build_pdf_from_objects(objects: &[&str]) -> Vec<u8> {
     let mut out = b"%PDF-1.4\n".to_vec();
@@ -96,8 +96,5 @@ fn test_name_tree_limits_pruning() {
     let toc = engine.outline();
     assert_eq!(toc.len(), 1);
     assert_eq!(toc[0].title, "Target");
-    assert_eq!(
-        toc[0].page_index, 1,
-        "destination within limits must be resolved"
-    );
+    assert_eq!(toc[0].page_index, 1, "destination within limits must be resolved");
 }

@@ -3,9 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use office_terminal_core::contracts::{
-    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-};
+use office_terminal_core::contracts::{InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::pipeline::{CancellationToken, DefaultRenderPipeline};
 use office_terminal_core::{AssetError, DefaultSlideCompiler, TinySkiaRasterizer};
@@ -33,9 +31,7 @@ fn create_presentation(num_slides: usize) -> Arc<pptx_model::Presentation> {
             index: i,
             slide_number: i + 1,
             part_name: Some(format!("ppt/slides/slide{}.xml", i + 1)),
-            background: Some(pptx_model::Fill::Solid {
-                color: "FFFFFF".into(),
-            }),
+            background: Some(pptx_model::Fill::Solid { color: "FFFFFF".into() }),
             elements: Vec::new(),
             element_sources: Vec::new(),
             notes: None,
@@ -79,12 +75,7 @@ fn test_background_prefetch_and_cache_hits() {
     let compiler = Arc::new(DefaultSlideCompiler::new());
     let rasterizer = Arc::new(TinySkiaRasterizer::new());
 
-    let pipeline = DefaultRenderPipeline::new(
-        pres,
-        asset_store,
-        compiler,
-        rasterizer,
-    );
+    let pipeline = DefaultRenderPipeline::new(pres, asset_store, compiler, rasterizer);
 
     let target = RenderTargetSpec {
         width_px: 320,
@@ -128,12 +119,7 @@ fn test_cancellation_on_slide_jump() {
     let compiler = Arc::new(DefaultSlideCompiler::new());
     let rasterizer = Arc::new(TinySkiaRasterizer::new());
 
-    let pipeline = DefaultRenderPipeline::new(
-        pres,
-        asset_store,
-        compiler,
-        rasterizer,
-    );
+    let pipeline = DefaultRenderPipeline::new(pres, asset_store, compiler, rasterizer);
 
     let target = RenderTargetSpec {
         width_px: 320,
@@ -172,12 +158,7 @@ fn test_synchronous_fallback() {
     let compiler = Arc::new(DefaultSlideCompiler::new());
     let rasterizer = Arc::new(TinySkiaRasterizer::new());
 
-    let pipeline = DefaultRenderPipeline::new(
-        pres,
-        asset_store,
-        compiler,
-        rasterizer,
-    );
+    let pipeline = DefaultRenderPipeline::new(pres, asset_store, compiler, rasterizer);
 
     let target = RenderTargetSpec {
         width_px: 640,
@@ -187,12 +168,15 @@ fn test_synchronous_fallback() {
     // Before render: slide 0 is not loaded
     match pipeline.entry(0) {
         PipelineEntry::NotLoaded => {}
-        other => panic!("Expected NotLoaded before render, got {:?}", match other {
-            PipelineEntry::Ready { .. } => "Ready",
-            PipelineEntry::Rendering => "Rendering",
-            PipelineEntry::NotLoaded => "NotLoaded",
-            PipelineEntry::Failed { .. } => "Failed",
-        }),
+        other => panic!(
+            "Expected NotLoaded before render, got {:?}",
+            match other {
+                PipelineEntry::Ready { .. } => "Ready",
+                PipelineEntry::Rendering => "Rendering",
+                PipelineEntry::NotLoaded => "NotLoaded",
+                PipelineEntry::Failed { .. } => "Failed",
+            }
+        ),
     }
 
     // Synchronous render fallback
@@ -228,12 +212,7 @@ fn test_invalidation_lifecycle() {
     let compiler = Arc::new(DefaultSlideCompiler::new());
     let rasterizer = Arc::new(TinySkiaRasterizer::new());
 
-    let pipeline = DefaultRenderPipeline::new(
-        pres,
-        asset_store,
-        compiler,
-        rasterizer,
-    );
+    let pipeline = DefaultRenderPipeline::new(pres, asset_store, compiler, rasterizer);
 
     let target = RenderTargetSpec {
         width_px: 800,

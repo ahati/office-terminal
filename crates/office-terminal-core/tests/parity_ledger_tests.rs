@@ -44,9 +44,7 @@ fn no_ignored_parity_tests_in_core_or_tui() {
     for path in sources {
         let text = fs::read_to_string(&path).expect("read parity source");
         assert!(
-            !text
-                .lines()
-                .any(|line| line.trim_start().starts_with("#[ignore")),
+            !text.lines().any(|line| line.trim_start().starts_with("#[ignore")),
             "{} still contains an ignored parity case; move it to tests/parity/pending/",
             path.display()
         );
@@ -78,11 +76,7 @@ fn parse_row(line: &str) -> Option<Vec<u64>> {
     if !line.starts_with('|') {
         return None;
     }
-    let cells: Vec<&str> = line
-        .trim_matches('|')
-        .split('|')
-        .map(str::trim)
-        .collect();
+    let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
     if cells.len() < 8 {
         return None;
     }
@@ -97,11 +91,7 @@ fn parse_batch_name(line: &str) -> Option<&str> {
     if !line.starts_with('|') {
         return None;
     }
-    let cells: Vec<&str> = line
-        .trim_matches('|')
-        .split('|')
-        .map(str::trim)
-        .collect();
+    let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
     if cells.len() < 8 {
         return None;
     }
@@ -115,9 +105,8 @@ fn parse_batch_name(line: &str) -> Option<&str> {
 
 #[test]
 fn coverage_rows_and_total_are_arithmetic_consistent() {
-    let coverage =
-        fs::read_to_string(repo_root().join("crates/office-terminal-core/tests/parity/COVERAGE.md"))
-            .expect("COVERAGE.md");
+    let coverage = fs::read_to_string(repo_root().join("crates/office-terminal-core/tests/parity/COVERAGE.md"))
+        .expect("COVERAGE.md");
     let mut rows = Vec::new();
     let mut total = None;
     for line in coverage.lines() {
@@ -151,9 +140,7 @@ fn count_tests_in_file(path: &Path) -> u64 {
         return 0;
     }
     let text = fs::read_to_string(path).unwrap_or_default();
-    text.lines()
-        .filter(|line| line.trim().starts_with("#[test]"))
-        .count() as u64
+    text.lines().filter(|line| line.trim().starts_with("#[test]")).count() as u64
 }
 
 #[test]
@@ -260,8 +247,7 @@ fn pass_counts_match_compiled_test_counts_per_batch() {
     ]);
 
     let coverage =
-        fs::read_to_string(root.join("crates/office-terminal-core/tests/parity/COVERAGE.md"))
-            .expect("COVERAGE.md");
+        fs::read_to_string(root.join("crates/office-terminal-core/tests/parity/COVERAGE.md")).expect("COVERAGE.md");
 
     for line in coverage.lines() {
         let Some(batch) = parse_batch_name(line) else {
@@ -285,8 +271,7 @@ fn blocked_cases_match_pending_archives_allowlist() {
     let root = repo_root();
     let pending_dir = root.join("crates/office-terminal-core/tests/parity/pending");
     let coverage =
-        fs::read_to_string(root.join("crates/office-terminal-core/tests/parity/COVERAGE.md"))
-            .expect("COVERAGE.md");
+        fs::read_to_string(root.join("crates/office-terminal-core/tests/parity/COVERAGE.md")).expect("COVERAGE.md");
 
     let mut blocked_fn_names = Vec::new();
 
@@ -304,10 +289,7 @@ fn blocked_cases_match_pending_archives_allowlist() {
                 is_blocked = trimmed.to_lowercase().contains("blocked");
             } else if trimmed.starts_with("fn ") && trimmed.ends_with("() {}") {
                 if is_blocked {
-                    let fn_name = trimmed
-                        .trim_start_matches("fn ")
-                        .trim_end_matches("() {}")
-                        .trim();
+                    let fn_name = trimmed.trim_start_matches("fn ").trim_end_matches("() {}").trim();
                     blocked_fn_names.push(fn_name.to_string());
                 }
                 is_blocked = false;
@@ -335,8 +317,7 @@ fn blocked_cases_match_pending_archives_allowlist() {
 fn external_corpus_score_file_is_linked_and_valid() {
     let root = repo_root();
     let coverage =
-        fs::read_to_string(root.join("crates/office-terminal-core/tests/parity/COVERAGE.md"))
-            .expect("COVERAGE.md");
+        fs::read_to_string(root.join("crates/office-terminal-core/tests/parity/COVERAGE.md")).expect("COVERAGE.md");
     assert!(
         coverage.contains("scores/external.json"),
         "COVERAGE.md must link to scores/external.json"
@@ -346,8 +327,7 @@ fn external_corpus_score_file_is_linked_and_valid() {
     assert!(score_path.exists(), "scores/external.json must exist");
 
     let content = fs::read_to_string(&score_path).expect("read external.json");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&content).expect("parse external.json as valid json");
+    let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse external.json as valid json");
 
     let slides = parsed
         .get("slides")

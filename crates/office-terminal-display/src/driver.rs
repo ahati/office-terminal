@@ -42,9 +42,10 @@ pub const READER_IMAGE_ID_SLOTS: u32 = 12;
 pub const DEFAULT_TERMINAL_IMAGE_QUOTA_BYTES: usize = 320 * 1024 * 1024;
 
 /// Returns the effective terminal graphics image quota in bytes,
-/// overridable via the `KITTY_PPTX_TERMINAL_QUOTA` environment variable.
+/// overridable via `OT_TERMINAL_QUOTA` (legacy: `KITTY_PPTX_TERMINAL_QUOTA`).
 pub fn terminal_image_quota_bytes() -> usize {
-    std::env::var("KITTY_PPTX_TERMINAL_QUOTA")
+    std::env::var("OT_TERMINAL_QUOTA")
+        .or_else(|_| std::env::var("KITTY_PPTX_TERMINAL_QUOTA"))
         .ok()
         .and_then(|val| val.parse::<usize>().ok())
         .unwrap_or(DEFAULT_TERMINAL_IMAGE_QUOTA_BYTES)

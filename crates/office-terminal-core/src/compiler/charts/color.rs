@@ -1,5 +1,5 @@
-use ooxml_common::chart::ChartSeries;
 use crate::compiler::style::parse_hex_color;
+use ooxml_common::chart::ChartSeries;
 
 pub const DEFAULT_THEME_PALETTE: [&str; 8] = [
     "4472C4", // Accent 1: Blue

@@ -30,12 +30,7 @@ fn arrow_metrics(w: f32, h: f32, adj: &[Option<f64>]) -> ArrowMetrics {
     }
 }
 
-pub fn build_arrow_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_arrow_preset(geometry: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     let path = match geometry {
         "notchedRightArrow" => {
             let head = w * norm_adj(adj, 0, 0.5, 0.0, 0.9);
@@ -130,9 +125,7 @@ pub fn build_arrow_preset(
 
         "leftUpArrow" => {
             let u = w.min(h).max(0.0);
-            let spread = (u * norm_adj(adj, 0, 0.22, 0.02, 0.45))
-                .min(0.28 * w)
-                .min(0.28 * h);
+            let spread = (u * norm_adj(adj, 0, 0.22, 0.02, 0.45)).min(0.28 * w).min(0.28 * h);
             let shaft = (u * norm_adj(adj, 1, 0.08, 0.005, 0.25)).min(0.4 * spread);
             let head = (u * norm_adj(adj, 2, 0.22, 0.02, 0.45)).min(0.28 * w.min(h));
             let cx = 0.65 * w;
@@ -241,12 +234,7 @@ fn striped_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
         let cx = x_head * frac;
         push_polygon(
             &mut segs,
-            &[
-                (cx - slit, y1),
-                (cx + slit, y1),
-                (cx + slit, y2),
-                (cx - slit, y2),
-            ],
+            &[(cx - slit, y1), (cx + slit, y1), (cx + slit, y2), (cx - slit, y2)],
         );
     }
     VectorPath::new(segs, FillRule::EvenOdd)
@@ -285,9 +273,7 @@ fn uturn_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
     let rix = (rx - thickness).max(0.0);
     let riy = (ry - thickness).max(0.0);
     let barb = barb.min((ry - riy).max(0.0)).min(thickness);
-    let head = (h * norm_adj(adj, 2, 0.2, 0.05, 0.35))
-        .min((h - cy).max(0.0))
-        .max(0.0);
+    let head = (h * norm_adj(adj, 2, 0.2, 0.05, 0.35)).min((h - cy).max(0.0)).max(0.0);
     let ybase = h - head;
 
     let mut segs = Vec::new();
@@ -303,10 +289,7 @@ fn uturn_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
         x: w - thickness - barb,
         y: ybase,
     });
-    segs.push(PathSegment::LineTo {
-        x: cx + rix,
-        y: ybase,
-    });
+    segs.push(PathSegment::LineTo { x: cx + rix, y: ybase });
     segs.push(PathSegment::LineTo { x: cx + rix, y: cy });
     super::arc::decompose_arc_to_cubic(cx, cy, rix, riy, 0.0, -180.0, &mut segs);
     segs.push(PathSegment::LineTo { x: cx - rix, y: h });
@@ -314,13 +297,7 @@ fn uturn_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
     VectorPath::new(segs, FillRule::NonZero)
 }
 
-fn circular_arrow_points(
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-    start_deg: f32,
-    sweep_deg: f32,
-) -> Vec<(f32, f32)> {
+fn circular_arrow_points(w: f32, h: f32, adj: &[Option<f64>], start_deg: f32, sweep_deg: f32) -> Vec<(f32, f32)> {
     let u = w.min(h).max(0.0);
     let thickness = norm_adj(adj, 0, 0.5, 0.2, 0.75);
     let cx = w / 2.0;
@@ -341,26 +318,9 @@ fn circular_arrow_points(
     let ix = cx + ri * rx_hat;
     let iy = cy + ri * ry_hat;
     // Barbs flare radially outward/inward around the ribbon cross-section.
-    points.push((
-        ox + fx * head + rx_hat * spread,
-        oy + fy * head + ry_hat * spread,
-    ));
-    points.push((
-        (ox + ix) / 2.0 + fx * head * 1.3,
-        (oy + iy) / 2.0 + fy * head * 1.3,
-    ));
-    points.push((
-        ix + fx * head - rx_hat * spread,
-        iy + fy * head - ry_hat * spread,
-    ));
-    points.extend(sample_arc(
-        cx,
-        cy,
-        ri,
-        ri,
-        start_deg + sweep_deg,
-        -sweep_deg,
-        steps,
-    ));
+    points.push((ox + fx * head + rx_hat * spread, oy + fy * head + ry_hat * spread));
+    points.push(((ox + ix) / 2.0 + fx * head * 1.3, (oy + iy) / 2.0 + fy * head * 1.3));
+    points.push((ix + fx * head - rx_hat * spread, iy + fy * head - ry_hat * spread));
+    points.extend(sample_arc(cx, cy, ri, ri, start_deg + sweep_deg, -sweep_deg, steps));
     points
 }

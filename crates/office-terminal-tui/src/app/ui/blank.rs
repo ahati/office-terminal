@@ -1,7 +1,7 @@
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Paragraph};
+use ratatui::Frame;
 
 use crate::app::state::BlankMode;
 

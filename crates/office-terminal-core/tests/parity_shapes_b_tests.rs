@@ -74,7 +74,14 @@ fn compile_slide_emu(elements: Vec<serde_json::Value>, w_emu: i64, h_emu: i64) -
 
 fn raster(slide: &VectorSlide, w: u32, h: u32) -> RgbaSlide {
     TinySkiaRasterizer::new()
-        .rasterize(slide, &RenderTargetSpec { width_px: w, height_px: h }, &NoAssets)
+        .rasterize(
+            slide,
+            &RenderTargetSpec {
+                width_px: w,
+                height_px: h,
+            },
+            &NoAssets,
+        )
         .expect("rasterize")
 }
 
@@ -127,13 +134,7 @@ fn beveled_rect(bevel: Option<(i64, i64)>) -> serde_json::Value {
 /// `rasterizer/bevel.rs:44` shades exactly `dist < widthPx` with `dist` starting
 /// at 1 for the first interior row, so the band width is the last shaded row
 /// **plus one**.
-fn measured_band_depth(
-    plain: &RgbaSlide,
-    beveled: &RgbaSlide,
-    x: usize,
-    top: usize,
-    max_scan: usize,
-) -> usize {
+fn measured_band_depth(plain: &RgbaSlide, beveled: &RgbaSlide, x: usize, top: usize, max_scan: usize) -> usize {
     // The shading factor crosses 1.0 once inside the band (the profile is
     // steepest at the silhouette), so a single row can round back onto the flat
     // colour. The band width is the *last* shaded row, not the first gap.
@@ -176,8 +177,16 @@ fn bevel_band_is_the_declared_emu_width_at_unit_device_scale() {
         "fixture must yield the slide-6 48 px band, got {expect_width}"
     );
     // Shaded inside the band, flat beyond it.
-    assert_ne!(at(&beveled, 960, 146), at(&plain, 960, 146), "row at distance 46 is shaded");
-    assert_eq!(at(&beveled, 960, 150), at(&plain, 960, 150), "row at distance 50 is flat");
+    assert_ne!(
+        at(&beveled, 960, 146),
+        at(&plain, 960, 146),
+        "row at distance 46 is shaded"
+    );
+    assert_eq!(
+        at(&beveled, 960, 150),
+        at(&plain, 960, 150),
+        "row at distance 50 is flat"
+    );
 }
 
 #[test]
@@ -194,7 +203,11 @@ fn bevel_band_scales_linearly_with_device_scale() {
             400,
         );
         let beveled = raster(
-            &compile_slide_emu(vec![beveled_rect(Some((BEVEL_W_EMU, 152_400)))], REF_SLIDE_W, REF_SLIDE_H),
+            &compile_slide_emu(
+                vec![beveled_rect(Some((BEVEL_W_EMU, 152_400)))],
+                REF_SLIDE_W,
+                REF_SLIDE_H,
+            ),
             1920,
             400,
         );
@@ -209,7 +222,11 @@ fn bevel_band_scales_linearly_with_device_scale() {
             100,
         );
         let beveled = raster(
-            &compile_slide_emu(vec![beveled_rect(Some((BEVEL_W_EMU, 152_400)))], REF_SLIDE_W, REF_SLIDE_H),
+            &compile_slide_emu(
+                vec![beveled_rect(Some((BEVEL_W_EMU, 152_400)))],
+                REF_SLIDE_W,
+                REF_SLIDE_H,
+            ),
             480,
             100,
         );
@@ -306,7 +323,10 @@ fn effect_bounds_are_the_rotated_aabb() {
         (w as i32, 60, "w"),
         (h as i32, 80, "h"),
     ] {
-        assert!((got - want).abs() <= 1, "rotated effect bounds {label}: got {got}, want {want}");
+        assert!(
+            (got - want).abs() <= 1,
+            "rotated effect bounds {label}: got {got}, want {want}"
+        );
     }
 }
 
@@ -395,7 +415,10 @@ fn inner_shadow_covers_the_complete_mitered_outline() {
             }
         }
     }
-    assert!(opaque > 100, "fixture must have a solid opaque outline, counted {opaque}");
+    assert!(
+        opaque > 100,
+        "fixture must have a solid opaque outline, counted {opaque}"
+    );
 }
 
 // ── shape-effect-line-decoration.test.ts ────────────────────────────────────
@@ -407,8 +430,14 @@ fn leader(with_stroke: bool) -> VectorSlide {
     slide.background = Some(VectorBackground::Solid(WHITE));
     let path = VectorPath::new(
         vec![
-            PathSegment::MoveTo { x: px(10.0) as f32, y: px(50.0) as f32 },
-            PathSegment::LineTo { x: px(90.0) as f32, y: px(50.0) as f32 },
+            PathSegment::MoveTo {
+                x: px(10.0) as f32,
+                y: px(50.0) as f32,
+            },
+            PathSegment::LineTo {
+                x: px(90.0) as f32,
+                y: px(50.0) as f32,
+            },
         ],
         FillRule::NonZero,
     );
@@ -461,10 +490,19 @@ fn outer_shadow_silhouette_includes_the_connector_leader() {
         "shadow must be a real 50%-black band over white, red channel {}",
         ink[0]
     );
-    assert!(ink[1] == ink[0] && ink[2] == ink[0], "the shadow is neutral, got {ink:?}");
+    assert!(
+        ink[1] == ink[0] && ink[2] == ink[0],
+        "the shadow is neutral, got {ink:?}"
+    );
     // The shadow follows the whole leader, not just one point of it.
-    assert!((210..226).contains(&at(&shadowed, 20, 53)[0]), "shadow at the leader start");
-    assert!((210..226).contains(&at(&shadowed, 80, 53)[0]), "shadow at the leader end");
+    assert!(
+        (210..226).contains(&at(&shadowed, 20, 53)[0]),
+        "shadow at the leader start"
+    );
+    assert!(
+        (210..226).contains(&at(&shadowed, 80, 53)[0]),
+        "shadow at the leader end"
+    );
     // Past the leader (x = 90) and its 3σ reach (∼20 px) nothing is painted.
     assert_eq!(at(&shadowed, 150, 53), WHITE, "no shadow beyond the leader");
     assert_eq!(at(&bare, 40, 53), WHITE, "no stroke ⇒ no shadow");

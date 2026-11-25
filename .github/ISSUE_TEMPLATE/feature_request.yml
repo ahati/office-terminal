@@ -1,5 +1,5 @@
 name: Feature Request
-description: Propose an idea or enhancement for kitty-pptx
+description: Propose an idea or enhancement for Office Terminal
 labels: ["enhancement"]
 body:
   - type: textarea

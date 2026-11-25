@@ -37,15 +37,17 @@ fn slide(index: usize, hidden: bool, link: Option<&str>, action: Option<&str>) -
     slide_full(index, hidden, link, action, None)
 }
 
-fn slide_full(
-    index: usize, hidden: bool, link: Option<&str>, action: Option<&str>, text: Option<&str>,
-) -> Slide {
+fn slide_full(index: usize, hidden: bool, link: Option<&str>, action: Option<&str>, text: Option<&str>) -> Slide {
     let mut shape = serde_json::json!({
         "type": "shape", "x": 0, "y": 0, "width": 100_000, "height": 100_000,
         "rotation": 0.0, "flipH": false, "flipV": false, "geometry": "rect"
     });
-    if let Some(link) = link { shape["hyperlink"] = link.into(); }
-    if let Some(action) = action { shape["hyperlinkAction"] = action.into(); }
+    if let Some(link) = link {
+        shape["hyperlink"] = link.into();
+    }
+    if let Some(action) = action {
+        shape["hyperlinkAction"] = action.into();
+    }
     if let Some(text) = text {
         let body_json = format!(
             r#"{{"verticalAnchor":"t","defaultFontSize":20,"defaultBold":null,"defaultItalic":null,"lIns":0,"rIns":0,"tIns":0,"bIns":0,"wrap":"square","vert":"horz","autoFit":"none","paragraphs":[{{"alignment":"l","marL":0,"marR":0,"indent":0,"spaceBefore":null,"spaceAfter":null,"spaceLine":null,"lvl":0,"bullet":{{"type":"none"}},"defFontSize":null,"defColor":null,"defBold":null,"defItalic":null,"defFontFamily":null,"tabStops":[],"defTabSz":null,"rtl":false,"eaLnBrk":true,"fontAlgn":null,"runs":[{{"type":"text","text":"{text}","bold":null,"italic":null,"underline":false,"strikethrough":false,"strikeDouble":false,"hyperlinkUsesTextFill":false,"fieldType":null,"fontSize":20,"color":"000000","fontFamily":"Arial"}}]}}]}}"#
@@ -65,9 +67,7 @@ fn slide_full(
 }
 
 fn plain_deck(count: usize) -> Vec<Slide> {
-    (0..count)
-        .map(|index| slide(index, false, None, None))
-        .collect()
+    (0..count).map(|index| slide(index, false, None, None)).collect()
 }
 
 fn presentation(deck: Vec<Slide>) -> PresentationState {
@@ -96,11 +96,7 @@ fn link_of(deck: &[Slide], index: usize) -> SlideLink {
 /// A zero-area control link carrying `action` (`ppaction://` verbs never carry
 /// geometry; the arrow keys do).
 fn control(action: SlideAction) -> SlideLink {
-    SlideLink::new(
-        HyperlinkTarget::Action(action),
-        RectF32::new(0.0, 0.0, 0.0, 0.0),
-        None,
-    )
+    SlideLink::new(HyperlinkTarget::Action(action), RectF32::new(0.0, 0.0, 0.0, 0.0), None)
 }
 
 // ── relative show-jump arithmetic (ref slide-nav.test.ts:62-79) ─────────────
@@ -112,10 +108,7 @@ fn show_jump_arithmetic_steps_from_the_current_slide() {
     let mut state = presentation(plain_deck(3));
     assert!(state.set_current_slide(1));
 
-    let links = [
-        (SlideAction::NextSlide, 2usize),
-        (SlideAction::PreviousSlide, 0usize),
-    ];
+    let links = [(SlideAction::NextSlide, 2usize), (SlideAction::PreviousSlide, 0usize)];
     for (action, expected) in links {
         state.set_current_slide(1);
         let link = control(action);
@@ -124,11 +117,7 @@ fn show_jump_arithmetic_steps_from_the_current_slide() {
             LinkDispatch::Navigate { changed: true },
             "{action:?} navigates"
         );
-        assert_eq!(
-            state.current_slide(),
-            expected,
-            "{action:?} steps one slide"
-        );
+        assert_eq!(state.current_slide(), expected, "{action:?} steps one slide");
     }
 
     // firstslide / lastslide land on the deck ends regardless of position.
@@ -186,12 +175,7 @@ fn end_show_is_not_a_slide_navigation() {
 #[test]
 fn internal_link_navigates_to_the_resolved_slide() {
     let deck = vec![
-        slide(
-            0,
-            false,
-            Some("../slides/slide3.xml"),
-            Some("ppaction://hlinksldjump"),
-        ),
+        slide(0, false, Some("../slides/slide3.xml"), Some("ppaction://hlinksldjump")),
         slide(1, false, None, None),
         slide(2, false, None, None),
     ];
@@ -199,10 +183,7 @@ fn internal_link_navigates_to_the_resolved_slide() {
     assert_eq!(link.target, HyperlinkTarget::SlideIndex(2));
 
     let mut state = presentation(deck);
-    assert_eq!(
-        state.dispatch_link(&link),
-        LinkDispatch::Navigate { changed: true }
-    );
+    assert_eq!(state.dispatch_link(&link), LinkDispatch::Navigate { changed: true });
     assert_eq!(state.current_slide(), 2);
 }
 
@@ -210,12 +191,7 @@ fn internal_link_navigates_to_the_resolved_slide() {
 /// ref viewer-internal-nav.test.ts:51-60
 #[test]
 fn relative_jump_resolves_against_the_current_slide() {
-    let deck = vec![slide(
-        0,
-        false,
-        None,
-        Some("ppaction://hlinkshowjump?jump=nextslide"),
-    )];
+    let deck = vec![slide(0, false, None, Some("ppaction://hlinkshowjump?jump=nextslide"))];
     let link = link_of(&deck, 0);
     assert_eq!(link.target, HyperlinkTarget::Action(SlideAction::NextSlide));
 
@@ -232,12 +208,7 @@ fn relative_jump_resolves_against_the_current_slide() {
 #[test]
 fn unresolvable_internal_ref_yields_no_link() {
     let deck = vec![
-        slide(
-            0,
-            false,
-            Some("../slides/nope.xml"),
-            Some("ppaction://hlinksldjump"),
-        ),
+        slide(0, false, Some("../slides/nope.xml"), Some("ppaction://hlinksldjump")),
         slide(1, false, None, None),
     ];
     let (tx, _rx) = unbounded();
@@ -327,10 +298,7 @@ fn fit_page_takes_the_tighter_of_width_and_height() {
     // height wins — exactly `Math.min(w / naturalW, h / naturalH)`.
     let height_limited = compute_slide_rect(Rect::new(0, 0, 80, 10), 4.0 / 3.0, 0.5);
     assert_eq!(height_limited.height, 10);
-    assert_eq!(
-        height_limited.width, 27,
-        "10 rows * 2.6667 = 26.67 -> 27 cols"
-    );
+    assert_eq!(height_limited.width, 27, "10 rows * 2.6667 = 26.67 -> 27 cols");
     assert!(height_limited.width < 80);
 }
 
@@ -437,10 +405,7 @@ fn internal_link_to_a_hidden_slide_follows_the_go_to_slide_rule() {
     let link = link_of(&deck, 0);
     assert_eq!(link.target, HyperlinkTarget::SlideIndex(1));
     let mut state = skip_presentation(deck);
-    assert_eq!(
-        state.dispatch_link(&link),
-        LinkDispatch::Navigate { changed: true }
-    );
+    assert_eq!(state.dispatch_link(&link), LinkDispatch::Navigate { changed: true });
     assert_eq!(state.current_slide(), 2, "hidden slide 1 resolves forward");
 }
 
@@ -526,14 +491,18 @@ fn find_text_excludes_hidden_slides() {
     let mut state = skip_presentation(deck);
     state.sync_find_index();
     state.open_find();
-    for ch in "target".chars() { state.find_push_char(ch); }
+    for ch in "target".chars() {
+        state.find_push_char(ch);
+    }
     assert_eq!(state.find_state().matches().len(), 1);
     assert_eq!(state.find_state().matches()[0].slide, 0);
 
     state.close_find();
     state.set_hidden_slide_mode(HiddenSlideMode::Show);
     state.open_find();
-    for ch in "target".chars() { state.find_push_char(ch); }
+    for ch in "target".chars() {
+        state.find_push_char(ch);
+    }
     assert_eq!(state.find_state().matches().len(), 2);
 }
 
@@ -576,9 +545,6 @@ fn caller_callback_owns_the_internal_click() {
     let link = link_of(&deck, 0);
     let mut state = presentation(deck);
     state.set_internal_link_delegation(true);
-    assert_eq!(
-        state.dispatch_link(&link),
-        LinkDispatch::Internal { slide_index: 2 }
-    );
+    assert_eq!(state.dispatch_link(&link), LinkDispatch::Internal { slide_index: 2 });
     assert_eq!(state.current_slide(), 0, "the callback owns the click");
 }

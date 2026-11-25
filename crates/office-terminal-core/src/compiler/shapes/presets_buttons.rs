@@ -25,12 +25,7 @@ enum Glyph {
     Return,
 }
 
-pub fn build_button_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    _adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_button_preset(geometry: &str, w: f32, h: f32, _adj: &[Option<f64>]) -> Option<VectorPath> {
     let glyph = match geometry {
         "actionButtonBackPrevious" => Glyph::Back,
         "actionButtonForwardNext" => Glyph::Forward,
@@ -82,37 +77,15 @@ fn button_path(w: f32, h: f32, glyph: Glyph) -> VectorPath {
             push_polygon(&mut segs, &rect_pts(x1 - 0.15 * wg, y0, x1, y1));
         }
         Glyph::Home => {
-            push_polygon(
-                &mut segs,
-                &[(mx, y0), (x1, y0 + 0.45 * hg), (x0, y0 + 0.45 * hg)],
-            );
-            push_polygon(
-                &mut segs,
-                &rect_pts(x0 + 0.15 * wg, y0 + 0.45 * hg, x1 - 0.15 * wg, y1),
-            );
-            push_polygon(
-                &mut segs,
-                &rect_pts(mx - 0.12 * wg, y1 - 0.30 * hg, mx + 0.12 * wg, y1),
-            );
+            push_polygon(&mut segs, &[(mx, y0), (x1, y0 + 0.45 * hg), (x0, y0 + 0.45 * hg)]);
+            push_polygon(&mut segs, &rect_pts(x0 + 0.15 * wg, y0 + 0.45 * hg, x1 - 0.15 * wg, y1));
+            push_polygon(&mut segs, &rect_pts(mx - 0.12 * wg, y1 - 0.30 * hg, mx + 0.12 * wg, y1));
         }
         Glyph::Help => {
-            push_arc_band(
-                &mut segs,
-                mx,
-                y0 + 0.38 * hg,
-                0.30 * g,
-                0.16 * g,
-                180.0,
-                200.0,
-            );
+            push_arc_band(&mut segs, mx, y0 + 0.38 * hg, 0.30 * g, 0.16 * g, 180.0, 200.0);
             push_polygon(
                 &mut segs,
-                &rect_pts(
-                    mx - 0.06 * wg,
-                    y0 + 0.55 * hg,
-                    mx + 0.06 * wg,
-                    y1 - 0.22 * hg,
-                ),
+                &rect_pts(mx - 0.06 * wg, y0 + 0.55 * hg, mx + 0.06 * wg, y1 - 0.22 * hg),
             );
             push_ellipse(&mut segs, mx, y1 - 0.10 * hg, 0.08 * g, 0.08 * g, true);
         }
@@ -120,41 +93,17 @@ fn button_path(w: f32, h: f32, glyph: Glyph) -> VectorPath {
             push_ellipse(&mut segs, mx, y0 + 0.15 * hg, 0.08 * g, 0.08 * g, true);
             push_polygon(
                 &mut segs,
-                &rect_pts(
-                    mx - 0.05 * wg,
-                    y0 + 0.34 * hg,
-                    mx + 0.05 * wg,
-                    y1 - 0.10 * hg,
-                ),
+                &rect_pts(mx - 0.05 * wg, y0 + 0.34 * hg, mx + 0.05 * wg, y1 - 0.10 * hg),
             );
             push_polygon(
                 &mut segs,
-                &rect_pts(
-                    mx - 0.12 * wg,
-                    y0 + 0.26 * hg,
-                    mx + 0.12 * wg,
-                    y0 + 0.34 * hg,
-                ),
+                &rect_pts(mx - 0.12 * wg, y0 + 0.26 * hg, mx + 0.12 * wg, y0 + 0.34 * hg),
             );
         }
         Glyph::Movie => {
             push_polygon(&mut segs, &rect_pts(x0, y0 + 0.28 * hg, x1 - 0.22 * wg, y1));
-            push_ellipse(
-                &mut segs,
-                x0 + 0.18 * wg,
-                y0 + 0.12 * hg,
-                0.11 * g,
-                0.11 * g,
-                true,
-            );
-            push_ellipse(
-                &mut segs,
-                x0 + 0.48 * wg,
-                y0 + 0.12 * hg,
-                0.11 * g,
-                0.11 * g,
-                true,
-            );
+            push_ellipse(&mut segs, x0 + 0.18 * wg, y0 + 0.12 * hg, 0.11 * g, 0.11 * g, true);
+            push_ellipse(&mut segs, x0 + 0.48 * wg, y0 + 0.12 * hg, 0.11 * g, 0.11 * g, true);
             push_polygon(
                 &mut segs,
                 &[
@@ -185,27 +134,15 @@ fn button_path(w: f32, h: f32, glyph: Glyph) -> VectorPath {
         Glyph::Document => {
             push_polygon(
                 &mut segs,
-                &[
-                    (x0, y0),
-                    (x1 - 0.18 * wg, y0),
-                    (x1, y0 + 0.18 * hg),
-                    (x1, y1),
-                    (x0, y1),
-                ],
+                &[(x0, y0), (x1 - 0.18 * wg, y0), (x1, y0 + 0.18 * hg), (x1, y1), (x0, y1)],
             );
             for i in 0..3 {
                 let ly = y0 + (0.40 + 0.16 * i as f32) * hg;
-                push_polygon(
-                    &mut segs,
-                    &rect_pts(x0 + 0.14 * wg, ly, x1 - 0.14 * wg, ly + 0.06 * hg),
-                );
+                push_polygon(&mut segs, &rect_pts(x0 + 0.14 * wg, ly, x1 - 0.14 * wg, ly + 0.06 * hg));
             }
         }
         Glyph::Return => {
-            push_polygon(
-                &mut segs,
-                &rect_pts(x0 + 0.30 * wg, my - 0.10 * hg, x1, my + 0.10 * hg),
-            );
+            push_polygon(&mut segs, &rect_pts(x0 + 0.30 * wg, my - 0.10 * hg, x1, my + 0.10 * hg));
             push_polygon(
                 &mut segs,
                 &[
@@ -233,14 +170,6 @@ fn push_arc_band(
     let outer = outer.max(0.0);
     let inner = inner.clamp(0.0, outer);
     let mut points = sample_arc(cx, cy, outer, outer, start_deg, sweep_deg, 12);
-    points.extend(sample_arc(
-        cx,
-        cy,
-        inner,
-        inner,
-        start_deg + sweep_deg,
-        -sweep_deg,
-        12,
-    ));
+    points.extend(sample_arc(cx, cy, inner, inner, start_deg + sweep_deg, -sweep_deg, 12));
     push_polygon(segments, &points);
 }

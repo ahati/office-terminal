@@ -54,19 +54,16 @@ fn test_cli_parse_completions_flag() {
         .expect("should parse --generate-completions flag");
     assert_eq!(args.generate_completions, Some(Shell::Bash));
 
-    let args_zsh = Cli::try_parse_from(["ot", "--generate-completions", "zsh"])
-        .expect("should parse zsh");
+    let args_zsh = Cli::try_parse_from(["ot", "--generate-completions", "zsh"]).expect("should parse zsh");
     assert_eq!(args_zsh.generate_completions, Some(Shell::Zsh));
 
-    let args_fish = Cli::try_parse_from(["ot", "--generate-completions", "fish"])
-        .expect("should parse fish");
+    let args_fish = Cli::try_parse_from(["ot", "--generate-completions", "fish"]).expect("should parse fish");
     assert_eq!(args_fish.generate_completions, Some(Shell::Fish));
 }
 
 #[test]
 fn test_cli_parse_completions_subcommand() {
-    let args = Cli::try_parse_from(["ot", "completions", "zsh"])
-        .expect("should parse completions subcommand");
+    let args = Cli::try_parse_from(["ot", "completions", "zsh"]).expect("should parse completions subcommand");
 
     match args.command {
         Some(Commands::Completions { shell }) => {

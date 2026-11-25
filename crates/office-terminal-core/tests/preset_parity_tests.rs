@@ -27,8 +27,7 @@ fn repo_file(relative: &str) -> PathBuf {
 
 fn load_json(relative: &str) -> Value {
     let path = repo_file(relative);
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()))
 }
 
@@ -78,9 +77,7 @@ fn split_subpaths(path: &VectorPath) -> Vec<Vec<(f64, f64)>> {
     for segment in &path.segments {
         match segment {
             PathSegment::MoveTo { x, y } => subpaths.push(vec![(*x as f64, *y as f64)]),
-            PathSegment::LineTo { x, y }
-            | PathSegment::QuadTo { x, y, .. }
-            | PathSegment::CubicTo { x, y, .. } => {
+            PathSegment::LineTo { x, y } | PathSegment::QuadTo { x, y, .. } | PathSegment::CubicTo { x, y, .. } => {
                 if let Some(current) = subpaths.last_mut() {
                     current.push((*x as f64, *y as f64));
                 }
@@ -105,14 +102,7 @@ fn segment_coords(segment: &PathSegment) -> Vec<f32> {
     match segment {
         PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => vec![*x, *y],
         PathSegment::QuadTo { x1, y1, x, y } => vec![*x1, *y1, *x, *y],
-        PathSegment::CubicTo {
-            x1,
-            y1,
-            x2,
-            y2,
-            x,
-            y,
-        } => vec![*x1, *y1, *x2, *y2, *x, *y],
+        PathSegment::CubicTo { x1, y1, x2, y2, x, y } => vec![*x1, *y1, *x2, *y2, *x, *y],
         PathSegment::Close => Vec::new(),
     }
 }
@@ -129,8 +119,7 @@ fn fill_from_json(mode: Option<&str>) -> PathFill {
 }
 
 fn first_subpath(geometry: &str, w: f64, h: f64, adj: &[Option<f64>]) -> PresetSubpath {
-    let mut subpaths =
-        build_preset(geometry, w, h, adj).unwrap_or_else(|| panic!("{geometry}: no subpaths"));
+    let mut subpaths = build_preset(geometry, w, h, adj).unwrap_or_else(|| panic!("{geometry}: no subpaths"));
     assert!(!subpaths.is_empty(), "{geometry}: empty subpath list");
     subpaths.remove(0)
 }
@@ -482,8 +471,7 @@ fn every_preset_in_the_table_executes() {
     let (w, h) = (914_400.0, 685_800.0);
     let mut executed = 0usize;
     for (name, definition) in definitions {
-        let subpaths =
-            build_preset(name, w, h, &[]).unwrap_or_else(|| panic!("{name}: build_preset None"));
+        let subpaths = build_preset(name, w, h, &[]).unwrap_or_else(|| panic!("{name}: build_preset None"));
         let declared = definition["paths"].as_array().expect("paths array");
         assert_eq!(subpaths.len(), declared.len(), "{name}: subpath count");
 
@@ -513,10 +501,7 @@ fn every_preset_in_the_table_executes() {
             );
             for segment in &subpath.path.segments {
                 for value in segment_coords(segment) {
-                    assert!(
-                        value.is_finite(),
-                        "{name} path {index}: non-finite coordinate {value}"
-                    );
+                    assert!(value.is_finite(), "{name} path {index}: non-finite coordinate {value}");
                 }
             }
         }

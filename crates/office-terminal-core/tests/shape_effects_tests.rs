@@ -190,10 +190,22 @@ fn effects_slide(effects: ShapeEffects) -> VectorSlide {
     slide.commands.push(VectorCommand::DrawPath {
         path: VectorPath::new(
             vec![
-                PathSegment::MoveTo { x: 100000.0, y: 100000.0 },
-                PathSegment::LineTo { x: 900000.0, y: 100000.0 },
-                PathSegment::LineTo { x: 900000.0, y: 500000.0 },
-                PathSegment::LineTo { x: 100000.0, y: 500000.0 },
+                PathSegment::MoveTo {
+                    x: 100000.0,
+                    y: 100000.0,
+                },
+                PathSegment::LineTo {
+                    x: 900000.0,
+                    y: 100000.0,
+                },
+                PathSegment::LineTo {
+                    x: 900000.0,
+                    y: 500000.0,
+                },
+                PathSegment::LineTo {
+                    x: 100000.0,
+                    y: 500000.0,
+                },
                 PathSegment::Close,
             ],
             FillRule::NonZero,
@@ -212,14 +224,21 @@ fn svg_emits_filter_graphs_only_when_effects_are_present() {
     let assets = NoAssets;
 
     let plain = serializer
-        .serialize_svg(&effects_slide(ShapeEffects::default()), &assets, SvgTextMode::SelectableText)
+        .serialize_svg(
+            &effects_slide(ShapeEffects::default()),
+            &assets,
+            SvgTextMode::SelectableText,
+        )
         .expect("svg");
     assert!(!plain.contains("<filter"));
     assert!(!plain.contains("filter=\"url(#"));
 
     let effects = ShapeEffects {
         outer_shadow: Some(VectorOuterShadow::default()),
-        glow: Some(VectorGlow { color: [0x4F, 0x81, 0xBD, 191], radius_emu: 38100 }),
+        glow: Some(VectorGlow {
+            color: [0x4F, 0x81, 0xBD, 191],
+            radius_emu: 38100,
+        }),
         inner_shadow: Some(VectorInnerShadow {
             color: [0, 0, 0, 128],
             blur_radius_emu: 12700,
@@ -283,18 +302,28 @@ fn rasterizer_composites_shadow_below_the_shape() {
         direction_deg: 90.0,
         ..VectorOuterShadow::default()
     };
-    let effects = ShapeEffects { outer_shadow: Some(shadow), ..Default::default() };
+    let effects = ShapeEffects {
+        outer_shadow: Some(shadow),
+        ..Default::default()
+    };
     let slide = effects_slide(effects);
 
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 200, height_px: 100 };
+    let target = RenderTargetSpec {
+        width_px: 200,
+        height_px: 100,
+    };
     let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     // Shape occupies y = 10..50 px and x = 10..90 px at scale 0.0001.
     // The 20 px downward offset projects a shadow band below the shape.
     let px = |x: usize, y: usize| {
         let base = (y * 200 + x) * 4;
-        [rendered.pixels[base], rendered.pixels[base + 1], rendered.pixels[base + 2]]
+        [
+            rendered.pixels[base],
+            rendered.pixels[base + 1],
+            rendered.pixels[base + 2],
+        ]
     };
     let inside = px(50, 30);
     let below = px(50, 62);
@@ -305,18 +334,28 @@ fn rasterizer_composites_shadow_below_the_shape() {
 #[test]
 fn rasterizer_glow_halo_surrounds_the_shape() {
     let effects = ShapeEffects {
-        glow: Some(VectorGlow { color: [0xFF, 0x00, 0x00, 255], radius_emu: 300000 }),
+        glow: Some(VectorGlow {
+            color: [0xFF, 0x00, 0x00, 255],
+            radius_emu: 300000,
+        }),
         ..Default::default()
     };
     let slide = effects_slide(effects);
 
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 200, height_px: 100 };
+    let target = RenderTargetSpec {
+        width_px: 200,
+        height_px: 100,
+    };
     let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     // Immediately left of the shape (x < 10 px) the red halo must be visible.
     let base = (30 * 200 + 3) * 4;
-    let pixel = [rendered.pixels[base], rendered.pixels[base + 1], rendered.pixels[base + 2]];
+    let pixel = [
+        rendered.pixels[base],
+        rendered.pixels[base + 1],
+        rendered.pixels[base + 2],
+    ];
     assert!(pixel[0] > 180 && pixel[1] < 250, "glow halo expected, got {pixel:?}");
 }
 
@@ -329,7 +368,10 @@ fn rasterizer_soft_edge_feathers_up_to_the_border() {
     let slide = effects_slide(effects);
 
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 200, height_px: 100 };
+    let target = RenderTargetSpec {
+        width_px: 200,
+        height_px: 100,
+    };
     let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     // Interior keeps the solid fill; the border blends towards the white
@@ -337,7 +379,11 @@ fn rasterizer_soft_edge_feathers_up_to_the_border() {
     let center = (30 * 200 + 50) * 4;
     let border = (30 * 200 + 10) * 4;
     assert_eq!(
-        [rendered.pixels[center], rendered.pixels[center + 1], rendered.pixels[center + 2]],
+        [
+            rendered.pixels[center],
+            rendered.pixels[center + 1],
+            rendered.pixels[center + 2]
+        ],
         [0x44, 0x72, 0xC4]
     );
     assert!(rendered.pixels[border] > 150, "border must be feathered");
@@ -356,17 +402,27 @@ fn rasterizer_scene_camera_projects_the_path() {
         light_direction_deg: 225.0,
         units_per_inch: 914_400.0,
     };
-    let effects = ShapeEffects { scene_3d: Some(scene), ..Default::default() };
+    let effects = ShapeEffects {
+        scene_3d: Some(scene),
+        ..Default::default()
+    };
     let slide = effects_slide(effects);
 
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 200, height_px: 100 };
+    let target = RenderTargetSpec {
+        width_px: 200,
+        height_px: 100,
+    };
     let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     // The projected shape is vertically compressed, so the original
     // rectangle's bottom-left corner is no longer painted.
     let corner = (50 * 200 + 12) * 4;
-    let background = [rendered.pixels[corner], rendered.pixels[corner + 1], rendered.pixels[corner + 2]];
+    let background = [
+        rendered.pixels[corner],
+        rendered.pixels[corner + 1],
+        rendered.pixels[corner + 2],
+    ];
     assert_eq!(background, [255, 255, 255]);
 }
 
@@ -384,12 +440,19 @@ fn rasterizer_inner_shadow_darkens_the_interior_edge() {
     let slide = effects_slide(effects);
 
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 200, height_px: 100 };
+    let target = RenderTargetSpec {
+        width_px: 200,
+        height_px: 100,
+    };
     let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     let px = |x: usize, y: usize| {
         let base = (y * 200 + x) * 4;
-        [rendered.pixels[base], rendered.pixels[base + 1], rendered.pixels[base + 2]]
+        [
+            rendered.pixels[base],
+            rendered.pixels[base + 1],
+            rendered.pixels[base + 2],
+        ]
     };
     // The inset band hugs the top edge and leaves the centre untouched.
     assert!(px(50, 12)[0] < 100, "inner shadow expected at the top edge");
@@ -413,15 +476,20 @@ fn rasterizer_extrusion_layers_below_the_shape() {
     let slide = effects_slide(effects);
 
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 200, height_px: 100 };
+    let target = RenderTargetSpec {
+        width_px: 200,
+        height_px: 100,
+    };
     let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     let base = (55 * 200 + 50) * 4;
-    let pixel = [rendered.pixels[base], rendered.pixels[base + 1], rendered.pixels[base + 2]];
+    let pixel = [
+        rendered.pixels[base],
+        rendered.pixels[base + 1],
+        rendered.pixels[base + 2],
+    ];
     assert!(
-        (pixel[0] as i32 - 0x7F).abs() < 8
-            && (pixel[1] as i32 - 0x7F).abs() < 8
-            && (pixel[2] as i32 - 0x7F).abs() < 8,
+        (pixel[0] as i32 - 0x7F).abs() < 8 && (pixel[1] as i32 - 0x7F).abs() < 8 && (pixel[2] as i32 - 0x7F).abs() < 8,
         "extrusion color expected below the shape, got {pixel:?}"
     );
 }
@@ -470,9 +538,21 @@ fn legacy_wireframe_paints_rims_not_a_filled_face() {
 fn every_preset_material_has_a_surface_class() {
     use office_terminal_core::scene3d::Material;
     let names = [
-        "legacyMatte", "legacyPlastic", "legacyMetal", "legacyWireframe", "matte",
-        "plastic", "metal", "warmMatte", "translucentPowder", "powder", "dkEdge",
-        "softEdge", "clear", "flat", "softmetal",
+        "legacyMatte",
+        "legacyPlastic",
+        "legacyMetal",
+        "legacyWireframe",
+        "matte",
+        "plastic",
+        "metal",
+        "warmMatte",
+        "translucentPowder",
+        "powder",
+        "dkEdge",
+        "softEdge",
+        "clear",
+        "flat",
+        "softmetal",
     ];
     for name in names {
         let material = Material::from_preset(name);

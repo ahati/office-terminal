@@ -13,7 +13,7 @@ pub(super) fn render_warped_run(
     let Some(run_warp) = run.warp.as_ref() else {
         return;
     };
-    if std::env::var("KITTY_PPTX_DEBUG_WARP").is_ok() {
+    if std::env::var("OT_DEBUG_WARP").is_ok() || std::env::var("KITTY_PPTX_DEBUG_WARP").is_ok() {
         eprintln!(
             "raster warp run {:?} glyphs={} hscale={:.3} linew={:.0} boxh={:.0} band={:.3}",
             run.text,

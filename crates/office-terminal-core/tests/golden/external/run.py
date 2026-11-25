@@ -554,8 +554,8 @@ def main(argv: list[str]) -> int:
         return 0
 
     env = os.environ.copy()
-    env["KITTY_PPTX_EXTERNAL_FIXTURES"] = str(fixtures)
-    env["KITTY_PPTX_EXTERNAL_GOLDENS"] = str(goldens)
+    env["OT_EXTERNAL_FIXTURES"] = str(fixtures)
+    env["OT_EXTERNAL_GOLDENS"] = str(goldens)
     run(
         [
             "cargo",

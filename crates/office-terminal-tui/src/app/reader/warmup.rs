@@ -22,17 +22,12 @@ use crate::app::state::PresentationState;
 /// Schedules the rasters of the pages following `center` on the worker
 /// pool so they overlap the synchronous first-frame paint instead of
 /// starting after it.
-pub(crate) fn prefetch_first_window(
-    state: &PresentationState,
-    pipeline: &dyn RenderPipeline,
-    center: usize,
-) {
+pub(crate) fn prefetch_first_window(state: &PresentationState, pipeline: &dyn RenderPipeline, center: usize) {
     let Some(reader) = state.reader_state() else {
         return;
     };
     let (grid_cols, _rows) = state.layout_size();
-    let (viewport_w_px, viewport_h_px, cell_w_px, _cell_h_px) =
-        reader_viewport_metrics(grid_cols, _rows);
+    let (viewport_w_px, viewport_h_px, cell_w_px, _cell_h_px) = reader_viewport_metrics(grid_cols, _rows);
     let cols = reader.planned_columns(grid_cols, viewport_h_px, cell_w_px);
 
     let total = reader.total_pages();

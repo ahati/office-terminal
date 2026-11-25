@@ -10,8 +10,8 @@ use metafile_core as mc;
 use crate::contracts::{FillRule, RectF32};
 
 use super::{
-    MetafileDiagnostic, MetafileEngine, MetafileError, MetafileFormat, MetafileInfo,
-    MetafileLimits, MetafileSink, PlaybackOutcome,
+    MetafileDiagnostic, MetafileEngine, MetafileError, MetafileFormat, MetafileInfo, MetafileLimits, MetafileSink,
+    PlaybackOutcome,
 };
 
 pub mod mapping;
@@ -33,11 +33,7 @@ impl MetafileEngine for MetafileRsEngine {
         inspect_bytes(bytes)
     }
 
-    fn output_bounds(
-        &self,
-        bytes: &[u8],
-        limits: &MetafileLimits,
-    ) -> Result<Option<RectF32>, MetafileError> {
+    fn output_bounds(&self, bytes: &[u8], limits: &MetafileLimits) -> Result<Option<RectF32>, MetafileError> {
         // Play once into a discarding sink: the renderer coordinates are only
         // known after the engine applies its window/viewport mapping.
         let mut sink = super::NullMetafileSink;
@@ -59,8 +55,7 @@ impl MetafileEngine for MetafileRsEngine {
         let mut renderer = SinkRenderer::new(sink, bounds.map(to_engine_rect));
 
         if is_emf(bytes) {
-            let result =
-                metafile_emf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
+            let result = metafile_emf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
             Ok(PlaybackOutcome {
                 info: MetafileInfo {
                     format: MetafileFormat::Emf,
@@ -68,31 +63,22 @@ impl MetafileEngine for MetafileRsEngine {
                         .output_bounds
                         .or(Some(result.metadata.bounds))
                         .map(from_engine_rect),
-                    physical_size: Some((
-                        result.metadata.frame.width(),
-                        result.metadata.frame.height(),
-                    )),
+                    physical_size: Some((result.metadata.frame.width(), result.metadata.frame.height())),
                 },
                 diagnostics: result.diagnostics.into_iter().map(map_diagnostic).collect(),
             })
         } else if is_wmf(bytes) {
-            let result =
-                metafile_wmf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
+            let result = metafile_wmf::playback(bytes, &options, &mut renderer).map_err(map_error)?;
             Ok(PlaybackOutcome {
                 info: MetafileInfo {
                     format: MetafileFormat::Wmf,
-                    bounds: result
-                        .output_bounds
-                        .or(result.metadata.bounds)
-                        .map(from_engine_rect),
+                    bounds: result.output_bounds.or(result.metadata.bounds).map(from_engine_rect),
                     physical_size: result.physical_size,
                 },
                 diagnostics: result.diagnostics.into_iter().map(map_diagnostic).collect(),
             })
         } else {
-            Err(MetafileError::Unsupported(
-                "unrecognised metafile container".into(),
-            ))
+            Err(MetafileError::Unsupported("unrecognised metafile container".into()))
         }
     }
 }
@@ -102,10 +88,7 @@ fn is_emf(bytes: &[u8]) -> bool {
 }
 
 fn is_wmf(bytes: &[u8]) -> bool {
-    matches!(
-        super::classify::classify_bytes(bytes),
-        Some(MetafileFormat::Wmf)
-    )
+    matches!(super::classify::classify_bytes(bytes), Some(MetafileFormat::Wmf))
 }
 
 fn inspect_bytes(bytes: &[u8]) -> Result<MetafileInfo, MetafileError> {
@@ -118,26 +101,25 @@ fn inspect_bytes(bytes: &[u8]) -> Result<MetafileInfo, MetafileError> {
         })
     } else if is_wmf(bytes) {
         let info = metafile_wmf::inspect(bytes).map_err(map_error)?;
-        let bounds = info.bounds.map(from_engine_rect).or_else(|| {
-            match (info.estimated_width, info.estimated_height) {
-                (Some(width), Some(height)) => Some(RectF32 {
-                    x: 0.0,
-                    y: 0.0,
-                    w: width.max(0.0) as f32,
-                    h: height.max(0.0) as f32,
-                }),
-                _ => None,
-            }
-        });
+        let bounds =
+            info.bounds
+                .map(from_engine_rect)
+                .or_else(|| match (info.estimated_width, info.estimated_height) {
+                    (Some(width), Some(height)) => Some(RectF32 {
+                        x: 0.0,
+                        y: 0.0,
+                        w: width.max(0.0) as f32,
+                        h: height.max(0.0) as f32,
+                    }),
+                    _ => None,
+                });
         Ok(MetafileInfo {
             format: MetafileFormat::Wmf,
             bounds,
             physical_size: None,
         })
     } else {
-        Err(MetafileError::Unsupported(
-            "unrecognised metafile container".into(),
-        ))
+        Err(MetafileError::Unsupported("unrecognised metafile container".into()))
     }
 }
 
@@ -159,9 +141,7 @@ fn map_error(error: mc::MetafileError) -> MetafileError {
         mc::MetafileError::ResourceLimitExceeded { .. } => MetafileError::Limit(error.to_string()),
         mc::MetafileError::UnsupportedCriticalFeature(_)
         | mc::MetafileError::UnsupportedFormat
-        | mc::MetafileError::UnsupportedBitmap { .. } => {
-            MetafileError::Unsupported(error.to_string())
-        }
+        | mc::MetafileError::UnsupportedBitmap { .. } => MetafileError::Unsupported(error.to_string()),
         mc::MetafileError::FormatMismatch { .. } => MetafileError::Unsupported(error.to_string()),
         _ => MetafileError::Invalid(error.to_string()),
     }
@@ -192,9 +172,7 @@ fn tag_for(code: &str, message: &str) -> &'static str {
         "glyph_index_text" => "metafile_glyph_index_text",
         "pdy_approximate" => "metafile_text_dx",
         "emfplus_path_gradient_approximate" => "metafile_gradient",
-        "emfplus_dual_getdc_fallback" | "emfplus_noncanonical_empty_only_fallback" => {
-            "metafile_emfplus_fallback"
-        }
+        "emfplus_dual_getdc_fallback" | "emfplus_noncanonical_empty_only_fallback" => "metafile_emfplus_fallback",
         "unsupported_bitmap"
         | "unsupported_bitmap_record"
         | "unsupported_dib"

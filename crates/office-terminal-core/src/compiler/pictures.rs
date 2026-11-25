@@ -1,10 +1,8 @@
-use crossbeam_channel::Sender;
-use crate::contracts::{
-    FidelityClass, NormalizedRect, RectF32, VectorCommand, WarningEvent,
-};
 use super::shapes::build_shape_path;
 use super::style::{compile_fill, compile_stroke};
 use super::transform::compute_shape_transform;
+use crate::contracts::{FidelityClass, NormalizedRect, RectF32, VectorCommand, WarningEvent};
+use crossbeam_channel::Sender;
 
 pub fn compile_picture_element(
     pic: &pptx_model::PictureElement,
@@ -53,16 +51,9 @@ pub fn compile_picture_element(
 
     // 1. Draw background fill behind picture if present
     if let Some(ref fill) = pic.fill {
-        let shape_path = clip_path.clone().unwrap_or_else(|| {
-            build_shape_path(
-                "rect",
-                pic.width as f32,
-                pic.height as f32,
-                &[],
-                None,
-                warning_sink,
-            )
-        });
+        let shape_path = clip_path
+            .clone()
+            .unwrap_or_else(|| build_shape_path("rect", pic.width as f32, pic.height as f32, &[], None, warning_sink));
         if let Some(paint) = compile_fill(fill, 1.0) {
             commands.push(VectorCommand::DrawPath {
                 path: shape_path,
@@ -107,11 +98,7 @@ pub fn compile_picture_element(
     }
 
     // Prefer svg_image_path if available
-    let rel_id = pic
-        .svg_image_path
-        .as_ref()
-        .unwrap_or(&pic.image_path)
-        .clone();
+    let rel_id = pic.svg_image_path.as_ref().unwrap_or(&pic.image_path).clone();
 
     if crate::metafile::is_metafile_path(&rel_id) {
         // The compiler never reads archive bytes; the marker is expanded by
@@ -160,16 +147,8 @@ pub fn compile_picture_element(
 
     // 5. Draw border stroke if present
     if let Some(ref stroke) = pic.stroke {
-        let border_path = clip_path.unwrap_or_else(|| {
-            build_shape_path(
-                "rect",
-                pic.width as f32,
-                pic.height as f32,
-                &[],
-                None,
-                warning_sink,
-            )
-        });
+        let border_path = clip_path
+            .unwrap_or_else(|| build_shape_path("rect", pic.width as f32, pic.height as f32, &[], None, warning_sink));
         if let Some(v_stroke) = compile_stroke(stroke) {
             commands.push(VectorCommand::DrawPath {
                 path: border_path,
@@ -213,11 +192,7 @@ struct PictureCrop {
 ///
 /// Returns `None` when the crop leaves no visible source area, which the
 /// reference paints as nothing (`crop.ts:100-105`).
-fn project_crop(
-    src_rect: Option<&ooxml_common::blip::SrcRect>,
-    frame_w: f32,
-    frame_h: f32,
-) -> Option<PictureCrop> {
+fn project_crop(src_rect: Option<&ooxml_common::blip::SrcRect>, frame_w: f32, frame_h: f32) -> Option<PictureCrop> {
     let full = |w: f32, h: f32| PictureCrop {
         src: NormalizedRect::default(),
         dest: RectF32::new(0.0, 0.0, w, h),
@@ -298,14 +273,7 @@ fn transform_vector_path(
                     y: ty,
                 });
             }
-            crate::contracts::PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            crate::contracts::PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 let (tx1, ty1) = transform.transform_point(*x1, *y1);
                 let (tx2, ty2) = transform.transform_point(*x2, *y2);
                 let (tx, ty) = transform.transform_point(*x, *y);

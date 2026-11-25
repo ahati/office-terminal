@@ -17,9 +17,7 @@ use ratatui::Terminal;
 use crate::app::bindings::FrameBindings;
 use crate::app::ui::render_app;
 
-use super::sorter_graphics_tests::{
-    draw_sorter, sorter_state, GridPipeline, RecordingDriver, CANVAS, WIDE,
-};
+use super::sorter_graphics_tests::{draw_sorter, sorter_state, GridPipeline, RecordingDriver, CANVAS, WIDE};
 use crate::app::mode::AppMode;
 use crate::app::{GraphicsSyncOutcome, PresentationApp};
 
@@ -36,9 +34,8 @@ fn re_entry_with_cached_rasters_drains_the_throttle_over_frames() {
     let total = bindings.thumbnails.len();
     assert_eq!(total, 9, "the whole deck fits one grid page");
 
-    let staged_so_far = |log: &std::sync::Mutex<super::sorter_graphics_tests::DriverLog>| {
-        log.lock().unwrap().staged.len()
-    };
+    let staged_so_far =
+        |log: &std::sync::Mutex<super::sorter_graphics_tests::DriverLog>| log.lock().unwrap().staged.len();
 
     // Frame 1: the throttle stages four cards and defers the rest.
     let deferred = syncer
@@ -80,9 +77,7 @@ fn sync_graphics_surfaces_the_deferred_cards_for_the_run_loop() {
 
     let mut terminal = Terminal::new(TestBackend::new(WIDE.0, WIDE.1)).unwrap();
     let mut bindings = FrameBindings::default();
-    terminal
-        .draw(|f| render_app(app.state(), f, &mut bindings))
-        .unwrap();
+    terminal.draw(|f| render_app(app.state(), f, &mut bindings)).unwrap();
 
     let outcome = app.sync_graphics(&bindings).unwrap();
     assert_eq!(
@@ -98,8 +93,6 @@ fn sync_graphics_surfaces_the_deferred_cards_for_the_run_loop() {
     app.state_mut().set_mode(AppMode::Fullscreen);
     let mut terminal = Terminal::new(TestBackend::new(WIDE.0, WIDE.1)).unwrap();
     let mut bindings = FrameBindings::default();
-    terminal
-        .draw(|f| render_app(app.state(), f, &mut bindings))
-        .unwrap();
+    terminal.draw(|f| render_app(app.state(), f, &mut bindings)).unwrap();
     assert_eq!(app.sync_graphics(&bindings).unwrap().deferred_card_stages, 0);
 }

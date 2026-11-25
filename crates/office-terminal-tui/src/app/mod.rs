@@ -15,10 +15,10 @@ mod graphics_swap_reader_tests;
 mod graphics_swap_tests;
 #[cfg(test)]
 mod graphics_tests;
+pub(crate) mod graphics_thumbnails;
 #[cfg(test)]
 #[path = "graphics_zoom_tests.rs"]
 mod graphics_zoom_tests;
-pub(crate) mod graphics_thumbnails;
 pub mod link_state;
 mod loop_wake;
 pub mod media;
@@ -26,36 +26,37 @@ pub mod mode;
 mod mode_stack;
 pub mod nav_state;
 mod reader;
-pub mod reader_events;
-#[cfg(test)]
-mod reader_graphics_tests;
-pub mod reader_scroll;
-#[cfg(test)]
-#[path = "reader_prefetch_tests.rs"]
-mod reader_prefetch_tests;
-pub mod reader_state;
 #[cfg(test)]
 mod reader_boundary_tests;
 #[cfg(test)]
 mod reader_centering_tests;
+pub mod reader_events;
+#[cfg(test)]
+mod reader_focus_marker_tests;
+#[cfg(test)]
+mod reader_graphics_tests;
 #[cfg(test)]
 mod reader_mixed_orientation_tests;
 #[cfg(test)]
-mod reader_focus_marker_tests;
+#[path = "reader_prefetch_tests.rs"]
+mod reader_prefetch_tests;
+pub mod reader_scroll;
+pub mod reader_state;
 pub mod reader_types;
 mod scale;
 #[cfg(test)]
 #[path = "scale_tests.rs"]
 mod scale_tests;
-pub mod search_state;
 #[cfg(test)]
 #[path = "search_label_tests.rs"]
 mod search_label_tests;
+pub mod search_state;
+mod session_state;
+#[cfg(test)]
+mod sorter_fill_tests;
 #[cfg(test)]
 mod sorter_graphics_tests;
 pub mod sorter_state;
-#[cfg(test)]
-mod sorter_fill_tests;
 #[cfg(test)]
 mod sorter_thumbnail_recovery_tests;
 pub mod state;
@@ -63,7 +64,6 @@ mod state_bindings;
 mod state_notices;
 mod state_reader;
 mod state_timing;
-mod session_state;
 mod terminal_guard;
 pub(crate) mod toc_numbering;
 #[cfg(test)]
@@ -78,9 +78,7 @@ use ratatui::Terminal;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use office_terminal_core::{
-    InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-};
+use office_terminal_core::{InvalidateCause, PrefetchPlan, RenderPipeline, RenderTargetSpec};
 use office_terminal_display::TerminalGraphicsDriver;
 
 use crate::app::bindings::FrameBindings;
@@ -181,12 +179,7 @@ impl PresentationApp {
     }
 
     /// Configure reader mode with total page count and page dimensions in points.
-    pub fn with_reader_mode(
-        mut self,
-        enabled: bool,
-        total_pages: usize,
-        page_sizes: Vec<(f32, f32)>,
-    ) -> Self {
+    pub fn with_reader_mode(mut self, enabled: bool, total_pages: usize, page_sizes: Vec<(f32, f32)>) -> Self {
         if enabled {
             self.state.enable_reader_mode(total_pages, page_sizes);
         }
@@ -277,10 +270,7 @@ impl PresentationApp {
         // Reader panes scroll on wheel notches before the default handler,
         // which only routes left-click link hit-testing.
         let action = if self.state.base_mode() == AppMode::Reader
-            && matches!(
-                mouse.kind,
-                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-            )
+            && matches!(mouse.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown)
         {
             reader_events::handle_reader_mouse(mouse, &mut self.state)
         } else {
@@ -312,8 +302,7 @@ impl PresentationApp {
             }
             AppAction::OpenExternal(url) => {
                 if launch_external_browser(url).is_err() {
-                    self.state
-                        .set_toast("[Error: Unable to launch web browser]");
+                    self.state.set_toast("[Error: Unable to launch web browser]");
                 }
             }
             AppAction::ScaleChanged => self.apply_scale(),
@@ -458,10 +447,7 @@ impl PresentationApp {
                 // four-cards-full until the next key press (the sorter has
                 // no clock, and cached rasters schedule no worker whose
                 // completion could wake the loop).
-                if outcome.fresh_warnings > 0
-                    || outcome.deferred_card_stages > 0
-                    || failure_now != failure_before
-                {
+                if outcome.fresh_warnings > 0 || outcome.deferred_card_stages > 0 || failure_now != failure_before {
                     tracker.mark_dirty();
                 }
             }
@@ -538,15 +524,11 @@ impl PresentationApp {
     /// sleeping: it means a raster was published and the next pass has pixels
     /// to place.
     fn poll_timeout(&self, tracker: &loop_wake::RedrawTracker) -> Duration {
-        let completions_pending = self
-            .render_events
-            .as_ref()
-            .is_some_and(|rx| !rx.is_empty());
+        let completions_pending = self.render_events.as_ref().is_some_and(|rx| !rx.is_empty());
         if tracker.needs_redraw() || completions_pending {
             return Duration::ZERO;
         }
-        loop_wake::next_wake(&self.state, self.pipeline.in_flight(), Instant::now())
-            .unwrap_or(loop_wake::IDLE_POLL)
+        loop_wake::next_wake(&self.state, self.pipeline.in_flight(), Instant::now()).unwrap_or(loop_wake::IDLE_POLL)
     }
 
     /// One-shot synchronous first paint, issued once from `run()` right

@@ -6,28 +6,26 @@ pub mod math;
 pub mod options;
 pub mod parse_error_card;
 pub mod pattern;
-pub mod placeholders;
 pub mod pictures;
+pub mod placeholders;
 pub mod shape_effects;
-pub mod smartart_contrast;
 pub mod shapes;
 pub mod slide_nav;
+pub mod smartart_contrast;
 pub mod style;
 pub mod tables;
 pub mod text;
 pub mod text_warp;
 pub mod transform;
 
-pub use options::{
-    collect_part_failures, CompileOptions, ErrorPlaceholder, ErrorPlaceholderFn, PartFailure,
-};
-pub use style::parse_hex_color;
 pub use hyperlinks::{extract_deck_hyperlinks, extract_slide_hyperlinks, resolve_hyperlink};
+pub use options::{collect_part_failures, CompileOptions, ErrorPlaceholder, ErrorPlaceholderFn, PartFailure};
 pub use slide_nav::resolve_internal_slide;
+pub use style::parse_hex_color;
 
-use crossbeam_channel::Sender;
 use crate::contracts::{FidelityClass, ShapeEffects, VectorSlide, WarningEvent};
 use crate::error::RenderError;
+use crossbeam_channel::Sender;
 
 pub trait SlideCompiler: Send + Sync {
     fn compile(
@@ -101,8 +99,7 @@ impl SlideCompiler for DefaultSlideCompiler {
         if slide.parse_error.is_some() {
             return Ok(vector_slide);
         }
-        vector_slide.hyperlinks =
-            hyperlinks::extract_slide_hyperlinks(slide, deck, warning_sink);
+        vector_slide.hyperlinks = hyperlinks::extract_slide_hyperlinks(slide, deck, warning_sink);
         Ok(vector_slide)
     }
 
@@ -168,10 +165,8 @@ impl SlideCompiler for DefaultSlideCompiler {
             .as_ref()
             .and_then(|theme| theme.default_text_color.as_deref())
             .unwrap_or("000000");
-        let smart_art_text_color = smartart_contrast::smart_art_fallback_text_color(
-            slide.background.as_ref(),
-            theme_default_text_color,
-        );
+        let smart_art_text_color =
+            smartart_contrast::smart_art_fallback_text_color(slide.background.as_ref(), theme_default_text_color);
         let mut commands = Vec::new();
 
         for elem in &slide.elements {
@@ -198,8 +193,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                     );
 
                     let adj_slice: Vec<Option<f64>> = vec![
-                        shape.adj, shape.adj2, shape.adj3, shape.adj4,
-                        shape.adj5, shape.adj6, shape.adj7, shape.adj8,
+                        shape.adj, shape.adj2, shape.adj3, shape.adj4, shape.adj5, shape.adj6, shape.adj7, shape.adj8,
                     ];
 
                     let subpaths = shapes::build_shape_paths_painted(
@@ -212,23 +206,14 @@ impl SlideCompiler for DefaultSlideCompiler {
                         warning_sink,
                     );
 
-                    let fill = shape.fill.as_ref().and_then(|f| {
-                        style::compile_shape_fill(
-                            f,
-                            1.0,
-                            shape.rotation,
-                            shape.flip_h,
-                            shape.flip_v,
-                        )
-                    });
-                    let stroke = shape.stroke.as_ref().and_then(|s| {
-                        style::compile_stroke_for_shape(
-                            s,
-                            shape.rotation,
-                            shape.flip_h,
-                            shape.flip_v,
-                        )
-                    });
+                    let fill = shape
+                        .fill
+                        .as_ref()
+                        .and_then(|f| style::compile_shape_fill(f, 1.0, shape.rotation, shape.flip_h, shape.flip_v));
+                    let stroke = shape
+                        .stroke
+                        .as_ref()
+                        .and_then(|s| style::compile_stroke_for_shape(s, shape.rotation, shape.flip_h, shape.flip_v));
                     let effects = shape_effects::extract_shape_effects(shape);
 
                     // ref `preset-geometry/index.ts:44-99`: one paint pass per
@@ -250,11 +235,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                         let scope = style::stroke::StrokeScope {
                             decorate: decorates && Some(index) == last_stroked,
                         };
-                        let model_stroke = if subpath.stroke {
-                            stroke.as_ref()
-                        } else {
-                            None
-                        };
+                        let model_stroke = if subpath.stroke { stroke.as_ref() } else { None };
                         commands.extend(style::stroke::compile_stroked_paths(
                             &subpath.path,
                             shapes::apply_path_fill_mode(fill.as_ref(), subpath.fill),
@@ -272,15 +253,8 @@ impl SlideCompiler for DefaultSlideCompiler {
                     // Compile text body if present (supporting SmartArt explicit text_rect)
                     if let Some(ref text_body) = shape.text_body {
                         let (text_w, text_h, text_transform) = if let Some(ref tr) = shape.text_rect {
-                            let tr_transform = transform::compute_shape_transform(
-                                tr.x,
-                                tr.y,
-                                tr.width,
-                                tr.height,
-                                0.0,
-                                false,
-                                false,
-                            );
+                            let tr_transform =
+                                transform::compute_shape_transform(tr.x, tr.y, tr.width, tr.height, 0.0, false, false);
                             (tr.width, tr.height, tr_transform)
                         } else {
                             (shape.width, shape.height, transform)
@@ -299,10 +273,7 @@ impl SlideCompiler for DefaultSlideCompiler {
                             text_w,
                             text_h,
                             &text_transform,
-                            shape
-                                .default_text_color
-                                .as_deref()
-                                .or(fallback_text_color),
+                            shape.default_text_color.as_deref().or(fallback_text_color),
                             warning_sink,
                         );
                         commands.extend(text_cmds);

@@ -15,9 +15,7 @@
 //! not expose are listed — never silently dropped — in
 //! `tests/parity/coverage/text-flow-b.md` together with the missing symbol.
 
-use office_terminal_core::text::linebreak::{
-    break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem,
-};
+use office_terminal_core::text::linebreak::{break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem};
 use office_terminal_core::text::{StyleId, TextMeasure};
 
 const S: StyleId = StyleId(0);
@@ -219,10 +217,7 @@ fn cjk_latin_fitting_word_keeps_no_break_at_the_seam() {
 #[test]
 fn cjk_latin_overwide_word_breaks_per_grapheme() {
     let items = [text_item("ab"), styled_item("cdefghij", S2)];
-    assert_eq!(
-        texts(&wrap(&items, &LEN10, 40.0, true)),
-        ["abcd", "efgh", "ij"]
-    );
+    assert_eq!(texts(&wrap(&items, &LEN10, 40.0, true)), ["abcd", "efgh", "ij"]);
 }
 
 // ── ea-line-break.test.ts (§21.1.2.2.7) ────────────────────────────────────
@@ -245,10 +240,7 @@ fn ealnbrk_false_lets_a_cjk_bracket_end_a_line() {
         texts(&wrap(&split, &LEN10, 20.0, false)),
         ["日本", "語「", "日本", "語"]
     );
-    assert_eq!(
-        texts(&wrap(&split, &LEN10, 20.0, true)),
-        ["日本", "語", "「日", "本語"]
-    );
+    assert_eq!(texts(&wrap(&split, &LEN10, 20.0, true)), ["日本", "語", "「日", "本語"]);
 }
 
 /// E08/E09 (`:68-73`): only `eaLnBrk="0"` breaks after an opening bracket
@@ -289,21 +281,10 @@ fn ea_kinsoku_is_continuous_inside_one_run() {
 #[test]
 fn ea_unobserved_punctuation_and_mixed_seams_keep_greedy_breaks() {
     let ideographic_comma = [text_item("漢漢"), styled_item("、漢", S2)];
-    assert_eq!(
-        texts(&wrap(&ideographic_comma, &LEN10, 20.0, true)),
-        ["漢漢", "、漢"]
-    );
-    let three = [
-        text_item("漢“"),
-        styled_item("）", S2),
-        styled_item("”漢", StyleId(2)),
-    ];
+    assert_eq!(texts(&wrap(&ideographic_comma, &LEN10, 20.0, true)), ["漢漢", "、漢"]);
+    let three = [text_item("漢“"), styled_item("）", S2), styled_item("”漢", StyleId(2))];
     assert_eq!(texts(&wrap(&three, &LEN10, 30.0, true)), ["漢“）", "”漢"]);
-    let mixed = [
-        text_item("漢“"),
-        styled_item("漢", S2),
-        styled_item("”漢", StyleId(2)),
-    ];
+    let mixed = [text_item("漢“"), styled_item("漢", S2), styled_item("”漢", StyleId(2))];
     assert_eq!(texts(&wrap(&mixed, &LEN10, 30.0, true)), ["漢“漢", "”漢"]);
 }
 
@@ -519,4 +500,3 @@ fn trailing_whitespace_preserves_visible_non_breaking_spaces() {
         assert_eq!(line_text(&lines[0]), source, "space U+{:04X}", space as u32);
     }
 }
-

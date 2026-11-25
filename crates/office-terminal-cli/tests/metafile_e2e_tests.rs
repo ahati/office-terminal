@@ -230,8 +230,7 @@ fn cli_export_dump_and_info_agree_on_metafile_decks() {
 
     let dumped = run(&["dump", deck_arg, "--json"]);
     assert!(dumped.status.success());
-    let envelope: serde_json::Value =
-        serde_json::from_slice(&dumped.stdout).expect("dump json");
+    let envelope: serde_json::Value = serde_json::from_slice(&dumped.stdout).expect("dump json");
     let commands = &envelope["vectorSlides"][0]["scene"]["commands"];
     let types: Vec<&str> = commands
         .as_array()
@@ -245,8 +244,7 @@ fn cli_export_dump_and_info_agree_on_metafile_decks() {
 
     let placeholder = run(&["dump", deck_arg, "--json", "--metafile", "placeholder"]);
     assert!(placeholder.status.success());
-    let envelope: serde_json::Value =
-        serde_json::from_slice(&placeholder.stdout).expect("placeholder json");
+    let envelope: serde_json::Value = serde_json::from_slice(&placeholder.stdout).expect("placeholder json");
     let text: String = envelope["vectorSlides"][0]["scene"]["commands"]
         .as_array()
         .expect("commands")
@@ -261,5 +259,9 @@ fn cli_export_dump_and_info_agree_on_metafile_decks() {
     assert!(text.contains("Media Assets"), "{text}");
 
     let embedded = run(&["dump", deck_arg, "--json", "--embed-bitmaps"]);
-    assert!(embedded.status.success(), "{}", String::from_utf8_lossy(&embedded.stderr));
+    assert!(
+        embedded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&embedded.stderr)
+    );
 }

@@ -74,9 +74,7 @@ mod tests {
         let mut scratch = EffectScratch::default();
         let mut layer = scratch.take_layer(4, 3).expect("4x3 layer");
         // Dirty the layer like a render pass would, then hand it back.
-        layer
-            .data_mut()
-            .fill(0xFF);
+        layer.data_mut().fill(0xFF);
         scratch.return_layer(layer);
 
         let layer = scratch.take_layer(4, 3).expect("reused 4x3 layer");

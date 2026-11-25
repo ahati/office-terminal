@@ -20,12 +20,7 @@ enum Edge {
     Inside,
 }
 
-pub fn build_callout_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_callout_preset(geometry: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     let path = match geometry {
         "rectCallout" | "wedgeRectCallout" => wedge_rect_path(w, h, adj, false),
         "roundRectCallout" | "wedgeRoundRectCallout" => wedge_rect_path(w, h, adj, true),
@@ -163,11 +158,7 @@ fn ellipse_callout_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
     let a2 = v2.atan2(u2);
     let at = vt.atan2(ut);
     let ccw = normalize_degrees((a2 - a1).to_degrees());
-    let sweep = if angle_within(at, a1, ccw) {
-        ccw - 360.0
-    } else {
-        ccw
-    };
+    let sweep = if angle_within(at, a1, ccw) { ccw - 360.0 } else { ccw };
 
     segs.push(PathSegment::MoveTo { x: px1, y: py1 });
     decompose_arc_to_cubic(cx, cy, rx, ry, a1.to_degrees(), sweep, &mut segs);
@@ -220,14 +211,7 @@ fn cloud_callout_path(w: f32, h: f32, adj: &[Option<f64>]) -> VectorPath {
 /// Leader-line callout family (`lineCallout*`, `borderCallout*`,
 /// `accentCallout*`). The frame and accent bar are filled subpaths; the leader
 /// itself is an open polyline so it only appears when the shape is stroked.
-fn leader_path(
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-    border: bool,
-    accent: bool,
-    style: u8,
-) -> VectorPath {
+fn leader_path(w: f32, h: f32, adj: &[Option<f64>], border: bool, accent: bool, style: u8) -> VectorPath {
     let p = pointer(w, h, adj);
     let (ax, ay) = match p.edge {
         Edge::Top => (w * p.base_center, 0.0),
@@ -289,31 +273,14 @@ fn leader_path(
 
 /// Pointer used by the arrow callouts: a wedge rooted inside the arrow body so
 /// the composite silhouette stays connected for every arrow direction.
-pub fn push_arrow_callout_pointer(
-    segments: &mut Vec<PathSegment>,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) {
+pub fn push_arrow_callout_pointer(segments: &mut Vec<PathSegment>, w: f32, h: f32, adj: &[Option<f64>]) {
     let p = pointer(w, h, adj);
     match p.edge {
         Edge::Inside => {}
-        Edge::Bottom => push_polygon(
-            segments,
-            &[(0.6 * w, 0.55 * h), (p.xt, p.yt), (0.4 * w, 0.55 * h)],
-        ),
-        Edge::Top => push_polygon(
-            segments,
-            &[(0.4 * w, 0.45 * h), (p.xt, p.yt), (0.6 * w, 0.45 * h)],
-        ),
-        Edge::Left => push_polygon(
-            segments,
-            &[(0.45 * w, 0.6 * h), (p.xt, p.yt), (0.45 * w, 0.4 * h)],
-        ),
-        Edge::Right => push_polygon(
-            segments,
-            &[(0.55 * w, 0.4 * h), (p.xt, p.yt), (0.55 * w, 0.6 * h)],
-        ),
+        Edge::Bottom => push_polygon(segments, &[(0.6 * w, 0.55 * h), (p.xt, p.yt), (0.4 * w, 0.55 * h)]),
+        Edge::Top => push_polygon(segments, &[(0.4 * w, 0.45 * h), (p.xt, p.yt), (0.6 * w, 0.45 * h)]),
+        Edge::Left => push_polygon(segments, &[(0.45 * w, 0.6 * h), (p.xt, p.yt), (0.45 * w, 0.4 * h)]),
+        Edge::Right => push_polygon(segments, &[(0.55 * w, 0.4 * h), (p.xt, p.yt), (0.55 * w, 0.6 * h)]),
     }
 }
 

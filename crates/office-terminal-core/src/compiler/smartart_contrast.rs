@@ -37,9 +37,7 @@ pub fn background_luminance(fill: Option<&Fill>) -> Option<f32> {
         Fill::Gradient { stops, .. } => {
             let mut stops: Vec<(f32, f32)> = stops
                 .iter()
-                .filter_map(|stop| {
-                    hex_luma(&stop.color).map(|luma| (stop.position.clamp(0.0, 1.0) as f32, luma))
-                })
+                .filter_map(|stop| hex_luma(&stop.color).map(|luma| (stop.position.clamp(0.0, 1.0) as f32, luma)))
                 .collect();
             if stops.is_empty() {
                 return None;
@@ -69,10 +67,7 @@ pub fn is_smart_art_fallback_shape(id: Option<&str>, name: Option<&str>) -> bool
 
 /// White when the background is dark and the theme default is also dark;
 /// `None` keeps the ordinary theme default.
-pub fn smart_art_fallback_text_color(
-    background: Option<&Fill>,
-    theme_default_color: &str,
-) -> Option<String> {
+pub fn smart_art_fallback_text_color(background: Option<&Fill>, theme_default_color: &str) -> Option<String> {
     let bg = background_luminance(background)?;
     if bg >= 0.5 {
         return None;

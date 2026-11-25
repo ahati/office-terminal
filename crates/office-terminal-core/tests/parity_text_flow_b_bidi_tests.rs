@@ -143,11 +143,7 @@ fn bidi_reorders_ltr_cells_in_mirrored_order_under_an_rtl_base() {
 /// `:65-68`: the same cells stay in logical order under an LTR base.
 #[test]
 fn bidi_keeps_tab_delimited_ltr_cells_in_logical_order() {
-    let segments = [
-        BidiSegment::Text("A"),
-        BidiSegment::Tab,
-        BidiSegment::Text("B"),
-    ];
+    let segments = [BidiSegment::Text("A"), BidiSegment::Tab, BidiSegment::Text("B")];
     let visual = compute_line_visual_order(&segments, false);
     assert_eq!(visual.order, [0, 1, 2]);
     assert_eq!(visual.rtl, [false, false, false]);
@@ -158,11 +154,7 @@ fn bidi_keeps_tab_delimited_ltr_cells_in_logical_order() {
 /// word visually LEFT of the Hebrew word: visual L->R `[CD, אב, TAB]`.
 #[test]
 fn bidi_reorders_mixed_direction_content_inside_a_tab_cell() {
-    let segments = [
-        BidiSegment::Tab,
-        BidiSegment::Text("אב"),
-        BidiSegment::Text("CD"),
-    ];
+    let segments = [BidiSegment::Tab, BidiSegment::Text("אב"), BidiSegment::Text("CD")];
     let visual = compute_line_visual_order(&segments, true);
     assert_eq!(visual_texts(&segments, &visual.order), ["CD", "אב", "TAB"]);
     assert!(visual.rtl[1], "the Hebrew cell content resolves RTL");

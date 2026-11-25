@@ -2,9 +2,9 @@
 
 #![cfg(feature = "metafile")]
 
+use metafile_core as mc;
 use office_terminal_core::contracts::{
-    AffineTransform, FillRule, PathSegment, RenderTargetSpec, VectorPaint, VectorPath, VectorSlide,
-    VectorTextureFill,
+    AffineTransform, FillRule, PathSegment, RenderTargetSpec, VectorPaint, VectorPath, VectorSlide, VectorTextureFill,
 };
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::metafile::engine_metafile_rs::mapping::map_paint;
@@ -14,7 +14,6 @@ use office_terminal_core::rasterizer::SlideRasterizer;
 use office_terminal_core::{
     AssetError, DefaultSlideSvgSerializer, SlideSvgSerializer, SvgTextMode, TinySkiaRasterizer,
 };
-use metafile_core as mc;
 
 struct NullStore;
 
@@ -68,8 +67,7 @@ fn texture_brush_tile_mode_maps_to_vector_texture() {
     assert!(matches!(metafile_paint, MetafilePaint::Texture { repeat: true, .. }));
 
     let unit_to_emu = AffineTransform::scale(10.0, 10.0);
-    let vector_paint = map_display_paint(&metafile_paint, &unit_to_emu)
-        .expect("must map to VectorPaint::Texture");
+    let vector_paint = map_display_paint(&metafile_paint, &unit_to_emu).expect("must map to VectorPaint::Texture");
     match vector_paint {
         VectorPaint::Texture(tex) => {
             assert_eq!(tex.width, 4);
@@ -219,6 +217,12 @@ fn texture_brush_serializes_to_svg_pattern() {
         .expect("SVG serialization failed");
 
     assert!(svg.contains("<pattern"), "SVG should contain pattern definition");
-    assert!(svg.contains("data:image/png;base64,"), "Pattern should contain base64 image");
-    assert!(svg.contains(r#"fill="url(#texfill_1)""#), "Path should reference pattern id");
+    assert!(
+        svg.contains("data:image/png;base64,"),
+        "Pattern should contain base64 image"
+    );
+    assert!(
+        svg.contains(r#"fill="url(#texfill_1)""#),
+        "Path should reference pattern id"
+    );
 }

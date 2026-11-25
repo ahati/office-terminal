@@ -9,12 +9,7 @@ use crate::contracts::VectorPath;
 use super::presets_callouts::push_arrow_callout_pointer;
 use super::{presets_arrows, presets_t1};
 
-pub fn build_arrow_callout_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_arrow_callout_preset(geometry: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     let base = match geometry {
         "leftArrowCallout" => presets_t1::build_t1_preset("leftArrow", w, h, &[]),
         "rightArrowCallout" => presets_t1::build_t1_preset("rightArrow", w, h, &[]),

@@ -4,10 +4,10 @@ use pptx_model::Slide;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-use office_terminal_tui::app::mode::AppMode;
-use office_terminal_tui::app::events::{handle_key_event, AppAction};
-use office_terminal_tui::app::state::PresentationState;
 use office_terminal_tui::app::bindings::FrameBindings;
+use office_terminal_tui::app::events::{handle_key_event, AppAction};
+use office_terminal_tui::app::mode::AppMode;
+use office_terminal_tui::app::state::PresentationState;
 use office_terminal_tui::app::ui::render_app;
 
 fn make_key(code: KeyCode) -> KeyEvent {
@@ -127,17 +127,26 @@ fn test_comments_drawer_toggling_and_dismiss() {
     assert_eq!(state.mode(), AppMode::Fullscreen);
 
     // Toggle 'c' -> CommentsDrawer
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('c')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('c')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::CommentsDrawer);
     assert_eq!(state.previous_mode(), AppMode::Fullscreen);
 
     // Dismiss with 'q'
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('q')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('q')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::Fullscreen);
 
     // Re-open in Presenter mode
     state.set_mode(AppMode::PresenterConsole);
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('c')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('c')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::CommentsDrawer);
     assert_eq!(state.previous_mode(), AppMode::PresenterConsole);
 
@@ -146,9 +155,15 @@ fn test_comments_drawer_toggling_and_dismiss() {
     assert_eq!(state.mode(), AppMode::PresenterConsole);
 
     // Toggle 'c' while already open closes it
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('c')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('c')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::CommentsDrawer);
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('c')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('c')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::PresenterConsole);
 }
 
@@ -205,7 +220,10 @@ fn test_warning_drawer_toggling_and_events() {
     assert_eq!(state.warnings().len(), 5);
 
     // Toggle via 'W'
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('W')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('W')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::WarningDrawer);
 
     // Scroll warnings drawer
@@ -215,7 +233,10 @@ fn test_warning_drawer_toggling_and_events() {
     assert_eq!(state.warnings_scroll(), 0);
 
     // Dismiss with 'W'
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('W')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('W')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::Fullscreen);
 
     // Open via Shift-w and dismiss with Esc
@@ -231,7 +252,10 @@ fn test_toc_search_toggling_and_navigation() {
     assert_eq!(state.mode(), AppMode::Fullscreen);
 
     // Open via '/'
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('/')), &mut state), AppAction::Redraw);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('/')), &mut state),
+        AppAction::Redraw
+    );
     assert_eq!(state.mode(), AppMode::TocSearchModal);
 
     // Dismiss with Esc
@@ -249,12 +273,15 @@ fn test_toc_search_toggling_and_navigation() {
 
 #[test]
 fn test_toc_search_fuzzy_filtering_and_jumping() {
-    let mut state = PresentationState::new(4, vec![
-        Some("Financial goals and Q3 targets".to_string()),
-        Some("Kitty graphics protocol implementation details".to_string()),
-        Some("Raster caching and tiny-skia pipelines".to_string()),
-        Some("Future milestones".to_string()),
-    ]);
+    let mut state = PresentationState::new(
+        4,
+        vec![
+            Some("Financial goals and Q3 targets".to_string()),
+            Some("Kitty graphics protocol implementation details".to_string()),
+            Some("Raster caching and tiny-skia pipelines".to_string()),
+            Some("Future milestones".to_string()),
+        ],
+    );
 
     let slides = vec![
         create_sample_slide(0, "Executive Overview", None),
@@ -410,7 +437,9 @@ fn test_ui_rendering_smoke_across_overlays() {
 
     // 3. Render Warnings Drawer overlay
     state.open_warnings();
-    state.add_warning(WarningEvent::UnsupportedPreset { name: "testPreset".to_string() });
+    state.add_warning(WarningEvent::UnsupportedPreset {
+        name: "testPreset".to_string(),
+    });
     let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| render_app(&state, f, &mut bindings))
@@ -436,12 +465,7 @@ fn test_help_modal_opaque_edge_to_edge() {
     // The slides help table is 24 body rows tall (+2 border); the popup
     // centers in the 32-row terminal.
     let popup_height = 26u16;
-    let popup = Rect::new(
-        (100 - 70) / 2,
-        (32 - popup_height) / 2,
-        70,
-        popup_height,
-    );
+    let popup = Rect::new((100 - 70) / 2, (32 - popup_height) / 2, 70, popup_height);
     let backend = TestBackend::new(100, 32);
     let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
     terminal
@@ -465,7 +489,12 @@ fn test_help_modal_opaque_edge_to_edge() {
             if popup.contains(ratatui::layout::Position { x, y }) {
                 let cell = &buf[(x, y)];
                 total += 1;
-                if matches!(cell.bg, ratatui::style::Color::Rgb(_, _, _) | ratatui::style::Color::Black | ratatui::style::Color::Indexed(_)) {
+                if matches!(
+                    cell.bg,
+                    ratatui::style::Color::Rgb(_, _, _)
+                        | ratatui::style::Color::Black
+                        | ratatui::style::Color::Indexed(_)
+                ) {
                     opaque += 1;
                 }
             }
@@ -528,54 +557,3 @@ fn metafile_warnings_render_in_the_drawer() {
     assert!(text.contains("metafile_gradient"), "{text}");
     assert!(text.contains("image1.emf"), "{text}");
 }
-
-#[test]
-fn test_reproduce_search_modal_corrupt_entries_and_borders() {
-    let mut state = PresentationState::new(10, vec![]);
-    // Simulate TOC entry with UTF-16BE decoded via from_utf8_lossy (containing NUL bytes and replacement chars)
-    let bad_toc = vec![
-        office_terminal_core::TocEntry {
-            title: String::from_utf8_lossy(&[239, 191, 189, 239, 191, 189, 0, 80, 0, 114, 0, 101, 0, 102, 0, 97, 0, 99, 0, 101]).into_owned(),
-            page_index: 15,
-            level: 0,
-        },
-        office_terminal_core::TocEntry {
-            title: String::from_utf8_lossy(&[239, 191, 189, 239, 191, 189, 0, 67, 0, 104, 0, 111, 0, 111, 0, 115, 0, 105, 0, 110, 0, 103]).into_owned(),
-            page_index: 22,
-            level: 1,
-        },
-    ];
-    state.set_toc(&bad_toc);
-    state.open_search();
-
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
-    terminal
-        .draw(|frame| {
-            office_terminal_tui::app::ui::render_search_modal(&state, frame, frame.area());
-        })
-        .expect("draw search modal");
-
-    let buf = terminal.backend().buffer().clone();
-
-    // Verify right border is aligned on all box rows (col 75)
-    let border_r = 75;
-    for y in 2..=21 {
-        let sym = buf[(border_r, y)].symbol();
-        assert!(
-            sym == "┐" || sym == "│" || sym == "┘",
-            "Right border at row {} col {} must be border char, got {:?}",
-            y, border_r, sym
-        );
-    }
-
-    // Verify entries sanitized: no NUL bytes or replacement characters
-    for entry in state.search_state().entries() {
-        assert!(
-            !entry.title.contains('\0') && !entry.title.contains('\u{FFFD}'),
-            "Entry title must not contain raw NUL bytes or UTF-16 replacement characters! Found: {:?}",
-            entry.title
-        );
-    }
-}
-

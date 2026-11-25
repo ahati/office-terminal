@@ -1,12 +1,7 @@
-use crate::contracts::{FillRule, PathSegment, VectorPath};
 use super::arc::decompose_arc_to_cubic;
+use crate::contracts::{FillRule, PathSegment, VectorPath};
 
-pub fn build_t1_preset(
-    name: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_t1_preset(name: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     let get_adj = |idx: usize, default: f32| -> f32 {
         adj.get(idx)
             .and_then(|&val| val)
@@ -15,18 +10,16 @@ pub fn build_t1_preset(
     };
 
     match name {
-        "rect" | "flowChartProcess" => {
-            Some(VectorPath::new(
-                vec![
-                    PathSegment::MoveTo { x: 0.0, y: 0.0 },
-                    PathSegment::LineTo { x: w, y: 0.0 },
-                    PathSegment::LineTo { x: w, y: h },
-                    PathSegment::LineTo { x: 0.0, y: h },
-                    PathSegment::Close,
-                ],
-                FillRule::NonZero,
-            ))
-        }
+        "rect" | "flowChartProcess" => Some(VectorPath::new(
+            vec![
+                PathSegment::MoveTo { x: 0.0, y: 0.0 },
+                PathSegment::LineTo { x: w, y: 0.0 },
+                PathSegment::LineTo { x: w, y: h },
+                PathSegment::LineTo { x: 0.0, y: h },
+                PathSegment::Close,
+            ],
+            FillRule::NonZero,
+        )),
 
         "roundRect" => {
             let a1 = get_adj(0, 0.16667).clamp(0.0, 0.5);
@@ -68,18 +61,16 @@ pub fn build_t1_preset(
             ))
         }
 
-        "diamond" | "flowChartDecision" => {
-            Some(VectorPath::new(
-                vec![
-                    PathSegment::MoveTo { x: w / 2.0, y: 0.0 },
-                    PathSegment::LineTo { x: w, y: h / 2.0 },
-                    PathSegment::LineTo { x: w / 2.0, y: h },
-                    PathSegment::LineTo { x: 0.0, y: h / 2.0 },
-                    PathSegment::Close,
-                ],
-                FillRule::NonZero,
-            ))
-        }
+        "diamond" | "flowChartDecision" => Some(VectorPath::new(
+            vec![
+                PathSegment::MoveTo { x: w / 2.0, y: 0.0 },
+                PathSegment::LineTo { x: w, y: h / 2.0 },
+                PathSegment::LineTo { x: w / 2.0, y: h },
+                PathSegment::LineTo { x: 0.0, y: h / 2.0 },
+                PathSegment::Close,
+            ],
+            FillRule::NonZero,
+        )),
 
         "parallelogram" | "flowChartInputOutput" => {
             let a1 = get_adj(0, 0.25).clamp(0.0, 1.0);
@@ -367,15 +358,13 @@ pub fn build_t1_preset(
             Some(VectorPath::new(segs, FillRule::NonZero))
         }
 
-        "line" => {
-            Some(VectorPath::new(
-                vec![
-                    PathSegment::MoveTo { x: 0.0, y: 0.0 },
-                    PathSegment::LineTo { x: w, y: h },
-                ],
-                FillRule::NonZero,
-            ))
-        }
+        "line" => Some(VectorPath::new(
+            vec![
+                PathSegment::MoveTo { x: 0.0, y: 0.0 },
+                PathSegment::LineTo { x: w, y: h },
+            ],
+            FillRule::NonZero,
+        )),
 
         _ => None,
     }

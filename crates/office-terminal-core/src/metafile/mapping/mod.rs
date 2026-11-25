@@ -34,25 +34,11 @@ pub fn transform_path(path: &VectorPath, transform: &AffineTransform) -> VectorP
                 let (x, y) = point(x, y);
                 PathSegment::QuadTo { x1, y1, x, y }
             }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 let (x1, y1) = point(x1, y1);
                 let (x2, y2) = point(x2, y2);
                 let (x, y) = point(x, y);
-                PathSegment::CubicTo {
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    x,
-                    y,
-                }
+                PathSegment::CubicTo { x1, y1, x2, y2, x, y }
             }
             PathSegment::Close => PathSegment::Close,
         })

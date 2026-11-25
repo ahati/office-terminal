@@ -41,19 +41,10 @@ fn encode_png(bmp: &RgbaSlide) -> Result<Vec<u8>, DisplayError> {
     use image::ImageEncoder;
 
     let mut png_bytes = Vec::new();
-    let encoder = PngEncoder::new_with_quality(
-        &mut png_bytes,
-        CompressionType::Default,
-        FilterType::Adaptive,
-    );
+    let encoder = PngEncoder::new_with_quality(&mut png_bytes, CompressionType::Default, FilterType::Adaptive);
 
     encoder
-        .write_image(
-            &bmp.pixels,
-            bmp.width,
-            bmp.height,
-            image::ExtendedColorType::Rgba8,
-        )
+        .write_image(&bmp.pixels, bmp.width, bmp.height, image::ExtendedColorType::Rgba8)
         .map_err(|e| DisplayError::Io(std::io::Error::other(e.to_string())))?;
 
     Ok(png_bytes)
@@ -105,22 +96,11 @@ impl KittyDriver {
 
     /// Fits dimensions (cols, rows) preserving slide aspect ratio within the given cell limits.
     pub fn fit_slide(&self, bmp: &RgbaSlide, max_cols: u16, max_rows: u16) -> (u16, u16) {
-        fit_aspect_ratio(
-            bmp.width,
-            bmp.height,
-            max_cols,
-            max_rows,
-            self.cell_aspect_ratio,
-        )
+        fit_aspect_ratio(bmp.width, bmp.height, max_cols, max_rows, self.cell_aspect_ratio)
     }
 
     /// Formats Kitty transmission chunks for PNG (`f=100`) payloads.
-    pub fn format_transmission_chunks(
-        id: ImageId,
-        width: u32,
-        height: u32,
-        b64_payload: &str,
-    ) -> Vec<String> {
+    pub fn format_transmission_chunks(id: ImageId, width: u32, height: u32, b64_payload: &str) -> Vec<String> {
         let chunk_size = 4096;
         let total_len = b64_payload.len();
         let mut chunks = Vec::new();
@@ -180,13 +160,7 @@ impl KittyDriver {
     ///
     /// The framing is identical to [`Self::format_transmission_chunks`]; the
     /// base64 text is sliced as-is and never re-encoded.
-    fn write_prebuilt(
-        &self,
-        id: ImageId,
-        width: u32,
-        height: u32,
-        b64: &str,
-    ) -> Result<(), DisplayError> {
+    fn write_prebuilt(&self, id: ImageId, width: u32, height: u32, b64: &str) -> Result<(), DisplayError> {
         let tty = global_tty();
         let chunks = Self::format_transmission_chunks(id, width, height, b64);
         let mut blob = String::with_capacity(b64.len() + chunks.len() * 48);
@@ -296,8 +270,7 @@ impl TerminalGraphicsDriver for KittyDriver {
 
     fn release_all(&mut self) -> Result<(), DisplayError> {
         let tty = global_tty();
-        tty.write_seq("\x1b_Ga=d,d=a,q=2\x1b\\")
-            .map_err(DisplayError::Io)
+        tty.write_seq("\x1b_Ga=d,d=a,q=2\x1b\\").map_err(DisplayError::Io)
     }
 }
 

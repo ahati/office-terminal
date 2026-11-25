@@ -54,7 +54,12 @@ fn test_navigation_prev_keys() {
         let mut state = PresentationState::new(10, vec![]);
         state.set_current_slide(5);
         let action = handle_key_event(make_key(code), &mut state);
-        assert_eq!(action, AppAction::SlideChanged, "Key {:?} should go to previous slide", code);
+        assert_eq!(
+            action,
+            AppAction::SlideChanged,
+            "Key {:?} should go to previous slide",
+            code
+        );
         assert_eq!(state.current_slide(), 4);
     }
 }
@@ -92,7 +97,10 @@ fn test_toggle_presenter_and_help() {
 #[test]
 fn test_quit_events() {
     let mut state = PresentationState::new(5, vec![]);
-    assert_eq!(handle_key_event(make_key(KeyCode::Char('q')), &mut state), AppAction::Quit);
+    assert_eq!(
+        handle_key_event(make_key(KeyCode::Char('q')), &mut state),
+        AppAction::Quit
+    );
     assert_eq!(handle_key_event(make_key(KeyCode::Esc), &mut state), AppAction::Quit);
     assert_eq!(handle_key_event(make_ctrl_key('c'), &mut state), AppAction::Quit);
 }

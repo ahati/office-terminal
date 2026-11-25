@@ -126,7 +126,7 @@ def fetch(manifest_path: Path, dest: Path, force: bool, limit: int | None) -> Pa
         return dest
 
     dest.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix=".kitty-pptx-fetch-", dir=dest.parent))
+    work = Path(tempfile.mkdtemp(prefix=".office-terminal-fetch-", dir=dest.parent))
     clone = work / "clone"
     output = work / "output"
     clone.mkdir()

@@ -149,9 +149,7 @@ fn subpaths(segments: &[PathSegment]) -> Vec<Subpath> {
                     closed: false,
                 });
             }
-            PathSegment::LineTo { x, y }
-            | PathSegment::QuadTo { x, y, .. }
-            | PathSegment::CubicTo { x, y, .. } => {
+            PathSegment::LineTo { x, y } | PathSegment::QuadTo { x, y, .. } | PathSegment::CubicTo { x, y, .. } => {
                 let from = pen.unwrap_or((x, y));
                 if out.is_empty() {
                     out.push(Subpath {
@@ -161,23 +159,13 @@ fn subpaths(segments: &[PathSegment]) -> Vec<Subpath> {
                     });
                 }
                 let seg = match *segment {
-                    PathSegment::LineTo { x, y } => TrimSeg::Line {
-                        from,
-                        to: (x, y),
-                    },
+                    PathSegment::LineTo { x, y } => TrimSeg::Line { from, to: (x, y) },
                     PathSegment::QuadTo { x1, y1, x, y } => TrimSeg::Quad {
                         p0: from,
                         c: (x1, y1),
                         p1: (x, y),
                     },
-                    PathSegment::CubicTo {
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                        x,
-                        y,
-                    } => TrimSeg::Cubic {
+                    PathSegment::CubicTo { x1, y1, x2, y2, x, y } => TrimSeg::Cubic {
                         p0: from,
                         c1: (x1, y1),
                         c2: (x2, y2),
@@ -261,20 +249,14 @@ fn trim_head(commands: &[PathSegment], d: f32) -> Vec<PathSegment> {
     let Some(first) = subs.first() else {
         return commands.to_vec();
     };
-    if first.closed
-        || first.segments.is_empty()
-        || !matches!(commands.first(), Some(PathSegment::MoveTo { .. }))
-    {
+    if first.closed || first.segments.is_empty() || !matches!(commands.first(), Some(PathSegment::MoveTo { .. })) {
         return commands.to_vec();
     }
     let anchor = first.start;
     for (index, seg) in &first.segments {
         if let Some(t) = reach_parameter(seg, false, anchor, d) {
             let point = seg.at(t);
-            let mut out = vec![PathSegment::MoveTo {
-                x: point.0,
-                y: point.1,
-            }];
+            let mut out = vec![PathSegment::MoveTo { x: point.0, y: point.1 }];
             out.push(seg.right(t));
             out.extend_from_slice(&commands[index + 1..]);
             return out;

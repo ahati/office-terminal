@@ -14,11 +14,7 @@ fn placeable_wmf_plays_with_window_mapping() {
         support::wmf_rect([10, 10, 120, 80]),
         support::wmf_ext_text([20, 60], b"Hi", 0, &[]),
     ];
-    let (scene, summary, _) = expand(
-        "ppt/media/image1.wmf",
-        WMF,
-        support::wmf_placeable(&records),
-    );
+    let (scene, summary, _) = expand("ppt/media/image1.wmf", WMF, support::wmf_placeable(&records));
 
     assert_eq!(summary.expanded, 1, "placeable WMF must play");
     assert_eq!(summary.placeholders, 0);
@@ -53,10 +49,7 @@ fn wmz_inflates_a_real_wmf() {
     ))
     .expect("wmf fixture");
     let (_, summary, warnings) = expand("ppt/media/image1.wmz", WMF, gzip(&fixture));
-    assert_eq!(
-        summary.expanded, 1,
-        "WMZ must inflate then play: {warnings:?}"
-    );
+    assert_eq!(summary.expanded, 1, "WMZ must inflate then play: {warnings:?}");
     assert_eq!(summary.placeholders, 0);
 }
 
@@ -89,9 +82,7 @@ fn emz_bomb_degrades_to_a_placeholder() {
 }
 
 fn meets_placeholder(scene: &VectorSlide) -> bool {
-    text_runs(scene)
-        .iter()
-        .any(|run| run.text.contains("METAFILE"))
+    text_runs(scene).iter().any(|run| run.text.contains("METAFILE"))
 }
 
 fn gzip(data: &[u8]) -> Vec<u8> {

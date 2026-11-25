@@ -8,8 +8,8 @@
 
 use crossbeam_channel::unbounded;
 use office_terminal_core::compiler::shapes::{
-    self, presets_arrows, presets_arrows_curved, presets_buttons, presets_callouts, presets_rects,
-    presets_symbols, presets_symbols_extra,
+    self, presets_arrows, presets_arrows_curved, presets_buttons, presets_callouts, presets_rects, presets_symbols,
+    presets_symbols_extra,
 };
 use office_terminal_core::contracts::{FillRule, PathSegment};
 
@@ -250,13 +250,7 @@ fn every_module_builder_accepts_its_catalog() {
     for name in CALLOUT_PRESETS {
         assert!(
             presets_callouts::build_callout_preset(name, 200.0, 120.0, &[]).is_some()
-                || shapes::presets_arrow_callouts::build_arrow_callout_preset(
-                    name,
-                    200.0,
-                    120.0,
-                    &[]
-                )
-                .is_some(),
+                || shapes::presets_arrow_callouts::build_arrow_callout_preset(name, 200.0, 120.0, &[]).is_some(),
             "callout builder missed {name}"
         );
     }
@@ -285,17 +279,11 @@ fn extended_presets_dispatch_without_warning() {
     for name in all_presets() {
         let (tx, rx) = unbounded();
         let subpaths = shapes::build_shape_paths(name, 200.0, 120.0, &[], None, &tx);
-        assert!(
-            rx.try_recv().is_err(),
-            "{name} must not emit UnsupportedPreset"
-        );
+        assert!(rx.try_recv().is_err(), "{name} must not emit UnsupportedPreset");
         assert!(!subpaths.is_empty(), "{name} produced no subpath");
         let segments: usize = subpaths.iter().map(|s| s.path.segments.len()).sum();
         let min_segments = if is_open_leader(name) { 2 } else { 3 };
-        assert!(
-            segments >= min_segments,
-            "{name} produced only {segments} segments"
-        );
+        assert!(segments >= min_segments, "{name} produced only {segments} segments");
         assert!(
             matches!(subpaths[0].path.segments[0], PathSegment::MoveTo { .. }),
             "{name} must start with MoveTo"
@@ -315,12 +303,7 @@ fn extended_presets_dispatch_without_warning() {
 
 #[test]
 fn extended_presets_stay_within_bounds() {
-    let boxes = [
-        (200.0_f32, 120.0_f32),
-        (40.0, 200.0),
-        (120.0, 40.0),
-        (64.0, 64.0),
-    ];
+    let boxes = [(200.0_f32, 120.0_f32), (40.0, 200.0), (120.0, 40.0), (64.0, 64.0)];
     for name in all_presets() {
         // Callout leaders target a point that is deliberately outside the
         // element box (ECMA-376 §20.1.10.31 callout adj1/adj2).
@@ -343,10 +326,7 @@ fn extended_presets_stay_within_bounds() {
             // overshoot by 1.05e-3 px on the bottom edge).
             let eps = 1e-2;
             for (x, y) in endpoints(&path) {
-                assert!(
-                    x.is_finite() && y.is_finite(),
-                    "{name} has non-finite point"
-                );
+                assert!(x.is_finite() && y.is_finite(), "{name} has non-finite point");
                 assert!(
                     x >= -eps && x <= w + eps,
                     "{name} x={x} outside [0,{w}] for box {w}x{h}"
@@ -427,8 +407,7 @@ fn snip1_rect_actually_cuts_the_corner() {
     let path = shapes::build_shape_path("snip1Rect", 200.0, 120.0, &[], None, &tx);
     let pts = endpoints(&path);
     assert!(
-        !pts.iter()
-            .any(|&(x, y)| (x - 200.0).abs() < 1e-3 && y.abs() < 1e-3),
+        !pts.iter().any(|&(x, y)| (x - 200.0).abs() < 1e-3 && y.abs() < 1e-3),
         "top-right corner must be snipped away"
     );
     // Default cut: dx1 = ss * adj / 100000 = 120 * 16667 / 100000 = 20.0004.
@@ -470,14 +449,7 @@ fn preset_paths_use_the_nonzero_fill_rule() {
     // nonzero rule (`preset-geometry/index.ts:64-70`); holes such as `donut`'s
     // inner ring are authored with the opposite winding instead, so no even-odd
     // rule is needed (see `preset_dispatch_tests::donut_rings_wind_oppositely`).
-    for name in [
-        "stripedRightArrow",
-        "gear6",
-        "gear9",
-        "frame",
-        "bevel",
-        "donut",
-    ] {
+    for name in ["stripedRightArrow", "gear6", "gear9", "frame", "bevel", "donut"] {
         let (tx, _rx) = unbounded();
         let path = shapes::build_shape_path(name, 200.0, 120.0, &[], None, &tx);
         assert_eq!(path.fill_rule, FillRule::NonZero, "{name}");

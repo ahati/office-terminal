@@ -12,9 +12,7 @@
 #![allow(dead_code)]
 
 use office_terminal_core::text::justify::{justify_line, JustifyMode, JustifyPlan};
-use office_terminal_core::text::linebreak::{
-    break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem,
-};
+use office_terminal_core::text::linebreak::{break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem};
 use office_terminal_core::text::tabs::resolve_tab_widths;
 use office_terminal_core::text::{StyleId, TabAlign, TabStop, TextMeasure};
 
@@ -79,9 +77,7 @@ pub fn close(actual: f32, expected: f32, what: &str) {
 
 pub fn width_of(item: &LineItem) -> f32 {
     match item {
-        LineItem::Text { width, .. }
-        | LineItem::Tab { width, .. }
-        | LineItem::Object { width, .. } => *width,
+        LineItem::Text { width, .. } | LineItem::Tab { width, .. } | LineItem::Object { width, .. } => *width,
     }
 }
 
@@ -161,12 +157,7 @@ pub fn wrap(items: &[BreakItem], width: f32, stops: &[TabStop], grid: f32) -> Ve
     )
 }
 
-pub fn wrap_indented(
-    items: &[BreakItem],
-    width: f32,
-    indent: f32,
-    stops: &[TabStop],
-) -> Vec<BrokenLine> {
+pub fn wrap_indented(items: &[BreakItem], width: f32, indent: f32, stops: &[TabStop]) -> Vec<BrokenLine> {
     break_paragraph(
         items,
         &BreakOptions {

@@ -78,14 +78,7 @@ pub fn build_custom_geometry_path(path_cmds: &[PathCmd], w: f32, h: f32) -> Vect
                     });
                     pen = pt;
                 }
-                PathCmd::CubicBezTo {
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    x,
-                    y,
-                } => {
+                PathCmd::CubicBezTo { x1, y1, x2, y2, x, y } => {
                     let pt = scaled(*x, *y, w, h);
                     segments.push(PathSegment::CubicTo {
                         x1: *x1 as f32 * w,
@@ -97,12 +90,9 @@ pub fn build_custom_geometry_path(path_cmds: &[PathCmd], w: f32, h: f32) -> Vect
                     });
                     pen = pt;
                 }
-                PathCmd::ArcTo {
-                    wr,
-                    hr,
-                    st_ang,
-                    sw_ang,
-                } => arc_to(&mut pen, *wr, *hr, *st_ang, *sw_ang, w, h, &mut segments),
+                PathCmd::ArcTo { wr, hr, st_ang, sw_ang } => {
+                    arc_to(&mut pen, *wr, *hr, *st_ang, *sw_ang, w, h, &mut segments)
+                }
                 PathCmd::Close => segments.push(PathSegment::Close),
             }
         }
@@ -143,9 +133,7 @@ fn arc_to(
 
     // ref `path-executor.ts:99-104`: a visual angle is the point
     // (wR·cos θ, hR·sin θ), whose parametric angle is `atan2(wR·sin, hR·cos)`.
-    let to_parametric = |visual: f64| {
-        (w_radius_local * visual.sin()).atan2(h_radius_local * visual.cos())
-    };
+    let to_parametric = |visual: f64| (w_radius_local * visual.sin()).atan2(h_radius_local * visual.cos());
     let start = to_parametric(start_angle);
     // `atan2` collapses a full revolution onto its start point, so split the
     // sweep into whole turns plus a remainder whose sign is preserved.

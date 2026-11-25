@@ -1,6 +1,6 @@
 # External renderer comparison (opt-in, perceptual)
 
-An independent check that `kitty-pptx` still produces the right structure when
+An independent check that `Office Terminal` still produces the right structure when
 another implementation draws the same LibreOffice QA deck. This is **not**
 PowerPoint ground truth and **not** a pixel-identity test: fonts come from the
 host, so glyphs and anti-aliasing differ between renderers.
@@ -168,7 +168,7 @@ debug run pays the full-resolution decode.
 
 `ExternalCorpus::discover()` reads `fixtures.json` and derives the commit and
 cache paths from it, so adding a manifest entry needs no test edit.
-`KITTY_PPTX_EXTERNAL_FIXTURES` and `KITTY_PPTX_EXTERNAL_GOLDENS` override the
+`OT_EXTERNAL_FIXTURES` and `OT_EXTERNAL_GOLDENS` (legacy `KITTY_PPTX_*`) override the
 two cache directories.
 
 ## What the test does

@@ -10,6 +10,4 @@ mod paths;
 
 pub(super) use bounds::path_bounds;
 pub(super) use clip::map_clip;
-pub(super) use paths::{
-    arc_path, closed_polygon, ellipse_path, engine_path, open_path, rounded_rect,
-};
+pub(super) use paths::{arc_path, closed_polygon, ellipse_path, engine_path, open_path, rounded_rect};

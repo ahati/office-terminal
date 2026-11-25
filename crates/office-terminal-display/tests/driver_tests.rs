@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use office_terminal_core::{
-    DisplayError, HyperlinkTarget, RectF32, RgbaSlide, SlideLink, TransmitEncoder,
-};
+use office_terminal_core::{DisplayError, HyperlinkTarget, RectF32, RgbaSlide, SlideLink, TransmitEncoder};
 use office_terminal_display::probe::env::kitty_from_env_with;
 use office_terminal_display::*;
 
@@ -50,8 +48,7 @@ fn test_image_id_partition_is_disjoint() {
         assert!(len_i > 0, "partition range at index {i} must be non-empty");
         for &(base_j, len_j) in ranges.iter().skip(i + 1) {
             assert!(
-                base_i.saturating_add(len_i) <= base_j
-                    || base_j.saturating_add(len_j) <= base_i,
+                base_i.saturating_add(len_i) <= base_j || base_j.saturating_add(len_j) <= base_i,
                 "id ranges ({base_i}, {len_i}) and ({base_j}, {len_j}) must not overlap"
             );
         }
@@ -80,9 +77,7 @@ fn test_kitty_transmission_chunking_single() {
     let payload = "ABCD1234EFGH5678";
     let chunks = KittyDriver::format_transmission_chunks(ImageId(42), 100, 100, payload);
     assert_eq!(chunks.len(), 1);
-    assert!(
-        chunks[0].starts_with("\x1b_Ga=t,f=100,i=42,s=100,v=100,q=2,m=0;ABCD1234EFGH5678\x1b\\")
-    );
+    assert!(chunks[0].starts_with("\x1b_Ga=t,f=100,i=42,s=100,v=100,q=2,m=0;ABCD1234EFGH5678\x1b\\"));
 }
 
 #[test]
@@ -261,12 +256,7 @@ fn test_instantiate_driver_is_kitty() {
 #[test]
 fn test_kitty_env_detection() {
     let detect = |pairs: &[(&str, &str)]| {
-        kitty_from_env_with(|key| {
-            pairs
-                .iter()
-                .find(|(k, _)| *k == key)
-                .map(|(_, v)| (*v).to_string())
-        })
+        kitty_from_env_with(|key| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_string()))
     };
 
     assert!(detect(&[("KITTY_WINDOW_ID", "1")]));

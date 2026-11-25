@@ -4,7 +4,7 @@
 //! the terminal's real device pixels, but no single source is universally
 //! available:
 //!
-//! 1. `KITTY_PPTX_CELL=WxH` env override — explicit, wins over everything;
+//! 1. `OT_CELL=WxH` env override — explicit, wins over everything;
 //! 2. `TIOCGWINSZ` pixel fields — correct on kitty/xterm/iTerm2/Alacritty
 //!    (locally and over SSH: RFC 4254 §6.7 window-change carries pixel
 //!    dims), but some terminals report `0`;
@@ -42,7 +42,7 @@ const CSI_TIMEOUT: Duration = Duration::from_millis(120);
 /// Where a resolved cell size came from (diagnostics for `info`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CellSizeSource {
-    /// `KITTY_PPTX_CELL=WxH` override.
+    /// `OT_CELL=WxH` override (legacy: `KITTY_PPTX_CELL`).
     EnvOverride,
     /// `TIOCGWINSZ` pixel fields.
     Ioctl,
@@ -58,7 +58,7 @@ impl CellSizeSource {
     /// Short human-readable name (status lines, `info`).
     pub fn label(self) -> &'static str {
         match self {
-            CellSizeSource::EnvOverride => "env (KITTY_PPTX_CELL)",
+            CellSizeSource::EnvOverride => "env (OT_CELL)",
             CellSizeSource::Ioctl => "ioctl (TIOCGWINSZ pixels)",
             CellSizeSource::CsiCell => "csi (CSI 16 t cell size)",
             CellSizeSource::CsiArea => "csi (CSI 14 t area ÷ grid)",
@@ -74,7 +74,7 @@ pub struct ResolvedCellSize {
     pub source: CellSizeSource,
 }
 
-/// Parses `KITTY_PPTX_CELL` (`WxH`, e.g. `11x24`).
+/// Parses `OT_CELL` (`WxH`, e.g. `11x24`; legacy `KITTY_PPTX_CELL`).
 pub fn parse_cell_env(raw: &str) -> Option<(f64, f64)> {
     let lowered = raw.trim().to_ascii_lowercase();
     let (w, h) = lowered.split_once('x')?;
@@ -123,7 +123,10 @@ fn resolve_layered(
     grid: Option<(u16, u16)>,
 ) -> ResolvedCellSize {
     let pick = |(w, h): (f64, f64), source: CellSizeSource| ResolvedCellSize {
-        size: CellPixelSize { width_px: w, height_px: h },
+        size: CellPixelSize {
+            width_px: w,
+            height_px: h,
+        },
         source,
     };
     if let Some(cell) = env {
@@ -161,7 +164,10 @@ pub fn prime_cell_metrics() -> ResolvedCellSize {
 }
 
 fn prime_internal() -> ResolvedCellSize {
-    let env = std::env::var("KITTY_PPTX_CELL").ok().and_then(|raw| parse_cell_env(&raw));
+    let env = std::env::var("OT_CELL")
+        .or_else(|_| std::env::var("KITTY_PPTX_CELL"))
+        .ok()
+        .and_then(|raw| parse_cell_env(&raw));
     let ioctl = ioctl_pixels();
 
     // The CSI layers only pay off when the ioctl cannot answer. They need
@@ -277,7 +283,10 @@ fn open_tty_nonblocking() -> Option<File> {
 /// Used by [`crate::geometry::cell_pixel_size_cached`]; never talks to the
 /// terminal (safe mid-session).
 pub fn resolve_current() -> ResolvedCellSize {
-    let env = std::env::var("KITTY_PPTX_CELL").ok().and_then(|raw| parse_cell_env(&raw));
+    let env = std::env::var("OT_CELL")
+        .or_else(|_| std::env::var("KITTY_PPTX_CELL"))
+        .ok()
+        .and_then(|raw| parse_cell_env(&raw));
     let ioctl = ioctl_pixels();
     let ioctl_answers = ioctl.is_some_and(|(w, h)| w > 0.0 && h > 0.0);
     if env.is_none() && !ioctl_answers {

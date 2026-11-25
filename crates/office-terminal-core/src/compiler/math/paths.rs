@@ -82,18 +82,8 @@ pub fn delimiter_paths(ch: &str, width: f32, top: f32, bottom: f32) -> Option<Ve
             (w, bottom - h * 0.28),
             (0.0, bottom),
         )],
-        "[" => vec![polyline(&[
-            (w, top),
-            (0.0, top),
-            (0.0, bottom),
-            (w, bottom),
-        ])],
-        "]" => vec![polyline(&[
-            (0.0, top),
-            (w, top),
-            (w, bottom),
-            (0.0, bottom),
-        ])],
+        "[" => vec![polyline(&[(w, top), (0.0, top), (0.0, bottom), (w, bottom)])],
+        "]" => vec![polyline(&[(0.0, top), (w, top), (w, bottom), (0.0, bottom)])],
         "{" => vec![polyline(&[
             (w, top),
             (w * 0.55, top + h * 0.10),
@@ -148,11 +138,7 @@ pub fn delimiter_paths(ch: &str, width: f32, top: f32, bottom: f32) -> Option<Ve
 /// peak towards the base (over-brace) or away from it (under-brace).
 pub fn horizontal_brace(width: f32, y_arm: f32, amplitude: f32, up: bool) -> VectorPath {
     let w = width.max(1.0);
-    let a = if up {
-        -amplitude.abs()
-    } else {
-        amplitude.abs()
-    };
+    let a = if up { -amplitude.abs() } else { amplitude.abs() };
     let y = y_arm;
     polyline(&[
         (0.0, y),
@@ -256,9 +242,7 @@ mod tests {
 
     #[test]
     fn brace_and_arrow_paths_are_non_empty() {
-        assert!(!horizontal_brace(10000.0, -4000.0, 800.0, true)
-            .segments
-            .is_empty());
+        assert!(!horizontal_brace(10000.0, -4000.0, 800.0, true).segments.is_empty());
         assert!(!arrow_path(10000.0, -5000.0, 600.0).segments.is_empty());
     }
 }

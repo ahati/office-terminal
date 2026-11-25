@@ -10,16 +10,12 @@ use office_terminal_core::contracts::{VectorCommand, VectorPath};
 use serde_json::{json, Value};
 use table_support::*;
 
-
 // ── Case 1: one shared gridline, winner by all four conflict rules ─────────
 #[test]
 fn shared_gridline_stroked_once_with_conflict_winner() {
     // Rule #0 — null on the owner side loses; the facing line is displayed.
     let cmds = TableSpec::new(
-        vec![vec![
-            Cell::new(),
-            Cell::new().border("l", "112233", 1),
-        ]],
+        vec![vec![Cell::new(), Cell::new().border("l", "112233", 1)]],
         vec![20],
         vec![60, 60],
     )
@@ -83,26 +79,24 @@ fn shared_gridline_stroked_once_with_conflict_winner() {
 fn fills_and_text_precede_all_borders() {
     let body = three_line_body();
     let cmds = TableSpec::new(
-        vec![vec![
-            Cell::new().fill("112233").border("t", "000000", 1)
-                .border("l", "000000", 1).border("r", "000000", 1)
-                .border("b", "000000", 1).text(body),
-        ]],
+        vec![vec![Cell::new()
+            .fill("112233")
+            .border("t", "000000", 1)
+            .border("l", "000000", 1)
+            .border("r", "000000", 1)
+            .border("b", "000000", 1)
+            .text(body)]],
         vec![80],
         vec![120],
     )
     .background("FAFAFA")
     .compile();
 
-    let first_border = cmds
-        .iter()
-        .position(is_border)
-        .expect("table has border commands");
+    let first_border = cmds.iter().position(is_border).expect("table has border commands");
     assert!(
-        cmds[..first_border].iter().any(|c| matches!(
-            c,
-            VectorCommand::DrawPath { fill: Some(_), .. }
-        )),
+        cmds[..first_border]
+            .iter()
+            .any(|c| matches!(c, VectorCommand::DrawPath { fill: Some(_), .. })),
         "cell/table fills are painted before the border pass"
     );
     assert!(
@@ -282,12 +276,8 @@ fn glyph_span(slice: &[VectorCommand]) -> (f32, f32) {
 
 /// The clip path wrapping the cell text plus the glyph span it encloses.
 fn text_clip(commands: &[VectorCommand]) -> Option<(VectorPath, f32, f32)> {
-    let push = commands
-        .iter()
-        .position(|c| matches!(c, VectorCommand::PushClip(_)))?;
-    let pop = commands
-        .iter()
-        .position(|c| matches!(c, VectorCommand::PopClip))?;
+    let push = commands.iter().position(|c| matches!(c, VectorCommand::PushClip(_)))?;
+    let pop = commands.iter().position(|c| matches!(c, VectorCommand::PopClip))?;
     let VectorCommand::PushClip(path) = &commands[push] else {
         return None;
     };

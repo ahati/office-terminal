@@ -27,7 +27,12 @@ fn test_next_slide_navigation_keys() {
         assert_eq!(state.current_slide(), 0);
 
         let action = handle_key_event(key(code), &mut state);
-        assert_eq!(action, AppAction::SlideChanged, "Key {:?} should trigger SlideChanged", code);
+        assert_eq!(
+            action,
+            AppAction::SlideChanged,
+            "Key {:?} should trigger SlideChanged",
+            code
+        );
         assert_eq!(state.current_slide(), 1, "Key {:?} should move to slide 1", code);
     }
 }
@@ -49,7 +54,12 @@ fn test_prev_slide_navigation_keys() {
         assert_eq!(state.current_slide(), 4);
 
         let action = handle_key_event(key(code), &mut state);
-        assert_eq!(action, AppAction::SlideChanged, "Key {:?} should trigger SlideChanged", code);
+        assert_eq!(
+            action,
+            AppAction::SlideChanged,
+            "Key {:?} should trigger SlideChanged",
+            code
+        );
         assert_eq!(state.current_slide(), 3, "Key {:?} should move to slide 3", code);
     }
 }

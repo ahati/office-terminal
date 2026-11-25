@@ -34,12 +34,7 @@ fn slide(index: usize, part: &str, hyperlink: Option<&str>, action: Option<&str>
 #[test]
 fn compiler_in_deck_populates_external_and_internal_links() {
     let deck = vec![
-        slide(
-            0,
-            "ppt/slides/slide1.xml",
-            Some("https://www.rust-lang.org"),
-            None,
-        ),
+        slide(0, "ppt/slides/slide1.xml", Some("https://www.rust-lang.org"), None),
         slide(1, "ppt/slides/slide2.xml", None, None),
         slide(
             2,
@@ -63,10 +58,7 @@ fn compiler_in_deck_populates_external_and_internal_links() {
         .compile_in_deck(&deck[2], &deck, 9_144_000, 6_858_000, &tx)
         .expect("compile slide 3");
     assert_eq!(compiled.hyperlinks.len(), 1);
-    assert_eq!(
-        compiled.hyperlinks[0].target,
-        HyperlinkTarget::SlideIndex(2)
-    );
+    assert_eq!(compiled.hyperlinks[0].target, HyperlinkTarget::SlideIndex(2));
 }
 
 #[test]
@@ -108,11 +100,7 @@ fn svg_wraps_linked_path_in_external_anchor() {
     }
 
     let svg = DefaultSlideSvgSerializer::new()
-        .serialize_svg(
-            &vector,
-            &EmptyAssets,
-            SvgTextMode::SelectableText,
-        )
+        .serialize_svg(&vector, &EmptyAssets, SvgTextMode::SelectableText)
         .expect("serialize");
     assert!(svg.contains("xmlns:xlink=\"http://www.w3.org/1999/xlink\""));
     assert!(svg.contains(
@@ -222,23 +210,14 @@ fn navigable_web_and_communication_urls_are_external() {
 /// ref hyperlink.test.ts:32-41
 #[test]
 fn slide_jump_action_prefers_the_resolved_part_name() {
-    let (links, warnings) = classify(
-        Some("../slides/slide3.xml"),
-        Some("ppaction://hlinksldjump"),
-    );
+    let (links, warnings) = classify(Some("../slides/slide3.xml"), Some("ppaction://hlinksldjump"));
     assert_eq!(links.len(), 1);
     assert_eq!(links[0].target, HyperlinkTarget::SlideIndex(2));
     assert!(warnings.is_empty());
 
     // The verb alone (no rel target) is a relative jump, not a slide part.
-    let (links, warnings) = classify(
-        None,
-        Some("ppaction://hlinkshowjump?jump=firstslide"),
-    );
-    assert_eq!(
-        links[0].target,
-        HyperlinkTarget::Action(SlideAction::FirstSlide)
-    );
+    let (links, warnings) = classify(None, Some("ppaction://hlinkshowjump?jump=firstslide"));
+    assert_eq!(links[0].target, HyperlinkTarget::Action(SlideAction::FirstSlide));
     assert!(warnings.is_empty());
 }
 

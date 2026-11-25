@@ -8,9 +8,7 @@
 //! points), and the citation spec's size-scaled mock (20 px per code point, 13 px
 //! for the 65% baseline run).
 
-use office_terminal_core::text::linebreak::{
-    break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem,
-};
+use office_terminal_core::text::linebreak::{break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem};
 use office_terminal_core::text::{StyleId, TextMeasure};
 
 const S: StyleId = StyleId(0);
@@ -89,12 +87,7 @@ fn texts(lines: &[BrokenLine]) -> Vec<String> {
     lines.iter().map(line_text).collect()
 }
 
-fn wrap_indent(
-    items: &[BreakItem],
-    measurer: &dyn TextMeasure,
-    width: f32,
-    indent: f32,
-) -> Vec<BrokenLine> {
+fn wrap_indent(items: &[BreakItem], measurer: &dyn TextMeasure, width: f32, indent: f32) -> Vec<BrokenLine> {
     let options = BreakOptions {
         max_width: width,
         first_line_indent: indent,
@@ -146,12 +139,7 @@ fn first_line_indent_baseline_packs_four_tokens() {
 /// tokens fit; continuation lines keep the full 200 px.
 #[test]
 fn first_line_indent_narrows_the_first_wrap_line() {
-    let lines = wrap_indent(
-        &[text_item("aaaa bbbb cccc dddd eeee")],
-        &LEN10,
-        200.0,
-        80.0,
-    );
+    let lines = wrap_indent(&[text_item("aaaa bbbb cccc dddd eeee")], &LEN10, 200.0, 80.0);
     assert_eq!(line_text(&lines[0]), "aaaa bbbb ");
     assert_eq!(lines[0].width, 100.0);
     assert_eq!(word_count(&lines[0]), 2);

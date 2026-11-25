@@ -9,7 +9,7 @@
 ## 1. Executive Summary & Preset Coverage Strategy
 
 ### 1.1 Problem Statement & Strategic Rationale
-The ECMA-376 DrawingML standard defines **187 standard preset shape geometries** (`ST_ShapeType`, ECMA-376 Part 1, §20.1.10.55). In earlier revisions of `kitty-pptx` ([PRD 02b Appendix](./02b-appendix-preset-geometries.md)), only 25 high-frequency primitives were classified as **Tier 1 (FULL Parametric)**, while 13 shapes were handled as **Tier 2 (DEGRADED Stand-Ins)**. The remaining ~150 shapes fell into **Tier 3 (PLACEHOLDER)**, rendering generic labeled fallback rectangles and emitting `WarningEvent::UnsupportedPreset`.
+The ECMA-376 DrawingML standard defines **187 standard preset shape geometries** (`ST_ShapeType`, ECMA-376 Part 1, §20.1.10.55). In earlier revisions of **Office Terminal** ([PRD 02b Appendix](./02b-appendix-preset-geometries.md)), only 25 high-frequency primitives were classified as **Tier 1 (FULL Parametric)**, while 13 shapes were handled as **Tier 2 (DEGRADED Stand-Ins)**. The remaining ~150 shapes fell into **Tier 3 (PLACEHOLDER)**, rendering generic labeled fallback rectangles and emitting `WarningEvent::UnsupportedPreset`.
 
 In real-world business, technical, and educational decks, slides frequently incorporate shapes outside the basic 25:
 - **Process & Architecture Flows**: Bent arrows, U-turn arrows, notched arrows, 4-way quad arrows, and segmented connectors.

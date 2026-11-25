@@ -60,18 +60,14 @@ impl SlotFaces {
         let east_asian = match authored_ea {
             Some(face) => Some(resolve_font_family(face, warning_sink)),
             None => {
-                let ea_text: String = text
-                    .chars()
-                    .filter(|ch| is_cjk_break_char(*ch as u32))
-                    .collect();
+                let ea_text: String = text.chars().filter(|ch| is_cjk_break_char(*ch as u32)).collect();
                 east_asian_default::east_asian_default_faces(Some(latin), &ea_text)
                     .first()
                     .map(|face| resolve_font_family(face, warning_sink))
             }
         };
-        let mut cs_defaults: [String; 4] = std::array::from_fn(|index| {
-            east_asian_default::COMPLEX_SCRIPT_DEFAULT_FACES[index].to_string()
-        });
+        let mut cs_defaults: [String; 4] =
+            std::array::from_fn(|index| east_asian_default::COMPLEX_SCRIPT_DEFAULT_FACES[index].to_string());
         for face in &mut cs_defaults {
             *face = resolve_font_family(face, warning_sink);
         }
@@ -97,18 +93,16 @@ impl SlotFaces {
             && self.east_asian_authored
             && east_asian_default::is_east_asian_slot_symbol(cp, self.lang.as_deref());
         let ea_glyph = ea_symbol || is_cjk_break_char(cp);
-        let cs_glyph = east_asian_default::is_complex_script_code_point(cp)
-            || east_asian_default::has_indic_cs_glyph(cluster);
+        let cs_glyph =
+            east_asian_default::is_complex_script_code_point(cp) || east_asian_default::has_indic_cs_glyph(cluster);
         if ea_glyph {
-            return self
-                .east_asian
-                .clone()
-                .unwrap_or_else(|| self.latin.clone());
+            return self.east_asian.clone().unwrap_or_else(|| self.latin.clone());
         }
         if cs_glyph {
-            return self.complex_script.clone().unwrap_or_else(|| {
-                self.cs_defaults[east_asian_default::complex_script_default_index(ch)].clone()
-            });
+            return self
+                .complex_script
+                .clone()
+                .unwrap_or_else(|| self.cs_defaults[east_asian_default::complex_script_default_index(ch)].clone());
         }
         self.latin.clone()
     }
@@ -144,10 +138,7 @@ pub(super) fn push_run_items(
             let mut style = base.clone();
             style.family = family;
             let id = measurer.push(style);
-            items.push(BreakItem::Text {
-                text: group,
-                style: id,
-            });
+            items.push(BreakItem::Text { text: group, style: id });
         }
     }
 }

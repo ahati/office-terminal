@@ -7,9 +7,7 @@ use ooxml_common::fill::GradStop;
 use pptx_model::Fill;
 
 fn solid(hex: &str) -> Fill {
-    Fill::Solid {
-        color: hex.to_string(),
-    }
+    Fill::Solid { color: hex.to_string() }
 }
 
 #[test]

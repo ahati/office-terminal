@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::compiler::SlideCompiler;
 use crate::contracts::{
-    InvalidateCause, PageSource, PipelineEntry, PptxPageSource, PrefetchPlan, RenderPipeline,
-    RenderTargetSpec, RgbaSlide, TransmitEncoder, TransmitPayload, WarningEvent,
+    InvalidateCause, PageSource, PipelineEntry, PptxPageSource, PrefetchPlan, RenderPipeline, RenderTargetSpec,
+    RgbaSlide, TransmitEncoder, TransmitPayload, WarningEvent,
 };
 use crate::error::RenderError;
 use crate::loader::AssetStore;
@@ -44,10 +44,7 @@ pub struct DefaultRenderPipeline {
 
 impl DefaultRenderPipeline {
     /// Create a new render pipeline wrapping a [`PageSource`].
-    pub fn from_page_source(
-        source: Arc<dyn PageSource>,
-        rasterizer: Arc<dyn SlideRasterizer>,
-    ) -> Self {
+    pub fn from_page_source(source: Arc<dyn PageSource>, rasterizer: Arc<dyn SlideRasterizer>) -> Self {
         Self::from_page_source_with_workers(source, rasterizer, default_worker_count())
     }
 
@@ -108,11 +105,7 @@ impl DefaultRenderPipeline {
         rasterizer: Arc<dyn SlideRasterizer>,
         worker_threads: usize,
     ) -> Self {
-        let source = Arc::new(PptxPageSource::new(
-            presentation,
-            Arc::clone(&asset_store),
-            compiler,
-        ));
+        let source = Arc::new(PptxPageSource::new(presentation, Arc::clone(&asset_store), compiler));
         Self::from_page_source_with_workers(source, rasterizer, worker_threads)
     }
 
@@ -156,11 +149,7 @@ impl DefaultRenderPipeline {
 
     /// Synchronously compiles and rasterizes a slide for the given target spec,
     /// populating the two-tier cache, bypassing the background worker queue.
-    pub fn render_sync(
-        &self,
-        index: usize,
-        target: &RenderTargetSpec,
-    ) -> Result<RgbaSlide, RenderError> {
+    pub fn render_sync(&self, index: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, RenderError> {
         if let Ok(mut t) = self.last_target.lock() {
             *t = *target;
         }
@@ -174,11 +163,7 @@ impl DefaultRenderPipeline {
     /// the workers' failure semantics: a fresh success clears any stale
     /// per-slide failure latch, an error latches it, so sync and background
     /// renders behave identically.
-    fn rasterize_now(
-        &self,
-        index: usize,
-        target: &RenderTargetSpec,
-    ) -> Result<RgbaSlide, RenderError> {
+    fn rasterize_now(&self, index: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, RenderError> {
         match render::render_page(
             self.source.as_ref(),
             self.rasterizer.as_ref(),
@@ -201,11 +186,7 @@ impl DefaultRenderPipeline {
     }
 
     /// Get a slide from the cache if present, otherwise render it synchronously.
-    pub fn get_or_render(
-        &self,
-        index: usize,
-        target: &RenderTargetSpec,
-    ) -> Result<RgbaSlide, RenderError> {
+    pub fn get_or_render(&self, index: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, RenderError> {
         self.render_sync(index, target)
     }
 
@@ -223,12 +204,7 @@ impl DefaultRenderPipeline {
     /// `exact_target` marks explicit-target lookups (the sorter grid, reader
     /// pages): they must not kick off synchronous rendering on the calling
     /// thread — the background workers own rasterization for those views.
-    fn entry_after_cache_miss(
-        &self,
-        index: usize,
-        target: &RenderTargetSpec,
-        exact_target: bool,
-    ) -> PipelineEntry {
+    fn entry_after_cache_miss(&self, index: usize, target: &RenderTargetSpec, exact_target: bool) -> PipelineEntry {
         // 1. Check for a latched failure (background worker or last attempt)
         if let Some(error) = self.workers.get_failed(index) {
             return PipelineEntry::Failed { error };
@@ -307,14 +283,10 @@ impl RenderPipeline for DefaultRenderPipeline {
     }
 
     fn entry(&self, index: usize) -> PipelineEntry {
-        let target = self
-            .last_target
-            .lock()
-            .map(|t| *t)
-            .unwrap_or(RenderTargetSpec {
-                width_px: 1920,
-                height_px: 1080,
-            });
+        let target = self.last_target.lock().map(|t| *t).unwrap_or(RenderTargetSpec {
+            width_px: 1920,
+            height_px: 1080,
+        });
 
         // 1. Check Tier 2 raster cache for target
         if let Some(bmp) = self.cache.get_raster(index, &target) {

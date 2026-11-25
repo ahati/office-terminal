@@ -1,4 +1,4 @@
-# Platform parity — viewer / worker / DOM reference cases vs. kitty-pptx
+# Platform parity — viewer / worker / DOM reference cases vs. Office Terminal
 
 Scope: the 58 `*.test.ts` specs under `/tmp/oooxml/packages/pptx/src` matching
 `scroll-*`, `viewer-*`, `presentation-*`, `slide-*`, `worker-*`, `render-worker-*`,
@@ -122,7 +122,7 @@ test blocks; roughly 150 vitest cases and 12 Playwright blocks are portable.
 | `rotated-tile-coverage.spec.ts` | 1 | EXACT | `core/tests/picture_parity_tests.rs` | an `a:tile` fill on a 30°-rotated, h-flipped rect leaves zero uncovered interior pixels | no |
 | `scroll-zoom-settle.spec.ts` | 3 | N/A | — | — | continuous-scroll zoom preview/settle and anchor retention |
 | `table-image-fill.spec.ts` | 2 (6) | EXACT | `core/tests/table_parity_tests.rs` | a `blipFill` cell emits a `DrawImage` clipped to the cell rect; a `pattFill` cell emits two-colour pattern commands retaining both colours | no |
-| `visual.spec.ts` | 1 (9 slides) | EXACT | `core/tests/parity_fidelity_tests.rs` + `core/tests/parity_support/vrt.rs` | **port verified**: `sample-1` (9 slides) at 1280 px, pixelmatch threshold 0.20, fail above 20 %, ratchet 0.5 pt, `UPDATE_REFS` / `UPDATE_SCORES` modes, reference PNGs + `scores.json` committed, slide count asserted | no |
+| `visual.spec.ts` | 1 (3 slides) | EXACT | `core/tests/parity_fidelity_tests.rs` + `core/tests/parity_support/vrt.rs` | **port verified**: synthetic `synthetic-1` (3 slides) at 1280 px, pixelmatch threshold 0.20, fail above 20 %, ratchet 0.5 pt, `UPDATE_REFS` / `UPDATE_SCORES` modes, locked baseline PNGs + `scores.json` committed, slide count asserted | no |
 | `warp-strip-quality.spec.ts` | 2 (12) | EXACT | `core/tests/warp_parity_tests.rs` | a 50 %-alpha warped run composites at uniform alpha (strip-seam alpha spread ≤ 2/255); no ink outside the envelope map | no |
 | `worker-equivalence.spec.ts` | 2 (1) | EXACT | `core/tests/hyperlink_tests.rs` | the part-name → index map is identical whether built from `Presentation.slides` or a re-parsed deck (main/worker meta equivalence) | no; the pixel-equivalence half is N/A (single renderer) |
 | `worker-selection-equivalence.spec.ts` | 1 | N/A | — | — | cross-thread equivalence of selection/find/zoom needs a second rendering realm we do not have |

@@ -139,10 +139,7 @@ fn units(items: &[LineItem]) -> Vec<Unit> {
             }
             // A tab or inline object is one opaque unit: it bears no stretch of
             // its own, but a CJK neighbour can open a gap against its edge.
-            LineItem::Tab { .. } | LineItem::Object { .. } => out.push(Unit {
-                cp: None,
-                ws: false,
-            }),
+            LineItem::Tab { .. } | LineItem::Object { .. } => out.push(Unit { cp: None, ws: false }),
         }
     }
     out
@@ -182,10 +179,7 @@ fn gap_mask(items: &[LineItem], thai_clusters: bool) -> Vec<bool> {
             }
             pending.clear();
         } else if let Some(previous) = last {
-            if has_content
-                && !last_was_space
-                && opens_gap(units[previous].cp, unit.cp, thai_clusters)
-            {
+            if has_content && !last_was_space && opens_gap(units[previous].cp, unit.cp, thai_clusters) {
                 mask[previous + 1] = true;
             }
         }
@@ -287,10 +281,7 @@ mod tests {
     }
 
     fn close(actual: f32, expected: f32) {
-        assert!(
-            (actual - expected).abs() < 1e-4,
-            "expected {expected}, got {actual}"
-        );
+        assert!((actual - expected).abs() < 1e-4, "expected {expected}, got {actual}");
     }
 
     /// `text-justify.test.ts:28`: 3 CJK glyphs, 2 interior gaps, slack 60.
@@ -310,14 +301,8 @@ mod tests {
     #[test]
     fn just_leaves_the_last_and_break_terminated_lines_natural() {
         let items = [text("日本語", 60.0)];
-        assert_eq!(
-            justify_line(&items, 120.0, 60.0, JustifyMode::Just, true, false),
-            None
-        );
-        assert_eq!(
-            justify_line(&items, 120.0, 60.0, JustifyMode::Just, false, true),
-            None
-        );
+        assert_eq!(justify_line(&items, 120.0, 60.0, JustifyMode::Just, true, false), None);
+        assert_eq!(justify_line(&items, 120.0, 60.0, JustifyMode::Just, false, true), None);
         // A middle line of the same paragraph still justifies.
         let p = plan(&items, 120.0, 60.0, JustifyMode::Just, false, false);
         close(p.per_gap, 30.0);
@@ -333,15 +318,9 @@ mod tests {
         close(p.per_gap, 10.0);
         // เ|ม, ◌ื|อ (the mark stays glued to ม) and อ|ง.
         assert_eq!(p.gap_positions(), [1, 3, 4]);
-        assert_eq!(
-            justify_line(&items, 90.0, 60.0, JustifyMode::Dist, false, false),
-            None
-        );
+        assert_eq!(justify_line(&items, 90.0, 60.0, JustifyMode::Dist, false, false), None);
         // `dist` never opens CJK gaps on Thai text either.
-        assert_eq!(
-            justify_line(&items, 90.0, 60.0, JustifyMode::Just, false, false),
-            None
-        );
+        assert_eq!(justify_line(&items, 90.0, 60.0, JustifyMode::Just, false, false), None);
     }
 
     /// `text-justify.test.ts:62`: no gap inside the Latin "EC"; gaps at C|市,
@@ -440,49 +419,23 @@ mod tests {
     #[test]
     fn no_stretchable_boundary_returns_none() {
         assert_eq!(
-            justify_line(
-                &[text("Hello", 50.0)],
-                200.0,
-                50.0,
-                JustifyMode::Just,
-                false,
-                false
-            ),
+            justify_line(&[text("Hello", 50.0)], 200.0, 50.0, JustifyMode::Just, false, false),
             None
         );
         assert_eq!(
-            justify_line(
-                &[text("日", 20.0)],
-                200.0,
-                20.0,
-                JustifyMode::Dist,
-                false,
-                false
-            ),
+            justify_line(&[text("日", 20.0)], 200.0, 20.0, JustifyMode::Dist, false, false),
             None
         );
-        assert_eq!(
-            justify_line(&[], 200.0, 0.0, JustifyMode::Dist, false, false),
-            None
-        );
+        assert_eq!(justify_line(&[], 200.0, 0.0, JustifyMode::Dist, false, false), None);
     }
 
     /// `text-justify.test.ts:196-198`: the 0.5 px noise floor.
     #[test]
     fn slack_at_or_below_the_noise_floor_is_ignored() {
         let items = [text("日本語", 60.0)];
-        assert_eq!(
-            justify_line(&items, 60.2, 60.0, JustifyMode::Just, false, false),
-            None
-        );
-        assert_eq!(
-            justify_line(&items, 60.5, 60.0, JustifyMode::Just, false, false),
-            None
-        );
-        assert_eq!(
-            justify_line(&items, 59.0, 60.0, JustifyMode::Just, false, false),
-            None
-        );
+        assert_eq!(justify_line(&items, 60.2, 60.0, JustifyMode::Just, false, false), None);
+        assert_eq!(justify_line(&items, 60.5, 60.0, JustifyMode::Just, false, false), None);
+        assert_eq!(justify_line(&items, 59.0, 60.0, JustifyMode::Just, false, false), None);
         let p = plan(&items, 60.6, 60.0, JustifyMode::Just, false, false);
         close(p.per_gap, 0.3);
     }

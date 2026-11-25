@@ -15,8 +15,8 @@ mod support;
 use office_terminal_core::text::linebreak::LineItem;
 use office_terminal_core::text::TabAlign;
 use support::{
-    close, line_text, pieces, pieces_at, stop, tab_item, tab_widths, text_item, text_item_styled,
-    wrap, wrap_indented, B, S,
+    close, line_text, pieces, pieces_at, stop, tab_item, tab_widths, text_item, text_item_styled, wrap, wrap_indented,
+    B, S,
 };
 
 // ── pptx-tab-wrap.test.ts (issue #1006) ────────────────────────────────────
@@ -32,10 +32,7 @@ fn c34_run_seam_inside_a_wrapped_word() {
         &[],
         0.0,
     );
-    assert_eq!(
-        lines.iter().map(line_text).collect::<Vec<_>>(),
-        ["abcd", "ef"]
-    );
+    assert_eq!(lines.iter().map(line_text).collect::<Vec<_>>(), ["abcd", "ef"]);
 }
 
 /// `:101-119`: a Latin leading tab wraps (the jump is charged to the budget)
@@ -170,10 +167,7 @@ fn c43_ltr_renders_all_three_cells_on_their_stops() {
     let lines = wrap(
         &[text_item("title\tvalue\tpage")],
         600.0,
-        &[
-            stop(300.0, TabAlign::Right),
-            stop(560.0, TabAlign::Right),
-        ],
+        &[stop(300.0, TabAlign::Right), stop(560.0, TabAlign::Right)],
         0.0,
     );
     assert_eq!(lines.len(), 1);
@@ -231,10 +225,7 @@ fn c45_cell_stays_on_its_stop_with_a_first_line_indent() {
 /// bidi cell mirroring in the paint pass).
 #[test]
 fn c46_rtl_reading_frame_start_tab_advances_and_end_tab_collapses() {
-    let stops = [
-        stop(100.0, TabAlign::Left),
-        stop(140.0, TabAlign::Right),
-    ];
+    let stops = [stop(100.0, TabAlign::Left), stop(140.0, TabAlign::Right)];
     let mut items = vec![
         tab_item(),
         LineItem::Text {

@@ -22,10 +22,10 @@ impl CapabilityProbe {
 
     /// Probes with a custom timeout.
     ///
-    /// `KITTY_PPTX_PROTOCOL=kitty` (or `kitty-full`) bypasses the probe for
-    /// debugging. Any other value is an error.
+    /// `OT_PROTOCOL=kitty` (or `kitty-full`; legacy `KITTY_PPTX_PROTOCOL`)
+    /// bypasses the probe for debugging. Any other value is an error.
     pub fn probe_with_timeout(timeout: Duration) -> Result<(), DisplayError> {
-        if let Ok(raw) = std::env::var("KITTY_PPTX_PROTOCOL") {
+        if let Ok(raw) = std::env::var("OT_PROTOCOL").or_else(|_| std::env::var("KITTY_PPTX_PROTOCOL")) {
             let value = raw.trim().to_ascii_lowercase();
             if value == "kitty" || value == "kitty-full" {
                 return Ok(());
@@ -46,9 +46,7 @@ impl CapabilityProbe {
     }
 
     /// Probes once and returns the Kitty driver.
-    pub fn probe_driver(
-        mode: PlacementMode,
-    ) -> Result<Box<dyn TerminalGraphicsDriver>, DisplayError> {
+    pub fn probe_driver(mode: PlacementMode) -> Result<Box<dyn TerminalGraphicsDriver>, DisplayError> {
         Self::probe()?;
         Ok(Self::instantiate_driver(mode))
     }

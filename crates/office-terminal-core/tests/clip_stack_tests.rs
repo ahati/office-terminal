@@ -89,12 +89,7 @@ fn full_image() -> VectorCommand {
 }
 
 fn solid_rect(path: VectorPath, color: [u8; 4]) -> VectorCommand {
-    VectorCommand::draw_path(
-        path,
-        Some(VectorPaint::Solid(color)),
-        None,
-        AffineTransform::default(),
-    )
+    VectorCommand::draw_path(path, Some(VectorPaint::Solid(color)), None, AffineTransform::default())
 }
 
 fn render(slide: &VectorSlide) -> RgbaSlide {
@@ -134,19 +129,15 @@ fn svg_of(slide: &VectorSlide) -> String {
 #[test]
 fn raster_clip_restricts_picture_and_pop_restores() {
     let mut slide = empty_slide();
-    slide.commands.push(VectorCommand::PushClip(rect_path(
-        0.0,
-        0.0,
-        500_000.0,
-        500_000.0,
-    )));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(rect_path(0.0, 0.0, 500_000.0, 500_000.0)));
     slide.commands.push(full_image());
     slide.commands.push(VectorCommand::PopClip);
     // Drawn after PopClip: must not be clipped by the 0..50px square.
-    slide.commands.push(solid_rect(
-        rect_path(800_000.0, 800_000.0, 950_000.0, 950_000.0),
-        GREEN,
-    ));
+    slide
+        .commands
+        .push(solid_rect(rect_path(800_000.0, 800_000.0, 950_000.0, 950_000.0), GREEN));
 
     let rendered = render(&slide);
 
@@ -165,12 +156,9 @@ fn raster_clip_restricts_picture_and_pop_restores() {
 fn raster_nested_clips_intersect() {
     let mut slide = empty_slide();
     // Left 60% and right 60%: the intersection is only 40..60px.
-    slide.commands.push(VectorCommand::PushClip(rect_path(
-        0.0,
-        0.0,
-        600_000.0,
-        1_000_000.0,
-    )));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(rect_path(0.0, 0.0, 600_000.0, 1_000_000.0)));
     slide.commands.push(VectorCommand::PushClip(rect_path(
         400_000.0,
         0.0,
@@ -187,10 +175,9 @@ fn raster_nested_clips_intersect() {
     assert_eq!(pixel(&rendered, 20, 50), BLUE, "left of intersection");
     assert_eq!(pixel(&rendered, 80, 50), BLUE, "right of intersection");
     // Both clips popped: a later draw covers the whole canvas again.
-    slide.commands.push(solid_rect(
-        rect_path(0.0, 0.0, 1_000_000.0, 1_000_000.0),
-        GREEN,
-    ));
+    slide
+        .commands
+        .push(solid_rect(rect_path(0.0, 0.0, 1_000_000.0, 1_000_000.0), GREEN));
     let rendered = render(&slide);
     assert_eq!(pixel(&rendered, 5, 5), GREEN, "stack fully unwound");
 }
@@ -198,11 +185,9 @@ fn raster_nested_clips_intersect() {
 #[test]
 fn raster_circle_silhouette_clips_corners() {
     let mut slide = empty_slide();
-    slide.commands.push(VectorCommand::PushClip(circle_path(
-        500_000.0,
-        500_000.0,
-        400_000.0,
-    )));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(circle_path(500_000.0, 500_000.0, 400_000.0)));
     slide.commands.push(full_image());
     slide.commands.push(VectorCommand::PopClip);
 
@@ -243,12 +228,9 @@ fn raster_unbalanced_pop_does_not_panic() {
 #[test]
 fn raster_clip_without_pop_stays_active() {
     let mut slide = empty_slide();
-    slide.commands.push(VectorCommand::PushClip(rect_path(
-        0.0,
-        0.0,
-        300_000.0,
-        300_000.0,
-    )));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(rect_path(0.0, 0.0, 300_000.0, 300_000.0)));
     slide.commands.push(full_image());
     // No PopClip: the clip remains in force for the rest of the slide.
 
@@ -280,12 +262,9 @@ fn raster_clip_outside_canvas_draws_nothing() {
 #[test]
 fn svg_emits_clip_path_def_and_group() {
     let mut slide = empty_slide();
-    slide.commands.push(VectorCommand::PushClip(rect_path(
-        0.0,
-        0.0,
-        500_000.0,
-        500_000.0,
-    )));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(rect_path(0.0, 0.0, 500_000.0, 500_000.0)));
     slide.commands.push(full_image());
     slide.commands.push(VectorCommand::PopClip);
 
@@ -310,17 +289,12 @@ fn svg_emits_clip_path_def_and_group() {
 #[test]
 fn svg_nested_clips_use_nested_groups() {
     let mut slide = empty_slide();
-    slide.commands.push(VectorCommand::PushClip(rect_path(
-        0.0,
-        0.0,
-        600_000.0,
-        1_000_000.0,
-    )));
-    slide.commands.push(VectorCommand::PushClip(circle_path(
-        500_000.0,
-        500_000.0,
-        300_000.0,
-    )));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(rect_path(0.0, 0.0, 600_000.0, 1_000_000.0)));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(circle_path(500_000.0, 500_000.0, 300_000.0)));
     slide.commands.push(full_image());
     slide.commands.push(VectorCommand::PopClip);
     slide.commands.push(VectorCommand::PopClip);
@@ -355,12 +329,9 @@ fn svg_empty_clip_path_is_noop() {
 #[test]
 fn svg_unbalanced_push_clip_is_closed() {
     let mut slide = empty_slide();
-    slide.commands.push(VectorCommand::PushClip(rect_path(
-        0.0,
-        0.0,
-        500_000.0,
-        500_000.0,
-    )));
+    slide
+        .commands
+        .push(VectorCommand::PushClip(rect_path(0.0, 0.0, 500_000.0, 500_000.0)));
     slide.commands.push(full_image());
     // No PopClip.
 

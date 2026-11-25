@@ -20,12 +20,7 @@ fn cut(w: f32, h: f32, a: f32) -> f32 {
     max_cut(w, h) * a.clamp(0.0, 1.0)
 }
 
-pub fn build_rect_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_rect_preset(geometry: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     let path = match geometry {
         "snip1Rect" => {
             let d1 = cut(w, h, norm_adj(adj, 0, 0.16667, 0.0, 1.0));
@@ -35,27 +30,13 @@ pub fn build_rect_preset(
         "snip2SameRect" => {
             let d1 = cut(w, h, norm_adj(adj, 0, 0.16667, 0.0, 1.0));
             let d2 = cut(w, h, norm_adj(adj, 1, 0.16667, 0.0, 1.0));
-            rect_path(vec![
-                (d1, 0.0),
-                (w - d2, 0.0),
-                (w, d2),
-                (w, h),
-                (0.0, h),
-                (0.0, d1),
-            ])
+            rect_path(vec![(d1, 0.0), (w - d2, 0.0), (w, d2), (w, h), (0.0, h), (0.0, d1)])
         }
 
         "snip2DiagRect" => {
             let d1 = cut(w, h, norm_adj(adj, 0, 0.16667, 0.0, 1.0));
             let d2 = cut(w, h, norm_adj(adj, 1, 0.16667, 0.0, 1.0));
-            rect_path(vec![
-                (d1, 0.0),
-                (w, 0.0),
-                (w, h - d2),
-                (w - d2, h),
-                (0.0, h),
-                (0.0, d1),
-            ])
+            rect_path(vec![(d1, 0.0), (w, 0.0), (w, h - d2), (w - d2, h), (0.0, h), (0.0, d1)])
         }
 
         "snipRoundRect" => {
@@ -127,14 +108,7 @@ pub fn build_rect_preset(
 
         "diagStripe" => {
             let t = (w.min(h) * norm_adj(adj, 0, 0.16667, 0.0, 0.9)).min(0.5 * w);
-            rect_path(vec![
-                (0.0, 0.0),
-                (t, 0.0),
-                (w, h - t),
-                (w, h),
-                (w - t, h),
-                (0.0, t),
-            ])
+            rect_path(vec![(0.0, 0.0), (t, 0.0), (w, h - t), (w, h), (w - t, h), (0.0, t)])
         }
 
         "plaque" => plaque_path(w, h, cut(w, h, norm_adj(adj, 0, 0.16667, 0.0, 1.0))),
@@ -216,10 +190,7 @@ pub fn build_rect_preset(
             let fw = w * norm_adj(adj, 0, 0.2, 0.0, 0.4);
             let fh = h * norm_adj(adj, 1, 0.2, 0.0, 0.4);
             let mut segs = Vec::new();
-            push_polygon(
-                &mut segs,
-                &[(0.0, 0.0), (w - fw, 0.0), (w, fh), (w, h), (0.0, h)],
-            );
+            push_polygon(&mut segs, &[(0.0, 0.0), (w - fw, 0.0), (w, fh), (w, h), (0.0, h)]);
             push_polygon(&mut segs, &[(w - fw, 0.0), (w, fh), (w - fw, fh)]);
             VectorPath::new(segs, FillRule::NonZero)
         }
@@ -234,25 +205,11 @@ pub fn build_rect_preset(
             let mut segs = Vec::new();
             push_polygon(
                 &mut segs,
-                &[
-                    (0.0, 0.0),
-                    (t, 0.0),
-                    (w, h - t),
-                    (w, h),
-                    (w - t, h),
-                    (0.0, t),
-                ],
+                &[(0.0, 0.0), (t, 0.0), (w, h - t), (w, h), (w - t, h), (0.0, t)],
             );
             push_polygon(
                 &mut segs,
-                &[
-                    (w - t, 0.0),
-                    (w, 0.0),
-                    (w, t),
-                    (t, h),
-                    (0.0, h),
-                    (0.0, h - t),
-                ],
+                &[(w - t, 0.0), (w, 0.0), (w, t), (t, h), (0.0, h), (0.0, h - t)],
             );
             VectorPath::new(segs, FillRule::NonZero)
         }
@@ -278,12 +235,7 @@ pub fn build_rect_preset(
                 let t = (w.min(h) * 0.09).max(0.0);
                 push_polygon(
                     &mut segs,
-                    &[
-                        (0.12 * w, h),
-                        (0.12 * w + t, h),
-                        (0.88 * w, 0.0),
-                        (0.88 * w - t, 0.0),
-                    ],
+                    &[(0.12 * w, h), (0.12 * w + t, h), (0.88 * w, 0.0), (0.88 * w - t, 0.0)],
                 );
             }
             VectorPath::new(segs, FillRule::NonZero)

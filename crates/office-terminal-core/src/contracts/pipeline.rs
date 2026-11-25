@@ -25,20 +25,12 @@ impl RgbaSlide {
 
         // Resize from a borrowed view of the Arc-backed pixels: no full-raster
         // copy (an ~18 MB canvas raster used to be cloned per downscale).
-        let src_img = match image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
-            self.width,
-            self.height,
-            &self.pixels[..],
-        ) {
-            Some(img) => img,
-            None => return self.clone(),
-        };
-        let resized = image::imageops::resize(
-            &src_img,
-            target_w,
-            target_h,
-            image::imageops::FilterType::Triangle,
-        );
+        let src_img =
+            match image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(self.width, self.height, &self.pixels[..]) {
+                Some(img) => img,
+                None => return self.clone(),
+            };
+        let resized = image::imageops::resize(&src_img, target_w, target_h, image::imageops::FilterType::Triangle);
         RgbaSlide {
             width: target_w,
             height: target_h,

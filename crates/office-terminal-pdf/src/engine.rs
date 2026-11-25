@@ -1,11 +1,11 @@
-use std::collections::HashSet;
-use std::sync::Arc;
 use hayro::RenderCache;
 use hayro_syntax::object::String as PdfString;
 use hayro_syntax::object::{Dict, ObjectIdentifier};
 use hayro_syntax::page::Rotation;
 use hayro_syntax::Pdf;
 use office_terminal_core::{RenderTargetSpec, RgbaSlide, SlideLink, TextLine, TocEntry, VectorSlide};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::detect::is_encrypted;
 use crate::error::PdfError;
@@ -60,11 +60,9 @@ impl HayroEngine {
             return Err(PdfError::EncryptedUnsupported);
         }
 
-        let pdf = Pdf::new(Arc::new(SharedPdfBytes(Arc::clone(&data)))).map_err(|e| {
-            PdfError::Malformed {
-                page: 0,
-                detail: format!("Failed to parse PDF: {:?}", e),
-            }
+        let pdf = Pdf::new(Arc::new(SharedPdfBytes(Arc::clone(&data)))).map_err(|e| PdfError::Malformed {
+            page: 0,
+            detail: format!("Failed to parse PDF: {:?}", e),
         })?;
 
         if pdf.pages().is_empty() {
@@ -98,9 +96,7 @@ impl HayroEngine {
                 break;
             }
             if let Some(child_dict) = self.pdf.xref().get::<Dict<'_>>(cid) {
-                if let Some(idx) =
-                    crate::dest::resolve_destination(&child_dict, page_map, root, self.pdf.xref())
-                {
+                if let Some(idx) = crate::dest::resolve_destination(&child_dict, page_map, root, self.pdf.xref()) {
                     return Some(idx);
                 }
                 curr = child_dict.get_ref(b"First").map(|r| r.into());
@@ -146,9 +142,7 @@ impl HayroEngine {
                 .map(|s| crate::text_encoding::decode_pdf_text_string(s.as_bytes()))
                 .unwrap_or_else(|| format!("Section {}", out.len() + 1));
 
-            let page_idx = self
-                .resolve_item_destination(&item, page_map, root)
-                .unwrap_or(0);
+            let page_idx = self.resolve_item_destination(&item, page_map, root).unwrap_or(0);
 
             out.push(TocEntry {
                 title,
@@ -158,14 +152,7 @@ impl HayroEngine {
 
             // Recurse into children
             if let Some(first_child) = item.get_ref(b"First") {
-                self.traverse_outlines(
-                    first_child.into(),
-                    level + 1,
-                    page_map,
-                    root,
-                    visited,
-                    out,
-                );
+                self.traverse_outlines(first_child.into(), level + 1, page_map, root, visited, out);
             }
 
             // Advance to next sibling
@@ -201,28 +188,20 @@ impl PdfEngine for HayroEngine {
     }
 
     fn render_rgba(&self, page: usize, scale: f32) -> Result<RgbaSlide, PdfError> {
-        let page_obj = self
-            .pdf
-            .pages()
-            .get(page)
-            .ok_or(PdfError::IndexOutOfBounds {
-                index: page,
-                total: self.page_count(),
-            })?;
+        let page_obj = self.pdf.pages().get(page).ok_or(PdfError::IndexOutOfBounds {
+            index: page,
+            total: self.page_count(),
+        })?;
 
         let cache = RenderCache::new();
         render_page_rgba(page_obj, page, scale, &cache)
     }
 
     fn render_raster(&self, page: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, PdfError> {
-        let page_obj = self
-            .pdf
-            .pages()
-            .get(page)
-            .ok_or(PdfError::IndexOutOfBounds {
-                index: page,
-                total: self.page_count(),
-            })?;
+        let page_obj = self.pdf.pages().get(page).ok_or(PdfError::IndexOutOfBounds {
+            index: page,
+            total: self.page_count(),
+        })?;
 
         // Render at the exact interactive pixel width, clamped so no axis
         // exceeds MAX_RASTER_AXIS. The effective dimensions match
@@ -235,14 +214,10 @@ impl PdfEngine for HayroEngine {
     }
 
     fn compile_raster(&self, page: usize) -> Result<VectorSlide, PdfError> {
-        let page_obj = self
-            .pdf
-            .pages()
-            .get(page)
-            .ok_or(PdfError::IndexOutOfBounds {
-                index: page,
-                total: self.page_count(),
-            })?;
+        let page_obj = self.pdf.pages().get(page).ok_or(PdfError::IndexOutOfBounds {
+            index: page,
+            total: self.page_count(),
+        })?;
 
         let links = self.links(page);
         let cache = RenderCache::new();
@@ -250,14 +225,10 @@ impl PdfEngine for HayroEngine {
     }
 
     fn compile_vector(&self, page: usize) -> Result<VectorSlide, PdfError> {
-        let page_obj = self
-            .pdf
-            .pages()
-            .get(page)
-            .ok_or(PdfError::IndexOutOfBounds {
-                index: page,
-                total: self.page_count(),
-            })?;
+        let page_obj = self.pdf.pages().get(page).ok_or(PdfError::IndexOutOfBounds {
+            index: page,
+            total: self.page_count(),
+        })?;
 
         let links = self.links(page);
         compile_page_vector(page_obj, links)
@@ -293,22 +264,14 @@ impl PdfEngine for HayroEngine {
     }
 
     fn links(&self, page: usize) -> Vec<SlideLink> {
-        self.pdf
-            .pages()
-            .get(page)
-            .map(extract_page_links)
-            .unwrap_or_default()
+        self.pdf.pages().get(page).map(extract_page_links).unwrap_or_default()
     }
 
     fn extract_text(&self, page: usize) -> Result<Vec<TextLine>, PdfError> {
-        let page_obj = self
-            .pdf
-            .pages()
-            .get(page)
-            .ok_or(PdfError::IndexOutOfBounds {
-                index: page,
-                total: self.page_count(),
-            })?;
+        let page_obj = self.pdf.pages().get(page).ok_or(PdfError::IndexOutOfBounds {
+            index: page,
+            total: self.page_count(),
+        })?;
 
         Ok(extract_page_text(page_obj))
     }

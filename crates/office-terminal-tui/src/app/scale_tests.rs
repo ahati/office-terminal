@@ -18,9 +18,7 @@ use std::sync::{Arc, Mutex};
 use office_terminal_core::{
     DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
 };
-use office_terminal_display::{
-    DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver,
-};
+use office_terminal_display::{DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver};
 
 use super::PresentationApp;
 
@@ -78,8 +76,8 @@ impl TerminalGraphicsDriver for NullDriver {
 
 fn zoom_app(pipeline: &Arc<CountingPipeline>) -> PresentationApp {
     let dyn_pipeline: Arc<dyn RenderPipeline> = Arc::clone(pipeline) as Arc<dyn RenderPipeline>;
-    PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 3, vec![])
-        .with_slide_dimensions(10_000_000, 7_500_000) // 4:3
+    PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 3, vec![]).with_slide_dimensions(10_000_000, 7_500_000)
+    // 4:3
 }
 
 /// `handle_resize` legitimately invalidates with `Resize` (caches stay); a
@@ -87,7 +85,9 @@ fn zoom_app(pipeline: &Arc<CountingPipeline>) -> PresentationApp {
 fn resize_baseline_invalidations(pipeline: &CountingPipeline) -> usize {
     let invalidations = pipeline.invalidations.lock().expect("invalidate log");
     assert!(
-        invalidations.iter().all(|cause| matches!(cause, InvalidateCause::Resize)),
+        invalidations
+            .iter()
+            .all(|cause| matches!(cause, InvalidateCause::Resize)),
         "the resize baseline may only carry Resize invalidations"
     );
     invalidations.len()
@@ -189,11 +189,7 @@ fn repeat_zoom_steps_at_a_steady_factor_are_inert() {
 
     app.state_mut().set_scale(1.5);
     app.apply_scale();
-    let after_step = pipeline
-        .prefetches
-        .lock()
-        .expect("prefetch log")
-        .len();
+    let after_step = pipeline.prefetches.lock().expect("prefetch log").len();
 
     // The user leans on `+` at the top rung (set_scale refuses, the action
     // still lands): the policy must stay completely inert.

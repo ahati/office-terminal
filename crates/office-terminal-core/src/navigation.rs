@@ -37,12 +37,7 @@ impl HiddenSlideMode {
 /// Returns `from` itself when no other shown index exists in that direction, so
 /// the caller simply stays put at a deck edge.
 // ref packages/core/src/nav/visible-index.ts:8-18
-pub fn next_visible(
-    from: usize,
-    direction: i8,
-    is_hidden: impl Fn(usize) -> bool,
-    count: usize,
-) -> usize {
+pub fn next_visible(from: usize, direction: i8, is_hidden: impl Fn(usize) -> bool, count: usize) -> usize {
     if count == 0 {
         return from;
     }

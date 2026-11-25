@@ -135,19 +135,15 @@ impl PresentationApp {
         // See the module docs: rungs inside the supersample headroom keep the
         // base raster; only zoom-in past it bumps the resolution, capped.
         let render_scale = (zoom / CANVAS_SUPERSAMPLE).max(1.0);
-        let mut width_px =
-            ((base_width as f64 * render_scale).round() as u32).clamp(1, MAX_TARGET_DIMENSION_PX);
-        let mut height_px = ((width_px as f64 / slide_aspect).round().max(1.0) as u32)
-            .clamp(1, MAX_TARGET_DIMENSION_PX);
+        let mut width_px = ((base_width as f64 * render_scale).round() as u32).clamp(1, MAX_TARGET_DIMENSION_PX);
+        let mut height_px =
+            ((width_px as f64 / slide_aspect).round().max(1.0) as u32).clamp(1, MAX_TARGET_DIMENSION_PX);
         let pixels = u64::from(width_px) * u64::from(height_px);
         if pixels > MAX_TARGET_PIXELS {
             let shrink = MAX_TARGET_PIXELS as f64 / pixels as f64;
             width_px = ((width_px as f64 * shrink.sqrt()).round() as u32).max(1);
             height_px = ((height_px as f64 * shrink.sqrt()).round() as u32).max(1);
         }
-        self.current_target = office_terminal_core::RenderTargetSpec {
-            width_px,
-            height_px,
-        };
+        self.current_target = office_terminal_core::RenderTargetSpec { width_px, height_px };
     }
 }

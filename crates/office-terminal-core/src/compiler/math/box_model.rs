@@ -48,10 +48,7 @@ impl MathStyle {
     }
 
     pub const fn cramped(self) -> Self {
-        Self {
-            cramped: true,
-            ..self
-        }
+        Self { cramped: true, ..self }
     }
 
     /// Optical size factor relative to the root em (PRD 09 §2.4).
@@ -69,10 +66,7 @@ impl MathStyle {
             MathStyleKind::Display | MathStyleKind::Text => MathStyleKind::Script,
             MathStyleKind::Script | MathStyleKind::ScriptScript => MathStyleKind::ScriptScript,
         };
-        Self {
-            kind,
-            cramped: false,
-        }
+        Self { kind, cramped: false }
     }
 
     /// Numerator style (PRD 09 §3.2: display→text, text→script, …).
@@ -82,10 +76,7 @@ impl MathStyle {
             MathStyleKind::Text | MathStyleKind::Script => MathStyleKind::Script,
             MathStyleKind::ScriptScript => MathStyleKind::ScriptScript,
         };
-        Self {
-            kind,
-            cramped: false,
-        }
+        Self { kind, cramped: false }
     }
 
     /// Denominator style: cramped numerator style.
@@ -232,10 +223,7 @@ pub enum MathBoxKind {
     Rule { thickness: f32, color: [u8; 4] },
     /// Pre-built y-down paths (delimiters, braces, borders), stroked with the
     /// given thickness.
-    Paths {
-        paths: Vec<VectorPath>,
-        thickness: f32,
-    },
+    Paths { paths: Vec<VectorPath>, thickness: f32 },
 }
 
 /// A laid-out math box: width in EMU plus ascent (`height`) and descent (`depth`).
@@ -304,25 +292,11 @@ impl MathBox {
     /// A solid rule. The box baseline is the rule's bottom edge.
     pub fn rule(width: f32, thickness: f32, color: [u8; 4]) -> Self {
         let t = extent(thickness);
-        Self::new(
-            MathBoxKind::Rule {
-                thickness: t,
-                color,
-            },
-            width,
-            t,
-            0.0,
-        )
+        Self::new(MathBoxKind::Rule { thickness: t, color }, width, t, 0.0)
     }
 
     /// A pre-built y-down path set with explicit dimensions.
-    pub fn paths(
-        paths: Vec<VectorPath>,
-        width: f32,
-        height: f32,
-        depth: f32,
-        thickness: f32,
-    ) -> Self {
+    pub fn paths(paths: Vec<VectorPath>, width: f32, height: f32, depth: f32, thickness: f32) -> Self {
         Self::new(
             MathBoxKind::Paths {
                 paths,
@@ -395,19 +369,18 @@ pub fn glyph_width(ch: char, em: f32) -> f32 {
         '(' | ')' | '[' | ']' => 0.35,
         '{' | '}' => 0.42,
         '/' | '\\' => 0.45,
-        '+' | '-' | '\u{2212}' | '=' | '\u{00B1}' | '\u{2213}' | '\u{00D7}' | '\u{00F7}'
-        | '\u{00B7}' | '\u{22C5}' => 0.62,
-        '<' | '>' | '\u{2264}' | '\u{2265}' | '\u{2260}' | '\u{2248}' | '\u{2261}' | '\u{223C}'
-        | '\u{2245}' | '\u{2192}' | '\u{2190}' | '\u{2194}' | '\u{21D2}' | '\u{21D4}' => 0.70,
-        '\u{2211}' | '\u{220F}' | '\u{2210}' | '\u{222B}' | '\u{222C}' | '\u{222D}'
-        | '\u{222E}' | '\u{22C3}' | '\u{22C2}' | '\u{22C1}' | '\u{22C0}' | '\u{2A01}'
-        | '\u{2A02}' => 1.0,
+        '+' | '-' | '\u{2212}' | '=' | '\u{00B1}' | '\u{2213}' | '\u{00D7}' | '\u{00F7}' | '\u{00B7}' | '\u{22C5}' => {
+            0.62
+        }
+        '<' | '>' | '\u{2264}' | '\u{2265}' | '\u{2260}' | '\u{2248}' | '\u{2261}' | '\u{223C}' | '\u{2245}'
+        | '\u{2192}' | '\u{2190}' | '\u{2194}' | '\u{21D2}' | '\u{21D4}' => 0.70,
+        '\u{2211}' | '\u{220F}' | '\u{2210}' | '\u{222B}' | '\u{222C}' | '\u{222D}' | '\u{222E}' | '\u{22C3}'
+        | '\u{22C2}' | '\u{22C1}' | '\u{22C0}' | '\u{2A01}' | '\u{2A02}' => 1.0,
         '\u{221A}' => 0.55,
         '\u{221E}' | '\u{2202}' | '\u{2207}' => 0.70,
-        '\u{03B1}' | '\u{03B2}' | '\u{03B3}' | '\u{03B4}' | '\u{03B5}' | '\u{03B6}'
-        | '\u{03B7}' | '\u{03B8}' | '\u{03B9}' | '\u{03BA}' | '\u{03BB}' | '\u{03BC}'
-        | '\u{03BD}' | '\u{03BE}' | '\u{03C0}' | '\u{03C1}' | '\u{03C3}' | '\u{03C4}'
-        | '\u{03C5}' | '\u{03C6}' | '\u{03C7}' | '\u{03C8}' | '\u{03C9}' => 0.55,
+        '\u{03B1}' | '\u{03B2}' | '\u{03B3}' | '\u{03B4}' | '\u{03B5}' | '\u{03B6}' | '\u{03B7}' | '\u{03B8}'
+        | '\u{03B9}' | '\u{03BA}' | '\u{03BB}' | '\u{03BC}' | '\u{03BD}' | '\u{03BE}' | '\u{03C0}' | '\u{03C1}'
+        | '\u{03C3}' | '\u{03C4}' | '\u{03C5}' | '\u{03C6}' | '\u{03C7}' | '\u{03C8}' | '\u{03C9}' => 0.55,
         _ if ch.is_ascii_digit() => 0.5,
         _ if ch.is_ascii_lowercase() => 0.5,
         _ if ch.is_ascii_uppercase() => 0.65,
@@ -421,8 +394,9 @@ pub fn glyph_width(ch: char, em: f32) -> f32 {
 pub fn glyph_ascent(ch: char, em: f32) -> f32 {
     let factor = match ch {
         'b' | 'd' | 'f' | 'h' | 'k' | 'l' | 't' => 0.70,
-        'a' | 'c' | 'e' | 'g' | 'i' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 'u' | 'v' | 'w'
-        | 'x' | 'y' | 'z' => 0.45,
+        'a' | 'c' | 'e' | 'g' | 'i' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 'u' | 'v' | 'w' | 'x' | 'y' | 'z' => {
+            0.45
+        }
         'A'..='Z' => 0.70,
         '0'..='9' => 0.65,
         '(' | ')' | '[' | ']' | '{' | '}' | '|' => 0.75,
@@ -455,15 +429,11 @@ pub fn text_width(text: &str, em: f32) -> f32 {
 }
 
 pub fn text_ascent(text: &str, em: f32) -> f32 {
-    text.chars()
-        .map(|c| glyph_ascent(c, em))
-        .fold(0.0f32, f32::max)
+    text.chars().map(|c| glyph_ascent(c, em)).fold(0.0f32, f32::max)
 }
 
 pub fn text_descent(text: &str, em: f32) -> f32 {
-    text.chars()
-        .map(|c| glyph_descent(c, em))
-        .fold(0.0f32, f32::max)
+    text.chars().map(|c| glyph_descent(c, em)).fold(0.0f32, f32::max)
 }
 
 #[cfg(test)]
@@ -495,10 +465,7 @@ mod tests {
         assert!((MathStyle::text().size_factor() - 1.0).abs() < 1e-6);
         assert!((MathStyle::text().sup_style().size_factor() - 0.70).abs() < 1e-6);
         assert!((MathStyle::text().sup_style().sup_style().size_factor() - 0.50).abs() < 1e-6);
-        assert_eq!(
-            MathStyle::display().numerator_style().kind,
-            MathStyleKind::Text
-        );
+        assert_eq!(MathStyle::display().numerator_style().kind, MathStyleKind::Text);
         assert!(MathStyle::text().denominator_style().cramped);
     }
 

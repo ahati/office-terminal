@@ -27,10 +27,7 @@ pub(crate) fn apply_bevel_shading(
     let (rotation, back_facing) = camera_input
         .as_ref()
         .map(scene3d::scene3d_surface_frame)
-        .unwrap_or((
-            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            false,
-        ));
+        .unwrap_or(([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], false));
 
     let inputs = scene3d::build_bevel_inputs(Some(shape_3d), effects.scene_3d.as_ref(), scale as f64, 1.0);
     // When the camera exposes the back face, the bottom bevel is shaded using
@@ -47,7 +44,11 @@ pub(crate) fn apply_bevel_shading(
     let profile_height = (bevel.height_px as f32).max(1.0);
 
     let rig = scene3d::lighting::rig_vector(
-        effects.scene_3d.as_ref().map(|s| s.light_rig_type.as_str()).unwrap_or("threePt"),
+        effects
+            .scene_3d
+            .as_ref()
+            .map(|s| s.light_rig_type.as_str())
+            .unwrap_or("threePt"),
         effects.scene_3d.as_ref().map(|s| s.light_dir.as_str()).unwrap_or("t"),
         effects.scene_3d.as_ref().and_then(|s| s.light_rot.as_ref()),
     );
@@ -68,9 +69,12 @@ pub(crate) fn apply_bevel_shading(
             let gy = (sample(&dist, width, height, x, y + 1) - sample(&dist, width, height, x, y - 1)) * 0.5;
             let normal = scene3d::bevel_normal(slope.min(8.0), (gx, gy));
             let (nx, ny, nz) = if bevel.bottom {
-                let rx = rotation[0] * normal[0] as f64 + rotation[1] * normal[1] as f64 - rotation[2] * normal[2] as f64;
-                let ry = rotation[3] * normal[0] as f64 + rotation[4] * normal[1] as f64 - rotation[5] * normal[2] as f64;
-                let rz = rotation[6] * normal[0] as f64 + rotation[7] * normal[1] as f64 - rotation[8] * normal[2] as f64;
+                let rx =
+                    rotation[0] * normal[0] as f64 + rotation[1] * normal[1] as f64 - rotation[2] * normal[2] as f64;
+                let ry =
+                    rotation[3] * normal[0] as f64 + rotation[4] * normal[1] as f64 - rotation[5] * normal[2] as f64;
+                let rz =
+                    rotation[6] * normal[0] as f64 + rotation[7] * normal[1] as f64 - rotation[8] * normal[2] as f64;
                 (rx as f32, ry as f32, rz as f32)
             } else {
                 (normal[0], normal[1], normal[2])

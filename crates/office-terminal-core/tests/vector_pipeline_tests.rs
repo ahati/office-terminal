@@ -8,7 +8,10 @@ impl AssetStore for EmptyAssetStore {
     }
 
     fn stats(&self) -> AssetStoreStats {
-        AssetStoreStats { cached_entries: 0, cached_bytes: 0 }
+        AssetStoreStats {
+            cached_entries: 0,
+            cached_bytes: 0,
+        }
     }
 }
 
@@ -25,10 +28,22 @@ fn test_vector_slide_rasterization_and_svg_export() {
     slide.commands.push(VectorCommand::DrawPath {
         path: VectorPath {
             segments: vec![
-                PathSegment::MoveTo { x: 100000.0, y: 100000.0 },
-                PathSegment::LineTo { x: 300000.0, y: 100000.0 },
-                PathSegment::LineTo { x: 300000.0, y: 250000.0 },
-                PathSegment::LineTo { x: 100000.0, y: 250000.0 },
+                PathSegment::MoveTo {
+                    x: 100000.0,
+                    y: 100000.0,
+                },
+                PathSegment::LineTo {
+                    x: 300000.0,
+                    y: 100000.0,
+                },
+                PathSegment::LineTo {
+                    x: 300000.0,
+                    y: 250000.0,
+                },
+                PathSegment::LineTo {
+                    x: 100000.0,
+                    y: 250000.0,
+                },
                 PathSegment::Close,
             ],
             fill_rule: FillRule::NonZero,
@@ -49,19 +64,25 @@ fn test_vector_slide_rasterization_and_svg_export() {
 
     // Test Rasterization
     let rasterizer = TinySkiaRasterizer::new();
-    let target = RenderTargetSpec { width_px: 800, height_px: 600 };
+    let target = RenderTargetSpec {
+        width_px: 800,
+        height_px: 600,
+    };
     let empty_store = Arc::new(EmptyAssetStore);
-    let rendered = rasterizer.rasterize(&slide, &target, empty_store.as_ref()).expect("rasterization failed");
+    let rendered = rasterizer
+        .rasterize(&slide, &target, empty_store.as_ref())
+        .expect("rasterization failed");
     assert_eq!(rendered.width, 800);
     assert_eq!(rendered.height, 600);
     assert_eq!(rendered.pixels.len(), 800 * 600 * 4);
 
     // Verify SVG Export
     let svg_serializer = DefaultSlideSvgSerializer::new();
-    let svg_text = svg_serializer.serialize_svg(&slide, empty_store.as_ref(), SvgTextMode::VectorGlyphs).expect("svg serialization failed");
+    let svg_text = svg_serializer
+        .serialize_svg(&slide, empty_store.as_ref(), SvgTextMode::VectorGlyphs)
+        .expect("svg serialization failed");
     assert!(svg_text.contains("<svg"));
     assert!(svg_text.contains("viewBox=\"0 0 914400 685800\""));
     assert!(svg_text.contains("</svg>"));
     assert!(svg_text.contains("d=\"M 100000 100000 L 300000 100000 L 300000 250000 L 100000 250000 Z\""));
 }
-

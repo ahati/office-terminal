@@ -35,10 +35,7 @@ pub fn record(kind: u32, payload: &[u8]) -> Vec<u8> {
 }
 
 pub fn i32s(values: &[i32]) -> Vec<u8> {
-    values
-        .iter()
-        .flat_map(|value| value.to_le_bytes())
-        .collect()
+    values.iter().flat_map(|value| value.to_le_bytes()).collect()
 }
 
 pub fn transform(values: [f32; 6]) -> Vec<u8> {
@@ -179,7 +176,10 @@ pub fn rectangle(rect: [i32; 4]) -> Vec<u8> {
 
 /// `EMR_GDICOMMENT` with arbitrary payload (non-EMF+ comments are skipped).
 pub fn emf_comment(payload: &[u8]) -> Vec<u8> {
-    assert!(payload.len().is_multiple_of(4), "comment payload must be 4-byte aligned");
+    assert!(
+        payload.len().is_multiple_of(4),
+        "comment payload must be 4-byte aligned"
+    );
     record(70, payload)
 }
 
@@ -279,13 +279,7 @@ pub fn emf_plus_path(id: u8, points: &[(i16, i16)], closed: bool) -> Vec<u8> {
 
 /// One fragment of a split EMF+ object. `fragment` must keep the record
 /// 4-byte aligned; `total` is the declared `TotalObjectSize`.
-pub fn emf_plus_split_object(
-    id: u8,
-    kind: u8,
-    total: usize,
-    fragment: &[u8],
-    continued: bool,
-) -> Vec<u8> {
+pub fn emf_plus_split_object(id: u8, kind: u8, total: usize, fragment: &[u8], continued: bool) -> Vec<u8> {
     let mut data = (total as u32).to_le_bytes().to_vec();
     data.extend_from_slice(fragment);
     assert!(
@@ -297,13 +291,7 @@ pub fn emf_plus_split_object(
 }
 
 /// `EmfPlusDrawString`; `format_id == u32::MAX` selects left/top defaults.
-pub fn emf_plus_draw_string(
-    font_id: u8,
-    brush_id: u8,
-    format_id: u32,
-    text: &str,
-    rect: [f32; 4],
-) -> Vec<u8> {
+pub fn emf_plus_draw_string(font_id: u8, brush_id: u8, format_id: u32, text: &str, rect: [f32; 4]) -> Vec<u8> {
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut data = Vec::new();
     data.extend_from_slice(&u32::from(brush_id).to_le_bytes());
@@ -357,12 +345,7 @@ pub fn emf_plus_fill_rects(brush_id: u8, rect: [f32; 4]) -> Vec<u8> {
 }
 
 /// EMF+ path-gradient brush object (type 3), approximated by the adapter.
-pub fn emf_plus_path_gradient_brush(
-    id: u8,
-    center: u32,
-    surrounding: &[u32],
-    matrix: Option<[f32; 6]>,
-) -> Vec<u8> {
+pub fn emf_plus_path_gradient_brush(id: u8, center: u32, surrounding: &[u32], matrix: Option<[f32; 6]>) -> Vec<u8> {
     let mut data = EMF_PLUS_MAGIC.to_le_bytes().to_vec();
     data.extend_from_slice(&3u32.to_le_bytes()); // BrushTypePathGradient
     let flags: u32 = if matrix.is_some() { 2 } else { 0 };
@@ -419,10 +402,7 @@ pub fn wmf_rec(function: u16, params: &[u8]) -> Vec<u8> {
 }
 
 fn wmf_i16s(values: &[i16]) -> Vec<u8> {
-    values
-        .iter()
-        .flat_map(|value| value.to_le_bytes())
-        .collect()
+    values.iter().flat_map(|value| value.to_le_bytes()).collect()
 }
 
 /// Standard `METAHEADER` + `records`; appends `META_EOF`.
@@ -458,9 +438,9 @@ pub fn wmf_placeable(records: &[Vec<u8>]) -> Vec<u8> {
     header.extend_from_slice(&100i16.to_le_bytes());
     header.extend_from_slice(&1440u16.to_le_bytes());
     header.extend_from_slice(&0u32.to_le_bytes());
-    let checksum = header.chunks(2).fold(0u16, |acc, pair| {
-        acc ^ u16::from_le_bytes([pair[0], pair[1]])
-    });
+    let checksum = header
+        .chunks(2)
+        .fold(0u16, |acc, pair| acc ^ u16::from_le_bytes([pair[0], pair[1]]));
     header.extend_from_slice(&checksum.to_le_bytes());
     header.extend_from_slice(&wmf_standard(records));
     header

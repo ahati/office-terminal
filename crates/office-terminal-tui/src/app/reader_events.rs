@@ -74,8 +74,7 @@ pub fn handle_reader_key(key: KeyEvent, state: &mut PresentationState) -> AppAct
             let hits_floor = state.reader_state().is_some_and(|reader| {
                 let (_, viewport_h_px, _, cell_h_px) = reader_viewport_metrics(state);
                 let grid_rows = state.layout_size().1.saturating_sub(3);
-                let card_height =
-                    crate::app::ui::sorter::sorter_card_height(grid_rows);
+                let card_height = crate::app::ui::sorter::sorter_card_height(grid_rows);
                 let next_zoom = (reader.default_zoom * 0.9).max(0.1);
                 crate::app::sorter_state::reader_zoom_hits_sorter_floor(
                     next_zoom,

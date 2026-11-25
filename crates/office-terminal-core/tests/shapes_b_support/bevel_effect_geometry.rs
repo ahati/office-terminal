@@ -113,7 +113,10 @@ fn scene3d_transform_order_keeps_rotation_outside_the_face() {
 // ── shape-effect-transform.test.ts 3-6 ──────────────────────────────────────
 
 fn front_camera() -> CameraInput {
-    CameraInput { prst: "orthographicFront".to_string(), ..CameraInput::default() }
+    CameraInput {
+        prst: "orthographicFront".to_string(),
+        ..CameraInput::default()
+    }
 }
 
 /// The authored shadow anchor stays distinct from the projected AABB corner
@@ -122,7 +125,14 @@ fn front_camera() -> CameraInput {
 fn projected_effect_anchor_is_distinct_from_the_aabb_corner() {
     let geometry = scene3d::projected_effect_geometry(
         &front_camera(),
-        &EffectTransform { a: 0.0, b: 1.0, c: -1.0, d: 0.0, e: 75.0, f: -25.0 },
+        &EffectTransform {
+            a: 0.0,
+            b: 1.0,
+            c: -1.0,
+            d: 0.0,
+            e: 75.0,
+            f: -25.0,
+        },
         0.0,
         0.0,
         100.0,
@@ -131,7 +141,15 @@ fn projected_effect_anchor_is_distinct_from_the_aabb_corner() {
         Alignment::TopRight,
         0.0,
     );
-    assert_eq!(geometry.bbox, scene3d::Bounds { x: 25.0, y: -25.0, w: 50.0, h: 100.0 });
+    assert_eq!(
+        geometry.bbox,
+        scene3d::Bounds {
+            x: 25.0,
+            y: -25.0,
+            w: 50.0,
+            h: 100.0
+        }
+    );
     assert_eq!(geometry.anchor, (75.0, 75.0));
     // The AABB corner of `tr` would be (25, -25): the anchor is the authored
     // corner pushed through the transform, not the bounding-box corner.
@@ -142,7 +160,10 @@ fn projected_effect_anchor_is_distinct_from_the_aabb_corner() {
 /// margin (ref `shape-effect-transform.test.ts:51-62`).
 #[test]
 fn projected_effect_bounds_round_the_edge_pad_to_device_pixels() {
-    let camera = CameraInput { zoom: 4.0, ..front_camera() };
+    let camera = CameraInput {
+        zoom: 4.0,
+        ..front_camera()
+    };
     let geometry = scene3d::projected_effect_geometry(
         &camera,
         &EffectTransform::uniform_scale(2.0),
@@ -164,7 +185,11 @@ fn projected_effect_bounds_round_the_edge_pad_to_device_pixels() {
 #[test]
 fn projected_effect_bounds_use_the_extrusion_base_back_surface() {
     let camera = CameraInput {
-        rot: Some(Rot3d { lat: 0.0, lon: 150.0, rev: 0.0 }),
+        rot: Some(Rot3d {
+            lat: 0.0,
+            lon: 150.0,
+            rev: 0.0,
+        }),
         ..front_camera()
     };
     let geometry = scene3d::projected_effect_geometry(
@@ -223,30 +248,56 @@ fn projected_effect_bounds_keep_a_camera_crossing_rear_face_finite() {
     let camera = CameraInput {
         prst: "perspectiveFront".to_string(),
         fov: Some(90.0),
-        rot: Some(Rot3d { lat: 0.0, lon: 120.0, rev: 0.0 }),
+        rot: Some(Rot3d {
+            lat: 0.0,
+            lon: 120.0,
+            rev: 0.0,
+        }),
         ..CameraInput::default()
     };
-    let transform = EffectTransform { a: 2.0, b: 0.0, c: 0.0, d: 2.0, e: 5.0, f: 7.0 };
-    let geometry = scene3d::projected_effect_geometry(
-        &camera,
-        &transform,
-        0.0,
-        0.0,
-        w,
-        h,
-        0.0,
-        Alignment::TopRight,
-        depth,
-    );
+    let transform = EffectTransform {
+        a: 2.0,
+        b: 0.0,
+        c: 0.0,
+        d: 2.0,
+        e: 5.0,
+        f: 7.0,
+    };
+    let geometry =
+        scene3d::projected_effect_geometry(&camera, &transform, 0.0, 0.0, w, h, 0.0, Alignment::TopRight, depth);
     let (x0, x1) = span(0);
     let (y0, y1) = span(1);
-    assert!((geometry.bbox.x - (5.0 + 2.0 * x0)).abs() < 1e-7, "bbox.x {}", geometry.bbox.x);
-    assert!((geometry.bbox.y - (7.0 + 2.0 * y0)).abs() < 1e-7, "bbox.y {}", geometry.bbox.y);
-    assert!((geometry.bbox.w - 2.0 * (x1 - x0)).abs() < 1e-7, "bbox.w {}", geometry.bbox.w);
-    assert!((geometry.bbox.h - 2.0 * (y1 - y0)).abs() < 1e-7, "bbox.h {}", geometry.bbox.h);
+    assert!(
+        (geometry.bbox.x - (5.0 + 2.0 * x0)).abs() < 1e-7,
+        "bbox.x {}",
+        geometry.bbox.x
+    );
+    assert!(
+        (geometry.bbox.y - (7.0 + 2.0 * y0)).abs() < 1e-7,
+        "bbox.y {}",
+        geometry.bbox.y
+    );
+    assert!(
+        (geometry.bbox.w - 2.0 * (x1 - x0)).abs() < 1e-7,
+        "bbox.w {}",
+        geometry.bbox.w
+    );
+    assert!(
+        (geometry.bbox.h - 2.0 * (y1 - y0)).abs() < 1e-7,
+        "bbox.h {}",
+        geometry.bbox.h
+    );
     // `q[2]` is the unit-frame `(1, 0)` (top-right) corner the anchor uses.
-    assert!((geometry.anchor.0 - (5.0 + 2.0 * q[2].0)).abs() < 1e-7, "anchor {}", geometry.anchor.0);
-    assert!((geometry.anchor.1 - (7.0 + 2.0 * q[2].1)).abs() < 1e-7, "anchor {}", geometry.anchor.1);
+    assert!(
+        (geometry.anchor.0 - (5.0 + 2.0 * q[2].0)).abs() < 1e-7,
+        "anchor {}",
+        geometry.anchor.0
+    );
+    assert!(
+        (geometry.anchor.1 - (7.0 + 2.0 * q[2].1)).abs() < 1e-7,
+        "anchor {}",
+        geometry.anchor.1
+    );
 }
 
 // ── shape-orthographic-bevel.test.ts: geometry half of the back-bevel case ──
@@ -276,13 +327,21 @@ fn bottom_bevel_inputs_sit_at_the_extrusion_base_behind_the_front_face() {
     assert!(!front.back_facing, "orthographicFront looks at the front face");
     // lon 180 turns the face away: the rear plane (24 px back) is selected.
     let back = CameraInput {
-        rot: Some(Rot3d { lat: 0.0, lon: 180.0, rev: 0.0 }),
+        rot: Some(Rot3d {
+            lat: 0.0,
+            lon: 180.0,
+            rev: 0.0,
+        }),
         ..front_camera()
     };
     assert!(scene3d::projected_surface(&back, 100.0, 100.0, 24.0, 0.0, 1.0).back_facing);
     // lon 150 exposes the base to the right by extrusionH·sin(150°) = 12 px.
     let skewed = CameraInput {
-        rot: Some(Rot3d { lat: 0.0, lon: 150.0, rev: 0.0 }),
+        rot: Some(Rot3d {
+            lat: 0.0,
+            lon: 150.0,
+            rev: 0.0,
+        }),
         ..front_camera()
     };
     assert!(scene3d::projected_surface(&skewed, 100.0, 100.0, 24.0, 0.0, 1.0).back_facing);
@@ -303,11 +362,7 @@ fn raster_bevel_band_is_not_clamped() {
         400,
     );
     let beveled = raster(
-        &compile_slide_emu(
-            vec![beveled_rect(Some((BAND_EMU, BAND_EMU)))],
-            REF_SLIDE_W,
-            REF_SLIDE_H,
-        ),
+        &compile_slide_emu(vec![beveled_rect(Some((BAND_EMU, BAND_EMU)))], REF_SLIDE_W, REF_SLIDE_H),
         1920,
         400,
     );
@@ -317,9 +372,17 @@ fn raster_bevel_band_is_not_clamped() {
         "a 60 px bevel must shade a 60 px band (dist starts at 1), measured {depth}"
     );
     // Inside the band, past the old 48 px clamp, the row is shaded ...
-    assert_ne!(at(&beveled, 960, 155), at(&plain, 960, 155), "row at distance 55 is shaded");
+    assert_ne!(
+        at(&beveled, 960, 155),
+        at(&plain, 960, 155),
+        "row at distance 55 is shaded"
+    );
     // ... and one row beyond the authored band is flat again.
-    assert_eq!(at(&beveled, 960, 170), at(&plain, 960, 170), "row at distance 70 is flat");
+    assert_eq!(
+        at(&beveled, 960, 170),
+        at(&plain, 960, 170),
+        "row at distance 70 is flat"
+    );
 }
 
 // ── scene3d camera homography (supplementary S6 coverage) ───────────────────
@@ -378,7 +441,11 @@ fn perspective_camera_warps_the_face_through_the_quad_homography() {
 
     // The camera quad's interior is painted, including the far right lobe.
     assert_eq!(at(&img, 100, 50), [0x44, 0x72, 0xC4, 255], "projected face is painted");
-    assert_eq!(at(&img, 150, 40), [0x44, 0x72, 0xC4, 255], "projected face reaches x=150");
+    assert_eq!(
+        at(&img, 150, 40),
+        [0x44, 0x72, 0xC4, 255],
+        "projected face reaches x=150"
+    );
     // The authored top-left corner is outside the projected quad.
     assert_eq!(at(&img, 2, 2), WHITE, "no flat billboard at the authored corner");
     assert_eq!(at(&img, 20, 20), WHITE, "perspective leaves the top-left corner empty");

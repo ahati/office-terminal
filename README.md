@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/ahati/office-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/ahati/office-terminal/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![MSRV: 1.75](https://img.shields.io/badge/MSRV-1.75-orange.svg)](#prerequisites)
+[![MSRV: 1.93](https://img.shields.io/badge/MSRV-1.93-orange.svg)](#prerequisites)
 
-> **kitty-pptx-pdf-reader**: High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`), PDF documents and Word documents (`.docx`).
+> **Office Terminal** (`ot`): High-fidelity terminal presentation viewer and vector export engine for Microsoft PowerPoint (`.pptx`), PDF documents and Word documents (`.docx`).
 
 **Office Terminal** (`ot`, also accessible as `office-terminal`) renders presentations and documents directly inside your terminal emulator with GPU-accelerated clarity, powered exclusively by the **Kitty Graphics Protocol**. Built on a resolution-independent vector engine, it provides pixel-perfect slide presentation, interactive presenter tools, visual slide sorting, and headless SVG/PNG export.
 
@@ -26,6 +26,9 @@
 *Interactive 2D thumbnail grid for visual navigation across the entire deck (`Tab` or `s` key).*
 
 ![Slide Sorter View](./media/slide-sorter.png)
+
+Screenshots are documentation captures of a public-domain/fair-use demo deck;
+see [`media/README.md`](./media/README.md) for provenance.
 
 ---
 
@@ -49,7 +52,7 @@
 
 ### Prerequisites
 
-- **Rust**: Version 1.75 or later with Cargo ([rustup.rs](https://rustup.rs/))
+- **Rust**: Version 1.93 or later with Cargo ([rustup.rs](https://rustup.rs/)). The default DOCX engine (`rdocx-layout` 0.17) and the workspace MSRV are both 1.93.
 - **Terminal Emulator**: A terminal implementing the Kitty graphics protocol (Kitty, Ghostty, WezTerm, or an Alacritty fork with Kitty graphics support).
 - **tmux Users**: If running inside `tmux`, ensure graphics pass-through is enabled by adding `set -g allow-passthrough on` to your `~/.tmux.conf`.
 
@@ -220,7 +223,7 @@ ot --generate-completions fish > ~/.config/fish/completions/ot.fish
 
 ## Architecture Overview
 
-`kitty-pptx` employs a **two-stage vectorized rendering pipeline** designed for fidelity, speed, and resolution independence:
+**Office Terminal** employs a **two-stage vectorized rendering pipeline** designed for fidelity, speed, and resolution independence:
 
 ```
 ┌─────────────────────────────────┐
@@ -293,7 +296,7 @@ Run workspace checks and test suites:
 # Check compilation across all crates
 cargo check --workspace
 
-# Run the complete test suite (1,100+ tests)
+# Run the complete test suite (2,600+ tests)
 cargo test --workspace
 
 # Enforce strict source file size limit (< 600 lines)
@@ -304,10 +307,17 @@ For developer conventions, coordinate math (EMUs), and architectural guidelines,
 
 ---
 
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and the
+[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md). Report security issues according
+to [`SECURITY.md`](./SECURITY.md).
+
 ## License
 
 This project is licensed under the [MIT License](./LICENSE).
 
-### Upstream Components
-
-Vendored and upstream parser crates (`pptx-parser`, `pptx-model`, `ooxml-common`) carry their own upstream licenses and copyright notices from their respective authors, as documented in [`crates/VENDORED.md`](./crates/VENDORED.md).
+Vendored and upstream components carry their own licenses and copyright
+notices. See [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) for the
+inventory and [`crates/VENDORED.md`](./crates/VENDORED.md) for provenance and
+patch history.

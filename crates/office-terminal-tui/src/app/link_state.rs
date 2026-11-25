@@ -2,8 +2,7 @@ use std::process::{Command, Stdio};
 
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use office_terminal_core::{
-    sanitize_hyperlink_url, HyperlinkTarget, SecurityError, SlideAction, SlideLink,
-    SlideLinkIndex,
+    sanitize_hyperlink_url, HyperlinkTarget, SecurityError, SlideAction, SlideLink, SlideLinkIndex,
 };
 
 use crate::app::events::AppAction;
@@ -226,9 +225,7 @@ impl PresentationState {
                 // it the enriched target (slide index populated) and does not
                 // navigate. ref viewer-internal-nav.test.ts:52-72
                 if self.delegates_internal_links() {
-                    return LinkDispatch::Internal {
-                        slide_index: *index,
-                    };
+                    return LinkDispatch::Internal { slide_index: *index };
                 }
                 let changed = self.set_current_slide(*index);
                 LinkDispatch::Navigate { changed }
@@ -291,9 +288,7 @@ impl PresentationState {
         };
         let x_emu = x_norm.clamp(0.0, 1.0) * self.deck.slide_width_emu as f32;
         let y_emu = y_norm.clamp(0.0, 1.0) * self.deck.slide_height_emu as f32;
-        self.current_slide_link_index()
-            .hit_test(x_emu, y_emu)
-            .cloned()
+        self.current_slide_link_index().hit_test(x_emu, y_emu).cloned()
     }
 
     /// Route a left click: link hit wins, otherwise advance one slide.
@@ -526,7 +521,11 @@ mod tests {
     #[test]
     fn quick_keys_map_one_to_nine_and_zero() {
         let mut picker = LinkPickerState::new();
-        picker.set_links((0..10).map(|index| external("https://example.com", index as f32)).collect());
+        picker.set_links(
+            (0..10)
+                .map(|index| external("https://example.com", index as f32))
+                .collect(),
+        );
         assert_eq!(LinkPickerState::quick_key_index('1'), Some(0));
         assert_eq!(LinkPickerState::quick_key_index('9'), Some(8));
         assert_eq!(LinkPickerState::quick_key_index('0'), Some(9));
@@ -536,14 +535,21 @@ mod tests {
         assert!(picker.activate_quick_key('0').is_some());
 
         let mut short = LinkPickerState::new();
-        short.set_links((0..3).map(|index| external("https://example.com", index as f32)).collect());
+        short.set_links(
+            (0..3)
+                .map(|index| external("https://example.com", index as f32))
+                .collect(),
+        );
         assert!(short.activate_quick_key('4').is_none());
     }
 
     #[test]
     fn selection_clamps_at_both_ends() {
         let mut picker = LinkPickerState::new();
-        picker.set_links(vec![external("https://a.example", 0.0), external("https://b.example", 1.0)]);
+        picker.set_links(vec![
+            external("https://a.example", 0.0),
+            external("https://b.example", 1.0),
+        ]);
         assert_eq!(picker.selected_index(), 0);
         picker.select_up();
         assert_eq!(picker.selected_index(), 0);

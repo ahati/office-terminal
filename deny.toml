@@ -1,0 +1,40 @@
+# cargo-deny configuration for Office Terminal.
+#
+# Run locally with:
+#   cargo deny check
+#
+# The allow-list covers the licenses present in Cargo.lock for the default
+# feature set. Vendored parser crates carry the upstream MIT license in their
+# source tree but not in their package metadata, so they are listed as
+# exceptions; re-vendoring should update the pinned commit and this list.
+
+[licenses]
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+]
+# The workspace crates are source-distributed under the root MIT license; the
+# vendored parser crates carry the upstream MIT license in the root LICENSE and
+# in crates/VENDORED.md. They are not published individually, so skip their
+# package-level license fields here.
+private = { ignore = true }
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

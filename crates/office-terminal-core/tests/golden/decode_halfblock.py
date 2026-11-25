@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode kitty-pptx halfblock ANSI output (▀ with 24-bit fg/bg) back to an RGB
+"""Decode Office Terminal halfblock ANSI output (▀ with 24-bit fg/bg) back to an RGB
 grid and print a 4x4 average-color probe like probe_png.py.
 
 Usage: decode_halfblock.py stream.bin

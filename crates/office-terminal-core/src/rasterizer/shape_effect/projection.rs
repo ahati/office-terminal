@@ -71,9 +71,10 @@ pub(super) fn project_body_layer(
         .max(0.0);
     // MS-OI29500 §2.1.1268 places bevelB at the extrusion base; only a bottom
     // lip (or the wireframe synthesised rim) selects the rear plane.
-    let has_bottom = effects.shape_3d.as_ref().is_some_and(|shape| {
-        shape.bevel_bottom.is_some() || shape.prst_material == "legacyWireframe"
-    });
+    let has_bottom = effects
+        .shape_3d
+        .as_ref()
+        .is_some_and(|shape| shape.bevel_bottom.is_some() || shape.prst_material == "legacyWireframe");
     let back_depth = if has_bottom { extrusion_dev } else { 0.0 };
 
     let camera = CameraInput::from_scene(scene)
@@ -82,9 +83,7 @@ pub(super) fn project_body_layer(
     let (depth_ox, depth_oy) = scene3d::compute_depth_offset(&camera, w_dev, h_dev, extrusion_dev);
     let depth_reach = (depth_ox * depth_ox + depth_oy * depth_oy).sqrt() as f32;
     // ref renderer.ts:3944 — identity/front cameras keep the flat path.
-    if !scene3d::is_scene3d_non_identity(&camera, Some(w_dev), Some(h_dev), back_depth)
-        && depth_reach < 0.75
-    {
+    if !scene3d::is_scene3d_non_identity(&camera, Some(w_dev), Some(h_dev), back_depth) && depth_reach < 0.75 {
         return None;
     }
 
@@ -92,17 +91,15 @@ pub(super) fn project_body_layer(
     // overhang (ref `edgePadCss`, `renderer.ts:4013-4018`).
     let painted_pad = painted_padding(stroke, effects, local_scale as f32) + depth_reach + 2.0;
     let mut pad = painted_pad;
-    let padding = effect_padding(effects, local_scale as f32, (0.0, 0.0, w_dev as f32, h_dev as f32), reach_cap);
+    let padding = effect_padding(
+        effects,
+        local_scale as f32,
+        (0.0, 0.0, w_dev as f32, h_dev as f32),
+        reach_cap,
+    );
     pad = pad.max(padding.0).max(padding.1).max(padding.2).max(padding.3);
 
-    let surface = scene3d::projected_surface(
-        &camera,
-        w_dev,
-        h_dev,
-        back_depth,
-        pad as f64,
-        1.0,
-    );
+    let surface = scene3d::projected_surface(&camera, w_dev, h_dev, back_depth, pad as f64, 1.0);
     let surface_pad = surface.pad_dev as f32;
     let ow = (w_dev as f32 + 2.0 * surface_pad).ceil().max(1.0) as u32;
     let oh = (h_dev as f32 + 2.0 * surface_pad).ceil().max(1.0) as u32;
@@ -129,7 +126,15 @@ pub(super) fn project_body_layer(
         back_depth > 0.0,
     );
 
-    let dst = destination_corners(transform, scale, offset_x, offset_y, local_scale, (min_x, min_y), &surface);
+    let dst = destination_corners(
+        transform,
+        scale,
+        offset_x,
+        offset_y,
+        local_scale,
+        (min_x, min_y),
+        &surface,
+    );
     let quad = quad_bounds(&dst);
     let outer_pad = effect_padding(effects, scale, quad, reach_cap);
     let canvas_w = pixmap.width() as f32;
@@ -180,10 +185,7 @@ fn destination_corners(
         let local_x = local_origin.0 + (x / local_scale) as f32;
         let local_y = local_origin.1 + (y / local_scale) as f32;
         let (px, py) = transform.transform_point(local_x, local_y);
-        (
-            (offset_x + px * scale) as f64,
-            (offset_y + py * scale) as f64,
-        )
+        ((offset_x + px * scale) as f64, (offset_y + py * scale) as f64)
     })
 }
 
@@ -296,8 +298,7 @@ fn local_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
     };
     for segment in &path.segments {
         match segment {
-            crate::contracts::PathSegment::MoveTo { x, y }
-            | crate::contracts::PathSegment::LineTo { x, y } => {
+            crate::contracts::PathSegment::MoveTo { x, y } | crate::contracts::PathSegment::LineTo { x, y } => {
                 add(*x, *y);
                 any = true;
             }

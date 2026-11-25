@@ -15,10 +15,7 @@ pub(crate) mod width;
 
 use super::measure::{StyleId, TabAlign, TabStop, TextMeasure};
 use grapheme::grapheme_spans;
-use rules::{
-    is_cjk_break_char, is_latin, is_uax14_no_break_pair, kinsoku_adjusted_split, lb_class,
-    sea_seam, Lb,
-};
+use rules::{is_cjk_break_char, is_latin, is_uax14_no_break_pair, kinsoku_adjusted_split, lb_class, sea_seam, Lb};
 
 /// One authored paragraph item, in logical order (ref break.ts:8-13).
 #[derive(Clone, Debug, PartialEq)]
@@ -52,19 +49,9 @@ pub struct BreakOptions<'a> {
 /// One painted segment of a broken line (ref break.ts:15-20).
 #[derive(Clone, Debug, PartialEq)]
 pub enum LineItem {
-    Text {
-        text: String,
-        style: StyleId,
-        width: f32,
-    },
-    Tab {
-        width: f32,
-        style: StyleId,
-    },
-    Object {
-        width: f32,
-        style: StyleId,
-    },
+    Text { text: String, style: StyleId, width: f32 },
+    Tab { width: f32, style: StyleId },
+    Object { width: f32, style: StyleId },
 }
 
 /// One visual line. `ends_with_break` mirrors the reference's `endsWithBreak` (closed
@@ -94,10 +81,16 @@ struct Atom<'a> {
 
 impl Atom<'_> {
     fn first_char(&self) -> Option<char> {
-        match self.kind { AtomKind::Text(text) => text.chars().next(), _ => None }
+        match self.kind {
+            AtomKind::Text(text) => text.chars().next(),
+            _ => None,
+        }
     }
     fn last_char(&self) -> Option<char> {
-        match self.kind { AtomKind::Text(text) => text.chars().last(), _ => None }
+        match self.kind {
+            AtomKind::Text(text) => text.chars().last(),
+            _ => None,
+        }
     }
 }
 
@@ -162,13 +155,7 @@ fn push_atom<'a>(regions: &mut [Vec<Atom<'a>>], kind: AtomKind<'a>, style: Style
 
 /// Build one line: equal-style neighbours coalesce, so shaping survives an
 /// authored run seam exactly like `makeSegments` (break.ts:389-414).
-fn make_line(
-    atoms: &[Atom<'_>],
-    start: usize,
-    stop: usize,
-    line_index: usize,
-    o: &BreakOptions<'_>,
-) -> BrokenLine {
+fn make_line(atoms: &[Atom<'_>], start: usize, stop: usize, line_index: usize, o: &BreakOptions<'_>) -> BrokenLine {
     let mut items: Vec<LineItem> = Vec::new();
     for atom in &atoms[start..stop] {
         match atom.kind {
@@ -179,10 +166,20 @@ fn make_line(
                         continue;
                     }
                 }
-                items.push(LineItem::Text { text: text.to_string(), style: atom.style, width: 0.0 });
+                items.push(LineItem::Text {
+                    text: text.to_string(),
+                    style: atom.style,
+                    width: 0.0,
+                });
             }
-            AtomKind::Tab => items.push(LineItem::Tab { width: 0.0, style: atom.style }),
-            AtomKind::Object(width) => items.push(LineItem::Object { width, style: atom.style }),
+            AtomKind::Tab => items.push(LineItem::Tab {
+                width: 0.0,
+                style: atom.style,
+            }),
+            AtomKind::Object(width) => items.push(LineItem::Object {
+                width,
+                style: atom.style,
+            }),
         }
     }
     let width = measure_items(&mut items, line_index, o);
@@ -196,9 +193,7 @@ fn make_line(
 
 fn item_width(item: &LineItem) -> f32 {
     match item {
-        LineItem::Text { width, .. }
-        | LineItem::Tab { width, .. }
-        | LineItem::Object { width, .. } => *width,
+        LineItem::Text { width, .. } | LineItem::Tab { width, .. } | LineItem::Object { width, .. } => *width,
     }
 }
 
@@ -219,11 +214,7 @@ fn measure_items(items: &mut [LineItem], line_index: usize, o: &BreakOptions<'_>
         }
     }
     if has_tab {
-        let start_pen = if line_index == 0 {
-            o.first_line_indent
-        } else {
-            0.0
-        };
+        let start_pen = if line_index == 0 { o.first_line_indent } else { 0.0 };
         resolve_tab_widths(
             items,
             o.tab_stops,
@@ -260,10 +251,7 @@ fn resolve_tab_widths(
         }
         let (stop_pos, align) = match stop {
             Some(s) => (s.pos, s.align),
-            None if def_tab_sz > 0.0 => (
-                ((pen / def_tab_sz).floor() + 1.0) * def_tab_sz,
-                TabAlign::Left,
-            ),
+            None if def_tab_sz > 0.0 => (((pen / def_tab_sz).floor() + 1.0) * def_tab_sz, TabAlign::Left),
             None => {
                 if let LineItem::Tab { width, .. } = &mut items[i] {
                     *width = no_stop_gap;
@@ -324,9 +312,7 @@ pub fn break_paragraph(items: &[BreakItem], o: &BreakOptions<'_>) -> Vec<BrokenL
             });
         } else {
             let east_asian = o.east_asian_line_break;
-            let break_at: Vec<bool> = (0..=end)
-                .map(|i| may_break(&atoms, i, east_asian))
-                .collect();
+            let break_at: Vec<bool> = (0..=end).map(|i| may_break(&atoms, i, east_asian)).collect();
             let mut cell_tail = vec![false; end + 1];
             cell_tail[end] = true;
             for (i, atom) in atoms.iter().enumerate().rev() {
@@ -346,11 +332,7 @@ pub fn break_paragraph(items: &[BreakItem], o: &BreakOptions<'_>) -> Vec<BrokenL
             let mut start = 0usize;
             while start < end {
                 let line_index = lines.len();
-                let indent = if line_index == 0 {
-                    o.first_line_indent
-                } else {
-                    0.0
-                };
+                let indent = if line_index == 0 { o.first_line_indent } else { 0.0 };
                 let budget = o.max_width - indent;
                 let fit = if budget.is_finite() {
                     width::fit_prefix(&atoms, start, budget, line_index, o)
@@ -378,10 +360,7 @@ pub fn break_paragraph(items: &[BreakItem], o: &BreakOptions<'_>) -> Vec<BrokenL
                 }
                 if single_tab_cell(start) {
                     split = start + 2;
-                    while split < end
-                        && !is_space(&atoms[split])
-                        && !matches!(atoms[split].kind, AtomKind::Tab)
-                    {
+                    while split < end && !is_space(&atoms[split]) && !matches!(atoms[split].kind, AtomKind::Tab) {
                         split += 1;
                     }
                 }
@@ -404,13 +383,11 @@ pub fn break_paragraph(items: &[BreakItem], o: &BreakOptions<'_>) -> Vec<BrokenL
                 // seam keeps its greedy break (C08, break.ts:467-489).
                 if split < end && east_asian {
                     let (prev, next) = (&atoms[split - 1], &atoms[split]);
-                    let seam_evidence = prev.run == next.run
-                        || o.measurer.kinsoku_across_runs(prev.style, next.style);
+                    let seam_evidence = prev.run == next.run || o.measurer.kinsoku_across_runs(prev.style, next.style);
                     if (is_cjk_atom(prev) || is_cjk_atom(next)) && seam_evidence {
                         let (code_start, code_split) = (char_offsets[start], char_offsets[split]);
                         if code_split - code_start > 1 && code_split < chars.len() {
-                            let adjusted =
-                                kinsoku_adjusted_split(&chars, code_split, code_start + 1);
+                            let adjusted = kinsoku_adjusted_split(&chars, code_split, code_start + 1);
                             if adjusted < code_split {
                                 let mut floor = split;
                                 while floor > start + 1 && char_offsets[floor] > adjusted {

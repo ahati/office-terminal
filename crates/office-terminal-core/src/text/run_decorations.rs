@@ -86,12 +86,7 @@ fn underline_line(
     }
 }
 
-fn strike_line(
-    size_emu: f32,
-    face: Option<DecorationGeometry>,
-    color: [u8; 4],
-    double: bool,
-) -> DecorationLine {
+fn strike_line(size_emu: f32, face: Option<DecorationGeometry>, color: [u8; 4], double: bool) -> DecorationLine {
     let thickness = face
         .map(|d| d.strike_thickness_em * size_emu)
         .filter(|v| v.is_finite() && *v > 0.0)
@@ -103,7 +98,11 @@ fn strike_line(
         None => -size_emu * 0.32 - thickness * 0.5,
     };
     let gap = if double {
-        if face.is_some() { thickness } else { thickness * 0.9 }
+        if face.is_some() {
+            thickness
+        } else {
+            thickness * 0.9
+        }
     } else {
         0.0
     };

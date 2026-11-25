@@ -4,12 +4,8 @@
 //! Loaded as a module of the `parity_elements_tests` target so each file stays
 //! under the 600-line limit.
 
-use office_terminal_core::contracts::{
-    AffineTransform, NormalizedRect, RectF32, VectorCommand,
-};
+use office_terminal_core::contracts::{AffineTransform, NormalizedRect, RectF32, VectorCommand};
 use office_terminal_core::loader::SizeHint;
-
-
 
 // ───────────────────────────────────────────────────────────────────────────
 // renderer-adaptive-image-budget.test.ts — the decode plan.
@@ -22,10 +18,9 @@ use office_terminal_core::loader::SizeHint;
 // ───────────────────────────────────────────────────────────────────────────
 
 use office_terminal_core::rasterizer::decode_plan::{
-    plan_decoded_image_targets, scene_decode_demands, BudgetStrategy, DecodeDemand,
-    DecodeResolution, ImageResourceOptions, MAX_DECODED_IMAGE_BYTES,
+    plan_decoded_image_targets, scene_decode_demands, BudgetStrategy, DecodeDemand, DecodeResolution,
+    ImageResourceOptions, MAX_DECODED_IMAGE_BYTES,
 };
-
 
 use crate::{picture_slide, target};
 
@@ -221,8 +216,7 @@ fn full_source_device_pixels_follow_frame_dpr_and_crop() {
     assert!((demands[0].target_width_px - 1_920.0).abs() < 1e-2);
     assert!((demands[0].target_height_px - 720.0).abs() < 1e-2);
 
-    let plan = plan_decoded_image_targets(&demands, &ImageResourceOptions::default())
-        .expect("plan");
+    let plan = plan_decoded_image_targets(&demands, &ImageResourceOptions::default()).expect("plan");
     let entry = plan.targets.get("ppt/media/108mp-poster.png").expect("target");
     assert_eq!((entry.width, entry.height), (3_840, 1_440));
 }

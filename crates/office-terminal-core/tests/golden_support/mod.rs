@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crossbeam_channel::unbounded;
 use office_terminal_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec,
-    RgbaSlide, SlideCompiler, SlideRasterizer, Source, TinySkiaRasterizer,
+    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec, RgbaSlide, SlideCompiler,
+    SlideRasterizer, Source, TinySkiaRasterizer,
 };
 
 /// Per-deck golden comparison policy.
@@ -142,10 +142,7 @@ pub fn render_deck(config: &'static DeckConfig) -> Arc<DeckRender> {
                  `node crates/office-terminal-core/tests/golden/gen_pptxgenjs.js` and then run \
                  `python3 crates/office-terminal-core/tests/golden/normalize_pptx.py`; see \
                  `tests/golden/README.md` for the fixture policy.",
-                manifest
-                    .join("tests/golden/fixtures")
-                    .join(&file_name)
-                    .display()
+                manifest.join("tests/golden/fixtures").join(&file_name).display()
             )
         })
     };
@@ -170,18 +167,10 @@ pub fn render_deck(config: &'static DeckConfig) -> Arc<DeckRender> {
                 presentation.slide_height,
                 &tx,
             )
-            .unwrap_or_else(|e| {
-                panic!("{} slide {} failed to compile: {e}", config.name, index + 1)
-            });
+            .unwrap_or_else(|e| panic!("{} slide {} failed to compile: {e}", config.name, index + 1));
         let rendered = rasterizer
             .rasterize(&vector, &target, assets.as_ref())
-            .unwrap_or_else(|e| {
-                panic!(
-                    "{} slide {} failed to rasterize: {e}",
-                    config.name,
-                    index + 1
-                )
-            });
+            .unwrap_or_else(|e| panic!("{} slide {} failed to rasterize: {e}", config.name, index + 1));
         assert_eq!(rendered.width, target.width_px);
         assert_eq!(rendered.height, target.height_px);
         slides.push(rendered);
@@ -220,12 +209,7 @@ pub fn diff_metrics(actual: &[u8], expected: &[u8], channel_tolerance: u8) -> Di
     let mut sum: u64 = 0;
     let mut outliers = 0usize;
     let mut max_diff = 0u8;
-    for (a, e) in actual
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .zip(expected.as_chunks::<4>().0)
-    {
+    for (a, e) in actual.as_chunks::<4>().0.iter().zip(expected.as_chunks::<4>().0) {
         let mut pixel_max = 0u8;
         for channel in 0..4 {
             let diff = a[channel].abs_diff(e[channel]);
@@ -258,8 +242,7 @@ pub fn read_png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
 /// Writes tightly packed RGBA8 as a PNG, creating parent directories.
 pub fn write_png_rgba(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
     let buffer = image::RgbaImage::from_raw(width, height, rgba.to_vec())
         .ok_or_else(|| format!("invalid RGBA buffer for {}x{}", width, height))?;
@@ -277,8 +260,7 @@ pub fn compare_or_update(rendered: &DeckRender, slide_index: usize, label: &str)
     let update = update_goldens();
 
     if update {
-        write_png_rgba(&path, rendered.width_px, rendered.height_px, &actual.pixels)
-            .unwrap_or_else(|e| panic!("{e}"));
+        write_png_rgba(&path, rendered.width_px, rendered.height_px, &actual.pixels).unwrap_or_else(|e| panic!("{e}"));
         println!("UPDATED golden {}", path.display());
         return true;
     }
@@ -325,10 +307,7 @@ pub fn compare_or_update(rendered: &DeckRender, slide_index: usize, label: &str)
     if metrics.outlier_fraction > thresholds.outlier_fraction {
         failures.push(format!(
             "outlier_fraction {:.4} > {:.4} ({} pixels differ by > {}/255)",
-            metrics.outlier_fraction,
-            thresholds.outlier_fraction,
-            metrics.outlier_pixels,
-            thresholds.channel_tolerance
+            metrics.outlier_fraction, thresholds.outlier_fraction, metrics.outlier_pixels, thresholds.channel_tolerance
         ));
     }
     assert!(

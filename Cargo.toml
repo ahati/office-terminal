@@ -12,8 +12,8 @@ members = [
     "crates/office-terminal-cli",
 ]
 # Locally patched metafile-rs crates (Apache-2.0). The rest of the family is
-# consumed from crates.io; these two are overridden via [patch.crates-io]
-# because they carry crop-clamping fixes (crates/patches/0003). Excluded from
+# consumed from crates.io; these crates are overridden via [patch.crates-io]
+# because they carry playback fixes (crates/patches/0003–0005, 0007–0008). Excluded from
 # workspace lints/tests so upstream code is not held to first-party rules.
 # `crates/rdocx-layout` is the pinned DOCX layout engine carrying the
 # continuous-column band fix (crates/patches/0009); same exclusion rule.
@@ -27,6 +27,13 @@ exclude = [
     "fuzz",
 ]
 default-members = ["crates/office-terminal-cli"]
+
+[workspace.package]
+# `rdocx-layout`/`oxml-layout` 0.17/0.15 and the DOCX default feature require
+# Rust 1.93, so the whole workspace declares that floor.
+rust-version = "1.93"
+license = "MIT"
+repository = "https://github.com/ahati/office-terminal"
 
 # Release profile: thin LTO. Without it, the final link kept prebuilt
 # dependency objects whose libm references carried the build host's glibc

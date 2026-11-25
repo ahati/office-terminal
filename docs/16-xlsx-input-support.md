@@ -1,6 +1,8 @@
 # PRD 16: XLSX Input Support — SpreadsheetML Workbooks, Sheet Grid & Print Pagination
 
-> **Status:** Normative Design Specification (complete implementation; no phased rollout).
+> **Status:** Proposed design specification — **not implemented**. The current
+> loader rejects SpreadsheetML packages with “spreadsheet (.xlsx) input is not
+> supported” (`crates/office-terminal-core/src/loader/ooxml_detect.rs`).
 > **Feature Track:** Read-only SpreadsheetML (`.xlsx`, `.xlsm`, `.xltx`, `.xltm`) input for `view`, `present`, `export`, `info`, and `dump`.
 > **Depends on:**
 > - [PRD 00: System Overview](./00-system-overview.md) (architecture, CLI binaries, and invariants)

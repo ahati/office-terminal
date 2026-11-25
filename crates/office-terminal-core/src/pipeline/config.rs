@@ -3,20 +3,23 @@
 //! The automatic count is host-parallelism clamped to 2..=6: every worker
 //! transiently holds a full raster (~37 MB for PDF pages at the viewer width),
 //! so the cap bounds worst-case in-flight memory, not just scheduling.
-//! `KITTY_PPTX_WORKERS` overrides it explicitly (clamped to 1..=8) for
-//! machines that can afford more parallel rasters or want a single worker.
+//! `OT_WORKERS` overrides it explicitly (clamped to 1..=8) for machines that
+//! can afford more parallel rasters or want a single worker. The pre-rebrand
+//! `KITTY_PPTX_WORKERS` name remains a fallback.
 
-/// Hard ceiling for an explicit `KITTY_PPTX_WORKERS` request.
+/// Hard ceiling for an explicit `OT_WORKERS` request.
 const MAX_REQUESTED_WORKERS: usize = 8;
 
 /// Resolve the default background worker count.
 ///
-/// `KITTY_PPTX_WORKERS` is parsed as a whole number and clamped to 1..=8;
-/// absent, blank, or unparseable values fall back to host parallelism clamped
-/// to 2..=6. Callers that need a fixed pool (tests, the CLI presenter)
-/// construct explicit counts and bypass this entirely.
+/// `OT_WORKERS` (or legacy `KITTY_PPTX_WORKERS`) is parsed as a whole number
+/// and clamped to 1..=8; absent, blank, or unparseable values fall back to host
+/// parallelism clamped to 2..=6. Callers that need a fixed pool (tests, the
+/// CLI presenter) construct explicit counts and bypass this entirely.
 pub fn default_worker_count() -> usize {
-    let raw = std::env::var("KITTY_PPTX_WORKERS").ok();
+    let raw = std::env::var("OT_WORKERS")
+        .or_else(|_| std::env::var("KITTY_PPTX_WORKERS"))
+        .ok();
     worker_count_from_raw(raw.as_deref())
 }
 

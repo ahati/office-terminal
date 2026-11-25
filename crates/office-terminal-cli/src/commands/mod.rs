@@ -1,20 +1,20 @@
-use std::path::PathBuf;
 use office_terminal_core::Source;
+use std::path::PathBuf;
 
-pub mod export;
-pub mod info;
+pub mod completions;
 pub mod dump;
 pub mod dump_ast;
-pub mod view;
+pub mod export;
+pub mod info;
 pub mod present;
-pub mod completions;
+pub mod view;
 
+pub use completions::*;
+pub use dump::run_dump;
 pub use export::run_export;
 pub use info::run_info;
-pub use dump::run_dump;
-pub use view::run_view;
 pub use present::run_interactive;
-pub use completions::*;
+pub use view::run_view;
 
 /// Maps `"-"` to `Source::Stdin`, and any other path to `Source::File(p)`.
 pub fn source_from_path(p: PathBuf) -> Source {

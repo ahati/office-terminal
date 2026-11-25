@@ -10,8 +10,7 @@ use ratatui::widgets::Widget;
 
 pub use canvas::{clear_letterbox, emit_direct_canvas};
 pub use layout::{
-    cell_rect_to_rect, compute_slide_rect, rect_to_cell_rect, ASPECT_16_9, ASPECT_4_3,
-    DEFAULT_CELL_ASPECT_RATIO,
+    cell_rect_to_rect, compute_slide_rect, rect_to_cell_rect, ASPECT_16_9, ASPECT_4_3, DEFAULT_CELL_ASPECT_RATIO,
 };
 pub use zoom_fit::{compute_zoomed_slide_fit, NormalizedCrop, ZoomFit};
 

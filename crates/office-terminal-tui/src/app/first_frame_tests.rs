@@ -10,12 +10,10 @@
 use std::sync::{Arc, Mutex};
 
 use office_terminal_core::{
-    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderError, RenderPipeline,
-    RenderTargetSpec, RgbaSlide,
+    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderError, RenderPipeline, RenderTargetSpec,
+    RgbaSlide,
 };
-use office_terminal_display::{
-    DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver,
-};
+use office_terminal_display::{DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver};
 
 use super::{first_frame_needs_sync, PresentationApp};
 
@@ -56,9 +54,7 @@ impl CountingPipeline {
         match self.state {
             EntryState::NotLoaded => PipelineEntry::NotLoaded,
             EntryState::Rendering => PipelineEntry::Rendering,
-            EntryState::Ready => PipelineEntry::Ready {
-                bitmap: bitmap(4, 2),
-            },
+            EntryState::Ready => PipelineEntry::Ready { bitmap: bitmap(4, 2) },
         }
     }
 
@@ -82,15 +78,8 @@ impl RenderPipeline for CountingPipeline {
         self.entry()
     }
     fn invalidate(&self, _cause: InvalidateCause) {}
-    fn render(
-        &self,
-        index: usize,
-        target: &RenderTargetSpec,
-    ) -> Result<RgbaSlide, RenderError> {
-        self.renders
-            .lock()
-            .expect("render log lock")
-            .push((index, *target));
+    fn render(&self, index: usize, target: &RenderTargetSpec) -> Result<RgbaSlide, RenderError> {
+        self.renders.lock().expect("render log lock").push((index, *target));
         Ok(bitmap(4, 2))
     }
 }
@@ -133,8 +122,8 @@ impl TerminalGraphicsDriver for NullDriver {
 /// target and prefetches), then the first-frame paint under test.
 fn app_with(pipeline: &Arc<CountingPipeline>) -> PresentationApp {
     let dyn_pipeline: Arc<dyn RenderPipeline> = Arc::clone(pipeline) as Arc<dyn RenderPipeline>;
-    PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 3, vec![])
-        .with_slide_dimensions(10_000_000, 7_500_000) // 4:3
+    PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 3, vec![]).with_slide_dimensions(10_000_000, 7_500_000)
+    // 4:3
 }
 
 fn render_log(pipeline: &CountingPipeline) -> Vec<(usize, RenderTargetSpec)> {
@@ -158,9 +147,7 @@ fn decision_helper_syncs_for_everything_but_ready() {
         "a latched failure still gets one synchronous retry"
     );
     assert!(
-        !first_frame_needs_sync(&PipelineEntry::Ready {
-            bitmap: bitmap(4, 2),
-        }),
+        !first_frame_needs_sync(&PipelineEntry::Ready { bitmap: bitmap(4, 2) }),
         "a ready entry stages directly, no render needed"
     );
 }
@@ -220,8 +207,11 @@ fn reader_deck_paints_first_frame_at_the_reader_target() {
     let dyn_pipeline: Arc<dyn RenderPipeline> = Arc::clone(&pipeline) as Arc<dyn RenderPipeline>;
     // Reader mode from page sizes in points (4:3), mirroring how the CLI
     // builder wires `with_reader_mode` after `with_slide_dimensions`.
-    let mut app = PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 3, vec![])
-        .with_reader_mode(true, 3, vec![(800.0, 600.0); 3]);
+    let mut app = PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 3, vec![]).with_reader_mode(
+        true,
+        3,
+        vec![(800.0, 600.0); 3],
+    );
 
     app.handle_resize(80, 24);
     app.paint_first_frame();
@@ -251,8 +241,11 @@ fn reader_deck_paints_first_frame_at_the_reader_target() {
 fn reader_first_paint_warms_the_next_pages() {
     let pipeline = Arc::new(CountingPipeline::new(EntryState::NotLoaded));
     let dyn_pipeline: Arc<dyn RenderPipeline> = Arc::clone(&pipeline) as Arc<dyn RenderPipeline>;
-    let mut app = PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 4, vec![])
-        .with_reader_mode(true, 4, vec![(612.0, 792.0); 4]);
+    let mut app = PresentationApp::new(dyn_pipeline, Box::new(NullDriver), 4, vec![]).with_reader_mode(
+        true,
+        4,
+        vec![(612.0, 792.0); 4],
+    );
 
     // Same sequence as run(): resize first (establishes the target and the
     // layout size the warm-up reads), then the paint under test.

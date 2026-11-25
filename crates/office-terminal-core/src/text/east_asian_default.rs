@@ -70,8 +70,7 @@ const EAST_ASIAN_FACES: &[&str] = &[
 
 /// Per-glyph complex-script application defaults, in fallback order
 /// (`COMPLEX_SCRIPT_DEFAULT_FACES`).
-pub const COMPLEX_SCRIPT_DEFAULT_FACES: &[&str] =
-    &["Arial", "Angsana New", "Mangal", "Latha"];
+pub const COMPLEX_SCRIPT_DEFAULT_FACES: &[&str] = &["Arial", "Angsana New", "Mangal", "Latha"];
 
 const SERIF_TIERS: [&str; 3] = ["MS Mincho", "PMingLiU", "Batang"];
 const SANS_TIERS: [&str; 3] = ["MS Gothic", "Microsoft JhengHei", "Malgun Gothic"];
@@ -146,11 +145,7 @@ pub fn east_asian_default_faces(latin_face: Option<&str>, text: &str) -> Vec<Str
             .chain(tiers.iter().copied().filter(|other| *other != face))
             .map(str::to_string)
             .collect(),
-        None => vec![
-            tiers[2].to_string(),
-            tiers[0].to_string(),
-            tiers[1].to_string(),
-        ],
+        None => vec![tiers[2].to_string(), tiers[0].to_string(), tiers[1].to_string()],
     }
 }
 

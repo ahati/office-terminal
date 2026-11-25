@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use office_terminal_core::PageSource;
 use office_terminal_core::{EmuRect, RenderTargetSpec, RgbaSlide, TextLine, VectorSlide};
 use office_terminal_pdf::detect::{classify_mode, is_encrypted, is_pdf, parse_version, ReaderModeDecision};
 use office_terminal_pdf::engine::{HayroEngine, PdfEngine};
 use office_terminal_pdf::error::PdfError;
 use office_terminal_pdf::source::PdfPageSource;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 const MINIMAL_PDF: &[u8] = b"%PDF-1.4\n\
 1 0 obj\n\
@@ -46,10 +46,7 @@ fn test_is_pdf_detection() {
 #[test]
 fn test_parse_version() {
     assert_eq!(parse_version(MINIMAL_PDF), Some("PDF 1.4".to_string()));
-    assert_eq!(
-        parse_version(b"%PDF-2.0\n1 0 obj..."),
-        Some("PDF 2.0".to_string())
-    );
+    assert_eq!(parse_version(b"%PDF-2.0\n1 0 obj..."), Some("PDF 2.0".to_string()));
     assert_eq!(parse_version(b"corrupt"), None);
 }
 
@@ -128,7 +125,10 @@ fn test_classify_mode_rules() {
     doc_with_landscape.push((792.0, 612.0)); // 1 landscape figure
     assert!(matches!(
         classify_mode(&doc_with_landscape).unwrap(),
-        ReaderModeDecision::Document { paper_size: Some("Letter"), .. }
+        ReaderModeDecision::Document {
+            paper_size: Some("Letter"),
+            ..
+        }
     ));
 
     // D3: Near-square majority -> Document
@@ -214,11 +214,7 @@ impl PdfEngine for LazyCorpusEngine {
         })
     }
 
-    fn render_raster(
-        &self,
-        _page: usize,
-        _target: &RenderTargetSpec,
-    ) -> Result<RgbaSlide, PdfError> {
+    fn render_raster(&self, _page: usize, _target: &RenderTargetSpec) -> Result<RgbaSlide, PdfError> {
         Ok(RgbaSlide {
             width: 1,
             height: 1,
@@ -261,8 +257,7 @@ fn test_search_corpus_builds_lazily() {
         page_count: 3,
         extract_calls: AtomicUsize::new(0),
     });
-    let source =
-        PdfPageSource::from_engine(Arc::clone(&engine) as Arc<dyn PdfEngine>).expect("source");
+    let source = PdfPageSource::from_engine(Arc::clone(&engine) as Arc<dyn PdfEngine>).expect("source");
 
     // Opening the document and asking for the corpus size must not
     // interpret any page content streams.
@@ -282,7 +277,7 @@ fn test_search_corpus_builds_lazily() {
 
 #[test]
 fn test_external_pdf_toc() {
-    if let Ok(path) = std::env::var("KITTY_PPTX_TEST_PDF") {
+    if let Ok(path) = std::env::var("OT_TEST_PDF").or_else(|_| std::env::var("KITTY_PPTX_TEST_PDF")) {
         if let Ok(data) = std::fs::read(&path) {
             let source = PdfPageSource::open(Arc::from(data.into_boxed_slice())).expect("open pdf");
             let toc = source.toc();
@@ -302,7 +297,9 @@ fn test_pdf_text_string_decoding() {
     use office_terminal_pdf::text_encoding::decode_pdf_text_string;
 
     // UTF-16BE with BOM
-    let utf16_be = [0xFE, 0xFF, 0x00, b'P', 0x00, b'r', 0x00, b'e', 0x00, b'f', 0x00, b'a', 0x00, b'c', 0x00, b'e'];
+    let utf16_be = [
+        0xFE, 0xFF, 0x00, b'P', 0x00, b'r', 0x00, b'e', 0x00, b'f', 0x00, b'a', 0x00, b'c', 0x00, b'e',
+    ];
     assert_eq!(decode_pdf_text_string(&utf16_be), "Preface");
 
     // UTF-16LE with BOM
@@ -318,7 +315,9 @@ fn test_pdf_text_string_decoding() {
     assert_eq!(decode_pdf_text_string(ascii), "Introduction to Computer Vision");
 
     // PDFDocEncoding with special chars: 0x84 (em dash), 0x92 (trademark)
-    let pdfdoc = [b'C', b'o', b'm', b'p', b'a', b'n', b'y', 0x92, b' ', 0x84, b' ', b'2', b'0', b'2', b'6'];
+    let pdfdoc = [
+        b'C', b'o', b'm', b'p', b'a', b'n', b'y', 0x92, b' ', 0x84, b' ', b'2', b'0', b'2', b'6',
+    ];
     assert_eq!(decode_pdf_text_string(&pdfdoc), "Company™ — 2026");
 
     // Embedded control chars and NUL bytes stripped
@@ -458,5 +457,3 @@ fn test_page_labels_absent_returns_none() {
     let source = PdfPageSource::open(bytes).expect("open synthetic PDF");
     assert!(source.page_labels().is_none());
 }
-
-

@@ -11,9 +11,7 @@
 //! `packages/pptx/src/viewer.ts:437-575` (goToSlide / _step / setHiddenSlideMode /
 //! visibleSlideCount) and `packages/pptx/src/viewer.ts:800-980` (setScale clamp).
 
-use office_terminal_core::navigation::{
-    count_visible, next_visible, resolve_visible, HiddenSlideMode,
-};
+use office_terminal_core::navigation::{count_visible, next_visible, resolve_visible, HiddenSlideMode};
 use office_terminal_core::EMU_PER_PX;
 
 use super::state::PresentationState;
@@ -27,8 +25,7 @@ pub const DEFAULT_ZOOM_MAX: f32 = 4.0;
 /// Discrete stepper rungs (factor, 0.25 = 25 %). Superset of the Excel /
 /// Acrobat status-bar presets; ref `core/src/interaction/zoomable.ts:99-107`.
 pub const ZOOM_STEP_LADDER: &[f32] = &[
-    0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0,
-    4.0,
+    0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0,
 ];
 
 /// Small epsilon so a value sitting on a rung steps to the next one.
@@ -389,7 +386,6 @@ impl PresentationState {
     pub fn nav_mut(&mut self) -> &mut NavState {
         &mut self.nav
     }
-
 }
 
 #[cfg(test)]

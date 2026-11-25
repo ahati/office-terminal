@@ -6,8 +6,8 @@
 
 use crate::compiler::parse_hex_color;
 use crate::contracts::{
-    ShapeEffects, VectorBevel, VectorGlow, VectorInnerShadow, VectorOuterShadow, VectorReflection,
-    VectorRot3d, VectorScene3d, VectorShape3d, VectorSoftEdge,
+    ShapeEffects, VectorBevel, VectorGlow, VectorInnerShadow, VectorOuterShadow, VectorReflection, VectorRot3d,
+    VectorScene3d, VectorShape3d, VectorSoftEdge,
 };
 
 /// Extract every supported effect component from a shape's `spPr`.
@@ -16,7 +16,10 @@ pub fn extract_shape_effects(shape: &pptx_model::ShapeElement) -> ShapeEffects {
         outer_shadow: shape.shadow.as_ref().map(outer_shadow),
         inner_shadow: shape.inner_shadow.as_ref().map(inner_shadow),
         glow: shape.glow.as_ref().map(glow),
-        soft_edge: shape.soft_edge.as_ref().map(|e| VectorSoftEdge { radius_emu: e.radius }),
+        soft_edge: shape
+            .soft_edge
+            .as_ref()
+            .map(|e| VectorSoftEdge { radius_emu: e.radius }),
         reflection: shape.reflection.as_ref().map(reflection),
         scene_3d: shape.scene3d.as_ref().map(scene_3d),
         shape_3d: shape.sp3d.as_ref().map(shape_3d),
@@ -78,11 +81,7 @@ pub(crate) fn reflection(reflection: &ooxml_common::effect::Reflection) -> Vecto
 }
 
 fn scene_3d(scene: &pptx_model::Scene3d) -> VectorScene3d {
-    let light_dir = scene
-        .light_rig
-        .as_ref()
-        .map(|rig| rig.dir.clone())
-        .unwrap_or_default();
+    let light_dir = scene.light_rig.as_ref().map(|rig| rig.dir.clone()).unwrap_or_default();
     let light_rot = scene
         .light_rig
         .as_ref()
@@ -154,11 +153,7 @@ pub struct Scene3dShapeTransform {
 /// flips, while the ordinary 2-D rotation remains outside the projected face:
 /// a post-projection flip would mirror the camera footprint itself
 /// (ref `renderer.ts:3570-3583` `splitScene3dShapeTransform`).
-pub fn split_scene3d_shape_transform(
-    rotation: f64,
-    flip_h: bool,
-    flip_v: bool,
-) -> Scene3dShapeTransform {
+pub fn split_scene3d_shape_transform(rotation: f64, flip_h: bool, flip_v: bool) -> Scene3dShapeTransform {
     Scene3dShapeTransform {
         outer_rotation: rotation,
         local_flip_h: flip_h,

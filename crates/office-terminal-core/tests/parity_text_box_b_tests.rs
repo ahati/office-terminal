@@ -78,14 +78,7 @@ fn autonum_bullet(start_at: Option<u32>) -> Value {
 
 /// One paragraph; the specs' `para(runs, bullet, lvl)` plus the hanging-gutter
 /// variants (`marL = MARK_EMU`, `indent = -MARK_EMU`).
-fn para(
-    runs: Vec<Value>,
-    bullet: Value,
-    alignment: &str,
-    mar_l: i64,
-    indent: i64,
-    rtl: bool,
-) -> Value {
+fn para(runs: Vec<Value>, bullet: Value, alignment: &str, mar_l: i64, indent: i64, rtl: bool) -> Value {
     json!({
         "alignment": alignment,
         "marL": mar_l,
@@ -177,14 +170,7 @@ fn numbered(runs: Vec<Value>) -> Value {
 }
 
 fn numbered_at(runs: Vec<Value>, start_at: u32) -> Value {
-    para(
-        runs,
-        autonum_bullet(Some(start_at)),
-        "l",
-        MARK_EMU,
-        -MARK_EMU,
-        false,
-    )
+    para(runs, autonum_bullet(Some(start_at)), "l", MARK_EMU, -MARK_EMU, false)
 }
 
 /// The reference's `resolveBulletLabel(...)` label sequence: the auto-number
@@ -201,10 +187,7 @@ fn labels(paragraphs: Vec<Value>) -> Vec<String> {
 
 #[test]
 fn renderable_content_true_for_a_non_empty_text_run() {
-    let runs = draw_runs(&compile(
-        &bulleted(vec![text_run("foo")], char_bullet("•")),
-        None,
-    ));
+    let runs = draw_runs(&compile(&bulleted(vec![text_run("foo")], char_bullet("•")), None));
     assert_eq!(runs[0].text.trim_end(), "•", "marker first: {runs:?}");
     assert_eq!(runs[1].text, "foo");
 }
@@ -220,20 +203,14 @@ fn renderable_content_false_for_no_runs() {
 /// `:26` "is false for a single empty-string text run".
 #[test]
 fn renderable_content_false_for_a_single_empty_run() {
-    let runs = draw_runs(&compile(
-        &bulleted(vec![text_run("")], char_bullet("•")),
-        None,
-    ));
+    let runs = draw_runs(&compile(&bulleted(vec![text_run("")], char_bullet("•")), None));
     assert!(runs.is_empty(), "no marker drawn: {runs:?}");
 }
 
 /// `:31` "is false for a paragraph that is only a line break".
 #[test]
 fn renderable_content_false_for_a_break_only_paragraph() {
-    let runs = draw_runs(&compile(
-        &bulleted(vec![break_run()], char_bullet("•")),
-        None,
-    ));
+    let runs = draw_runs(&compile(&bulleted(vec![break_run()], char_bullet("•")), None));
     assert!(runs.is_empty(), "no marker drawn: {runs:?}");
 }
 
@@ -277,10 +254,7 @@ fn resolve_bullet_label_suppresses_an_autonum_marker_when_empty() {
 /// `:130` "still draws a char bullet when the paragraph has text" (`'•'`).
 #[test]
 fn resolve_bullet_label_keeps_the_char_bullet_with_text() {
-    let emitted = draw_runs(&compile(
-        &bulleted(vec![text_run("foo")], char_bullet("•")),
-        None,
-    ));
+    let emitted = draw_runs(&compile(&bulleted(vec![text_run("foo")], char_bullet("•")), None));
     assert_eq!(emitted[0].text.trim_end(), "•");
 }
 
@@ -289,9 +263,7 @@ fn resolve_bullet_label_keeps_the_char_bullet_with_text() {
 fn resolve_bullet_label_numbers_consecutive_paragraphs() {
     let paragraphs = ["a", "b", "c"]
         .iter()
-        .map(|text| {
-            numbered(vec![text_run(text)])
-        })
+        .map(|text| numbered(vec![text_run(text)]))
         .collect();
     assert_eq!(labels(paragraphs), ["1.", "2.", "3."]);
 }
@@ -327,9 +299,7 @@ fn resolve_bullet_label_continues_across_a_break_only_paragraph() {
 fn resolve_bullet_label_honours_start_at() {
     let paragraphs = ["a", "b"]
         .iter()
-        .map(|text| {
-            numbered_at(vec![text_run(text)], 5)
-        })
+        .map(|text| numbered_at(vec![text_run(text)], 5))
         .collect();
     assert_eq!(labels(paragraphs), ["5.", "6."]);
 }
@@ -453,10 +423,7 @@ fn autonum_marker_uses_the_explicit_bu_clr() {
 #[test]
 fn autonum_marker_inherits_the_text_colour_without_bu_clr() {
     let runs = draw_runs(&compile(
-        &bulleted(
-            vec![run_colored("item", "0000FF")],
-            autonum_styled(None, None, None),
-        ),
+        &bulleted(vec![run_colored("item", "0000FF")], autonum_styled(None, None, None)),
         None,
     ));
     let marker = markers(&runs);
@@ -506,11 +473,7 @@ fn rtl_char_marker_leads_at_the_right_edge() {
         .find(|run| run.text.contains('•'))
         .expect("bullet marker drawn");
     let marker_w: f32 = marker.glyphs.iter().map(|glyph| glyph.advance).sum();
-    close(
-        marker.glyphs[0].x + marker_w,
-        LEADING_EDGE * PT,
-        "marker right edge",
-    );
+    close(marker.glyphs[0].x + marker_w, LEADING_EDGE * PT, "marker right edge");
     // The run's right edge: RTL shaping stores the glyphs in visual order, so
     // the greatest `x + advance` inside the run is its trailing edge.
     let text_right = runs

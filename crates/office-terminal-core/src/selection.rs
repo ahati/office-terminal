@@ -224,11 +224,8 @@ fn distance_to_segment(point: SlidePoint, start: SlidePoint, end: SlidePoint) ->
     if length_squared == 0.0 {
         return ((point.x - start.x).powi(2) + (point.y - start.y).powi(2)).sqrt();
     }
-    let projection = (((point.x - start.x) * dx + (point.y - start.y) * dy) / length_squared)
-        .clamp(0.0, 1.0);
-    ((point.x - (start.x + projection * dx)).powi(2)
-        + (point.y - (start.y + projection * dy)).powi(2))
-    .sqrt()
+    let projection = (((point.x - start.x) * dx + (point.y - start.y) * dy) / length_squared).clamp(0.0, 1.0);
+    ((point.x - (start.x + projection * dx)).powi(2) + (point.y - (start.y + projection * dy)).powi(2)).sqrt()
 }
 
 fn is_line_like(frame: (i64, i64, i64, i64, f64, bool, bool), element: &SlideElement) -> bool {
@@ -390,9 +387,7 @@ pub fn hit_test_slide_context(
             continue;
         }
         let bounded = match element {
-            SlideElement::Chart(chart) => {
-                bounded_chart_context_text(&chart.chart, Some(max_text))
-            }
+            SlideElement::Chart(chart) => bounded_chart_context_text(&chart.chart, Some(max_text)),
             _ => bounded_joined_text(element_text_parts(element), max_text),
         };
         let frame = element_frame(element);
@@ -402,18 +397,12 @@ pub fn hit_test_slide_context(
             .map(|source| origin_name(source.origin))
             .unwrap_or("unknown");
         let (shape_id, name, geometry) = match element {
-            SlideElement::Shape(shape) => (
-                shape.id.clone(),
-                shape.name.clone(),
-                Some(shape.geometry.clone()),
-            ),
+            SlideElement::Shape(shape) => (shape.id.clone(), shape.name.clone(), Some(shape.geometry.clone())),
             _ => (None, None, None),
         };
         let (mime_type, media_kind) = match element {
             SlideElement::Picture(picture) => (Some(picture.mime_type.clone()), None),
-            SlideElement::Media(media) => {
-                (Some(media.mime_type.clone()), Some(media.media_kind.clone()))
-            }
+            SlideElement::Media(media) => (Some(media.mime_type.clone()), Some(media.media_kind.clone())),
             _ => (None, None),
         };
         let (row_count, column_count) = match element {
@@ -443,11 +432,7 @@ pub fn hit_test_slide_context(
             column_count,
             series_count,
             truncated: bounded.truncated,
-            truncation_reasons: if bounded.truncated {
-                vec!["text"]
-            } else {
-                Vec::new()
-            },
+            truncation_reasons: if bounded.truncated { vec!["text"] } else { Vec::new() },
             text_characters: bounded.text_characters,
             max_text_characters: max_text,
         }));
@@ -469,10 +454,7 @@ pub fn limit_element_context(
         }
         None => (None, false),
     };
-    let text_characters = text
-        .as_deref()
-        .map(|value| value.encode_utf16().count())
-        .unwrap_or(0);
+    let text_characters = text.as_deref().map(|value| value.encode_utf16().count()).unwrap_or(0);
     Ok(ElementContext {
         text,
         truncated: context.truncated || newly_truncated,
@@ -489,8 +471,11 @@ pub fn limit_element_context(
 
 /// Geometry-only lookup by drawing id, in request order.
 pub fn find_element_bounds_by_ids(slide: &Slide, element_ids: &[String]) -> Vec<ElementBoundsEntry> {
-    let requested: std::collections::HashSet<&str> =
-        element_ids.iter().map(String::as_str).filter(|id| !id.is_empty()).collect();
+    let requested: std::collections::HashSet<&str> = element_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !id.is_empty())
+        .collect();
     if requested.is_empty() {
         return Vec::new();
     }

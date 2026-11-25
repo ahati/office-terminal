@@ -82,11 +82,7 @@ fn fraction() -> MathNode {
 }
 
 /// Compile a slide whose only paragraph content is the supplied math run.
-fn compile_math(
-    nodes: Vec<MathNode>,
-    display: bool,
-    fallback: Option<&str>,
-) -> (VectorSlide, Receiver<WarningEvent>) {
+fn compile_math(nodes: Vec<MathNode>, display: bool, fallback: Option<&str>) -> (VectorSlide, Receiver<WarningEvent>) {
     let mut slide: Slide = serde_json::from_str(SLIDE_JSON).expect("slide fixture");
     if let SlideElement::Shape(shape) = &mut slide.elements[0] {
         let body = shape.text_body.as_mut().expect("text body");
@@ -109,14 +105,8 @@ fn math_paths(vs: &VectorSlide, filled: bool) -> Vec<&contracts::VectorPath> {
     vs.commands
         .iter()
         .filter_map(|command| match command {
-            VectorCommand::DrawPath {
-                path, fill, stroke, ..
-            } => {
-                let hit = if filled {
-                    fill.is_some()
-                } else {
-                    stroke.is_some()
-                };
+            VectorCommand::DrawPath { path, fill, stroke, .. } => {
+                let hit = if filled { fill.is_some() } else { stroke.is_some() };
                 hit.then_some(path)
             }
             _ => None,
@@ -142,16 +132,13 @@ fn fraction_emits_a_filled_rule_and_two_glyph_groups() {
     // Exactly one filled path: the fraction bar (the rectangle itself is unfilled).
     let filled = math_paths(&vs, true);
     assert_eq!(filled.len(), 1, "one fraction rule");
-    let rule_w = filled[0]
-        .segments
-        .iter()
-        .fold(0.0f32, |acc, seg| match seg {
-            contracts::PathSegment::MoveTo { x, .. }
-            | contracts::PathSegment::LineTo { x, .. }
-            | contracts::PathSegment::QuadTo { x, .. }
-            | contracts::PathSegment::CubicTo { x, .. } => acc.max(*x),
-            contracts::PathSegment::Close => acc,
-        });
+    let rule_w = filled[0].segments.iter().fold(0.0f32, |acc, seg| match seg {
+        contracts::PathSegment::MoveTo { x, .. }
+        | contracts::PathSegment::LineTo { x, .. }
+        | contracts::PathSegment::QuadTo { x, .. }
+        | contracts::PathSegment::CubicTo { x, .. } => acc.max(*x),
+        contracts::PathSegment::Close => acc,
+    });
     assert!(rule_w > 0.0, "rule has a positive width");
 
     let runs = text_runs(&vs);
@@ -211,10 +198,7 @@ fn delimiter_emits_stroked_bracket_paths() {
     };
     let (vs, _rx) = compile_math(vec![node], false, None);
     let stroked = math_paths(&vs, false);
-    assert!(
-        stroked.len() >= 2,
-        "left and right delimiters must be stroked paths"
-    );
+    assert!(stroked.len() >= 2, "left and right delimiters must be stroked paths");
 }
 
 #[test]
@@ -226,14 +210,8 @@ fn display_math_is_centred_and_taller_than_inline() {
     let display_runs = text_runs(&display);
     assert!(!inline_runs.is_empty() && !display_runs.is_empty());
 
-    let inline_x = inline_runs
-        .iter()
-        .map(|r| r.glyphs[0].x)
-        .fold(f32::INFINITY, f32::min);
-    let display_x = display_runs
-        .iter()
-        .map(|r| r.glyphs[0].x)
-        .fold(f32::INFINITY, f32::min);
+    let inline_x = inline_runs.iter().map(|r| r.glyphs[0].x).fold(f32::INFINITY, f32::min);
+    let display_x = display_runs.iter().map(|r| r.glyphs[0].x).fold(f32::INFINITY, f32::min);
     assert!(
         display_x > inline_x,
         "display math must be centred: inline={inline_x}, display={display_x}"
@@ -356,10 +334,7 @@ fn accent_and_border_box_emit_geometry() {
     };
     let (vs, _rx) = compile_math(vec![acc, bordered], false, None);
     assert!(!math_paths(&vs, true).is_empty(), "accent bar rule");
-    assert!(
-        math_paths(&vs, false).len() >= 4,
-        "border edges are stroked paths"
-    );
+    assert!(math_paths(&vs, false).len() >= 4, "border edges are stroked paths");
 }
 
 #[test]

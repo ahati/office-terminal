@@ -5,28 +5,23 @@
 
 #![cfg(feature = "metafile")]
 
-
 mod metafile_support;
 
 use std::time::Instant;
 
+use metafile_support as support;
 use office_terminal_core::contracts::{
-    AffineTransform, PathSegment, PositionedGlyph, VectorCommand, VectorPaint, VectorSlide,
-    VectorStroke,
+    AffineTransform, PathSegment, PositionedGlyph, VectorCommand, VectorPaint, VectorSlide, VectorStroke,
 };
 use office_terminal_core::metafile::engine_metafile_rs::MetafileRsEngine;
 use office_terminal_core::metafile::recorder::MetafileRecorder;
 use office_terminal_core::metafile::{self, MetafileEngine, MetafileError, MetafileLimits};
-use metafile_support as support;
 
 const EMF: &str = "image/x-emf";
 
 fn compile_scene() -> VectorSlide {
     let (compile_tx, _compile_rx) = crossbeam_channel::unbounded();
-    support::compile_slide(
-        &support::picture_slide("ppt/media/image1.emf", EMF),
-        &compile_tx,
-    )
+    support::compile_slide(&support::picture_slide("ppt/media/image1.emf", EMF), &compile_tx)
 }
 
 fn expand_ms(scene: &mut VectorSlide, store: &support::FixtureStore) -> f64 {
@@ -66,14 +61,8 @@ fn playback_and_cache_hit_stay_within_budget() {
     let mut warm_scene = compile_scene();
     let warm = expand_ms(&mut warm_scene, &store);
     println!("playback+translate (cache hit): {warm:.2} ms");
-    assert!(
-        warm <= 5.0,
-        "a cache hit must not replay playback, took {warm:.2} ms"
-    );
-    assert!(
-        warm < cold,
-        "cache hit {warm:.2} ms must beat cold {cold:.2} ms"
-    );
+    assert!(warm <= 5.0, "a cache hit must not replay playback, took {warm:.2} ms");
+    assert!(warm < cold, "cache hit {warm:.2} ms must beat cold {cold:.2} ms");
 }
 
 #[test]
@@ -97,39 +86,24 @@ fn command_bytes(commands: &[VectorCommand]) -> usize {
     fn paint_bytes(paint: &VectorPaint) -> usize {
         match paint {
             VectorPaint::Solid(_) => 4,
-            VectorPaint::LinearGradient(g) | VectorPaint::RadialGradient(g) => {
-                8 + g.stops.len() * 8
-            }
+            VectorPaint::LinearGradient(g) | VectorPaint::RadialGradient(g) => 8 + g.stops.len() * 8,
             VectorPaint::Image(fill) => 64 + fill.rel_id.len(),
             VectorPaint::Pattern(_) => 64,
             VectorPaint::Texture(tex) => 64 + tex.png.len(),
         }
     }
     fn stroke_bytes(stroke: &VectorStroke) -> usize {
-        32 + stroke
-            .dash_segments
-            .as_ref()
-            .map_or(0, |dash| dash.len() * 4)
+        32 + stroke.dash_segments.as_ref().map_or(0, |dash| dash.len() * 4)
     }
     commands
         .iter()
         .map(|command| match command {
-            VectorCommand::DrawPath {
-                path,
-                fill,
-                stroke,
-                ..
-            } => {
+            VectorCommand::DrawPath { path, fill, stroke, .. } => {
                 path.segments.len() * size_of::<PathSegment>()
                     + fill.as_ref().map_or(0, paint_bytes)
                     + stroke.as_ref().map_or(0, stroke_bytes)
             }
-            VectorCommand::DrawLineEnd {
-                path,
-                fill,
-                stroke,
-                ..
-            } => {
+            VectorCommand::DrawLineEnd { path, fill, stroke, .. } => {
                 path.segments.len() * size_of::<PathSegment>()
                     + fill.as_ref().map_or(0, paint_bytes)
                     + stroke.as_ref().map_or(0, stroke_bytes)
@@ -139,8 +113,7 @@ fn command_bytes(commands: &[VectorCommand]) -> usize {
                 .map(|run| run.text.len() + run.glyphs.len() * size_of::<PositionedGlyph>() + 64)
                 .sum(),
             VectorCommand::DrawBitmap { png, .. } => png.len() + 64,
-            VectorCommand::DrawImage { rel_id, .. }
-            | VectorCommand::DrawMetafile { rel_id, .. } => rel_id.len(),
+            VectorCommand::DrawImage { rel_id, .. } | VectorCommand::DrawMetafile { rel_id, .. } => rel_id.len(),
             VectorCommand::PushClip(path) => path.segments.len() * size_of::<PathSegment>(),
             VectorCommand::PopClip => 0,
         })
@@ -156,10 +129,7 @@ fn large_streams_and_repeated_pictures_stay_bounded() {
     }
     // >10 MiB total: 1M points (~8 MiB) plus an ignored GDI comment.
     let padding = vec![0u8; 3_000_000];
-    let bytes = support::emf(&[
-        support::polyline(&points(1_000_000)),
-        support::emf_comment(&padding),
-    ]);
+    let bytes = support::emf(&[support::polyline(&points(1_000_000)), support::emf_comment(&padding)]);
     assert!(bytes.len() > 10 * 1024 * 1024, "expected a >10 MiB stream");
     let store = support::FixtureStore::new("ppt/media/image1.emf", bytes.clone());
 
@@ -177,10 +147,7 @@ fn large_streams_and_repeated_pictures_stay_bounded() {
         bytes.len(),
         expanded_bytes as f64 / bytes.len() as f64
     );
-    assert!(
-        expanded_bytes <= bytes.len() * 8,
-        "display list exceeds 8x input"
-    );
+    assert!(expanded_bytes <= bytes.len() * 8, "display list exceeds 8x input");
 
     // A repeated picture on many slides must be cache hits, not replays.
     let small = support::emf(&[support::polyline(&points(20_000))]);
@@ -195,10 +162,7 @@ fn large_streams_and_repeated_pictures_stay_bounded() {
     }
     let repeats = started.elapsed().as_secs_f64() * 1000.0;
     println!("50 repeated pictures: {repeats:.2} ms");
-    assert!(
-        repeats <= 250.0,
-        "50 cached pictures took {repeats:.2} ms"
-    );
+    assert!(repeats <= 250.0, "50 cached pictures took {repeats:.2} ms");
 }
 
 #[test]

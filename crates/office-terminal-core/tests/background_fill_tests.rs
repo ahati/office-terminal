@@ -9,8 +9,7 @@ use std::sync::Arc;
 
 use office_terminal_core::compiler::background::compile_slide_background;
 use office_terminal_core::contracts::{
-    BackgroundTile, NormalizedRect, RectF32, RenderTargetSpec, RgbaSlide, SvgTextMode,
-    VectorBackground, VectorSlide,
+    BackgroundTile, NormalizedRect, RectF32, RenderTargetSpec, RgbaSlide, SvgTextMode, VectorBackground, VectorSlide,
 };
 use office_terminal_core::error::AssetError;
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
@@ -79,8 +78,7 @@ impl TestAssets {
 
 impl AssetStore for TestAssets {
     fn get(&self, rel_id: &str, _hint: SizeHint) -> Result<DecodedImage, AssetError> {
-        let (width, height, pixels) =
-            Self::pixels(rel_id).ok_or_else(|| AssetError::NotFound(rel_id.to_string()))?;
+        let (width, height, pixels) = Self::pixels(rel_id).ok_or_else(|| AssetError::NotFound(rel_id.to_string()))?;
         Ok(DecodedImage {
             width,
             height,
@@ -89,8 +87,7 @@ impl AssetStore for TestAssets {
     }
 
     fn get_raw_bytes(&self, rel_id: &str) -> Result<Vec<u8>, AssetError> {
-        let (width, height, pixels) =
-            Self::pixels(rel_id).ok_or_else(|| AssetError::NotFound(rel_id.to_string()))?;
+        let (width, height, pixels) = Self::pixels(rel_id).ok_or_else(|| AssetError::NotFound(rel_id.to_string()))?;
         let rgba = image::RgbaImage::from_raw(width, height, pixels)
             .ok_or_else(|| AssetError::NotFound(rel_id.to_string()))?;
         let mut png = Vec::new();
@@ -233,11 +230,7 @@ fn src_rect_left_quarter_shows_only_the_right_seventy_five_percent() {
 #[test]
 fn fill_rect_insets_leave_the_white_base_visible() {
     // ref renderer.ts:2298-2306 — l/t/r/b are destination insets of the box.
-    let rendered = rasterize(
-        with_fill_rect(BANDS, RectF32::new(0.25, 0.25, 0.5, 0.5)),
-        1000,
-        100,
-    );
+    let rendered = rasterize(with_fill_rect(BANDS, RectF32::new(0.25, 0.25, 0.5, 0.5)), 1000, 100);
     for (x, y) in [(2, 2), (97, 2), (2, 97), (97, 97)] {
         assert_rgb(pixel(&rendered, x, y), WHITE, "inset corner");
     }
@@ -249,11 +242,7 @@ fn negative_fill_rect_inset_overscans_and_is_clipped_to_the_slide() {
     // Negative edges overscan past the box (ref renderer.ts:2331-2335) and the
     // paint is clipped to the slide rect (ref renderer.ts:2309-2314), so the
     // central half of the source fills the whole slide and nothing spills.
-    let rendered = rasterize(
-        with_fill_rect(BANDS, RectF32::new(-0.5, -0.5, 2.0, 2.0)),
-        1000,
-        100,
-    );
+    let rendered = rasterize(with_fill_rect(BANDS, RectF32::new(-0.5, -0.5, 2.0, 2.0)), 1000, 100);
     assert_eq!((rendered.width, rendered.height), (100, 100));
     for y in (0..rendered.height).step_by(7) {
         for x in 0..rendered.width {
@@ -300,26 +289,10 @@ fn tiled_2x2_produces_four_repeated_regions() {
     for (tile_x, tile_y) in [(0, 0), (40, 0), (0, 40), (40, 40)] {
         let base_x = tile_x as u32;
         let base_y = tile_y as u32;
-        assert_rgb(
-            pixel(&rendered, base_x + 10, base_y + 10),
-            [255, 0, 0],
-            "tile TL",
-        );
-        assert_rgb(
-            pixel(&rendered, base_x + 30, base_y + 10),
-            [0, 255, 0],
-            "tile TR",
-        );
-        assert_rgb(
-            pixel(&rendered, base_x + 10, base_y + 30),
-            [0, 0, 255],
-            "tile BL",
-        );
-        assert_rgb(
-            pixel(&rendered, base_x + 30, base_y + 30),
-            [255, 255, 0],
-            "tile BR",
-        );
+        assert_rgb(pixel(&rendered, base_x + 10, base_y + 10), [255, 0, 0], "tile TL");
+        assert_rgb(pixel(&rendered, base_x + 30, base_y + 10), [0, 255, 0], "tile TR");
+        assert_rgb(pixel(&rendered, base_x + 10, base_y + 30), [0, 0, 255], "tile BL");
+        assert_rgb(pixel(&rendered, base_x + 30, base_y + 30), [255, 255, 0], "tile BR");
     }
 }
 
@@ -470,10 +443,7 @@ fn svg_src_rect_emits_a_nested_viewbox_without_letterboxing() {
 
 #[test]
 fn svg_fill_rect_sets_the_image_destination() {
-    let svg = serialize(
-        with_fill_rect(BANDS, RectF32::new(0.25, 0.25, 0.5, 0.5)),
-        1000,
-    );
+    let svg = serialize(with_fill_rect(BANDS, RectF32::new(0.25, 0.25, 0.5, 0.5)), 1000);
     assert!(
         svg.contains(r#"x="250" y="250" width="500" height="500""#),
         "fillRect destination missing:\n{svg}"
@@ -499,10 +469,7 @@ fn svg_tiled_background_emits_a_native_size_pattern() {
         ),
         "tile pattern missing:\n{svg}"
     );
-    assert!(
-        svg.contains(r#"fill="url(#bg_tile)""#),
-        "pattern fill missing:\n{svg}"
-    );
+    assert!(svg.contains(r#"fill="url(#bg_tile)""#), "pattern fill missing:\n{svg}");
     assert_eq!(svg.matches("<use ").count(), 1, "no flip ⇒ one tile cell");
 }
 

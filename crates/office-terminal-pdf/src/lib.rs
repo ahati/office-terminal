@@ -1,4 +1,4 @@
-//! High-fidelity PDF document and slide deck input engine for kitty-pptx.
+//! High-fidelity PDF document and slide deck input engine for Office Terminal.
 
 pub mod dest;
 pub mod detect;

@@ -8,8 +8,8 @@
 
 use base64::prelude::*;
 use office_terminal_core::contracts::{
-    DecorationLine, PathSegment, PositionedGlyphRun, RectF32, VectorCommand, VectorImageFill,
-    VectorPaint, VectorPath, VectorSlide, VectorStroke,
+    DecorationLine, PathSegment, PositionedGlyphRun, RectF32, VectorCommand, VectorImageFill, VectorPaint, VectorPath,
+    VectorSlide, VectorStroke,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -139,14 +139,7 @@ fn segment_json(segment: &PathSegment) -> Value {
         PathSegment::QuadTo { x1, y1, x, y } => {
             json!({ "type": "quadTo", "x1": x1, "y1": y1, "x": x, "y": y })
         }
-        PathSegment::CubicTo {
-            x1,
-            y1,
-            x2,
-            y2,
-            x,
-            y,
-        } => json!({
+        PathSegment::CubicTo { x1, y1, x2, y2, x, y } => json!({
             "type": "cubicTo",
             "x1": x1,
             "y1": y1,
@@ -293,9 +286,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use office_terminal_core::contracts::{
-        AffineTransform, BitmapSampling, FillRule, VectorSlide,
-    };
+    use office_terminal_core::contracts::{AffineTransform, BitmapSampling, FillRule, VectorSlide};
     use std::sync::Arc;
 
     fn bitmap_slide(embed: bool) -> Value {

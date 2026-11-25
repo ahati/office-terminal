@@ -271,4 +271,3 @@ pub(super) fn build_sequences(
     }
     sequences
 }
-

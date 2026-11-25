@@ -16,8 +16,8 @@
 use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::{AffineTransform, PositionedGlyphRun, VectorCommand};
 use office_terminal_core::text::east_asian_default::{
-    complex_script_default_face, east_asian_default_faces, is_east_asian_face,
-    is_east_asian_slot_symbol, is_serif_latin_face,
+    complex_script_default_face, east_asian_default_faces, is_east_asian_face, is_east_asian_slot_symbol,
+    is_serif_latin_face,
 };
 use office_terminal_core::text::emit::compile_text_body;
 
@@ -322,8 +322,7 @@ fn authored_cs_face_reaches_the_painted_run() {
     spec.cs = Some("Calibri");
     spec.lang = Some("he-IL");
     let cell_body = body_value(&[spec]);
-    let text_body: pptx_model::TextBody =
-        serde_json::from_value(cell_body.clone()).expect("text body fixture");
+    let text_body: pptx_model::TextBody = serde_json::from_value(cell_body.clone()).expect("text body fixture");
     let shape_faces = faces(&text_body);
     assert_eq!(
         face_of(&shape_faces, "שלום"),

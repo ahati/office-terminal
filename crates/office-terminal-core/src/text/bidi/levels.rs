@@ -27,12 +27,7 @@ pub(super) type Dir = u8; // 0 = L, 1 = R
 pub(super) fn is_removed(t: BidiClass) -> bool {
     matches!(
         t,
-        BidiClass::Rle
-            | BidiClass::Lre
-            | BidiClass::Rlo
-            | BidiClass::Lro
-            | BidiClass::Pdf
-            | BidiClass::Bn
+        BidiClass::Rle | BidiClass::Lre | BidiClass::Rlo | BidiClass::Lro | BidiClass::Pdf | BidiClass::Bn
     )
 }
 
@@ -80,22 +75,14 @@ pub(super) fn first_strong_level(types: &[BidiClass], start: usize, end: usize) 
 /// `class_override` is the UAX#9 §4.3 HL1 hook: a per-code-point class that
 /// replaces the assigned one before the algorithm runs (the DrawingML tab
 /// separator). `Removed` code points carry [`REMOVED`].
-pub(super) fn resolve_levels(
-    cps: &[u32],
-    class_override: Option<&[Option<BidiClass>]>,
-    base_rtl: bool,
-) -> Resolved {
+pub(super) fn resolve_levels(cps: &[u32], class_override: Option<&[Option<BidiClass>]>, base_rtl: bool) -> Resolved {
     let n = cps.len();
     let mut orig: Vec<BidiClass> = Vec::with_capacity(n);
     for (i, &cp) in cps.iter().enumerate() {
         let over = class_override.and_then(|list| list.get(i).copied().flatten());
         orig.push(over.unwrap_or_else(|| bidi_class(cp)));
     }
-    let paragraph_level = if base_rtl {
-        1
-    } else {
-        first_strong_level(&orig, 0, n)
-    };
+    let paragraph_level = if base_rtl { 1 } else { first_strong_level(&orig, 0, n) };
     let (pdi_of, init_of) = compute_matching(&orig);
     let (mut levels, mut types) = determine_explicit_levels(&orig, paragraph_level, &pdi_of);
     let removed: Vec<bool> = orig.iter().map(|t| is_removed(*t)).collect();
@@ -150,9 +137,7 @@ pub(super) fn resolve_levels(
 /// each level from the highest down to the lowest odd level reverses its
 /// contiguous run of at least that level.
 pub(super) fn reorder_visual(levels: &[u8]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..levels.len())
-        .filter(|i| levels[*i] <= MAX_DEPTH + 1)
-        .collect();
+    let mut order: Vec<usize> = (0..levels.len()).filter(|i| levels[*i] <= MAX_DEPTH + 1).collect();
     if order.is_empty() {
         return order;
     }

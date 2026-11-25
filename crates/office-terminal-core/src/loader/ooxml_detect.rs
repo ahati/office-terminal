@@ -37,9 +37,8 @@ type SniffArchive<'a> = zip::ZipArchive<Cursor<&'a [u8]>>;
 
 /// Classify an OOZIP package as [`SourceFormat`] from its main part.
 pub fn detect_ooxml_format(bytes: &[u8]) -> Result<SourceFormat, ParseError> {
-    let mut zip = SniffArchive::new(Cursor::new(bytes)).map_err(|error| {
-        ParseError::ArchiveError(format!("not a readable OOXML ZIP package: {error}"))
-    })?;
+    let mut zip = SniffArchive::new(Cursor::new(bytes))
+        .map_err(|error| ParseError::ArchiveError(format!("not a readable OOXML ZIP package: {error}")))?;
 
     if let Some(main_part) = opc_main_part(&mut zip) {
         return main_part_format(&main_part);
@@ -150,10 +149,7 @@ mod tests {
 
     #[test]
     fn docx_package_rels_target_classifies_as_docx() {
-        let bytes = zip_with(&[
-            ("_rels/.rels", RELS_DOCX),
-            ("word/document.xml", "<w:document/>"),
-        ]);
+        let bytes = zip_with(&[("_rels/.rels", RELS_DOCX), ("word/document.xml", "<w:document/>")]);
         assert_eq!(detect_ooxml_format(&bytes).unwrap(), SourceFormat::Docx);
     }
 
@@ -190,7 +186,10 @@ mod tests {
     #[test]
     fn spreadsheet_main_part_is_a_typed_rejection() {
         let bytes = zip_with(&[
-            ("_rels/.rels", RELS_DOCX.replace("word/document.xml", "xl/workbook.xml").as_str()),
+            (
+                "_rels/.rels",
+                RELS_DOCX.replace("word/document.xml", "xl/workbook.xml").as_str(),
+            ),
             ("xl/workbook.xml", "<x:workbook/>"),
         ]);
         let err = detect_ooxml_format(&bytes).unwrap_err();
@@ -200,7 +199,10 @@ mod tests {
     #[test]
     fn unknown_main_part_is_rejected_with_the_part_name() {
         let bytes = zip_with(&[
-            ("_rels/.rels", RELS_DOCX.replace("word/document.xml", "custom/other.xml").as_str()),
+            (
+                "_rels/.rels",
+                RELS_DOCX.replace("word/document.xml", "custom/other.xml").as_str(),
+            ),
             ("custom/other.xml", "<o:other/>"),
         ]);
         let err = detect_ooxml_format(&bytes).unwrap_err();

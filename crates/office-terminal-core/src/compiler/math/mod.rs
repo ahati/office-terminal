@@ -22,8 +22,8 @@ use crossbeam_channel::Sender;
 use ooxml_common::math::MathNode;
 
 use crate::contracts::{
-    AffineTransform, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun,
-    VectorCommand, VectorPaint, VectorPath, VectorStroke, WarningEvent,
+    AffineTransform, LineCap, LineJoin, PathSegment, PositionedGlyph, PositionedGlyphRun, VectorCommand, VectorPaint,
+    VectorPath, VectorStroke, WarningEvent,
 };
 
 use box_model::{glyph_width, MathBox, MathBoxKind, MathGlyphRun, MathMetrics, MathStyle};
@@ -104,11 +104,7 @@ impl MathPlacement {
 }
 
 /// Typeset `nodes` into a flowable [`MathPiece`] (PRD 09 §5 fallbacks applied).
-pub fn layout_math(
-    nodes: &[MathNode],
-    params: MathParams<'_>,
-    warning_sink: &Sender<WarningEvent>,
-) -> MathPiece {
+pub fn layout_math(nodes: &[MathNode], params: MathParams<'_>, warning_sink: &Sender<WarningEvent>) -> MathPiece {
     let style = if params.display {
         MathStyle::display()
     } else {
@@ -205,28 +201,15 @@ pub fn translate_path(path: &VectorPath, dx: f32, dy: f32) -> VectorPath {
         .segments
         .iter()
         .map(|segment| match *segment {
-            PathSegment::MoveTo { x, y } => PathSegment::MoveTo {
-                x: x + dx,
-                y: y + dy,
-            },
-            PathSegment::LineTo { x, y } => PathSegment::LineTo {
-                x: x + dx,
-                y: y + dy,
-            },
+            PathSegment::MoveTo { x, y } => PathSegment::MoveTo { x: x + dx, y: y + dy },
+            PathSegment::LineTo { x, y } => PathSegment::LineTo { x: x + dx, y: y + dy },
             PathSegment::QuadTo { x1, y1, x, y } => PathSegment::QuadTo {
                 x1: x1 + dx,
                 y1: y1 + dy,
                 x: x + dx,
                 y: y + dy,
             },
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => PathSegment::CubicTo {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => PathSegment::CubicTo {
                 x1: x1 + dx,
                 y1: y1 + dy,
                 x2: x2 + dx,
@@ -243,12 +226,9 @@ pub fn translate_path(path: &VectorPath, dx: f32, dy: f32) -> VectorPath {
 /// Convert a painted math path into a display-list command.
 pub fn math_path_command(path: &MathPath, transform: &AffineTransform) -> VectorCommand {
     match &path.paint {
-        MathPathPaint::Fill(color) => VectorCommand::draw_path(
-            path.path.clone(),
-            Some(VectorPaint::Solid(*color)),
-            None,
-            *transform,
-        ),
+        MathPathPaint::Fill(color) => {
+            VectorCommand::draw_path(path.path.clone(), Some(VectorPaint::Solid(*color)), None, *transform)
+        }
         MathPathPaint::Stroke { color, width } => VectorCommand::draw_path(
             path.path.clone(),
             None,
@@ -372,11 +352,7 @@ mod tests {
             sup: vec![run("2")],
         };
         let piece = layout_math(&[node], MathParams::default(), &tx);
-        let sup = piece
-            .runs
-            .iter()
-            .find(|r| r.text == "2")
-            .expect("superscript run");
+        let sup = piece.runs.iter().find(|r| r.text == "2").expect("superscript run");
         assert!((sup.font_size_pt - 18.0 * 0.70).abs() < 0.01);
     }
 
@@ -463,9 +439,6 @@ mod tests {
         let placement = MathPlacement::new(100.0, 200.0, AffineTransform::identity());
         let commands = compile_math_element(&[fraction()], MathParams::default(), &placement, &tx);
         assert!(matches!(commands[0], VectorCommand::DrawPath { .. }));
-        assert!(matches!(
-            commands.last(),
-            Some(VectorCommand::DrawText { .. })
-        ));
+        assert!(matches!(commands.last(), Some(VectorCommand::DrawText { .. })));
     }
 }

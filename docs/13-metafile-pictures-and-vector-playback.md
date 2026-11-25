@@ -543,7 +543,7 @@ Expansion emits every `FidelityDegraded`/`MediaFailed`/`ResourceLimitHit` warnin
 - `export --format svg` emits inline `<image>` data URIs for EMF bitmaps and native paths/text otherwise.
 - `export --format png` rasterizes the same commands.
 - `dump --json` compiles and expands every slide before serialization; the envelope carries `vectorSlides` with no surviving `DrawMetafile`. `DrawBitmap` is projected as `{width, height, pngSha256, placement, opacity, sampling}`; `--embed-bitmaps` adds `pngBase64`. `info` counts metafile pictures as media.
-- `--metafile=<playback|placeholder>` (global flag) and `KITTY_PPTX_METAFILE` override the engine for debugging; `placeholder` reproduces the old behaviour without playback and without diagnostics. The flag wins over the environment variable (implemented in M6).
+- `--metafile=<playback|placeholder>` (global flag) and `OT_METAFILE` (legacy `KITTY_PPTX_METAFILE`) override the engine for debugging; `placeholder` reproduces the old behaviour without playback and without diagnostics. The flag wins over the environment variable (implemented in M6).
 - The export, view and dump paths all drain compile-stage warnings to stderr (font substitutions, fidelity gaps) in addition to expansion warnings.
 
 ### 10.4 Feature flag & rollout
@@ -610,7 +610,7 @@ Implemented in **M0** (`crates/office-terminal-core/tests/warning_plumbing_tests
 | M3 | ✅ done | `tests/metafile_milestone_tests.rs`: alignment (left/center), `dx` overrides, escapement rotation, decorations, `ETO_OPAQUE` background, size clamping, `FontSubstituted` for substituted faces |
 | M4 | ✅ done with engine limits | dual `GetDC` fallback diagnostic, hatch → preset pattern, texture → average solid (DEGRADED), gradient axis from the brush transform. `metafile-emfplus =1.0.1` has no radial/path-gradient vocabulary, so patch `0007` approximates those brushes with a linear ramp + `metafile_gradient`; glyph-index text still degrades with the mapped tag instead of the FULL rows in PRD 13a §2.2 |
 | M5 | ✅ done | placeable WMF + `META_EXTTEXTOUT`, `.emz`/`.wmz` bounded inflate (bomb degrades to `ResourceLimitHit`), mislabelled containers classified by content |
-| M6 | ✅ code complete | default-on `metafile` feature with feature-off placeholder routing, global `--metafile`/`KITTY_PPTX_METAFILE` override, export compile-warning drain, release perf smoke (`tests/metafile_perf_tests.rs`), deterministic robustness smoke + `fuzz/fuzz_targets/fuzz_metafile.rs`, external golden harness expands metafiles. The committed AST/PNG golden corpus (PRD 13a §2.4/§4) remains the tracked ⚠️ follow-up; every matrix row already has a fixture/assertion in `tests/metafile_*.rs`. |
+| M6 | ✅ code complete | default-on `metafile` feature with feature-off placeholder routing, global `--metafile`/`OT_METAFILE` override, export compile-warning drain, release perf smoke (`tests/metafile_perf_tests.rs`), deterministic robustness smoke + `fuzz/fuzz_targets/fuzz_metafile.rs`, external golden harness expands metafiles. The committed AST/PNG golden corpus (PRD 13a §2.4/§4) remains the tracked ⚠️ follow-up; every matrix row already has a fixture/assertion in `tests/metafile_*.rs`. |
 
 **Playback fixes landed with M3–M5:**
 

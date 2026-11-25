@@ -32,9 +32,7 @@ use external_fixture_support::metrics::{compare_slide, DiffMetrics, COMPARE_WIDT
 use external_fixture_support::render::render_fixture;
 use external_fixture_support::scores::{self, ExternalScores, SlideScore};
 use external_fixture_support::thumbs::ThumbnailCache;
-use external_fixture_support::{
-    load_manifest, Corpus, Fixture, Selection, MANIFEST_RELATIVE, MAX_LISTED, RUN_COMMAND,
-};
+use external_fixture_support::{load_manifest, Corpus, Fixture, Selection, MANIFEST_RELATIVE, MAX_LISTED, RUN_COMMAND};
 
 #[derive(Default)]
 struct Report {
@@ -129,7 +127,10 @@ fn compare_corpus(corpus: &Corpus, selection: &Selection) -> Report {
                 };
                 let fixture = &corpus.manifest.files[index];
                 let result = compare_deck(corpus, fixture, &thumbs);
-                collected.lock().expect("result mutex poisoned").push((position, result));
+                collected
+                    .lock()
+                    .expect("result mutex poisoned")
+                    .push((position, result));
             });
         }
     });
@@ -265,10 +266,9 @@ fn fold_deck(fixture: &Fixture, outcome: DeckResult, report: &mut Report) {
     report.slides += rendered_slides;
     for (index, metrics) in metrics.iter().enumerate() {
         if let Ok(metrics) = metrics {
-            report.scores.insert(
-                scores::key(&fixture.name, index + 1),
-                SlideScore::from(metrics),
-            );
+            report
+                .scores
+                .insert(scores::key(&fixture.name, index + 1), SlideScore::from(metrics));
         }
     }
     if fixture.strict {
@@ -397,12 +397,7 @@ fn describe(metrics: &DiffMetrics) -> String {
 }
 
 fn print_selection(corpus: &Corpus, selection: &Selection) {
-    let strict = corpus
-        .manifest
-        .files
-        .iter()
-        .filter(|fixture| fixture.strict)
-        .count();
+    let strict = corpus.manifest.files.iter().filter(|fixture| fixture.strict).count();
     println!(
         "external corpus: manifest={} ({strict} strict, {} diagnostic), comparable={}, \
          missing_goldens={}, missing_fixtures={}",
@@ -464,14 +459,8 @@ fn external_libreoffice_renderer_comparison() {
 fn manifest_is_internally_consistent() {
     let manifest = load_manifest(&Path::new(env!("CARGO_MANIFEST_DIR")).join(MANIFEST_RELATIVE));
 
-    assert!(
-        manifest.upstream.starts_with("https://"),
-        "upstream must be https"
-    );
-    assert!(
-        !manifest.license.trim().is_empty(),
-        "license must be recorded"
-    );
+    assert!(manifest.upstream.starts_with("https://"), "upstream must be https");
+    assert!(!manifest.license.trim().is_empty(), "license must be recorded");
     assert!(
         is_lower_hex(&manifest.commit, 40),
         "commit must be 40 lowercase hex characters"
@@ -480,10 +469,7 @@ fn manifest_is_internally_consistent() {
         (1..=10_000).contains(&manifest.render_width),
         "render_width out of range"
     );
-    assert!(
-        !manifest.files.is_empty(),
-        "manifest must list at least one fixture"
-    );
+    assert!(!manifest.files.is_empty(), "manifest must list at least one fixture");
 
     let mut names = BTreeSet::new();
     for fixture in &manifest.files {
@@ -501,11 +487,7 @@ fn manifest_is_internally_consistent() {
 
     let mut skipped = BTreeSet::new();
     for entry in &manifest.skipped {
-        assert!(
-            is_safe_name(&entry.name),
-            "unsafe skipped name {:?}",
-            entry.name
-        );
+        assert!(is_safe_name(&entry.name), "unsafe skipped name {:?}", entry.name);
         assert!(skipped.insert(entry.name.as_str()), "duplicate skip");
         assert!(
             !names.contains(entry.name.as_str()),

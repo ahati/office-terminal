@@ -37,9 +37,7 @@ fn create_presentation(num_slides: usize) -> Arc<pptx_model::Presentation> {
             index: i,
             slide_number: i + 1,
             part_name: Some(format!("ppt/slides/slide{}.xml", i + 1)),
-            background: Some(pptx_model::Fill::Solid {
-                color: "FFFFFF".into(),
-            }),
+            background: Some(pptx_model::Fill::Solid { color: "FFFFFF".into() }),
             elements: Vec::new(),
             element_sources: Vec::new(),
             notes: None,
@@ -129,10 +127,7 @@ fn entry_at_is_exact_target_only() {
     // it into the card as if it were the canvas frame.
     match pipeline.entry_at(0, &SMALL) {
         PipelineEntry::NotLoaded | PipelineEntry::Rendering => {}
-        other => panic!(
-            "entry_at must not reuse another target, got {}",
-            entry_kind(&other)
-        ),
+        other => panic!("entry_at must not reuse another target, got {}", entry_kind(&other)),
     }
 }
 

@@ -75,11 +75,7 @@ fn text_elements(svg: &str) -> Vec<TextEl> {
             continue;
         };
         let attrs = &line[pos..open_end];
-        let body = line[open_end + 1..]
-            .split("</text>")
-            .next()
-            .unwrap_or("")
-            .to_string();
+        let body = line[open_end + 1..].split("</text>").next().unwrap_or("").to_string();
         let x = attr_value(attrs, "x").and_then(|v| v.parse().ok());
         let y = attr_value(attrs, "y").and_then(|v| v.parse().ok());
         if let (Some(x), Some(y)) = (x, y) {
@@ -235,10 +231,7 @@ fn compiled_runs() -> Vec<PositionedGlyphRun> {
 fn two_line_body_emits_one_text_per_line_with_distinct_baselines() {
     let runs = compiled_runs();
     assert_eq!(runs.len(), 2, "one run per broken line: {runs:?}");
-    let baselines: Vec<f32> = runs
-        .iter()
-        .map(|r| r.glyphs.first().expect("placed glyph").y)
-        .collect();
+    let baselines: Vec<f32> = runs.iter().map(|r| r.glyphs.first().expect("placed glyph").y).collect();
     assert!(
         (baselines[1] - baselines[0]).abs() > 1.0,
         "the two paragraphs sit on different baselines: {baselines:?}"
@@ -304,10 +297,7 @@ fn justified_run_pins_its_advance_with_text_length() {
     }
     let expected_extent = 10.0 * 100_000.0 + gap;
 
-    let svg = svg_for(
-        &slide_with(vec![natural, spread]),
-        SvgTextMode::SelectableText,
-    );
+    let svg = svg_for(&slide_with(vec![natural, spread]), SvgTextMode::SelectableText);
     let texts = text_elements(&svg);
     assert_eq!(texts.len(), 2, "{svg}");
 
@@ -317,14 +307,14 @@ fn justified_run_pins_its_advance_with_text_length() {
         texts[0].attrs
     );
     assert!(
-        texts[1].attrs.contains(&format!(r#"textLength="{expected_extent:.1}""#)),
+        texts[1]
+            .attrs
+            .contains(&format!(r#"textLength="{expected_extent:.1}""#)),
         "justified run must pin the placed extent: {}",
         texts[1].attrs
     );
     assert!(
-        texts[1]
-            .attrs
-            .contains(r#"lengthAdjust="spacingAndGlyphs""#),
+        texts[1].attrs.contains(r#"lengthAdjust="spacingAndGlyphs""#),
         "pinned advance must rescale the glyphs too: {}",
         texts[1].attrs
     );
@@ -354,10 +344,7 @@ fn decoration_fills_and_face_are_kept() {
     let texts = text_elements(&svg);
     assert_eq!(texts.len(), 1);
     let attrs = &texts[0].attrs;
-    assert!(
-        attrs.contains(r#"text-decoration="underline line-through""#),
-        "{attrs}"
-    );
+    assert!(attrs.contains(r#"text-decoration="underline line-through""#), "{attrs}");
     assert!(attrs.contains(r#"font-family="Carlito""#), "{attrs}");
     assert!(
         attrs.contains(&format!(r#"font-size="{:.1}""#, POINTS * 12700.0)),
@@ -429,7 +416,6 @@ fn outline_mode_keeps_the_run_origin_and_baseline() {
     }
 }
 
-
 #[test]
 fn vector_glyphs_paint_the_same_decoration_bands() {
     let mut r = run("Decorated", 300_000.0, 900_000.0, 120_000.0);
@@ -454,11 +440,7 @@ fn vector_glyphs_paint_the_same_decoration_bands() {
 
     let svg = svg_for(&slide_with(vec![r]), SvgTextMode::VectorGlyphs);
     assert!(svg.contains("<path "), "glyph outlines render");
-    assert_eq!(
-        svg.matches("<rect x=").count(),
-        3,
-        "underline + double strike"
-    );
+    assert_eq!(svg.matches("<rect x=").count(), 3, "underline + double strike");
     assert!(svg.contains(r#"fill="rgb(255,0,0)""#), "underline colour");
     assert!(!svg.contains("text-decoration"), "no CSS decoration in outline mode");
 }

@@ -15,13 +15,7 @@ pub const KAPPA: f32 = 0.552_284_8;
 /// Normalize an OOXML adjustment handle (`adj1`..`adj8`) into a dimensionless
 /// ratio, applying the PRD 11 §4.1 clamp and NaN guard.
 #[inline]
-pub fn norm_adj(
-    adj: &[Option<f64>],
-    index: usize,
-    default_val: f32,
-    min_val: f32,
-    max_val: f32,
-) -> f32 {
+pub fn norm_adj(adj: &[Option<f64>], index: usize, default_val: f32, min_val: f32, max_val: f32) -> f32 {
     match adj.get(index).and_then(|v| *v) {
         Some(raw) => {
             let normalized = (raw / 100_000.0) as f32;
@@ -73,14 +67,7 @@ pub fn polygon(points: &[(f32, f32)], fill_rule: FillRule) -> VectorPath {
 }
 
 /// Append a full ellipse subpath starting at the right-most point.
-pub fn push_ellipse(
-    segments: &mut Vec<PathSegment>,
-    cx: f32,
-    cy: f32,
-    rx: f32,
-    ry: f32,
-    clockwise: bool,
-) {
+pub fn push_ellipse(segments: &mut Vec<PathSegment>, cx: f32, cy: f32, rx: f32, ry: f32, clockwise: bool) {
     segments.push(PathSegment::MoveTo { x: cx + rx, y: cy });
     let sweep = if clockwise { 360.0 } else { -360.0 };
     decompose_arc_to_cubic(cx, cy, rx, ry, 0.0, sweep, segments);
@@ -89,15 +76,7 @@ pub fn push_ellipse(
 
 /// Append an elliptical arc subpath. `start_deg` follows OOXML's convention
 /// (0° points right, angles increase clockwise on screen because y grows down).
-pub fn push_arc(
-    segments: &mut Vec<PathSegment>,
-    cx: f32,
-    cy: f32,
-    rx: f32,
-    ry: f32,
-    start_deg: f32,
-    sweep_deg: f32,
-) {
+pub fn push_arc(segments: &mut Vec<PathSegment>, cx: f32, cy: f32, rx: f32, ry: f32, start_deg: f32, sweep_deg: f32) {
     let start = start_deg.to_radians();
     segments.push(PathSegment::MoveTo {
         x: cx + rx * start.cos(),
@@ -108,15 +87,7 @@ pub fn push_arc(
 
 /// Append a rounded rectangle subpath with absolute bounds. `r` is clamped to
 /// half the smaller side so degenerate rectangles stay valid.
-pub fn push_round_rect(
-    segments: &mut Vec<PathSegment>,
-    x0: f32,
-    y0: f32,
-    x1: f32,
-    y1: f32,
-    r: f32,
-    clockwise: bool,
-) {
+pub fn push_round_rect(segments: &mut Vec<PathSegment>, x0: f32, y0: f32, x1: f32, y1: f32, r: f32, clockwise: bool) {
     let rw = (x1 - x0).abs();
     let rh = (y1 - y0).abs();
     let radius = if r.is_finite() {
@@ -130,116 +101,25 @@ pub fn push_round_rect(
     }
 
     if clockwise {
-        segments.push(PathSegment::MoveTo {
-            x: x0 + radius,
-            y: y0,
-        });
-        segments.push(PathSegment::LineTo {
-            x: x1 - radius,
-            y: y0,
-        });
-        decompose_arc_to_cubic(
-            x1 - radius,
-            y0 + radius,
-            radius,
-            radius,
-            270.0,
-            90.0,
-            segments,
-        );
-        segments.push(PathSegment::LineTo {
-            x: x1,
-            y: y1 - radius,
-        });
-        decompose_arc_to_cubic(
-            x1 - radius,
-            y1 - radius,
-            radius,
-            radius,
-            0.0,
-            90.0,
-            segments,
-        );
-        segments.push(PathSegment::LineTo {
-            x: x0 + radius,
-            y: y1,
-        });
-        decompose_arc_to_cubic(
-            x0 + radius,
-            y1 - radius,
-            radius,
-            radius,
-            90.0,
-            90.0,
-            segments,
-        );
-        segments.push(PathSegment::LineTo {
-            x: x0,
-            y: y0 + radius,
-        });
-        decompose_arc_to_cubic(
-            x0 + radius,
-            y0 + radius,
-            radius,
-            radius,
-            180.0,
-            90.0,
-            segments,
-        );
+        segments.push(PathSegment::MoveTo { x: x0 + radius, y: y0 });
+        segments.push(PathSegment::LineTo { x: x1 - radius, y: y0 });
+        decompose_arc_to_cubic(x1 - radius, y0 + radius, radius, radius, 270.0, 90.0, segments);
+        segments.push(PathSegment::LineTo { x: x1, y: y1 - radius });
+        decompose_arc_to_cubic(x1 - radius, y1 - radius, radius, radius, 0.0, 90.0, segments);
+        segments.push(PathSegment::LineTo { x: x0 + radius, y: y1 });
+        decompose_arc_to_cubic(x0 + radius, y1 - radius, radius, radius, 90.0, 90.0, segments);
+        segments.push(PathSegment::LineTo { x: x0, y: y0 + radius });
+        decompose_arc_to_cubic(x0 + radius, y0 + radius, radius, radius, 180.0, 90.0, segments);
         segments.push(PathSegment::Close);
     } else {
-        segments.push(PathSegment::MoveTo {
-            x: x0 + radius,
-            y: y0,
-        });
-        decompose_arc_to_cubic(
-            x0 + radius,
-            y0 + radius,
-            radius,
-            radius,
-            270.0,
-            -90.0,
-            segments,
-        );
-        segments.push(PathSegment::LineTo {
-            x: x0,
-            y: y1 - radius,
-        });
-        decompose_arc_to_cubic(
-            x0 + radius,
-            y1 - radius,
-            radius,
-            radius,
-            180.0,
-            -90.0,
-            segments,
-        );
-        segments.push(PathSegment::LineTo {
-            x: x1 - radius,
-            y: y1,
-        });
-        decompose_arc_to_cubic(
-            x1 - radius,
-            y1 - radius,
-            radius,
-            radius,
-            90.0,
-            -90.0,
-            segments,
-        );
-        segments.push(PathSegment::LineTo {
-            x: x1,
-            y: y0 + radius,
-        });
-        decompose_arc_to_cubic(
-            x1 - radius,
-            y0 + radius,
-            radius,
-            radius,
-            0.0,
-            -90.0,
-            segments,
-        );
+        segments.push(PathSegment::MoveTo { x: x0 + radius, y: y0 });
+        decompose_arc_to_cubic(x0 + radius, y0 + radius, radius, radius, 270.0, -90.0, segments);
+        segments.push(PathSegment::LineTo { x: x0, y: y1 - radius });
+        decompose_arc_to_cubic(x0 + radius, y1 - radius, radius, radius, 180.0, -90.0, segments);
+        segments.push(PathSegment::LineTo { x: x1 - radius, y: y1 });
+        decompose_arc_to_cubic(x1 - radius, y1 - radius, radius, radius, 90.0, -90.0, segments);
+        segments.push(PathSegment::LineTo { x: x1, y: y0 + radius });
+        decompose_arc_to_cubic(x1 - radius, y0 + radius, radius, radius, 0.0, -90.0, segments);
         segments.push(PathSegment::Close);
     }
 }
@@ -323,15 +203,7 @@ pub fn multi_polygon(polys: &[Vec<(f32, f32)>], fill_rule: FillRule) -> VectorPa
 
 /// Sample an elliptical arc into line segments, used by stand-in silhouettes
 /// that do not need exact Bézier decomposition (clouds, scrolls, seals).
-pub fn sample_arc(
-    cx: f32,
-    cy: f32,
-    rx: f32,
-    ry: f32,
-    start_deg: f32,
-    sweep_deg: f32,
-    steps: usize,
-) -> Vec<(f32, f32)> {
+pub fn sample_arc(cx: f32, cy: f32, rx: f32, ry: f32, start_deg: f32, sweep_deg: f32, steps: usize) -> Vec<(f32, f32)> {
     let n = steps.max(1);
     let start = start_deg.to_radians();
     let step = sweep_deg.to_radians() / n as f32;

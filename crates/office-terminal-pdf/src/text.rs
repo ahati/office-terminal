@@ -3,8 +3,8 @@ use hayro_interpret::hayro_cmap::BfString;
 use hayro_interpret::kurbo::{BezPath, Rect};
 use hayro_interpret::util::TransformExt;
 use hayro_interpret::{
-    interpret_page, BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, Image,
-    ImageDrawProps, InterpreterCache, InterpreterSettings, SoftMask,
+    interpret_page, BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, Image, ImageDrawProps, InterpreterCache,
+    InterpreterSettings, SoftMask,
 };
 use hayro_syntax::page::Page;
 use office_terminal_core::{EmuRect, SearchCorpus, TextLine, EMU_PER_PT};
@@ -70,13 +70,7 @@ impl<'a> Device<'a> for TextExtractionDevice {
 
     fn push_clip_path(&mut self, _clip_path: &ClipPath) {}
 
-    fn push_transparency_group(
-        &mut self,
-        _opacity: f32,
-        _mask: Option<SoftMask<'a>>,
-        _blend_mode: BlendMode,
-    ) {
-    }
+    fn push_transparency_group(&mut self, _opacity: f32, _mask: Option<SoftMask<'a>>, _blend_mode: BlendMode) {}
 
     fn pop_clip(&mut self) {}
 
@@ -84,12 +78,7 @@ impl<'a> Device<'a> for TextExtractionDevice {
 
     fn draw_image(&mut self, _image: Image<'a, '_>, _props: ImageDrawProps<'a>) {}
 
-    fn draw_glyph_run(
-        &mut self,
-        glyph_run: &GlyphRun<'_, 'a>,
-        _props: DrawProps<'a>,
-        _draw_mode: &DrawMode,
-    ) {
+    fn draw_glyph_run(&mut self, glyph_run: &GlyphRun<'_, 'a>, _props: DrawProps<'a>, _draw_mode: &DrawMode) {
         for glyph in glyph_run.glyphs() {
             let Some(unicode) = glyph.as_unicode() else {
                 continue;

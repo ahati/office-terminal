@@ -1,25 +1,27 @@
-//! kitty-pptx core: vector display list, compiler, rasterizer and SVG exporter.
+//! Office Terminal core: vector display list, compiler, rasterizer and SVG exporter.
 #![forbid(unsafe_code)]
+// `shape_effects` exists in both `contracts` and `compiler`; the glob re-exports
+// intentionally expose one name and are part of the crate's public surface.
+#![allow(ambiguous_glob_reexports)]
+pub mod compiler;
 pub mod contracts;
 pub mod error;
 pub mod loader;
-pub mod compiler;
 pub mod metafile;
-pub mod rasterizer;
-pub mod svg;
 pub mod navigation;
 pub mod pipeline;
+pub mod rasterizer;
 pub mod scene3d;
 pub mod selection;
+pub mod svg;
 pub mod text;
 
-#[allow(ambiguous_glob_reexports)] // `shape_effects` exists in both contracts and compiler
+pub use compiler::*;
 pub use contracts::*;
 pub use error::*;
 pub use loader::*;
-pub use compiler::*;
-pub use rasterizer::*;
-pub use svg::*;
 pub use navigation::*;
-pub use selection::*;
 pub use pipeline::*;
+pub use rasterizer::*;
+pub use selection::*;
+pub use svg::*;

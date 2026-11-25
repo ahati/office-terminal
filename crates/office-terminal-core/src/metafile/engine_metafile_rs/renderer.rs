@@ -5,13 +5,11 @@ use metafile_core as mc;
 use crate::contracts::{AffineTransform, BitmapSampling, FillRule, RectF32, VectorPath};
 
 use super::mapping::{map_brush, map_paint, map_pen, map_stroke};
-use super::primitives::{
-    arc_path, closed_polygon, ellipse_path, engine_path, map_clip, open_path, rounded_rect,
-};
+use super::primitives::{arc_path, closed_polygon, ellipse_path, engine_path, map_clip, open_path, rounded_rect};
 use super::{fill_rule, from_engine_rect, rgba, to_engine_error};
 use crate::metafile::{
-    MetafileBitmap, MetafileClip, MetafileDiagnostic, MetafileError, MetafilePath, MetafileSink,
-    MetafileTextRun, TextAlignH, TextAlignV,
+    MetafileBitmap, MetafileClip, MetafileDiagnostic, MetafileError, MetafilePath, MetafileSink, MetafileTextRun,
+    TextAlignH, TextAlignV,
 };
 
 pub(super) struct SinkRenderer<'a> {
@@ -27,8 +25,7 @@ impl<'a> SinkRenderer<'a> {
 
 impl SinkRenderer<'_> {
     fn note(&mut self, tag: &'static str, detail: &str) {
-        self.sink
-            .diagnostic(MetafileDiagnostic::degraded(tag, detail));
+        self.sink.diagnostic(MetafileDiagnostic::degraded(tag, detail));
     }
 
     fn push_clips(&mut self, clip: Option<&mc::ClipRegion>) -> usize {
@@ -134,24 +131,13 @@ impl mc::Renderer for SinkRenderer<'_> {
         self.bounds
     }
 
-    fn line(
-        &mut self,
-        from: mc::Point,
-        to: mc::Point,
-        pen: &mc::Pen,
-        clip: Option<&mc::ClipRegion>,
-    ) -> mc::Result<()> {
+    fn line(&mut self, from: mc::Point, to: mc::Point, pen: &mc::Pen, clip: Option<&mc::ClipRegion>) -> mc::Result<()> {
         self.run_clipped(clip, |this| {
             this.draw_pen_path(open_path(&[from, to]), Some(pen), None, FillRule::NonZero)
         })
     }
 
-    fn polyline(
-        &mut self,
-        points: &[mc::Point],
-        pen: &mc::Pen,
-        clip: Option<&mc::ClipRegion>,
-    ) -> mc::Result<()> {
+    fn polyline(&mut self, points: &[mc::Point], pen: &mc::Pen, clip: Option<&mc::ClipRegion>) -> mc::Result<()> {
         if points.is_empty() {
             return Ok(());
         }
@@ -172,12 +158,7 @@ impl mc::Renderer for SinkRenderer<'_> {
             return Ok(());
         }
         self.run_clipped(clip, |this| {
-            this.draw_pen_path(
-                closed_polygon(points),
-                Some(pen),
-                Some(brush),
-                fill_rule(fill_mode),
-            )
+            this.draw_pen_path(closed_polygon(points), Some(pen), Some(brush), fill_rule(fill_mode))
         })
     }
 
@@ -194,12 +175,7 @@ impl mc::Renderer for SinkRenderer<'_> {
                 if points.is_empty() {
                     continue;
                 }
-                this.draw_pen_path(
-                    closed_polygon(points),
-                    Some(pen),
-                    Some(brush),
-                    fill_rule(fill_mode),
-                )?;
+                this.draw_pen_path(closed_polygon(points), Some(pen), Some(brush), fill_rule(fill_mode))?;
             }
             Ok(())
         })
@@ -222,9 +198,7 @@ impl mc::Renderer for SinkRenderer<'_> {
         let pen = stroke.then_some(pen);
         let brush = fill.then_some(brush);
         let rule = fill_rule(fill_mode);
-        self.run_clipped(clip, move |this| {
-            this.draw_pen_path(mapped, pen, brush, rule)
-        })
+        self.run_clipped(clip, move |this| this.draw_pen_path(mapped, pen, brush, rule))
     }
 
     fn styled_path(
@@ -289,12 +263,7 @@ impl mc::Renderer for SinkRenderer<'_> {
         })
     }
 
-    fn pixel(
-        &mut self,
-        point: mc::Point,
-        color: mc::Color,
-        clip: Option<&mc::ClipRegion>,
-    ) -> mc::Result<()> {
+    fn pixel(&mut self, point: mc::Point, color: mc::Color, clip: Option<&mc::ClipRegion>) -> mc::Result<()> {
         let path = rounded_rect(
             RectF32 {
                 x: point.x as f32,
@@ -305,12 +274,7 @@ impl mc::Renderer for SinkRenderer<'_> {
             None,
         );
         self.run_clipped(clip, |this| {
-            this.draw_vector(
-                path,
-                Some(&mc::Paint::Solid(color)),
-                None,
-                FillRule::NonZero,
-            )
+            this.draw_vector(path, Some(&mc::Paint::Solid(color)), None, FillRule::NonZero)
         })
     }
 
@@ -345,11 +309,10 @@ impl mc::Renderer for SinkRenderer<'_> {
                 mc::VerticalTextAlignment::Baseline => TextAlignV::Baseline,
             },
             background: run.background.map(rgba),
-            background_rect: run.background_rect.map(from_engine_rect).or_else(|| {
-                run.background_path
-                    .as_ref()
-                    .and_then(super::primitives::path_bounds)
-            }),
+            background_rect: run
+                .background_rect
+                .map(from_engine_rect)
+                .or_else(|| run.background_path.as_ref().and_then(super::primitives::path_bounds)),
             transform: text_transform(run.transform),
             right_to_left: run.right_to_left,
         };

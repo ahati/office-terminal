@@ -19,12 +19,7 @@ fn reader_state(pages: usize) -> PresentationState {
 
 /// Draws one reader frame at `w` x `h` and publishes the bindings like the
 /// run loop.
-fn draw_reader(
-    state: &mut PresentationState,
-    terminal: &mut Terminal<TestBackend>,
-    w: u16,
-    h: u16,
-) {
+fn draw_reader(state: &mut PresentationState, terminal: &mut Terminal<TestBackend>, w: u16, h: u16) {
     let mut bindings = FrameBindings::default();
     terminal
         .draw(|f| render_reader(state, f, Rect::new(0, 0, w, h), &mut bindings))
@@ -41,10 +36,7 @@ fn test_reader_status_line_format() {
     let status = reader.status_line("report.pdf", &[], 2);
     // Full-line golden: everything is a segment joined by the one `·`
     // policy — the exact separator contract.
-    assert_eq!(
-        status,
-        "report.pdf · spread 3-4/10 · fit:page 100% · ?:help · q:quit"
-    );
+    assert_eq!(status, "report.pdf · spread 3-4/10 · fit:page 100% · ?:help · q:quit");
 }
 
 #[test]
@@ -85,8 +77,7 @@ fn the_optional_cover_segment_joins_like_any_other() {
 
     let status = reader.status_line("book.pdf", &[], 2);
     assert_eq!(
-        status,
-        "book.pdf · p.1/10 · fit:page 100% · cover:on · ?:help · q:quit",
+        status, "book.pdf · p.1/10 · fit:page 100% · cover:on · ?:help · q:quit",
         "cover:on and the hints join like every other segment; one separator policy"
     );
 }

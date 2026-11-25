@@ -2,7 +2,7 @@
 
 ## 1. Purpose & Core Testing Invariants
 
-`kitty-pptx` guarantees both fidelity and speed. To ensure these qualities are verifiable and non-regressive, every non-functional requirement (NFR) is backed by an automated measurement protocol.
+**Office Terminal** guarantees both fidelity and speed. To ensure these qualities are verifiable and non-regressive, every non-functional requirement (NFR) is backed by an automated measurement protocol.
 
 > **Testing Seam Invariants**:
 > - **L2a (Vector Scene)** tests verify the `VectorSlide` display list AST structurally against committed JSON snapshots.
@@ -48,7 +48,7 @@ are recorded in the corpus manifest.
 
 ## 4. Perceptual Diff Metric & Golden Image Scoring
 
-For real-world fidelity scoring, `kitty-pptx` evaluates Structural Dissimilarity (DSSIM):
+For real-world fidelity scoring, **Office Terminal** evaluates Structural Dissimilarity (DSSIM):
 $$\text{DSSIM}(x, y) = \frac{1.0 - \text{SSIM}(x, y)}{2.0}$$
 
 - **PASS**: $\text{DSSIM} \le 0.02$ (visually indistinguishable at presentation distance).
@@ -74,7 +74,7 @@ Every numeric NFR target from [PRD 00](./00-system-overview.md) §4 is verified 
 | **Slide Compilation** | $< 8\text{ ms}$ / $< 20\text{ ms}$ | Slide AST $\to$ `VectorSlide` display list | Simple deck / Complex deck | p95 $< 8\text{ ms}$ (simple), $< 20\text{ ms}$ (complex) |
 | **Replay Rasterization**| $< 7\text{ ms}$ / $< 0.8\text{ ms}$ | `VectorSlide` $\to$ `RgbaSlide` | 1080p slide / 320×180 thumbnail | p95 $< 7\text{ ms}$ (1080p), $< 0.8\text{ ms}$ (thumb) |
 | **Peak Memory RSS** | $< 150\text{ MB}$ | `getrusage(RUSAGE_SELF).ru_maxrss` during full 50-slide walkthrough + sorter grid | `heavy-media-50.pptx` | Peak RSS $< 150\text{ MB}$ |
-| **Stripped Binary Size**| $< 25\text{ MB}$ | `stat -c %s target/release/kitty-pptx` (stripped) | Linux `x86_64-unknown-linux-gnu` target | Size $< 25,000,000\text{ bytes}$ |
+| **Stripped Binary Size**| $< 25\text{ MB}$ | `stat -c %s target/release/ot` (stripped) | Linux `x86_64-unknown-linux-gnu` target | Size $< 25,000,000\text{ bytes}$ |
 
 ---
 

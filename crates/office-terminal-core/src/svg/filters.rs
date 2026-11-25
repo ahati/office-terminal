@@ -7,9 +7,7 @@
 
 use std::fmt::Write;
 
-use crate::contracts::{
-    AffineTransform, PathSegment, ShapeEffects, VectorPath, VectorReflection,
-};
+use crate::contracts::{AffineTransform, PathSegment, ShapeEffects, VectorPath, VectorReflection};
 use crate::scene3d;
 
 /// Per-path effect references produced while emitting the `<defs>` block.
@@ -50,8 +48,7 @@ pub fn emit_effect_defs(
         if let Some(bounds) = path_bounds(path, &effective) {
             // The raster pass skips only when both ends of the band are fully
             // transparent (ref effects.ts:598-624).
-            let ink = reflection.start_opacity.clamp(0.0, 1.0) > 0.0
-                || reflection.end_opacity.clamp(0.0, 1.0) > 0.0;
+            let ink = reflection.start_opacity.clamp(0.0, 1.0) > 0.0 || reflection.end_opacity.clamp(0.0, 1.0) > 0.0;
             if ink {
                 let mask_id = format!("refl-mask-{index}");
                 let grad_id = format!("refl-grad-{index}");
@@ -202,7 +199,11 @@ fn emit_filter(index: usize, effects: &ShapeEffects, defs: &mut String) -> Optio
         body.push_str(
             "      <feComposite in=\"fxInnerTint\" in2=\"SourceAlpha\" operator=\"in\" result=\"fxInner\"/>\n",
         );
-        let _ = writeln!(body, r#"      <feMerge result="fxWithInner"><feMergeNode in="{}"/><feMergeNode in="fxInner"/></feMerge>"#, current);
+        let _ = writeln!(
+            body,
+            r#"      <feMerge result="fxWithInner"><feMergeNode in="{}"/><feMergeNode in="fxInner"/></feMerge>"#,
+            current
+        );
         if soft_sigma > 0.0 {
             current = "fxWithInner".to_string();
         }
@@ -250,10 +251,7 @@ pub(crate) struct MirrorGeometry {
     offset: (f32, f32),
 }
 
-pub(crate) fn mirror_geometry(
-    reflection: &VectorReflection,
-    bounds: (f32, f32, f32, f32),
-) -> MirrorGeometry {
+pub(crate) fn mirror_geometry(reflection: &VectorReflection, bounds: (f32, f32, f32, f32)) -> MirrorGeometry {
     let pivot = align_point(bounds, &reflection.align);
     let dir = if reflection.direction_deg.is_finite() {
         reflection.direction_deg

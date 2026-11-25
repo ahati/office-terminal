@@ -3,18 +3,12 @@
 use std::sync::Arc;
 
 use crate::compiler::parse_hex_color;
-use crate::contracts::{
-    BlipEffect, VectorCommand, VectorPaint, VectorStroke,
-};
+use crate::contracts::{BlipEffect, VectorCommand, VectorPaint, VectorStroke};
 use crate::rasterizer::effects::bt709_luma;
 
 /// Maps a single straight RGBA8 color by applying a sequence of DrawingML
 /// [`BlipEffect`]s in authored order, followed by marker `opacity`.
-pub fn map_color(
-    color: [u8; 4],
-    effects: &[BlipEffect],
-    opacity: f32,
-) -> [u8; 4] {
+pub fn map_color(color: [u8; 4], effects: &[BlipEffect], opacity: f32) -> [u8; 4] {
     let mut r = color[0];
     let mut g = color[1];
     let mut b = color[2];
@@ -189,11 +183,7 @@ pub fn map_stroke(stroke: &mut VectorStroke, effects: &[BlipEffect], opacity: f3
 }
 
 /// Applies picture-level effects and opacity to an expanded vector command.
-pub fn apply_metafile_effects(
-    command: &mut VectorCommand,
-    effects: &[BlipEffect],
-    opacity: f32,
-) {
+pub fn apply_metafile_effects(command: &mut VectorCommand, effects: &[BlipEffect], opacity: f32) {
     if effects.is_empty() && (opacity >= 1.0 || opacity < 0.0) {
         return;
     }
@@ -224,11 +214,7 @@ pub fn apply_metafile_effects(
             opacity: bmp_opacity,
             ..
         } => {
-            let mut factor = if (0.0..1.0).contains(&opacity) {
-                opacity
-            } else {
-                1.0
-            };
+            let mut factor = if (0.0..1.0).contains(&opacity) { opacity } else { 1.0 };
             for effect in effects {
                 if let BlipEffect::AlphaModFix { amt } = effect {
                     let f = if *amt > 1.0 {

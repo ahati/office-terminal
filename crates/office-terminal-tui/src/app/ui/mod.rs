@@ -16,11 +16,11 @@ use crate::app::mode::AppMode;
 use crate::app::state::PresentationState;
 use crate::widget::SlideWidget;
 use office_terminal_display::{ImageId, PlacementMode};
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 
 pub use blank::render_blank_screen;
 pub use comments::render_comments_drawer;
@@ -53,8 +53,7 @@ pub(crate) fn preview_slide_widget(state: &PresentationState, image_id: ImageId)
 }
 
 fn slide_widget(state: &PresentationState, image_id: ImageId) -> SlideWidget {
-    SlideWidget::new(image_id, PlacementMode::Interactive)
-        .with_aspect_ratio(state.aspect_ratio())
+    SlideWidget::new(image_id, PlacementMode::Interactive).with_aspect_ratio(state.aspect_ratio())
 }
 
 /// Draws the degraded-render note over a slide canvas whose background render

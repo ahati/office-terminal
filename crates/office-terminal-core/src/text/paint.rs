@@ -85,14 +85,7 @@ pub(super) fn place_line(
 ) {
     if marker_visible(para, line) {
         decor::paint_marker(
-            measurer,
-            para,
-            marker_x,
-            baseline_y,
-            transform,
-            bitmaps,
-            final_runs,
-            commands,
+            measurer, para, marker_x, baseline_y, transform, bitmaps, final_runs, commands,
         );
     }
     let mut pen_x = 0.0f32;
@@ -194,11 +187,7 @@ struct Upper<'a> {
 /// ref renderer.ts:5885-5925: only the four fill alignments justify, the
 /// paragraph's final line and a line closed by `<a:br/>` stay natural under
 /// `just`, and a tabbed or bidi line is never re-spaced.
-pub(super) fn justify_plan(
-    para: &ParagraphLayout,
-    line: &LineLayout,
-    avail: f32,
-) -> Option<JustifyPlan> {
+pub(super) fn justify_plan(para: &ParagraphLayout, line: &LineLayout, avail: f32) -> Option<JustifyPlan> {
     let mode = match para.alignment.as_str() {
         "just" | "justLow" => JustifyMode::Just,
         "dist" => JustifyMode::Dist,
@@ -210,12 +199,7 @@ pub(super) fn justify_plan(
     }
     // ref renderer.ts:5917 `justifyMode && !paraNeedsBidi && !hasTab` (the bidi
     // probe is approximated by the paragraph's base direction).
-    if para.rtl
-        || line
-            .items
-            .iter()
-            .any(|item| matches!(item, LineItem::Tab { .. }))
-    {
+    if para.rtl || line.items.iter().any(|item| matches!(item, LineItem::Tab { .. })) {
         return None;
     }
     justify::justify_line(
@@ -231,9 +215,7 @@ pub(super) fn justify_plan(
 /// The advance one [`LineItem`] occupies under the current (draw-time) widths.
 pub(super) fn item_advance(item: &LineItem) -> f32 {
     match item {
-        LineItem::Text { width, .. }
-        | LineItem::Tab { width, .. }
-        | LineItem::Object { width, .. } => *width,
+        LineItem::Text { width, .. } | LineItem::Tab { width, .. } | LineItem::Object { width, .. } => *width,
     }
 }
 
@@ -259,20 +241,9 @@ pub(super) fn resolve_line_tabs(
     }) else {
         return;
     };
-    let start_pen = if base_rtl {
-        para.mar_r
-    } else {
-        first_line_indent
-    };
+    let start_pen = if base_rtl { para.mar_r } else { first_line_indent };
     let no_stop_gap = measurer.space(tab_style);
-    crate::text::tabs::resolve_tab_widths(
-        items,
-        &para.tab_stops,
-        start_pen,
-        avail_w,
-        no_stop_gap,
-        para.tab_size,
-    );
+    crate::text::tabs::resolve_tab_widths(items, &para.tab_stops, start_pen, avail_w, no_stop_gap, para.tab_size);
 }
 
 /// The line's painted segments in logical order, for the UAX#9 L2 pass
@@ -327,12 +298,7 @@ fn place_text(
     let mut pen = 0.0f32;
     let mut start = 0usize;
     for (boundary, (offset, _ch)) in text.char_indices().enumerate() {
-        if !plan
-            .gap_after
-            .get(unit_start + boundary)
-            .copied()
-            .unwrap_or(false)
-        {
+        if !plan.gap_after.get(unit_start + boundary).copied().unwrap_or(false) {
             continue;
         }
         // A gap only ever falls between two code points, so the piece before
@@ -352,15 +318,7 @@ fn place_text(
         }
         extra += plan.per_gap;
     }
-    place_piece(
-        measurer,
-        &text[start..],
-        style,
-        x + pen + extra,
-        baseline_y,
-        upper,
-        out,
-    );
+    place_piece(measurer, &text[start..], style, x + pen + extra, baseline_y, upper, out);
     extra
 }
 
@@ -411,26 +369,16 @@ fn emit_ea_vert(
     let mut pen = 0.0f32;
     for piece in vertical::ea_vert_pieces(text, |ch| has_glyph(measurer, style, ch)) {
         let measure_advance = measurer.advance(&piece.measured, style);
-        let cell_pitch = measure_advance
-            + def.letter_spacing_emu * (piece.measured.chars().count() as f32);
+        let cell_pitch = measure_advance + def.letter_spacing_emu * (piece.measured.chars().count() as f32);
         if piece.upright {
             // One run per upright cell: both paint backends place a run from its
             // first glyph origin, so a column cannot share a run. The reference
             // likewise fills one code point at a time (`vertical-text.ts:143`).
-            let (glyph_x, glyph_y) = upper.frame.upright_origin(
-                x + pen + cell_pitch * 0.5,
-                baseline,
-                measure_advance,
-                centre_above,
-            );
-            emit_run_at(
-                measurer,
-                &piece.painted,
-                style,
-                glyph_x,
-                glyph_y,
-                &mut upper.runs,
-            );
+            let (glyph_x, glyph_y) =
+                upper
+                    .frame
+                    .upright_origin(x + pen + cell_pitch * 0.5, baseline, measure_advance, centre_above);
+            emit_run_at(measurer, &piece.painted, style, glyph_x, glyph_y, &mut upper.runs);
         } else {
             emit_run(measurer, &piece.painted, style, x + pen, baseline_y, out);
         }
@@ -458,16 +406,10 @@ fn has_glyph(measurer: &Measurer, style: StyleId, ch: char) -> bool {
     if let Some(present) = GLYPH_PRESENCE.with(|cache| cache.borrow().get(&key).copied()) {
         return present;
     }
-    let present = shape::shape(
-        &ch.to_string(),
-        &def.family,
-        def.draw_size_emu(),
-        def.bold,
-        def.italic,
-    )
-    .glyphs
-    .first()
-    .is_some_and(|(id, _, _)| *id != 0);
+    let present = shape::shape(&ch.to_string(), &def.family, def.draw_size_emu(), def.bold, def.italic)
+        .glyphs
+        .first()
+        .is_some_and(|(id, _, _)| *id != 0);
     GLYPH_PRESENCE.with(|cache| {
         cache.borrow_mut().insert(key, present);
     });
@@ -523,9 +465,7 @@ fn emit_run_at(
     let single_face = crate::text::fonts::with_face_db(|db| {
         crate::text::fonts::cosmic_family_face_id(db, &def.family, def.bold, def.italic)
     })
-    .is_some_and(|expected| {
-        !shaped.font_ids.is_empty() && shaped.font_ids.iter().all(|id| *id == expected)
-    });
+    .is_some_and(|expected| !shaped.font_ids.is_empty() && shaped.font_ids.iter().all(|id| *id == expected));
     out.push(PositionedGlyphRun {
         text: text.to_string(),
         font_family: def.family.clone(),

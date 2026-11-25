@@ -9,9 +9,7 @@
 use std::fmt::Write as _;
 
 use super::image::serialize_svg_image;
-use crate::contracts::{
-    AffineTransform, BackgroundTile, NormalizedRect, RectF32, EMU_PER_PX, VectorBackground,
-};
+use crate::contracts::{AffineTransform, BackgroundTile, NormalizedRect, RectF32, VectorBackground, EMU_PER_PX};
 use crate::loader::{AssetStore, SizeHint};
 
 /// Identifier of the background tile pattern in the emitted `<defs>`.
@@ -37,16 +35,12 @@ pub(super) fn emit(
         return None;
     };
 
-    let mut body = format!(
-        r##"  <rect width="{}" height="{}" fill="#ffffff"/>"##,
-        box_w, box_h
-    );
+    let mut body = format!(r##"  <rect width="{}" height="{}" fill="#ffffff"/>"##, box_w, box_h);
     body.push('\n');
 
     let element = match tile {
         Some(tile) => {
-            let tile_svg =
-                tiled_element(assets, rel_id, src_rect, tile, box_w, box_h, *opacity, defs);
+            let tile_svg = tiled_element(assets, rel_id, src_rect, tile, box_w, box_h, *opacity, defs);
             tile_svg.unwrap_or_default()
         }
         None => {
@@ -75,10 +69,7 @@ fn destination_rect(fill_rect: Option<&RectF32>, box_w: f32, box_h: f32) -> Rect
         return RectF32::new(0.0, 0.0, box_w, box_h);
     };
     let dest = RectF32::new(fr.x * box_w, fr.y * box_h, fr.w * box_w, fr.h * box_h);
-    if [dest.x, dest.y, dest.w, dest.h]
-        .iter()
-        .all(|v| v.is_finite())
-    {
+    if [dest.x, dest.y, dest.w, dest.h].iter().all(|v| v.is_finite()) {
         dest
     } else {
         RectF32::new(0.0, 0.0, box_w, box_h)
@@ -136,10 +127,7 @@ fn tiled_element(
     let (ax, ay) = tile_anchor(&tile.algn, box_w, box_h, tile_w, tile_h);
     let phase_x = ax + tile.tx as f32;
     let phase_y = ay + tile.ty as f32;
-    if ![phase_x, phase_y, cell_w, cell_h]
-        .iter()
-        .all(|v| v.is_finite())
-    {
+    if ![phase_x, phase_y, cell_w, cell_h].iter().all(|v| v.is_finite()) {
         return None;
     }
 

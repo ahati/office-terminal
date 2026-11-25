@@ -9,28 +9,25 @@ pub mod line;
 pub mod pie;
 pub mod types;
 
-use crossbeam_channel::Sender;
-use pptx_model::ChartElement;
-use crate::contracts::{FidelityClass, VectorCommand, VectorPaint, WarningEvent, EMU_PER_PT};
 use crate::compiler::placeholders;
 use crate::compiler::transform::compute_shape_transform;
+use crate::contracts::{FidelityClass, VectorCommand, VectorPaint, WarningEvent, EMU_PER_PT};
+use crossbeam_channel::Sender;
+use pptx_model::ChartElement;
 
 use self::area::compile_area;
 use self::axes::compile_axes;
 use self::bar::compile_bars;
 use self::bubble::compile_bubbles;
 use self::layout::{
-    compile_chart_background, compile_chart_legend, compile_chart_title, compute_chart_layout,
-    make_simple_run, rect_path,
+    compile_chart_background, compile_chart_legend, compile_chart_title, compute_chart_layout, make_simple_run,
+    rect_path,
 };
 use self::line::compile_lines;
 use self::pie::compile_pie;
 use self::types::{has_plottable_data, resolve_chart_family, ChartDataBounds, ChartFamily};
 
-pub fn compile_chart(
-    chart_elem: &ChartElement,
-    warning_sink: &Sender<WarningEvent>,
-) -> Vec<VectorCommand> {
+pub fn compile_chart(chart_elem: &ChartElement, warning_sink: &Sender<WarningEvent>) -> Vec<VectorCommand> {
     let chart = &chart_elem.chart;
 
     // If the chart has no plot series or plottable data, gracefully fall back to placeholder box
@@ -114,11 +111,7 @@ pub fn compile_chart(
         // Unsupported families returned the placeholder above. This arm is
         // unreachable; it deliberately emits no geometry so a future family
         // that forgets `is_supported` cannot silently fall back to columns.
-        ChartFamily::Scatter
-        | ChartFamily::Radar
-        | ChartFamily::Stock
-        | ChartFamily::Surface
-        | ChartFamily::Other => {}
+        ChartFamily::Scatter | ChartFamily::Radar | ChartFamily::Stock | ChartFamily::Surface | ChartFamily::Other => {}
     }
 
     // 4. Title

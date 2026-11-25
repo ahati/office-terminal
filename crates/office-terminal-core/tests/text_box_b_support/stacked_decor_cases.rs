@@ -27,9 +27,7 @@ fn bars(commands: &[VectorCommand]) -> Vec<Bar> {
                     .iter()
                     .filter_map(|segment| match segment {
                         office_terminal_core::contracts::PathSegment::MoveTo { x, y }
-                        | office_terminal_core::contracts::PathSegment::LineTo { x, y } => {
-                            Some((*x, *y))
-                        }
+                        | office_terminal_core::contracts::PathSegment::LineTo { x, y } => Some((*x, *y)),
                         _ => None,
                     })
                     .collect();
@@ -40,7 +38,13 @@ fn bars(commands: &[VectorCommand]) -> Vec<Bar> {
                 let max_x = pts.iter().map(|p| p.0).fold(f32::MIN, f32::max);
                 let min_y = pts.iter().map(|p| p.1).fold(f32::MAX, f32::min);
                 let max_y = pts.iter().map(|p| p.1).fold(f32::MIN, f32::max);
-                Some(Bar { x: min_x, y: min_y, w: max_x - min_x, h: max_y - min_y, color: *color })
+                Some(Bar {
+                    x: min_x,
+                    y: min_y,
+                    w: max_x - min_x,
+                    h: max_y - min_y,
+                    color: *color,
+                })
             }
             _ => None,
         })
@@ -119,14 +123,11 @@ fn stacked_strikes_follow_the_glyph_frame() {
     }
     let commands = compile(&text_body, 200.0, 200.0);
     let rotated = commands.iter().filter(|command| match command {
-        VectorCommand::DrawPath { transform, .. } => {
-            transform.kx.abs() > 0.1 || transform.ky.abs() > 0.1
-        }
+        VectorCommand::DrawPath { transform, .. } => transform.kx.abs() > 0.1 || transform.ky.abs() > 0.1,
         _ => false,
     });
     assert!(rotated.count() >= 1, "the ASCII bracket strike turns with its frame");
 }
-
 
 #[test]
 fn stacked_rtl_paints_glyph_sized_strikes() {

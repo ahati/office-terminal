@@ -73,8 +73,7 @@ mod tests {
 
     #[test]
     fn compiled_pages_expand_into_the_shared_ir() {
-        let engine = test_support::FixtureEngine::new(vec![test_support::text_page("hello")])
-            .with_font(0, "Carlito");
+        let engine = test_support::FixtureEngine::new(vec![test_support::text_page("hello")]).with_font(0, "Carlito");
         let source = DocxPageSource::from_engine(Arc::new(engine));
         let (tx, _rx) = crossbeam_channel::unbounded();
         let slide = source.compile_page(0, &tx).expect("compile");

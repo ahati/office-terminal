@@ -6,9 +6,7 @@
 //! destination (§20.1.8.56) or repeated at its native size for `a:tile`
 //! (§20.1.8.58). `alphaModFix` modulates the whole placement.
 
-use crate::contracts::{
-    AffineTransform, BackgroundTile, NormalizedRect, RectF32, EMU_PER_PX, VectorBackground,
-};
+use crate::contracts::{AffineTransform, BackgroundTile, NormalizedRect, RectF32, VectorBackground, EMU_PER_PX};
 use crate::loader::{AssetStore, SizeHint};
 
 /// Upper bound on the number of tile draws for one background. A tile smaller
@@ -55,15 +53,9 @@ pub(super) fn paint(
     // Clip to the slide rectangle (ref renderer.ts:2309-2314). The layer bounds
     // are exactly that rectangle, so overscan (negative fillRect insets) and
     // tile bleed are cropped at the slide edge.
-    let Some((x0, y0, x1, y1)) = slide_device_box(
-        pixmap.width(),
-        pixmap.height(),
-        box_w,
-        box_h,
-        scale,
-        offset_x,
-        offset_y,
-    ) else {
+    let Some((x0, y0, x1, y1)) =
+        slide_device_box(pixmap.width(), pixmap.height(), box_w, box_h, scale, offset_x, offset_y)
+    else {
         return;
     };
     let Some(mut layer) = tiny_skia::Pixmap::new((x1 - x0) as u32, (y1 - y0) as u32) else {
@@ -74,8 +66,7 @@ pub(super) fn paint(
     let local_y = offset_y - y0 as f32;
     match tile {
         Some(tile) => paint_tiles(
-            &mut layer, assets, rel_id, src_rect, tile, box_w, box_h, scale, local_x, local_y,
-            *opacity,
+            &mut layer, assets, rel_id, src_rect, tile, box_w, box_h, scale, local_x, local_y, *opacity,
         ),
         None => {
             let dest = destination_rect(fill_rect.as_ref(), box_w, box_h);
@@ -137,10 +128,7 @@ fn destination_rect(fill_rect: Option<&RectF32>, box_w: f32, box_h: f32) -> Rect
         return RectF32::new(0.0, 0.0, box_w, box_h);
     };
     let dest = RectF32::new(fr.x * box_w, fr.y * box_h, fr.w * box_w, fr.h * box_h);
-    if [dest.x, dest.y, dest.w, dest.h]
-        .iter()
-        .all(|v| v.is_finite())
-    {
+    if [dest.x, dest.y, dest.w, dest.h].iter().all(|v| v.is_finite()) {
         dest
     } else {
         RectF32::new(0.0, 0.0, box_w, box_h)
@@ -209,10 +197,7 @@ fn paint_tiles(
     if draws > MAX_TILE_DRAWS {
         return;
     }
-    let crop_area = f64::from(decoded.width)
-        * f64::from(logical_w)
-        * f64::from(decoded.height)
-        * f64::from(logical_h);
+    let crop_area = f64::from(decoded.width) * f64::from(logical_w) * f64::from(decoded.height) * f64::from(logical_h);
     if draws as f64 * crop_area > MAX_TILE_WORK {
         return;
     }
@@ -222,25 +207,25 @@ fn paint_tiles(
         for col in 0..cols {
             let cell_x = start_x + (col0 + col) as f32 * cell_w;
             draw_cell(
-                layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w,
-                tile_h, cell_x, cell_y, false, false,
+                layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w, tile_h, cell_x, cell_y,
+                false, false,
             );
             if flip_x {
                 draw_cell(
-                    layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w,
-                    tile_h, cell_x, cell_y, true, false,
+                    layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w, tile_h, cell_x,
+                    cell_y, true, false,
                 );
             }
             if flip_y {
                 draw_cell(
-                    layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w,
-                    tile_h, cell_x, cell_y, false, true,
+                    layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w, tile_h, cell_x,
+                    cell_y, false, true,
                 );
             }
             if flip_x && flip_y {
                 draw_cell(
-                    layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w,
-                    tile_h, cell_x, cell_y, true, true,
+                    layer, assets, rel_id, src_rect, opacity, scale, offset_x, offset_y, tile_w, tile_h, cell_x,
+                    cell_y, true, true,
                 );
             }
         }

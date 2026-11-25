@@ -5,22 +5,18 @@
 
 #![cfg(feature = "metafile")]
 
-
 mod metafile_support;
 
+use metafile_support as support;
 use office_terminal_core::contracts::{VectorCommand, WarningEvent};
 use office_terminal_core::metafile::{self, MetafileMode};
-use metafile_support as support;
 
 const EMF: &str = "image/x-emf";
 
 fn expand_letter(bytes: Vec<u8>) -> (usize, usize, usize, Vec<WarningEvent>) {
     metafile::clear_global_cache();
     let (compile_tx, _compile_rx) = crossbeam_channel::unbounded();
-    let mut scene = support::compile_slide(
-        &support::picture_slide("ppt/media/image1.emf", EMF),
-        &compile_tx,
-    );
+    let mut scene = support::compile_slide(&support::picture_slide("ppt/media/image1.emf", EMF), &compile_tx);
     let store = support::FixtureStore::new("ppt/media/image1.emf", bytes);
     let (tx, rx) = crossbeam_channel::unbounded();
     let summary = metafile::expand_metafiles(&mut scene, &store, &tx);
@@ -29,12 +25,7 @@ fn expand_letter(bytes: Vec<u8>) -> (usize, usize, usize, Vec<WarningEvent>) {
         .iter()
         .filter(|command| matches!(command, VectorCommand::DrawMetafile { .. }))
         .count();
-    (
-        summary.expanded,
-        summary.placeholders,
-        markers,
-        rx.try_iter().collect(),
-    )
+    (summary.expanded, summary.placeholders, markers, rx.try_iter().collect())
 }
 
 fn text_emf() -> Vec<u8> {

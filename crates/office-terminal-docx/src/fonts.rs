@@ -20,10 +20,7 @@ use crate::engine::ResolvedFont;
 /// - non-default variation axes are carried but not applied;
 /// - synthetic bold/italic falls back to the family path (no face handle).
 #[cfg(any(feature = "rdocx-backend", test))]
-pub(crate) fn register_engine_fonts(
-    fonts: &[FontData],
-    diagnostics: &mut Vec<String>,
-) -> Vec<Option<ResolvedFont>> {
+pub(crate) fn register_engine_fonts(fonts: &[FontData], diagnostics: &mut Vec<String>) -> Vec<Option<ResolvedFont>> {
     let faces: Vec<DocumentFace> = fonts
         .iter()
         .map(|font| DocumentFace {
@@ -73,9 +70,7 @@ pub(crate) fn register_engine_fonts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use office_terminal_core::text::document_faces::{
-        clear_document_faces, with_document_face,
-    };
+    use office_terminal_core::text::document_faces::{clear_document_faces, with_document_face};
     use std::sync::{Arc, Mutex, MutexGuard};
 
     /// The face registry is process-global and shared by every test thread
@@ -83,9 +78,7 @@ mod tests {
     static REGISTRY_LOCK: Mutex<()> = Mutex::new(());
 
     fn lock_registry() -> MutexGuard<'static, ()> {
-        REGISTRY_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        REGISTRY_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Resolve a handle back to its registered family (proves the slot's
@@ -119,17 +112,11 @@ mod tests {
         assert!(diagnostics.is_empty());
         assert_eq!(slots.len(), 3);
         let carlito = slots[0].as_ref().expect("dense slot");
-        assert_eq!(
-            family_of(carlito.face.expect("exact face handle")),
-            "Carlito"
-        );
+        assert_eq!(family_of(carlito.face.expect("exact face handle")), "Carlito");
         assert!(slots[1].is_none());
         let caladea = slots[2].as_ref().expect("dense slot");
         assert_eq!(caladea.family, "Caladea");
-        assert_eq!(
-            family_of(caladea.face.expect("exact face handle")),
-            "Caladea"
-        );
+        assert_eq!(family_of(caladea.face.expect("exact face handle")), "Caladea");
         clear_document_faces();
     }
 

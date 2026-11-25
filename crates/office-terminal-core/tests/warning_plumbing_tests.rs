@@ -10,9 +10,7 @@ use std::time::Duration;
 use office_terminal_core::contracts::{PipelineEntry, PrefetchPlan, RenderTargetSpec};
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::pipeline::DefaultRenderPipeline;
-use office_terminal_core::{
-    AssetError, DefaultSlideCompiler, RenderPipeline, TinySkiaRasterizer, WarningEvent,
-};
+use office_terminal_core::{AssetError, DefaultSlideCompiler, RenderPipeline, TinySkiaRasterizer, WarningEvent};
 
 struct FixtureStore {
     bytes: Vec<u8>,
@@ -105,9 +103,7 @@ fn presentation() -> Arc<pptx_model::Presentation> {
 fn pipeline() -> DefaultRenderPipeline {
     DefaultRenderPipeline::new(
         presentation(),
-        Arc::new(FixtureStore {
-            bytes: minimal_emf(),
-        }),
+        Arc::new(FixtureStore { bytes: minimal_emf() }),
         Arc::new(DefaultSlideCompiler::new()),
         Arc::new(TinySkiaRasterizer::new()),
     )
@@ -140,10 +136,7 @@ fn sync_path_surfaces_compile_warnings() {
 
     let warnings = pipeline.drain_warnings();
     assert_metafile_warning(&warnings);
-    assert!(
-        pipeline.drain_warnings().is_empty(),
-        "drain must empty the buffer"
-    );
+    assert!(pipeline.drain_warnings().is_empty(), "drain must empty the buffer");
 }
 
 #[test]
@@ -161,10 +154,7 @@ fn worker_path_surfaces_compile_warnings() {
 
     let mut ready = false;
     for _ in 0..500 {
-        if matches!(
-            pipeline.entry_at(0, &target()),
-            PipelineEntry::Ready { .. }
-        ) {
+        if matches!(pipeline.entry_at(0, &target()), PipelineEntry::Ready { .. }) {
             ready = true;
             break;
         }

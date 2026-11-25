@@ -2,9 +2,7 @@
 
 #![cfg(feature = "metafile")]
 
-use office_terminal_core::contracts::{
-    PositionedGlyphRun, RenderTargetSpec, VectorCommand, VectorSlide, WarningEvent,
-};
+use office_terminal_core::contracts::{PositionedGlyphRun, RenderTargetSpec, VectorCommand, VectorSlide, WarningEvent};
 use office_terminal_core::metafile;
 use office_terminal_core::text::cmap;
 use office_terminal_core::{SlideRasterizer, SlideSvgSerializer};
@@ -18,11 +16,7 @@ fn expand(
     rel_id: &str,
     mime: &str,
     bytes: Vec<u8>,
-) -> (
-    VectorSlide,
-    metafile::MetafileExpansionSummary,
-    Vec<WarningEvent>,
-) {
+) -> (VectorSlide, metafile::MetafileExpansionSummary, Vec<WarningEvent>) {
     metafile::clear_global_cache();
     let (compile_tx, _compile_rx) = crossbeam_channel::unbounded();
     let mut scene = support::compile_slide(&support::picture_slide(rel_id, mime), &compile_tx);
@@ -126,7 +120,7 @@ fn emf_glyph_index_text_is_mapped_and_rendered() {
         support::create_font(1, 20, 400, 0, false, false, "Carlito"),
         support::select_object(1),
         support::set_text_color(0x0000_00FF),
-        support::set_text_align(0x0018), // baseline
+        support::set_text_align(0x0018),                                     // baseline
         ext_text_out_glyphs((100, 60), &[gid_h, gid_i], 0x0010, None, None), // ETO_GLYPH_INDEX
     ]);
 

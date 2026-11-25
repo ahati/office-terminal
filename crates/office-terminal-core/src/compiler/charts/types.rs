@@ -26,7 +26,10 @@ pub enum ChartFamily {
 
 impl ChartFamily {
     pub fn is_horizontal_bar(&self) -> bool {
-        matches!(self, ChartFamily::Bar | ChartFamily::StackedBar | ChartFamily::StackedBarPct)
+        matches!(
+            self,
+            ChartFamily::Bar | ChartFamily::StackedBar | ChartFamily::StackedBarPct
+        )
     }
 
     /// Families laid out on cartesian axes by the existing layout code.
@@ -302,14 +305,11 @@ pub struct ChartDataBounds {
 
 impl ChartDataBounds {
     pub fn compute(chart: &ChartModel, family: ChartFamily, axis_len_pt: f32) -> Self {
-        let num_categories = chart.categories.len().max(
-            chart
-                .series
-                .iter()
-                .map(|s| s.values.len())
-                .max()
-                .unwrap_or(0),
-        ).max(1);
+        let num_categories = chart
+            .categories
+            .len()
+            .max(chart.series.iter().map(|s| s.values.len()).max().unwrap_or(0))
+            .max(1);
 
         if family.is_percent_stacked() {
             // Percent axes keep their exact normalized extent; only the auto
@@ -489,11 +489,15 @@ fn plan_linear_axis(
         let padded_min = if anchor_positive { 0.0 } else { lo_data };
         let padded_max = if anchor_negative { 0.0 } else { hi_data };
         let span = padded_max - padded_min;
-        let padding = if span.is_finite() { span * 0.05 } else { padded_max * 0.05 - padded_min * 0.05 };
+        let padding = if span.is_finite() {
+            span * 0.05
+        } else {
+            padded_max * 0.05 - padded_min * 0.05
+        };
         let lo = if anchor_positive { 0.0 } else { lo_data - padding };
         let hi = if anchor_negative { 0.0 } else { hi_data + padding };
         let major = ceiling_nice_step(hi / 10.0 - lo / 10.0);
-        ( (lo / major).floor() * major, (hi / major).ceil() * major, major )
+        ((lo / major).floor() * major, (hi / major).ceil() * major, major)
     };
 
     let authored = authored_major.filter(|unit| unit.is_finite() && *unit > 0.0);
@@ -523,8 +527,7 @@ fn plan_linear_axis(
                     } else {
                         7.0
                     };
-                    automatic_major = ceiling_nice_step((hi - lo) / 10.0)
-                        .max(nice_step((hi - lo) / target, 1.0));
+                    automatic_major = ceiling_nice_step((hi - lo) / 10.0).max(nice_step((hi - lo) / target, 1.0));
                 }
             }
         }
@@ -537,7 +540,6 @@ fn plan_linear_axis(
     }
     (min, max, step, ticks)
 }
-
 
 pub fn get_category_label(chart: &ChartModel, index: usize) -> String {
     if let Some(cat) = chart.categories.get(index) {

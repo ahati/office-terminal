@@ -4,31 +4,30 @@ pub mod effects;
 /// Image-fill paint path (`a:blipFill` / `a:pattFill`) surface used by the
 /// parity tests and by the SVG twin.
 pub use image_fill::{
-    fill_path_with_image, fill_path_with_pattern, prepare_image_fill, tile_anchor,
-    tile_cell_pixels, tile_source_extent_emu, ImageFillBrush, MAX_TILE_CELL_DIMENSION,
-    MAX_TILE_CELL_PIXELS,
+    fill_path_with_image, fill_path_with_pattern, prepare_image_fill, tile_anchor, tile_cell_pixels,
+    tile_source_extent_emu, ImageFillBrush, MAX_TILE_CELL_DIMENSION, MAX_TILE_CELL_PIXELS,
 };
-pub mod filters;
 mod background_image;
 mod bevel;
 mod clip;
+pub mod filters;
 mod image;
 mod image_fill;
 mod mask;
-pub mod reflection_blur;
 mod path;
+pub mod reflection_blur;
 mod scratch;
 mod shape_effect;
 mod text;
 mod texture_fill;
 
-use std::sync::Arc;
 use crate::contracts::{
-    FillRule, PathSegment, RenderTargetSpec, RgbaSlide, ShapeEffects, VectorBackground,
-    VectorCommand, VectorPaint, VectorPath, VectorSlide,
+    FillRule, PathSegment, RenderTargetSpec, RgbaSlide, ShapeEffects, VectorBackground, VectorCommand, VectorPaint,
+    VectorPath, VectorSlide,
 };
 use crate::error::RenderError;
 use crate::loader::AssetStore;
+use std::sync::Arc;
 
 use clip::{scratch_layer, ClipStack, LayerPlacement};
 
@@ -65,9 +64,8 @@ impl SlideRasterizer for TinySkiaRasterizer {
         let width = target.width_px;
         let height = target.height_px;
 
-        let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or_else(|| {
-            RenderError::RasterizationError("failed to allocate pixmap".to_string())
-        })?;
+        let mut pixmap = tiny_skia::Pixmap::new(width, height)
+            .ok_or_else(|| RenderError::RasterizationError("failed to allocate pixmap".to_string()))?;
 
         // Decoded-raster policy for this pass (ref core/src/image/
         // adaptive-image-budget.ts:130): it only shrinks surfaces when the
@@ -76,8 +74,7 @@ impl SlideRasterizer for TinySkiaRasterizer {
         let decode_plan = decode_plan::scene_decode_plan(scene, target).ok();
 
         // 1. Uniform scale factor
-        let s = (width as f64 / scene.width_emu.max(1) as f64)
-            .min(height as f64 / scene.height_emu.max(1) as f64);
+        let s = (width as f64 / scene.width_emu.max(1) as f64).min(height as f64 / scene.height_emu.max(1) as f64);
         let s_f32 = s as f32;
 
         let dx = ((width as f64 - (scene.width_emu as f64 * s)) / 2.0) as f32;
@@ -332,30 +329,12 @@ fn draw_command(
                 .map(|plan| plan.size_hint(rel_id))
                 .unwrap_or(crate::loader::SizeHint::Native);
             image::render_image_with_hint(
-                pixmap,
-                assets,
-                rel_id,
-                hint,
-                src_rect,
-                dest_rect,
-                *opacity,
-                transform,
-                effects,
-                scale,
-                offset_x,
+                pixmap, assets, rel_id, hint, src_rect, dest_rect, *opacity, transform, effects, scale, offset_x,
                 offset_y,
             );
         }
         VectorCommand::DrawText { runs, transform } => {
-            text::render_text_runs(
-                pixmap,
-                runs,
-                transform,
-                scale,
-                offset_x,
-                offset_y,
-                scratch,
-            );
+            text::render_text_runs(pixmap, runs, transform, scale, offset_x, offset_y, scratch);
         }
         VectorCommand::DrawBitmap {
             png,
@@ -364,21 +343,10 @@ fn draw_command(
             sampling,
             ..
         } => {
-            image::render_bitmap(
-                pixmap,
-                png,
-                placement,
-                *opacity,
-                *sampling,
-                scale,
-                offset_x,
-                offset_y,
-            );
+            image::render_bitmap(pixmap, png, placement, *opacity, *sampling, scale, offset_x, offset_y);
         }
         VectorCommand::DrawMetafile {
-            dest_rect,
-            transform,
-            ..
+            dest_rect, transform, ..
         } => {
             image::render_missing_metafile(pixmap, dest_rect, transform, scale, offset_x, offset_y);
         }

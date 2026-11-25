@@ -179,27 +179,19 @@ pub fn plan_decoded_image_targets(
     // surface count (ref adaptive-image-budget.ts:141-163).
     let mut merged: BTreeMap<String, DecodeDemand> = BTreeMap::new();
     for demand in demands {
-        let entry = merged
-            .entry(demand.key.clone())
-            .or_insert_with(|| DecodeDemand {
-                key: demand.key.clone(),
-                target_width_px: 0.0,
-                target_height_px: 0.0,
-                source_width_px: None,
-                source_height_px: None,
-                retained_surfaces: 1,
-            });
-        entry.target_width_px = entry
-            .target_width_px
-            .max(positive_pixel(demand.target_width_px));
-        entry.target_height_px = entry
-            .target_height_px
-            .max(positive_pixel(demand.target_height_px));
+        let entry = merged.entry(demand.key.clone()).or_insert_with(|| DecodeDemand {
+            key: demand.key.clone(),
+            target_width_px: 0.0,
+            target_height_px: 0.0,
+            source_width_px: None,
+            source_height_px: None,
+            retained_surfaces: 1,
+        });
+        entry.target_width_px = entry.target_width_px.max(positive_pixel(demand.target_width_px));
+        entry.target_height_px = entry.target_height_px.max(positive_pixel(demand.target_height_px));
         if let (Some(w), Some(h)) = (demand.source_width_px, demand.source_height_px) {
-            entry.source_width_px =
-                Some(entry.source_width_px.unwrap_or(0.0).max(positive_pixel(w)));
-            entry.source_height_px =
-                Some(entry.source_height_px.unwrap_or(0.0).max(positive_pixel(h)));
+            entry.source_width_px = Some(entry.source_width_px.unwrap_or(0.0).max(positive_pixel(w)));
+            entry.source_height_px = Some(entry.source_height_px.unwrap_or(0.0).max(positive_pixel(h)));
         }
         entry.retained_surfaces = entry.retained_surfaces.max(demand.retained_surfaces.max(1));
     }
@@ -222,8 +214,9 @@ pub fn plan_decoded_image_targets(
     let retained_for = |demand: &DecodeDemand, scale: f32| -> (u32, u32) {
         let request = scaled_request(demand, scale);
         match source_of(demand) {
-            Some(source) => retained_target(Some(source), request)
-                .unwrap_or((source.0.max(1.0) as u32, source.1.max(1.0) as u32)),
+            Some(source) => {
+                retained_target(Some(source), request).unwrap_or((source.0.max(1.0) as u32, source.1.max(1.0) as u32))
+            }
             None => (request.0 as u32, request.1 as u32),
         }
     };
@@ -290,8 +283,7 @@ pub fn plan_decoded_image_targets(
         let mut admission = (options.decoded_byte_budget as f64 / ideal_bytes.max(1) as f64).sqrt();
         for demand in merged.values() {
             let (w, h) = retained_for(demand, 1.0);
-            admission = admission
-                .min((MAX_RASTER_PIXELS as f64 / (f64::from(w) * f64::from(h)).max(1.0)).sqrt());
+            admission = admission.min((MAX_RASTER_PIXELS as f64 / (f64::from(w) * f64::from(h)).max(1.0)).sqrt());
         }
         let mut targets = BTreeMap::new();
         let mut remaining = options.decoded_byte_budget / 4;
@@ -299,12 +291,9 @@ pub fn plan_decoded_image_targets(
         for (key, demand) in &merged {
             let (w, h) = retained_for(demand, 1.0);
             let display_pixels = u64::from(w) * u64::from(h);
-            let proportional =
-                display_pixels.max((display_pixels as f64 * admission * admission).floor() as u64);
+            let proportional = display_pixels.max((display_pixels as f64 * admission * admission).floor() as u64);
             let max_retained = proportional.min(remaining / surfaces(demand)).max(1);
-            let scale = (max_retained as f64 / display_pixels.max(1) as f64)
-                .sqrt()
-                .min(2.0);
+            let scale = (max_retained as f64 / display_pixels.max(1) as f64).sqrt().min(2.0);
             let request = scaled_request(demand, scale as f32);
             let retained = retained_for(demand, scale as f32);
             targets.insert(
@@ -394,12 +383,7 @@ pub fn plan_decoded_image_targets(
 
 /// The device-pixel destination grid of one `DrawImage` after its shape
 /// transform and the slide's uniform scale.
-fn display_target(
-    dest: &RectF32,
-    transform: &AffineTransform,
-    scale: f32,
-    offset: (f32, f32),
-) -> (f32, f32) {
+fn display_target(dest: &RectF32, transform: &AffineTransform, scale: f32, offset: (f32, f32)) -> (f32, f32) {
     let corners = [
         (dest.x, dest.y),
         (dest.x + dest.w, dest.y),
@@ -427,8 +411,7 @@ fn display_target(
 pub fn scene_decode_demands(scene: &VectorSlide, target: &RenderTargetSpec) -> Vec<DecodeDemand> {
     let width = target.width_px;
     let height = target.height_px;
-    let s = (width as f64 / scene.width_emu.max(1) as f64)
-        .min(height as f64 / scene.height_emu.max(1) as f64) as f32;
+    let s = (width as f64 / scene.width_emu.max(1) as f64).min(height as f64 / scene.height_emu.max(1) as f64) as f32;
     let dx = ((width as f64 - (scene.width_emu as f64 * s as f64)) / 2.0) as f32;
     let dy = ((height as f64 - (scene.height_emu as f64 * s as f64)) / 2.0) as f32;
 
@@ -484,14 +467,8 @@ fn is_tiff_source(rel_id: &str) -> bool {
 }
 
 /// Plan a slide's decoded surfaces with the render pass' default policy.
-pub fn scene_decode_plan(
-    scene: &VectorSlide,
-    target: &RenderTargetSpec,
-) -> Result<DecodePlan, RenderError> {
-    plan_decoded_image_targets(
-        &scene_decode_demands(scene, target),
-        &ImageResourceOptions::default(),
-    )
+pub fn scene_decode_plan(scene: &VectorSlide, target: &RenderTargetSpec) -> Result<DecodePlan, RenderError> {
+    plan_decoded_image_targets(&scene_decode_demands(scene, target), &ImageResourceOptions::default())
 }
 
 #[cfg(test)]

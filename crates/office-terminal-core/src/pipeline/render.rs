@@ -26,11 +26,7 @@ pub(crate) type WarningBuffer = Arc<Mutex<Vec<(usize, WarningEvent)>>>;
 ///
 /// The single home of warning collection: the sync renderer and every worker
 /// task funnel their compile/expansion diagnostics through this.
-pub(crate) fn flush_warnings(
-    buffer: &WarningBuffer,
-    index: usize,
-    receiver: &Receiver<WarningEvent>,
-) {
+pub(crate) fn flush_warnings(buffer: &WarningBuffer, index: usize, receiver: &Receiver<WarningEvent>) {
     let events: Vec<WarningEvent> = receiver.try_iter().collect();
     if events.is_empty() {
         return;

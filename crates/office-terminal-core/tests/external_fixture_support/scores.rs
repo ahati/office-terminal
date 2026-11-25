@@ -53,8 +53,7 @@ pub fn load() -> Result<Option<ExternalScores>, String> {
     if !path.is_file() {
         return Ok(None);
     }
-    let text = std::fs::read_to_string(&path)
-        .map_err(|error| format!("read {}: {error}", path.display()))?;
+    let text = std::fs::read_to_string(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
     serde_json::from_str(&text)
         .map(Some)
         .map_err(|error| format!("parse {}: {error}", path.display()))
@@ -63,11 +62,8 @@ pub fn load() -> Result<Option<ExternalScores>, String> {
 pub fn write(scores: &ExternalScores) -> Result<(), String> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(RELATIVE);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("create {}: {error}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;
     }
-    let text = serde_json::to_string_pretty(scores)
-        .map_err(|error| format!("serialize external scores: {error}"))?;
-    std::fs::write(&path, format!("{text}\n"))
-        .map_err(|error| format!("write {}: {error}", path.display()))
+    let text = serde_json::to_string_pretty(scores).map_err(|error| format!("serialize external scores: {error}"))?;
+    std::fs::write(&path, format!("{text}\n")).map_err(|error| format!("write {}: {error}", path.display()))
 }

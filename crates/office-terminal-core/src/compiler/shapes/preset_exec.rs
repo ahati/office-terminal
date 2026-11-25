@@ -111,12 +111,7 @@ pub struct PresetSubpath {
 ///
 /// Returns `None` for an unknown preset or a command token the evaluator cannot
 /// resolve — the reference throws in that case (`evaluator.ts:113-118`).
-pub fn build_preset(
-    geometry: &str,
-    w: f64,
-    h: f64,
-    adj: &[Option<f64>],
-) -> Option<Vec<PresetSubpath>> {
+pub fn build_preset(geometry: &str, w: f64, h: f64, adj: &[Option<f64>]) -> Option<Vec<PresetSubpath>> {
     let def = preset_def(geometry)?;
     let env = preset_env(geometry, w, h, adj)?;
 
@@ -128,12 +123,7 @@ pub fn build_preset(
 }
 
 /// Replay one `<a:path>` into a [`PresetSubpath`].
-fn execute_path(
-    source: &PresetPathDef,
-    w: f64,
-    h: f64,
-    env: &HashMap<&'static str, f64>,
-) -> Option<PresetSubpath> {
+fn execute_path(source: &PresetPathDef, w: f64, h: f64, env: &HashMap<&'static str, f64>) -> Option<PresetSubpath> {
     // ref `path-executor.ts:47-49`: flat 1:1 mapping when the path declares no
     // authoring size, otherwise scale to the shape box.
     let mut pen = Pen {
@@ -170,11 +160,7 @@ struct Pen {
 
 impl Pen {
     /// Apply one command. ref `path-executor.ts:51-129`.
-    fn command(
-        &mut self,
-        cmd: &[String],
-        env: &HashMap<&'static str, f64>,
-    ) -> Option<()> {
+    fn command(&mut self, cmd: &[String], env: &HashMap<&'static str, f64>) -> Option<()> {
         match cmd.first()?.as_str() {
             "m" => {
                 let (x, y) = self.point(cmd, 1, env)?;
@@ -228,12 +214,7 @@ impl Pen {
     }
 
     /// Resolve the two coordinate tokens at `base` and `base + 1`.
-    fn point(
-        &self,
-        cmd: &[String],
-        base: usize,
-        env: &HashMap<&'static str, f64>,
-    ) -> Option<(f64, f64)> {
+    fn point(&self, cmd: &[String], base: usize, env: &HashMap<&'static str, f64>) -> Option<(f64, f64)> {
         Some((
             resolve_token(cmd.get(base)?, env)? * self.scale_x,
             resolve_token(cmd.get(base + 1)?, env)? * self.scale_y,
@@ -256,9 +237,7 @@ impl Pen {
         let sweep = token(cmd, 4, env)? * DEG60K_TO_RAD;
 
         // ref `path-executor.ts:99-104`: visual angle -> parametric angle.
-        let to_parametric = |visual: f64| {
-            (w_radius_local * visual.sin()).atan2(h_radius_local * visual.cos())
-        };
+        let to_parametric = |visual: f64| (w_radius_local * visual.sin()).atan2(h_radius_local * visual.cos());
         let start = to_parametric(start_angle);
         let full_revolutions = (sweep / TWO_PI).trunc();
         let remainder = sweep - full_revolutions * TWO_PI;
@@ -338,15 +317,9 @@ mod tests {
         assert_eq!(PathFill::from_mode(Some("norm")), PathFill::Norm);
         assert_eq!(PathFill::from_mode(Some("none")), PathFill::None);
         assert_eq!(PathFill::from_mode(Some("lighten")), PathFill::Lighten);
-        assert_eq!(
-            PathFill::from_mode(Some("lightenLess")),
-            PathFill::LightenLess
-        );
+        assert_eq!(PathFill::from_mode(Some("lightenLess")), PathFill::LightenLess);
         assert_eq!(PathFill::from_mode(Some("darken")), PathFill::Darken);
-        assert_eq!(
-            PathFill::from_mode(Some("darkenLess")),
-            PathFill::DarkenLess
-        );
+        assert_eq!(PathFill::from_mode(Some("darkenLess")), PathFill::DarkenLess);
         assert_eq!(PathFill::from_mode(Some("bogus")), PathFill::Norm);
         assert!(!PathFill::None.is_filled());
         assert!(PathFill::Norm.is_filled());
@@ -393,12 +366,7 @@ mod tests {
         let t0 = to_parametric(0.0);
 
         for sweep_deg in [100.0_f64, -100.0] {
-            let (end_x, end_y, segments) = arc_from_origin(
-                "100",
-                "50",
-                "0",
-                &(sweep_deg * 60_000.0).to_string(),
-            );
+            let (end_x, end_y, segments) = arc_from_origin("100", "50", "0", &(sweep_deg * 60_000.0).to_string());
             assert!(!segments.is_empty(), "{sweep_deg}° sweep should emit curves");
             let t1 = to_parametric(sweep_deg.to_radians());
             // The pen starts at the origin, so the endpoint is the difference

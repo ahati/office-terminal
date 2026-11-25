@@ -15,9 +15,7 @@ pub mod trim;
 
 pub use self::trim::trim_path_ends;
 
-use crate::contracts::{
-    CompoundLine, FillRule, LineEnd, LineEndKind, LineEndSize, PathSegment, VectorPath,
-};
+use crate::contracts::{CompoundLine, FillRule, LineEnd, LineEndKind, LineEndSize, PathSegment, VectorPath};
 
 /// One point in the path's local space.
 type Point = (f32, f32);
@@ -171,10 +169,7 @@ fn flatten_ellipse(cx: f32, cy: f32, rx: f32, ry: f32) -> Vec<PathSegment> {
     const K: f32 = 0.552_284_8;
     let (kx, ky) = (rx * K, ry * K);
     vec![
-        PathSegment::MoveTo {
-            x: cx + rx,
-            y: cy,
-        },
+        PathSegment::MoveTo { x: cx + rx, y: cy },
         PathSegment::CubicTo {
             x1: cx + rx,
             y1: cy + ky,
@@ -236,9 +231,7 @@ pub fn path_ends(path: &VectorPath) -> Option<(PathEnd, PathEnd)> {
     for segment in &path.segments {
         match segment {
             PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => points.push((*x, *y)),
-            PathSegment::QuadTo { x, y, .. } | PathSegment::CubicTo { x, y, .. } => {
-                points.push((*x, *y))
-            }
+            PathSegment::QuadTo { x, y, .. } | PathSegment::CubicTo { x, y, .. } => points.push((*x, *y)),
             PathSegment::Close => {}
         }
     }
@@ -265,12 +258,7 @@ pub fn path_ends(path: &VectorPath) -> Option<(PathEnd, PathEnd)> {
 /// into the line) at `end`.
 pub fn place(geometry: &ArrowGeometry, end: PathEnd) -> VectorPath {
     let (sin, cos) = end.angle.sin_cos();
-    let map = |x: f32, y: f32| {
-        (
-            end.point.0 + x * cos - y * sin,
-            end.point.1 + x * sin + y * cos,
-        )
-    };
+    let map = |x: f32, y: f32| (end.point.0 + x * cos - y * sin, end.point.1 + x * sin + y * cos);
     let segments = geometry
         .path
         .segments
@@ -294,14 +282,7 @@ pub fn place(geometry: &ArrowGeometry, end: PathEnd) -> VectorPath {
                     y: by,
                 }
             }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
                 let (ax, ay) = map(x1, y1);
                 let (bx, by) = map(x2, y2);
                 let (cx2, cy2) = map(x, y);
@@ -327,9 +308,7 @@ pub fn straight_run(path: &VectorPath) -> Option<((f32, f32), (f32, f32))> {
     for segment in &path.segments {
         match segment {
             PathSegment::MoveTo { x, y } if start.is_none() => start = Some((*x, *y)),
-            PathSegment::LineTo { x, y } if start.is_some() && end.is_none() => {
-                end = Some((*x, *y))
-            }
+            PathSegment::LineTo { x, y } if start.is_some() && end.is_none() => end = Some((*x, *y)),
             PathSegment::Close => return None,
             _ => return None,
         }
@@ -344,11 +323,7 @@ pub fn compound_subs(cmpd: CompoundLine) -> Option<&'static [(f32, f32)]> {
     const DBL: &[(f32, f32)] = &[(-1.0 / 3.0, 1.0 / 3.0), (1.0 / 3.0, 1.0 / 3.0)];
     const THIN_THICK: &[(f32, f32)] = &[(-3.0 / 8.0, 1.0 / 4.0), (1.0 / 4.0, 1.0 / 2.0)];
     const THICK_THIN: &[(f32, f32)] = &[(-1.0 / 4.0, 1.0 / 2.0), (3.0 / 8.0, 1.0 / 4.0)];
-    const TRI: &[(f32, f32)] = &[
-        (-2.0 / 5.0, 1.0 / 5.0),
-        (0.0, 3.0 / 5.0),
-        (2.0 / 5.0, 1.0 / 5.0),
-    ];
+    const TRI: &[(f32, f32)] = &[(-2.0 / 5.0, 1.0 / 5.0), (0.0, 3.0 / 5.0), (2.0 / 5.0, 1.0 / 5.0)];
     match cmpd {
         CompoundLine::Dbl => Some(DBL),
         CompoundLine::ThinThick => Some(THIN_THICK),
@@ -361,12 +336,7 @@ pub fn compound_subs(cmpd: CompoundLine) -> Option<&'static [(f32, f32)]> {
 /// Parallel rails of a compound straight run: `(start, end, width_emu)`.
 /// The centre line is not painted (`destination-out` in the reference).
 /// ref renderer.ts:7513-7530
-pub fn compound_rails(
-    start: Point,
-    end: Point,
-    width_emu: f32,
-    cmpd: CompoundLine,
-) -> Vec<Rail> {
+pub fn compound_rails(start: Point, end: Point, width_emu: f32, cmpd: CompoundLine) -> Vec<Rail> {
     let Some(subs) = compound_subs(cmpd) else {
         return Vec::new();
     };

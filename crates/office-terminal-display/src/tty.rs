@@ -26,10 +26,7 @@ impl TtyWriter {
     /// the individual chunk framing from the byte stream, so coalescing is
     /// invisible to the protocol (PRD 03a §6).
     pub fn write_seq_batch(&self, seqs: &[&str]) -> io::Result<()> {
-        let mut out = self
-            .stdout
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut out = self.stdout.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut buf = Vec::with_capacity(seqs.iter().map(|s| s.len()).sum());
         for seq in seqs {
             buf.extend_from_slice(seq.as_bytes());

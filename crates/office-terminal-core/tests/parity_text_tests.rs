@@ -14,12 +14,8 @@
 //! ledger keeps their rows.
 
 use office_terminal_core::text::justify::{justify_line, JustifyMode, JustifyPlan};
-use office_terminal_core::text::linebreak::{
-    break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem,
-};
-use office_terminal_core::text::metrics::{
-    natural_line_box, paragraph_spacing, spaced_line_box, FaceMetrics,
-};
+use office_terminal_core::text::linebreak::{break_paragraph, BreakItem, BreakOptions, BrokenLine, LineItem};
+use office_terminal_core::text::metrics::{natural_line_box, paragraph_spacing, spaced_line_box, FaceMetrics};
 use office_terminal_core::text::tabs::resolve_tab_widths;
 use office_terminal_core::text::{StyleId, TabAlign, TabStop, TextMeasure};
 
@@ -82,10 +78,7 @@ fn wrap_one(text: &str, width: f32) -> Vec<String> {
 }
 
 fn close(actual: f32, expected: f32) {
-    assert!(
-        (actual - expected).abs() < 1e-4,
-        "expected {expected}, got {actual}"
-    );
+    assert!((actual - expected).abs() < 1e-4, "expected {expected}, got {actual}");
 }
 
 fn item(text: &str, width: f32) -> LineItem {
@@ -127,14 +120,8 @@ fn dist_justifies_the_last_cjk_line() {
 #[test]
 fn just_leaves_the_last_and_break_terminated_lines_ragged() {
     let items = [item("日本語", 60.0)];
-    assert_eq!(
-        justify_line(&items, 120.0, 60.0, JustifyMode::Just, true, false),
-        None
-    );
-    assert_eq!(
-        justify_line(&items, 120.0, 60.0, JustifyMode::Just, false, true),
-        None
-    );
+    assert_eq!(justify_line(&items, 120.0, 60.0, JustifyMode::Just, true, false), None);
+    assert_eq!(justify_line(&items, 120.0, 60.0, JustifyMode::Just, false, true), None);
     let justified = plan(&items, 120.0, 60.0, JustifyMode::Just, false, false);
     close(justified.per_gap, 30.0);
     assert_eq!(justified.gap_positions(), [1, 2]);
@@ -149,10 +136,7 @@ fn thai_dist_opens_grapheme_clusters() {
     let justified = plan(&items, 90.0, 60.0, JustifyMode::ThaiDist, false, false);
     close(justified.per_gap, 10.0);
     assert_eq!(justified.gap_positions(), [1, 3, 4]);
-    assert_eq!(
-        justify_line(&items, 90.0, 60.0, JustifyMode::Dist, false, false),
-        None
-    );
+    assert_eq!(justify_line(&items, 90.0, 60.0, JustifyMode::Dist, false, false), None);
 }
 
 /// `:62-66`: no gap inside the Latin "EC"; gaps at C|市, 市|場, 場|で.
@@ -195,10 +179,7 @@ fn cell(width: f32) -> LineItem {
 }
 
 fn tab_item() -> LineItem {
-    LineItem::Tab {
-        width: 0.0,
-        style: S,
-    }
+    LineItem::Tab { width: 0.0, style: S }
 }
 
 fn stop(pos: f32, align: TabAlign) -> TabStop {
@@ -217,9 +198,7 @@ fn tab_widths(
     items
         .iter()
         .map(|item| match item {
-            LineItem::Text { width, .. }
-            | LineItem::Tab { width, .. }
-            | LineItem::Object { width, .. } => *width,
+            LineItem::Text { width, .. } | LineItem::Tab { width, .. } | LineItem::Object { width, .. } => *width,
         })
         .collect()
 }
@@ -230,10 +209,7 @@ fn tab_widths(
 fn n_tab_cells_end_on_their_stops() {
     let out = tab_widths(
         &mut [cell(50.0), tab_item(), cell(40.0), tab_item(), cell(40.0)],
-        &[
-            stop(200.0, TabAlign::Right),
-            stop(400.0, TabAlign::Right),
-        ],
+        &[stop(200.0, TabAlign::Right), stop(400.0, TabAlign::Right)],
         0.0,
         600.0,
         0.0,
@@ -345,10 +321,7 @@ fn latin_compound_hyphen_is_a_soft_break() {
 #[test]
 fn hyphen_break_spans_a_run_seam() {
     let seam = [text_item("aaaaaaaa-"), text_item("bbbb")];
-    assert_eq!(
-        texts(&wrap_lines(&seam, 100.0, 0.0, true)),
-        ["aaaaaaaa-", "bbbb"]
-    );
+    assert_eq!(texts(&wrap_lines(&seam, 100.0, 0.0, true)), ["aaaaaaaa-", "bbbb"]);
     assert_eq!(
         wrap_one("aaaa --list-masters bbbb", 120.0),
         ["aaaa --list-", "masters bbbb"]
@@ -388,11 +361,7 @@ fn closing_punctuation_never_starts_a_latin_line() {
 /// ", cc"), but the comma still never leads a line.
 #[test]
 fn non_starters_stay_with_their_word_across_run_seams() {
-    let items = [
-        text_item("aaaa bbbb sys"),
-        text_item("tem"),
-        text_item(", cc"),
-    ];
+    let items = [text_item("aaaa bbbb sys"), text_item("tem"), text_item(", cc")];
     let out = texts(&wrap_lines(&items, 165.0, 0.0, true));
     assert_eq!(out, ["aaaa bbbb", "system, cc"]);
     for line in &out {
@@ -489,13 +458,8 @@ fn spc_pts_rounds_to_whole_points() {
     let (ascent, descent) = natural_line_box(&[(40.0, ARIAL)]);
     let boxed = spaced_line_box(ascent, descent, Some((false, 40.5)), 1.0, 0.0);
     close(boxed.0 + boxed.1, 41.0);
-    assert_eq!(
-        boxed,
-        spaced_line_box(ascent, descent, Some((false, 41.0)), 1.0, 0.0)
-    );
-    let ys: Vec<i32> = (0..8)
-        .map(|i| snap(boxed.0 + i as f32 * (boxed.0 + boxed.1)))
-        .collect();
+    assert_eq!(boxed, spaced_line_box(ascent, descent, Some((false, 41.0)), 1.0, 0.0));
+    let ys: Vec<i32> = (0..8).map(|i| snap(boxed.0 + i as f32 * (boxed.0 + boxed.1))).collect();
     assert_eq!(ys, [44, 101, 158, 215, 272, 329, 386, 443]);
 
     let (ascent, descent) = natural_line_box(&[(20.0, ARIAL)]);
@@ -516,17 +480,11 @@ fn paragraph_spacing_follows_the_adjacent_line() {
     let gap = paragraph_spacing(Some((true, 50_000.0)), pitch, 1.0);
     close(gap, 12.0);
     close(pitch + gap, 36.0); // the reference's pitch * 1.5
-    close(
-        paragraph_spacing(Some((true, 50_000.0)), 1.2 * 40.0, 1.0),
-        24.0,
-    );
+    close(paragraph_spacing(Some((true, 50_000.0)), 1.2 * 40.0, 1.0), 24.0);
     let (ascent, descent) = natural_line_box(&[(40.0, ARIAL)]);
     let (ascent, descent) = spaced_line_box(ascent, descent, Some((true, 80_000.0)), 1.0, 0.0);
     close(ascent + descent, 38.4);
-    close(
-        paragraph_spacing(Some((true, 100_000.0)), 1.2 * 40.0, 1.0),
-        48.0,
-    );
+    close(paragraph_spacing(Some((true, 100_000.0)), 1.2 * 40.0, 1.0), 48.0);
     close(paragraph_spacing(Some((false, 12.0)), 1.2 * 20.0, 1.0), 12.0);
     close(paragraph_spacing(Some((false, 12.0)), 1.2 * 40.0, 1.0), 12.0);
     close(paragraph_spacing(None, 1.2 * 20.0, 1.0), 0.0);
@@ -541,10 +499,7 @@ fn paragraph_spacing_follows_the_adjacent_line() {
 fn negative_first_line_indent_expands_only_the_first_line() {
     let kana = "あ".repeat(40);
     let lines = wrap_lines(&[text_item(&kana)], 150.0, -50.0, true);
-    let lengths: Vec<usize> = lines
-        .iter()
-        .map(|line| line_text(line).chars().count())
-        .collect();
+    let lengths: Vec<usize> = lines.iter().map(|line| line_text(line).chars().count()).collect();
     assert_eq!(lengths, [20, 15, 5]);
     assert_eq!(
         lines.iter().map(|line| line.width).collect::<Vec<f32>>(),

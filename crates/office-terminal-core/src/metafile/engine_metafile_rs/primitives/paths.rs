@@ -19,11 +19,7 @@ pub fn engine_path(path: &mc::Path, rule: FillRule) -> VectorPath {
                     x: point.x as f32,
                     y: point.y as f32,
                 }),
-                mc::PathSegment::Cubic {
-                    control1,
-                    control2,
-                    to,
-                } => segments.push(PathSegment::CubicTo {
+                mc::PathSegment::Cubic { control1, control2, to } => segments.push(PathSegment::CubicTo {
                     x1: control1.x as f32,
                     y1: control1.y as f32,
                     x2: control2.x as f32,
@@ -126,55 +122,53 @@ pub fn ellipse_path(rect: RectF32) -> VectorPath {
     let (cx, cy) = (rx, ry);
     let kx = rx * 0.552_284_8;
     let ky = ry * 0.552_284_8;
-    translate_path(VectorPath::new(
-        vec![
-            PathSegment::MoveTo { x: cx, y: 0.0 },
-            PathSegment::CubicTo {
-                x1: cx + kx,
-                y1: 0.0,
-                x2: w,
-                y2: cy - ky,
-                x: w,
-                y: cy,
-            },
-            PathSegment::CubicTo {
-                x1: w,
-                y1: cy + ky,
-                x2: cx + kx,
-                y2: h,
-                x: cx,
-                y: h,
-            },
-            PathSegment::CubicTo {
-                x1: cx - kx,
-                y1: h,
-                x2: 0.0,
-                y2: cy + ky,
-                x: 0.0,
-                y: cy,
-            },
-            PathSegment::CubicTo {
-                x1: 0.0,
-                y1: cy - ky,
-                x2: cx - kx,
-                y2: 0.0,
-                x: cx,
-                y: 0.0,
-            },
-            PathSegment::Close,
-        ],
-        FillRule::NonZero,
-    ), rect.x, rect.y)
+    translate_path(
+        VectorPath::new(
+            vec![
+                PathSegment::MoveTo { x: cx, y: 0.0 },
+                PathSegment::CubicTo {
+                    x1: cx + kx,
+                    y1: 0.0,
+                    x2: w,
+                    y2: cy - ky,
+                    x: w,
+                    y: cy,
+                },
+                PathSegment::CubicTo {
+                    x1: w,
+                    y1: cy + ky,
+                    x2: cx + kx,
+                    y2: h,
+                    x: cx,
+                    y: h,
+                },
+                PathSegment::CubicTo {
+                    x1: cx - kx,
+                    y1: h,
+                    x2: 0.0,
+                    y2: cy + ky,
+                    x: 0.0,
+                    y: cy,
+                },
+                PathSegment::CubicTo {
+                    x1: 0.0,
+                    y1: cy - ky,
+                    x2: cx - kx,
+                    y2: 0.0,
+                    x: cx,
+                    y: 0.0,
+                },
+                PathSegment::Close,
+            ],
+            FillRule::NonZero,
+        ),
+        rect.x,
+        rect.y,
+    )
 }
 
 /// Polyline-sampled arc; pie/chord are closed to the centre/chord.
-pub fn arc_path(
-    rect: RectF32,
-    start: mc::Point,
-    end: mc::Point,
-    kind: mc::ArcKind,
-    clockwise: bool,
-) -> VectorPath {
+pub fn arc_path(rect: RectF32, start: mc::Point, end: mc::Point, kind: mc::ArcKind, clockwise: bool) -> VectorPath {
     let cx = f64::from(rect.w) * 0.5;
     let cy = f64::from(rect.h) * 0.5;
     let rx = cx.max(1.0e-6);
@@ -194,10 +188,7 @@ pub fn arc_path(
 
     let segments_count = 64usize;
     let mut segments = Vec::with_capacity(segments_count + 4);
-    let first = mc::Point::new(
-        cx + rx * start_angle.cos(),
-        cy + ry * start_angle.sin(),
-    );
+    let first = mc::Point::new(cx + rx * start_angle.cos(), cy + ry * start_angle.sin());
     let center = mc::Point::new(cx, cy);
     if matches!(kind, mc::ArcKind::Pie) {
         segments.push(PathSegment::MoveTo {

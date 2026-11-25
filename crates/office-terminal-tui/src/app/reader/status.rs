@@ -22,14 +22,8 @@ impl ReaderState {
     /// `placements` and `columns` are the frame's layout output (recorded
     /// into [`crate::app::bindings::FrameBindings`] by the reader view); the
     /// label reports the primary row so preview rows never leak into it.
-    pub fn status_line(
-        &self,
-        filename: &str,
-        placements: &[ReaderSlotPlacement],
-        columns: usize,
-    ) -> String {
-        let primary_placements: Vec<&ReaderSlotPlacement> =
-            placements.iter().filter(|p| p.is_primary).collect();
+    pub fn status_line(&self, filename: &str, placements: &[ReaderSlotPlacement], columns: usize) -> String {
+        let primary_placements: Vec<&ReaderSlotPlacement> = placements.iter().filter(|p| p.is_primary).collect();
         let source_placements = if primary_placements.is_empty() {
             placements.iter().collect::<Vec<_>>()
         } else {
@@ -76,11 +70,7 @@ impl ReaderState {
         if self.layout == ReaderLayout::Spread && self.cover_alone {
             segments.push("cover:on".to_string());
         }
-        segments.extend(
-            KEY_HINTS
-                .iter()
-                .map(|(key, action)| format!("{key}:{action}")),
-        );
+        segments.extend(KEY_HINTS.iter().map(|(key, action)| format!("{key}:{action}")));
         segments.join(STATUS_SEGMENT_SEPARATOR)
     }
 }

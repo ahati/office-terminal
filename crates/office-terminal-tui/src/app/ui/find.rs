@@ -1,10 +1,10 @@
 //! In-document find modal (`Ctrl+F`, V2).
 
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::app::state::PresentationState;
 
@@ -54,9 +54,7 @@ pub fn render_find_modal(state: &PresentationState, f: &mut Frame, area: Rect) {
             Span::styled(" 🔎 ", Style::default().fg(Color::Yellow)),
             Span::styled(
                 find.query(),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             ),
             Span::styled("█", Style::default().fg(Color::Cyan)),
         ]))

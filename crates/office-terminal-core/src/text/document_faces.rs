@@ -18,9 +18,9 @@
 //! runtime is untouched. `clear_document_faces` exists for tests that open
 //! many documents in one process.
 
-use std::sync::{Arc, OnceLock, RwLock};
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// Handle to one registered document face.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,9 +71,7 @@ fn registry() -> &'static RwLock<Vec<Arc<DocumentFace>>> {
 /// Handles are dense from zero per process; registering the same face bytes
 /// twice yields distinct handles (document opens are independent).
 pub fn register_document_faces(faces: Vec<DocumentFace>) -> Vec<DocumentFaceId> {
-    let mut guard = registry()
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = registry().write().unwrap_or_else(|poisoned| poisoned.into_inner());
     let base = guard.len() as u32;
     let count = faces.len() as u32;
     for face in faces {
@@ -87,18 +85,14 @@ pub fn register_document_faces(faces: Vec<DocumentFace>) -> Vec<DocumentFaceId> 
 /// Returns `None` when the handle is out of range (a cleared registry or a
 /// foreign handle), letting callers fall back to family-based rendering.
 pub fn with_document_face<R>(id: DocumentFaceId, f: impl FnOnce(&DocumentFace) -> R) -> Option<R> {
-    let guard = registry()
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = registry().read().unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.get(id.0 as usize).map(|face| f(face))
 }
 
 /// Drop every registered face. Only for tests and engine reloads: live runs
 /// referencing cleared handles fall back to the family path.
 pub fn clear_document_faces() {
-    let mut guard = registry()
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = registry().write().unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.clear();
 }
 

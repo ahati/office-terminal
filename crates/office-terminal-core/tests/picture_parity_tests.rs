@@ -8,17 +8,16 @@
 //! so the compiler must pass them through untouched: a regression here collapses
 //! every crop to "full frame" and stretches the image.
 
-use std::sync::Arc;
 use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::{
-    NormalizedRect, RectF32, RenderTargetSpec, RgbaSlide, SvgTextMode, VectorBackground, VectorCommand,
-    VectorSlide,
+    NormalizedRect, RectF32, RenderTargetSpec, RgbaSlide, SvgTextMode, VectorBackground, VectorCommand, VectorSlide,
 };
 use office_terminal_core::error::AssetError;
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::rasterizer::{SlideRasterizer, TinySkiaRasterizer};
-use office_terminal_core::{DefaultSlideCompiler, SlideCompiler, DefaultSlideSvgSerializer, SlideSvgSerializer};
+use office_terminal_core::{DefaultSlideCompiler, DefaultSlideSvgSerializer, SlideCompiler, SlideSvgSerializer};
 use pptx_model::Slide;
+use std::sync::Arc;
 
 /// Synthetic source bitmap: 100x100, left quarter red, right three quarters
 /// green, so a horizontal crop is observable pixel-by-pixel.
@@ -31,11 +30,7 @@ fn source_pixels() -> Vec<u8> {
     for y in 0..H {
         for x in 0..W {
             let i = ((y * W + x) * 4) as usize;
-            let rgba = if x < 25 {
-                [255, 0, 0, 255]
-            } else {
-                [0, 255, 0, 255]
-            };
+            let rgba = if x < 25 { [255, 0, 0, 255] } else { [0, 255, 0, 255] };
             pixels[i..i + 4].copy_from_slice(&rgba);
         }
     }
@@ -52,11 +47,8 @@ impl CropAssetStore {
         let pixels = source_pixels();
         let img = image::RgbaImage::from_raw(W, H, pixels.clone()).expect("rgba buffer");
         let mut png = Vec::new();
-        img.write_to(
-            &mut std::io::Cursor::new(&mut png),
-            image::ImageFormat::Png,
-        )
-        .expect("encode png");
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encode png");
         Self { pixels, png }
     }
 }
@@ -126,9 +118,7 @@ fn only_image(commands: &[VectorCommand]) -> (NormalizedRect, RectF32) {
         .iter()
         .filter_map(|cmd| match cmd {
             VectorCommand::DrawImage {
-                src_rect,
-                dest_rect,
-                ..
+                src_rect, dest_rect, ..
             } => Some((*src_rect, *dest_rect)),
             _ => None,
         })
@@ -303,11 +293,7 @@ fn svg_emits_a_crop_viewport_for_a_cropped_picture() {
 fn svg_without_a_crop_emits_the_plain_image_element() {
     let svg = serialize(&compile_picture(None));
 
-    assert!(
-        svg.contains(r#"<image href="data:image/png;base64,"#),
-        "{}",
-        svg
-    );
+    assert!(svg.contains(r#"<image href="data:image/png;base64,"#), "{}", svg);
     assert!(
         svg.contains(r#"x="0" y="0" width="100" height="100""#),
         "uncropped images keep the plain destination rect: {}",

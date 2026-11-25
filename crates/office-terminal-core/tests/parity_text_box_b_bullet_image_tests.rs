@@ -195,11 +195,7 @@ fn picture_marker_is_sized_to_the_text_height_with_its_aspect() {
 /// `:262` "draws a warmed picture marker in wordArtVert".
 #[test]
 fn picture_marker_is_drawn_in_word_art_vert() {
-    let commands = compile_warmed(&body(
-        blip_bullet(None, None),
-        vec![text_run("Item")],
-        "wordArtVert",
-    ));
+    let commands = compile_warmed(&body(blip_bullet(None, None), vec![text_run("Item")], "wordArtVert"));
     assert_eq!(images(&commands), 1);
     let dest = draws(&commands)[0];
     close(dest.h, 20.0, "stacked marker height");
@@ -209,11 +205,7 @@ fn picture_marker_is_drawn_in_word_art_vert() {
 /// `:262` "draws a warmed picture marker in wordArtVertRtl".
 #[test]
 fn picture_marker_is_drawn_in_word_art_vert_rtl() {
-    let commands = compile_warmed(&body(
-        blip_bullet(None, None),
-        vec![text_run("Item")],
-        "wordArtVertRtl",
-    ));
+    let commands = compile_warmed(&body(blip_bullet(None, None), vec![text_run("Item")], "wordArtVertRtl"));
     assert_eq!(images(&commands), 1);
     let dest = draws(&commands)[0];
     close(dest.h, 20.0, "stacked marker height");
@@ -223,11 +215,7 @@ fn picture_marker_is_drawn_in_word_art_vert_rtl() {
 /// `:475` "scales the bullet by buSzPct (§21.1.2.4.9)": 50 % of 20 px → 10 × 20.
 #[test]
 fn picture_marker_scales_by_bu_sz_pct() {
-    let commands = compile_warmed(&body(
-        blip_bullet(Some(50.0), None),
-        vec![text_run("Item")],
-        "horz",
-    ));
+    let commands = compile_warmed(&body(blip_bullet(Some(50.0), None), vec![text_run("Item")], "horz"));
     assert_eq!(images(&commands), 1);
     let dest = draws(&commands)[0];
     // Height = 20 px text × 50 % = 10 px; width keeps the 2:1 aspect.
@@ -239,11 +227,7 @@ fn picture_marker_scales_by_bu_sz_pct() {
 /// the run": 40 pt → 40 px tall, 80 px wide.
 #[test]
 fn picture_marker_sizes_by_bu_sz_pts_absolutely() {
-    let commands = compile_warmed(&body(
-        blip_bullet(None, Some(40.0)),
-        vec![text_run("Item")],
-        "horz",
-    ));
+    let commands = compile_warmed(&body(blip_bullet(None, Some(40.0)), vec![text_run("Item")], "horz"));
     assert_eq!(images(&commands), 1);
     let dest = draws(&commands)[0];
     close(dest.h, 40.0, "absolute 40 pt marker");

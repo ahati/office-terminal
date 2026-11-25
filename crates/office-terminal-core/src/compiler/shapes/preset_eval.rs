@@ -41,12 +41,7 @@ pub struct PresetGuides {
 /// `adj` holds caller-supplied raw adjust values (1/100 000 units, never
 /// normalised); `None` or a short slice falls back to the preset default.
 /// Returns `None` for an unknown preset or a malformed formula.
-pub fn evaluate_preset(
-    geometry: &str,
-    w: f64,
-    h: f64,
-    adj: &[Option<f64>],
-) -> Option<PresetGuides> {
+pub fn evaluate_preset(geometry: &str, w: f64, h: f64, adj: &[Option<f64>]) -> Option<PresetGuides> {
     let def = preset_def(geometry)?;
     let env = eval_env(def, w, h, adj)?;
 
@@ -82,12 +77,7 @@ pub fn evaluate_preset(
 /// (ref `geometry.ts:288-292` calls `evaluator.resolve` per token), avoiding a
 /// re-evaluation of the guide list for every command. Adjust aliases are
 /// included, just like the reference environment.
-pub fn preset_env(
-    geometry: &str,
-    w: f64,
-    h: f64,
-    adj: &[Option<f64>],
-) -> Option<HashMap<&'static str, f64>> {
+pub fn preset_env(geometry: &str, w: f64, h: f64, adj: &[Option<f64>]) -> Option<HashMap<&'static str, f64>> {
     let def = preset_def(geometry)?;
     eval_env(def, w, h, adj)
 }
@@ -110,21 +100,14 @@ pub fn eval_formula(formula: &str, vars: &HashMap<&'static str, f64>) -> Option<
 /// Resolve one bare token: environment name first, numeric literal second.
 /// ref `evaluator.ts:113-118` (`resolve`).
 pub fn resolve_token(token: &str, vars: &HashMap<&'static str, f64>) -> Option<f64> {
-    vars.get(token)
-        .copied()
-        .or_else(|| token.parse::<f64>().ok())
+    vars.get(token).copied().or_else(|| token.parse::<f64>().ok())
 }
 
 /// Build the evaluator environment for one preset instance.
 ///
 /// Takes a `'static` definition so the names inserted into the map borrow the
 /// table directly instead of being cloned per shape.
-fn eval_env(
-    def: &'static PresetDef,
-    w: f64,
-    h: f64,
-    adj: &[Option<f64>],
-) -> Option<HashMap<&'static str, f64>> {
+fn eval_env(def: &'static PresetDef, w: f64, h: f64, adj: &[Option<f64>]) -> Option<HashMap<&'static str, f64>> {
     let mut env = builtin_vars(w, h);
 
     // ref `evaluator.ts:91-97`: a caller-supplied value (including 0) wins;
@@ -339,10 +322,7 @@ mod tests {
 
     fn assert_close(actual: Option<f64>, expected: f64) {
         let actual = actual.expect("formula should evaluate");
-        assert!(
-            (actual - expected).abs() < 1e-9,
-            "expected {expected}, got {actual}"
-        );
+        assert!((actual - expected).abs() < 1e-9, "expected {expected}, got {actual}");
     }
 
     #[test]
@@ -406,10 +386,7 @@ mod tests {
         assert_eq!(eval_formula("val a 99", &env), Some(1.0));
 
         let guides = evaluate_preset("circulararrow", 200.0, 200.0, &[]);
-        assert!(guides
-            .expect("circulararrow evaluates")
-            .gd
-            .contains_key("xB"));
+        assert!(guides.expect("circulararrow evaluates").gd.contains_key("xB"));
     }
 
     #[test]
@@ -444,8 +421,7 @@ mod tests {
         assert_eq!(missing.gd, defaults.gd);
 
         // A caller value replaces the default and is used raw (not /100000).
-        let overridden =
-            evaluate_preset("roundrect", 100.0, 50.0, &[Some(25000.0)]).expect("roundrect");
+        let overridden = evaluate_preset("roundrect", 100.0, 50.0, &[Some(25000.0)]).expect("roundrect");
         assert_eq!(overridden.adj.get("adj"), Some(&25000.0));
         assert_close(overridden.gd.get("x1").copied(), 12.5);
         assert_close(overridden.gd.get("x2").copied(), 87.5);

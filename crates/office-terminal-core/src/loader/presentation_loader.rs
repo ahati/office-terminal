@@ -1,10 +1,10 @@
+use super::asset_store::{AssetStore, DefaultAssetStore};
+use crate::contracts::{DeckSource, PageSource, SourceFormat};
+use crate::error::ParseError;
+use ooxml_common::resource::{ResourceUsage, ResourceViolation};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use ooxml_common::resource::{ResourceUsage, ResourceViolation};
-use crate::contracts::{DeckSource, PageSource, SourceFormat};
-use crate::error::ParseError;
-use super::asset_store::{AssetStore, DefaultAssetStore};
 
 pub enum Source {
     File(PathBuf),
@@ -33,21 +33,17 @@ pub fn register_docx_loader(loader: DocxLoaderFn) {
 }
 
 pub trait PresentationLoader: Send + Sync {
-    fn load(
-        &self,
-        src: Source,
-    ) -> Result<(pptx_model::Presentation, Arc<dyn AssetStore>), ParseError>;
+    fn load(&self, src: Source) -> Result<(pptx_model::Presentation, Arc<dyn AssetStore>), ParseError>;
 
     fn load_deck(&self, src: Source) -> Result<DeckSource, ParseError> {
         let (bytes, temp_file) = read_source(src)?;
         match sniff_container_format(&bytes)? {
             SourceFormat::Pptx => {
-                let presentation = pptx_parser::parse_pptx_model_native_checked(&bytes).map_err(
-                    |error| match error {
+                let presentation =
+                    pptx_parser::parse_pptx_model_native_checked(&bytes).map_err(|error| match error {
                         pptx_parser::PptxError::Resource(violation) => ParseError::ResourceLimit(violation),
                         pptx_parser::PptxError::Format(message) => ParseError::ArchiveError(message),
-                    },
-                )?;
+                    })?;
                 let asset_store: Arc<dyn AssetStore> = Arc::new(DefaultAssetStore::new(bytes, temp_file));
                 Ok(DeckSource::Pptx(presentation, asset_store))
             }
@@ -80,19 +76,14 @@ pub trait PresentationLoader: Send + Sync {
 pub struct DefaultPresentationLoader;
 
 impl PresentationLoader for DefaultPresentationLoader {
-    fn load(
-        &self,
-        src: Source,
-    ) -> Result<(pptx_model::Presentation, Arc<dyn AssetStore>), ParseError> {
+    fn load(&self, src: Source) -> Result<(pptx_model::Presentation, Arc<dyn AssetStore>), ParseError> {
         let (bytes, temp_file) = read_source(src)?;
         sniff_container(&bytes)?;
 
-        let presentation = pptx_parser::parse_pptx_model_native_checked(&bytes).map_err(
-            |error| match error {
-                pptx_parser::PptxError::Resource(violation) => ParseError::ResourceLimit(violation),
-                pptx_parser::PptxError::Format(message) => ParseError::ArchiveError(message),
-            },
-        )?;
+        let presentation = pptx_parser::parse_pptx_model_native_checked(&bytes).map_err(|error| match error {
+            pptx_parser::PptxError::Resource(violation) => ParseError::ResourceLimit(violation),
+            pptx_parser::PptxError::Format(message) => ParseError::ArchiveError(message),
+        })?;
 
         let asset_store: Arc<dyn AssetStore> = Arc::new(DefaultAssetStore::new(bytes, temp_file));
         Ok((presentation, asset_store))
@@ -102,8 +93,7 @@ impl PresentationLoader for DefaultPresentationLoader {
 fn read_source(src: Source) -> Result<(Arc<[u8]>, Option<tempfile::NamedTempFile>), ParseError> {
     match src {
         Source::File(path) => {
-            let data = std::fs::read(&path)
-                .map_err(|e| ParseError::ArchiveError(e.to_string()))?;
+            let data = std::fs::read(&path).map_err(|e| ParseError::ArchiveError(e.to_string()))?;
             Ok((Arc::from(data.into_boxed_slice()), None))
         }
         Source::Bytes(vec) => Ok((Arc::from(vec.into_boxed_slice()), None)),
@@ -145,8 +135,8 @@ fn read_source(src: Source) -> Result<(Arc<[u8]>, Option<tempfile::NamedTempFile
                     buffer.extend_from_slice(&chunk[..n]);
                 } else {
                     if spilled_temp.is_none() {
-                        let mut temp = tempfile::NamedTempFile::new()
-                            .map_err(|e| ParseError::ArchiveError(e.to_string()))?;
+                        let mut temp =
+                            tempfile::NamedTempFile::new().map_err(|e| ParseError::ArchiveError(e.to_string()))?;
                         use std::io::Write;
                         temp.write_all(&buffer)
                             .map_err(|e| ParseError::ArchiveError(e.to_string()))?;
@@ -180,10 +170,7 @@ fn read_source(src: Source) -> Result<(Arc<[u8]>, Option<tempfile::NamedTempFile
 const CFB_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 
 fn utf16le_contains(haystack: &[u8], needle: &str) -> bool {
-    let pattern: Vec<u8> = needle
-        .encode_utf16()
-        .flat_map(|unit| unit.to_le_bytes())
-        .collect();
+    let pattern: Vec<u8> = needle.encode_utf16().flat_map(|unit| unit.to_le_bytes()).collect();
     !pattern.is_empty()
         && haystack
             .windows(pattern.len())
@@ -202,24 +189,19 @@ pub fn sniff_container_format(bytes: &[u8]) -> Result<SourceFormat, ParseError> 
         }
         if utf16le_contains(bytes, "PowerPoint Document") {
             return Err(ParseError::ArchiveError(
-                "legacy binary PowerPoint (.ppt) is not an OOXML package; convert the deck to .pptx"
-                    .to_string(),
+                "legacy binary PowerPoint (.ppt) is not an OOXML package; convert the deck to .pptx".to_string(),
             ));
         }
         if utf16le_contains(bytes, "WordDocument") {
             return Err(ParseError::ArchiveError(
-                "legacy binary Word (.doc) is not an OOXML package; convert the document to .docx"
-                    .to_string(),
+                "legacy binary Word (.doc) is not an OOXML package; convert the document to .docx".to_string(),
             ));
         }
         return Err(ParseError::ArchiveError(
             "unsupported CFB/OLE2 container: not an OOXML package".to_string(),
         ));
     }
-    if bytes.starts_with(b"PK\x03\x04")
-        || bytes.starts_with(b"PK\x05\x06")
-        || bytes.starts_with(b"PK\x07\x08")
-    {
+    if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06") || bytes.starts_with(b"PK\x07\x08") {
         return super::ooxml_detect::detect_ooxml_format(bytes);
     }
     let check_len = bytes.len().min(1024);
@@ -227,8 +209,7 @@ pub fn sniff_container_format(bytes: &[u8]) -> Result<SourceFormat, ParseError> 
         return Ok(SourceFormat::Pdf);
     }
     Err(ParseError::ArchiveError(
-        "not an OOXML ZIP package (expected .pptx/.docx OPC container) or PDF document"
-            .to_string(),
+        "not an OOXML ZIP package (expected .pptx/.docx OPC container) or PDF document".to_string(),
     ))
 }
 

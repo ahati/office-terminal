@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Welcome to the **kitty-pptx** codebase! This document serves as the primary orientation guide, architectural reference, and engineering handbook for autonomous agents, pair programmers, and human contributors working on this repository.
+Welcome to the **Office Terminal** codebase! This document serves as the primary orientation guide, architectural reference, and engineering handbook for autonomous agents, pair programmers, and human contributors working on this repository.
 
 ---
 
 ## 1. Project Introduction & Vision
 
-**kitty-pptx** is a high-fidelity, high-performance terminal slide deck presenter and vector export engine for Microsoft PowerPoint (`.pptx`) presentations. It brings modern presentation rendering directly to the terminal while supporting native vector exports (such as SVG and PNG).
+**Office Terminal** (`ot`) is a high-fidelity, high-performance terminal presentation and document viewer for Microsoft PowerPoint (`.pptx`), PDF, and Word (`.docx`) documents. It brings modern document rendering directly to the terminal while supporting native vector exports (such as SVG and PNG).
 
 ### Key Capabilities
 - **Kitty Graphics Protocol Native**: Uses the Kitty graphics protocol (PNG transmission, z-indexing, and direct placement) for crisp, GPU-accelerated terminal graphics. Terminals without Kitty graphics support are rejected at startup; there is no fallback renderer.
@@ -22,7 +22,7 @@ Welcome to the **kitty-pptx** codebase! This document serves as the primary orie
 The repository is organized as a Cargo workspace with clean separation of concerns:
 
 ```
-kitty-pptx/
+office-terminal/
 ├── Cargo.toml                      # Workspace manifest & shared dependencies
 ├── AGENTS.md                       # This guide
 ├── docs/                           # Detailed PRDs and architectural specifications

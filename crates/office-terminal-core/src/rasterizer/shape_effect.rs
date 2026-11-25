@@ -8,8 +8,7 @@
 //! inner shadow. Everything except the body itself is painted behind it.
 
 use crate::contracts::{
-    AffineTransform, ShapeEffects, VectorInnerShadow, VectorOuterShadow, VectorPaint,
-    VectorPath, VectorStroke,
+    AffineTransform, ShapeEffects, VectorInnerShadow, VectorOuterShadow, VectorPaint, VectorPath, VectorStroke,
 };
 use crate::rasterizer::bevel::apply_bevel_shading;
 use crate::rasterizer::filters;
@@ -83,7 +82,9 @@ pub fn render_path_with_effects(
     let effective = projected_transform(path, transform, effects, slide_width_emu);
 
     if effects.is_empty() {
-        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
+        path::render_path(
+            pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y,
+        );
         return;
     }
 
@@ -102,9 +103,9 @@ pub fn render_path_with_effects(
     // A non-identity scene3d camera warps the authored face through the
     // reference homography (ref renderer.ts:3944-4050 `projectScene3dPaint`);
     // the effect passes then read the *projected* silhouette.
-    if let Some(mut projected) =
-        projection::project_body_layer(pixmap, assets, path, fill, stroke, transform, effects, scale, offset_x, offset_y, reach_cap)
-    {
+    if let Some(mut projected) = projection::project_body_layer(
+        pixmap, assets, path, fill, stroke, transform, effects, scale, offset_x, offset_y, reach_cap,
+    ) {
         let rotation_deg = transform.ky.atan2(transform.sx).to_degrees();
         composite_body(
             pixmap,
@@ -162,12 +163,24 @@ pub fn render_path_with_effects(
             max_px.1 - min_px.1,
         );
         let rotation_deg = effective.ky.atan2(effective.sx).to_degrees();
-        composite_body(pixmap, &mut layer, origin, bbox, effects, scale, reach_cap, rotation_deg, scratch);
+        composite_body(
+            pixmap,
+            &mut layer,
+            origin,
+            bbox,
+            effects,
+            scale,
+            reach_cap,
+            rotation_deg,
+            scratch,
+        );
         scratch.return_layer(layer);
         Some(())
     })();
     if attempted.is_none() {
-        path::render_path(pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y);
+        path::render_path(
+            pixmap, assets, path, fill, stroke, &effective, scale, offset_x, offset_y,
+        );
     }
 }
 
@@ -215,12 +228,24 @@ fn composite_body(
     }
     // 3. Glow (ref renderer.ts:3818-3819): still behind the body.
     if let Some(glow) = effects.glow.as_ref() {
-        composite_glow(pixmap, &base_mask, layer_w, layer_h, glow, scale, reach_cap, origin, scratch);
+        composite_glow(
+            pixmap, &base_mask, layer_w, layer_h, glow, scale, reach_cap, origin, scratch,
+        );
     }
 
     // 4. Body — `softEdge` replaces the body paint instead of layering on it.
     if let Some(soft) = effects.soft_edge.as_ref() {
-        apply_soft_edge(&mut *layer, &base_mask, layer_w, layer_h, soft, scale, reach_cap, bbox, scratch);
+        apply_soft_edge(
+            &mut *layer,
+            &base_mask,
+            layer_w,
+            layer_h,
+            soft,
+            scale,
+            reach_cap,
+            bbox,
+            scratch,
+        );
     }
     pixmap.draw_pixmap(
         origin.0 as i32,
@@ -234,17 +259,15 @@ fn composite_body(
     // 5. Inner shadow (ref renderer.ts:3838-3848): painted over the body,
     // clipped to its interior.
     if let Some(inner) = effects.inner_shadow.as_ref() {
-        composite_inner_shadow(pixmap, &base_mask, layer_w, layer_h, inner, scale, reach_cap, origin, scratch);
+        composite_inner_shadow(
+            pixmap, &base_mask, layer_w, layer_h, inner, scale, reach_cap, origin, scratch,
+        );
     }
 }
 
 /// Painted extent outside the geometry: stroke half width, contour width
 /// (ref renderer.ts:4361-4389 `paintedPad`). Line-end extents are not in the IR.
-pub(super) fn painted_padding(
-    stroke: Option<&VectorStroke>,
-    effects: &ShapeEffects,
-    scale: f32,
-) -> f32 {
+pub(super) fn painted_padding(stroke: Option<&VectorStroke>, effects: &ShapeEffects, scale: f32) -> f32 {
     let stroke_half = stroke
         .map(|s| (s.width_emu as f32 * scale).max(0.5) / 2.0)
         .unwrap_or(0.0);
@@ -322,14 +345,18 @@ pub(super) fn draw_shape_layer(
 
     if effects.scene_3d.is_none() {
         if let Some(shape_3d) = effects.shape_3d.as_ref() {
-            draw_extrusion(layer, assets, path, fill, shape_3d, transform, scale, offset_x, offset_y);
+            draw_extrusion(
+                layer, assets, path, fill, shape_3d, transform, scale, offset_x, offset_y,
+            );
         }
     }
 
     path::render_path(layer, assets, path, fill, stroke, transform, scale, offset_x, offset_y);
 
     if let Some(shape_3d) = effects.shape_3d.as_ref() {
-        draw_contour(layer, assets, path, stroke, shape_3d, transform, scale, offset_x, offset_y);
+        draw_contour(
+            layer, assets, path, stroke, shape_3d, transform, scale, offset_x, offset_y,
+        );
         let width = layer.width() as usize;
         let height = layer.height() as usize;
         apply_bevel_shading(layer.data_mut(), width, height, shape_3d, effects, scale);
@@ -360,24 +387,19 @@ fn composite_outer_shadow(
 
     // rotWithShape defaults to true (§20.1.8.45). A false value keeps the
     // effect in page space while the silhouette stays rotated.
-    let effect_rotation = if shadow.rotate_with_shape { shape_rotation_deg } else { 0.0 };
-    let (dx, dy) =
-        filters::directional_offset(shadow.direction_deg + effect_rotation as f64, distance_px);
+    let effect_rotation = if shadow.rotate_with_shape {
+        shape_rotation_deg
+    } else {
+        0.0
+    };
+    let (dx, dy) = filters::directional_offset(shadow.direction_deg + effect_rotation as f64, distance_px);
 
     let mut mask = base_mask.to_vec();
     filters::gaussian_blur_alpha_with(scratch, &mut mask, width, height, sigma);
     // ref effects.ts:shadowAlignmentPoint — `algn` is not in the IR, so the
     // spec default `b` (bottom centre of the shape box) anchors the transform.
     let anchor = (bbox.0 + bbox.2 * 0.5, bbox.1 + bbox.3);
-    let mask = filters::warp_shadow_mask(
-        &mask,
-        width,
-        height,
-        shadow,
-        anchor,
-        effect_rotation,
-        (dx, dy),
-    );
+    let mask = filters::warp_shadow_mask(&mask, width, height, shadow, anchor, effect_rotation, (dx, dy));
 
     if let Some(tinted) = tint_mask(&mask, width, height, shadow.color, |a| a) {
         pixmap.draw_pixmap(
@@ -486,15 +508,7 @@ fn apply_soft_edge(
     if radius_px <= 0.0 {
         return;
     }
-    filters::feather_alpha_bleed_with(
-        scratch,
-        layer.data_mut(),
-        width,
-        height,
-        base_mask,
-        bbox,
-        radius_px,
-    );
+    filters::feather_alpha_bleed_with(scratch, layer.data_mut(), width, height, base_mask, bbox, radius_px);
 }
 
 pub(super) fn effect_padding(
@@ -566,8 +580,7 @@ pub(super) fn effect_padding(
         top = top.max(pad);
         right = right.max(pad);
         bottom = bottom.max(pad);
-        bottom = bottom
-            .max((shape_3d.extrusion_depth_emu as f32 * scale).clamp(0.0, 120.0) + 2.0);
+        bottom = bottom.max((shape_3d.extrusion_depth_emu as f32 * scale).clamp(0.0, 120.0) + 2.0);
     }
     (left, top, right, bottom)
 }

@@ -38,11 +38,7 @@ fn text_runs_on_page(source: &DocxPageSource, index: usize) -> Vec<(f32, f32, St
                 if run.text.trim().is_empty() {
                     continue;
                 }
-                runs.push((
-                    run.glyphs[0].x / 12_700.0,
-                    run.glyphs[0].y / 12_700.0,
-                    run.text.clone(),
-                ));
+                runs.push((run.glyphs[0].x / 12_700.0, run.glyphs[0].y / 12_700.0, run.text.clone()));
             }
         }
     }
@@ -55,10 +51,7 @@ fn text_runs_on_page(source: &DocxPageSource, index: usize) -> Vec<(f32, f32, St
 #[test]
 fn two_column_tracks_fill_left_column_before_right() {
     let source = open(common::columns_docx(100));
-    assert!(
-        source.len() >= 2,
-        "100 lines need more than one page of two columns"
-    );
+    assert!(source.len() >= 2, "100 lines need more than one page of two columns");
 
     // Page 1: the intro, then the band below it with both tracks in use.
     let runs = text_runs_on_page(&source, 0);
@@ -83,12 +76,7 @@ fn two_column_tracks_fill_left_column_before_right() {
         .page_text(0)
         .iter()
         .filter_map(|line| {
-            let number = line
-                .text
-                .trim()
-                .strip_prefix("Column line ")?
-                .parse::<usize>()
-                .ok()?;
+            let number = line.text.trim().strip_prefix("Column line ")?.parse::<usize>().ok()?;
             Some(((line.rect.x / 12_700.0).round() as i32, number))
         })
         .collect();
@@ -105,12 +93,8 @@ fn two_column_tracks_fill_left_column_before_right() {
         .min()
         .expect("column 2 lines");
     let text = page_text(&source, 0);
-    let last = text
-        .find(&format!("Column line {last_of_column_1}"))
-        .expect("text");
-    let first = text
-        .find(&format!("Column line {first_of_column_2}"))
-        .expect("text");
+    let last = text.find(&format!("Column line {last_of_column_1}")).expect("text");
+    let first = text.find(&format!("Column line {first_of_column_2}")).expect("text");
     assert!(last < first, "column 1 reads before column 2");
 }
 
@@ -122,11 +106,7 @@ fn two_column_tracks_fill_left_column_before_right() {
 #[test]
 fn continuous_column_change_starts_on_the_current_page() {
     let source = open(common::columns_docx(4));
-    assert_eq!(
-        source.len(),
-        1,
-        "a one-line intro and four column lines fit one page"
-    );
+    assert_eq!(source.len(), 1, "a one-line intro and four column lines fit one page");
 
     let runs = text_runs_on_page(&source, 0);
     let intro_y = runs
@@ -222,9 +202,7 @@ fn column_separator_rule_is_drawn_between_tracks() {
             return false;
         };
         let max = xs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        path.segments.len() >= 2
-            && (max - min).abs() < emu(1.0)
-            && (min - emu(306.0)).abs() < emu(20.0)
+        path.segments.len() >= 2 && (max - min).abs() < emu(1.0) && (min - emu(306.0)).abs() < emu(20.0)
     });
     assert!(rule, "a vertical stroked rule sits in the column gap");
 }
@@ -240,8 +218,7 @@ fn mid_page_column_sections_are_balanced() {
     assert_eq!(source.len(), 1);
     let runs = text_runs_on_page(&source, 0);
     assert!(
-        runs
-            .iter()
+        runs.iter()
             .any(|run| run.2.starts_with("Column") && (run.0 - 324.0).abs() < 2.0),
         "Word places part of the 8 lines in column 2"
     );

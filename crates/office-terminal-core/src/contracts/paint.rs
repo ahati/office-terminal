@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::geometry::{AffineTransform, EMU_PER_PT, LineCap, LineJoin, NormalizedRect};
+use super::geometry::{AffineTransform, LineCap, LineJoin, NormalizedRect, EMU_PER_PT};
 use super::vector_slide::BlipEffect;
 
 /// One preset-pattern cell in EMU: the measured 8×8-cell tile spans 8 pt, so a

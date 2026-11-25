@@ -21,10 +21,24 @@ pub struct EffectTransform {
 }
 
 impl EffectTransform {
-    pub const IDENTITY: Self = Self { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 };
+    pub const IDENTITY: Self = Self {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
 
     pub fn uniform_scale(scale: f64) -> Self {
-        Self { a: scale, b: 0.0, c: 0.0, d: scale, e: 0.0, f: 0.0 }
+        Self {
+            a: scale,
+            b: 0.0,
+            c: 0.0,
+            d: scale,
+            e: 0.0,
+            f: 0.0,
+        }
     }
 
     /// Build from the IR's affine (`sx ky kx sy tx ty`, row-vector convention).
@@ -51,10 +65,7 @@ impl EffectTransform {
     }
 
     fn point(&self, x: f64, y: f64) -> Point {
-        (
-            self.a * x + self.c * y + self.e,
-            self.b * x + self.d * y + self.f,
-        )
+        (self.a * x + self.c * y + self.e, self.b * x + self.d * y + self.f)
     }
 }
 
@@ -119,13 +130,7 @@ impl Alignment {
 /// DrawingML group transforms are already folded into that matrix; effect
 /// surfaces must therefore be cropped from these transformed bounds, not from
 /// the shape's group-local coordinates (ref `transformedEffectBounds`).
-pub fn transformed_effect_bounds(
-    transform: &EffectTransform,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-) -> Bounds {
+pub fn transformed_effect_bounds(transform: &EffectTransform, x: f64, y: f64, w: f64, h: f64) -> Bounds {
     point_bounds([
         transform.point(x, y),
         transform.point(x + w, y),
@@ -145,7 +150,12 @@ fn point_bounds(points: impl IntoIterator<Item = Point>) -> Bounds {
         max_x = max_x.max(px);
         max_y = max_y.max(py);
     }
-    Bounds { x: min_x, y: min_y, w: max_x - min_x, h: max_y - min_y }
+    Bounds {
+        x: min_x,
+        y: min_y,
+        w: max_x - min_x,
+        h: max_y - min_y,
+    }
 }
 
 /// One surface plane for body projection, effect bounds/anchors and masks
@@ -268,7 +278,15 @@ mod tests {
     #[test]
     fn identity_transform_keeps_the_box() {
         let bounds = transformed_effect_bounds(&EffectTransform::IDENTITY, 10.0, 20.0, 40.0, 30.0);
-        assert_eq!(bounds, Bounds { x: 10.0, y: 20.0, w: 40.0, h: 30.0 });
+        assert_eq!(
+            bounds,
+            Bounds {
+                x: 10.0,
+                y: 20.0,
+                w: 40.0,
+                h: 30.0
+            }
+        );
     }
 
     #[test]
@@ -282,7 +300,14 @@ mod tests {
     #[test]
     fn a_front_camera_reports_its_dev_scale() {
         assert!((EffectTransform::uniform_scale(2.0).device_scale() - 2.0).abs() < 1e-12);
-        let degenerate = EffectTransform { a: 0.0, b: 0.0, c: 0.0, d: 0.0, e: 0.0, f: 0.0 };
+        let degenerate = EffectTransform {
+            a: 0.0,
+            b: 0.0,
+            c: 0.0,
+            d: 0.0,
+            e: 0.0,
+            f: 0.0,
+        };
         assert_eq!(degenerate.device_scale(), 1.0);
     }
 }

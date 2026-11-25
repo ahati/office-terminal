@@ -52,13 +52,7 @@ pub struct PaneCropSpan {
 /// landscape page never re-plans its row just because it happens to lead.
 /// Clamped to `1..=6` columns; `Single` and `Horizontal` layouts ignore it
 /// (they always show one pane per row lead).
-pub fn plan_row_columns(
-    viewport_cols: u16,
-    viewport_h_px: f32,
-    cell_w_px: f32,
-    page_pt: (f32, f32),
-    zoom: f32,
-) -> u16 {
+pub fn plan_row_columns(viewport_cols: u16, viewport_h_px: f32, cell_w_px: f32, page_pt: (f32, f32), zoom: f32) -> u16 {
     let (pt_w, pt_h) = page_pt;
     let ar = (pt_w / pt_h).max(0.1);
     let page_w_px = viewport_h_px * ar * zoom;

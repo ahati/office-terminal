@@ -2,6 +2,9 @@
 name = "office-terminal-display"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 office-terminal-core = { workspace = true }

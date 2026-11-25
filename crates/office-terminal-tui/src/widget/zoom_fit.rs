@@ -104,11 +104,7 @@ pub fn compute_zoomed_slide_fit(
 
     // Sanitize the factor: NavState clamps into [0.1, 4.0], but this is pure
     // geometry and must stay total for any caller.
-    let zoom = if zoom.is_finite() && zoom > 0.0 {
-        zoom
-    } else {
-        1.0
-    };
+    let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
 
     let base = compute_slide_rect(area, aspect_ratio, cell_aspect_ratio);
     let zoomed_w = base.width as f32 * zoom;
@@ -162,10 +158,8 @@ pub fn compute_zoomed_slide_fit(
         width: 0,
         height: 0,
     };
-    rect.width = ((vis_x1 - vis_x0).round() as u16)
-        .clamp(1, area.right().saturating_sub(rect.x).max(1));
-    rect.height = ((vis_y1 - vis_y0).round() as u16)
-        .clamp(1, area.bottom().saturating_sub(rect.y).max(1));
+    rect.width = ((vis_x1 - vis_x0).round() as u16).clamp(1, area.right().saturating_sub(rect.x).max(1));
+    rect.height = ((vis_y1 - vis_y0).round() as u16).clamp(1, area.bottom().saturating_sub(rect.y).max(1));
 
     ZoomFit {
         rect,

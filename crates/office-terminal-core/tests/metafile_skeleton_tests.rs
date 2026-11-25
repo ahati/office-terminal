@@ -14,8 +14,8 @@ use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, Si
 use office_terminal_core::metafile::{self, mapping};
 use office_terminal_core::AssetError;
 use office_terminal_core::{
-    DefaultSlideCompiler, DefaultSlideSvgSerializer, SlideCompiler, SlideRasterizer,
-    SlideSvgSerializer, SvgTextMode, TinySkiaRasterizer,
+    DefaultSlideCompiler, DefaultSlideSvgSerializer, SlideCompiler, SlideRasterizer, SlideSvgSerializer, SvgTextMode,
+    TinySkiaRasterizer,
 };
 
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/metafile");
@@ -125,9 +125,7 @@ fn picture_slide(part: &str, mime: &str) -> pptx_model::Slide {
 fn compile_slide(slide: &pptx_model::Slide) -> VectorSlide {
     let compiler = DefaultSlideCompiler::new();
     let (tx, _rx) = crossbeam_channel::unbounded();
-    compiler
-        .compile(slide, 9_144_000, 6_858_000, &tx)
-        .expect("compile")
+    compiler.compile(slide, 9_144_000, 6_858_000, &tx).expect("compile")
 }
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -212,10 +210,7 @@ fn expansion_keeps_non_metafile_commands() {
 
     metafile::expand_metafiles(&mut scene, &store, &tx);
 
-    assert!(
-        scene.commands.len() > before,
-        "placeholder must emit commands"
-    );
+    assert!(scene.commands.len() > before, "placeholder must emit commands");
 }
 
 #[test]
@@ -274,10 +269,7 @@ fn real_emf_bitmap_uses_draw_bitmap() {
 #[test]
 fn real_emfplus_only_plays() {
     metafile::clear_global_cache();
-    let store = FixtureStore::new(
-        "ppt/media/image1.emf",
-        fixture("windows-gdiplus-emfplus-only.emf"),
-    );
+    let store = FixtureStore::new("ppt/media/image1.emf", fixture("windows-gdiplus-emfplus-only.emf"));
     let mut scene = compile_slide(&picture_slide("ppt/media/image1.emf", "image/x-emf"));
     let (tx, _rx) = crossbeam_channel::unbounded::<WarningEvent>();
 

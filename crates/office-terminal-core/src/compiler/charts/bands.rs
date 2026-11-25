@@ -8,14 +8,14 @@
 //!   + shared/legend.ts:950),
 //! - axis-title gutters from the authored font size (layout.ts:497-524).
 
+use crate::compiler::style::parse_hex_color;
 use ooxml_common::chart::ChartSeries;
 use pptx_model::ChartModel;
-use crate::compiler::style::parse_hex_color;
 // EMU bases come from the shared contracts constants (`contracts::geometry`),
 // the same 96-DPI pixel and typographic point every other module uses.
-use crate::contracts::{EMU_PER_PX, EMU_PER_PT};
 use super::color::{resolve_series_color, resolve_slice_color};
 use super::types::{get_category_label, ChartFamily};
+use crate::contracts::{EMU_PER_PT, EMU_PER_PX};
 
 /// Points per CSS pixel at the reference renderer's 96 dpi host scale.
 const PT_PER_PX: f32 = 0.75;
@@ -60,8 +60,7 @@ pub fn chart_text_font_pt(size_hpt: Option<i32>) -> Option<f32> {
 /// ref core/src/chart/shared/axis.ts:584:
 /// `chartTextFontSizePx(...) ?? Math.max(8, h * 0.045)`.
 pub fn axis_label_font_pt(size_hpt: Option<i32>, chart_h: f32) -> f32 {
-    chart_text_font_pt(size_hpt)
-        .unwrap_or_else(|| ((chart_h / EMU_PER_PX) * 0.045).max(8.0) * PT_PER_PX)
+    chart_text_font_pt(size_hpt).unwrap_or_else(|| ((chart_h / EMU_PER_PX) * 0.045).max(8.0) * PT_PER_PX)
 }
 
 /// Data-label font size in points; `plot_h` is the plot height in EMU.
@@ -74,8 +73,7 @@ pub fn series_data_label_font_pt(chart: &ChartModel, series: &ChartSeries, plot_
         .as_ref()
         .and_then(|labels| labels.font_size_hpt)
         .or(chart.data_label_font_size_hpt);
-    chart_text_font_pt(hpt)
-        .unwrap_or_else(|| ((plot_h / EMU_PER_PX) / 25.0).clamp(9.0, 11.0) * PT_PER_PX)
+    chart_text_font_pt(hpt).unwrap_or_else(|| ((plot_h / EMU_PER_PX) / 25.0).clamp(9.0, 11.0) * PT_PER_PX)
 }
 
 /// Legend entry font size in points; ref core/src/chart/shared/resource.ts:33.
@@ -251,12 +249,7 @@ fn legend_entries(chart: &ChartModel, family: ChartFamily) -> Vec<LegendItem> {
 /// Measure the automatic legend band, ref core/src/chart/layout.ts:236-268
 /// (`chartLegendReserve`) + shared/legend.ts:950 (`measuredLegendReserve`):
 /// entry width = key + gap + measured text.
-pub fn measure_legend(
-    chart: &ChartModel,
-    w: f32,
-    h: f32,
-    family: ChartFamily,
-) -> Option<LegendReserve> {
+pub fn measure_legend(chart: &ChartModel, w: f32, h: f32, family: ChartFamily) -> Option<LegendReserve> {
     if !(chart.show_legend || chart.legend_pos.is_some()) {
         return None;
     }
@@ -372,10 +365,8 @@ pub fn make_axis_title(
 ) -> Option<AxisTitleBand> {
     let text = text.map(|t| t.trim()).filter(|t| !t.is_empty())?;
     let font_pt = axis_title_font_pt(size_hpt);
-    let thickness = font_pt * EMU_PER_PT
-        + inset_emu.unwrap_or(0).max(0) as f32
-        + axis_title_margin(dim)
-        + 4.0 * EMU_PER_PX;
+    let thickness =
+        font_pt * EMU_PER_PT + inset_emu.unwrap_or(0).max(0) as f32 + axis_title_margin(dim) + 4.0 * EMU_PER_PX;
     Some(AxisTitleBand {
         text: text.to_string(),
         font_pt,

@@ -7,12 +7,8 @@
 
 use crossbeam_channel::unbounded;
 use office_terminal_core::compiler::charts::compile_chart;
-use office_terminal_core::compiler::charts::types::{
-    detect_chart_family, resolve_chart_family, ChartFamily,
-};
-use office_terminal_core::contracts::{
-    FidelityClass, VectorCommand, VectorPaint, WarningEvent,
-};
+use office_terminal_core::compiler::charts::types::{detect_chart_family, resolve_chart_family, ChartFamily};
+use office_terminal_core::contracts::{FidelityClass, VectorCommand, VectorPaint, WarningEvent};
 use ooxml_common::chart::{ChartModel, ChartPlotGroup, ChartSeries};
 use pptx_model::ChartElement;
 
@@ -112,9 +108,11 @@ fn assert_unsupported_placeholder(commands: &[VectorCommand]) {
     let filled: Vec<_> = commands
         .iter()
         .filter_map(|command| match command {
-            VectorCommand::DrawPath { path, fill: Some(VectorPaint::Solid(color)), .. } => {
-                Some((path, *color))
-            }
+            VectorCommand::DrawPath {
+                path,
+                fill: Some(VectorPaint::Solid(color)),
+                ..
+            } => Some((path, *color)),
             _ => None,
         })
         .collect();
@@ -205,7 +203,10 @@ fn bubble_family_compiles_series_geometry() {
     let mut model = chart("bubble");
     model.series[0].bubble_sizes = Some(vec![Some(50.0), Some(100.0)]);
     let (commands, events) = compile(model);
-    assert!(events.is_empty(), "supported bubble chart emits no placeholder warnings");
+    assert!(
+        events.is_empty(),
+        "supported bubble chart emits no placeholder warnings"
+    );
     assert!(
         commands.iter().any(|c| matches!(c, VectorCommand::DrawPath { .. })),
         "bubble chart must emit vector paths"
@@ -248,7 +249,10 @@ fn mixed_family_plot_groups_paint_the_placeholder() {
     assert_eq!(resolve_chart_family(&model), ChartFamily::Other);
     let (commands, events) = compile(model);
     assert_unsupported_placeholder(&commands);
-    assert_eq!(warning(&events), ("chart_family_unsupported", FidelityClass::Placeholder));
+    assert_eq!(
+        warning(&events),
+        ("chart_family_unsupported", FidelityClass::Placeholder)
+    );
 }
 
 /// Plot groups whose ranges do not form a contiguous cover of `series` are
@@ -261,7 +265,10 @@ fn invalid_plot_group_ranges_paint_the_placeholder() {
     assert_eq!(resolve_chart_family(&model), ChartFamily::Other);
     let (commands, events) = compile(model);
     assert_unsupported_placeholder(&commands);
-    assert_eq!(warning(&events), ("chart_family_unsupported", FidelityClass::Placeholder));
+    assert_eq!(
+        warning(&events),
+        ("chart_family_unsupported", FidelityClass::Placeholder)
+    );
 }
 
 /// Empty-type rule: `Column` is the default only for an entirely empty model.

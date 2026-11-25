@@ -7,16 +7,15 @@
 
 #![cfg(feature = "metafile")]
 
-
 mod metafile_support;
 
 use std::time::Instant;
 
+use metafile_support as support;
 use office_terminal_core::contracts::{AffineTransform, VectorCommand};
 use office_terminal_core::metafile::engine_metafile_rs::MetafileRsEngine;
 use office_terminal_core::metafile::recorder::MetafileRecorder;
 use office_terminal_core::metafile::{self, MetafileEngine, MetafileLimits};
-use metafile_support as support;
 
 /// xorshift64*: deterministic, no external crates.
 struct Rng(u64);
@@ -76,10 +75,7 @@ fn play_guarded(bytes: &[u8]) {
     let started = Instant::now();
     let _ = engine.play(bytes, &limits, &mut recorder);
     let (commands, _) = recorder.finish();
-    assert!(
-        started.elapsed().as_secs() < 2,
-        "one input took more than 2s"
-    );
+    assert!(started.elapsed().as_secs() < 2, "one input took more than 2s");
     assert_sane(&commands);
 }
 

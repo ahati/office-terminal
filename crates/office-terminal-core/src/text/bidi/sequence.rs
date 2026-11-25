@@ -37,9 +37,7 @@ pub(super) fn resolve_sequence(
             wt[idx] = match previous {
                 None if sos == 0 => BidiClass::L,
                 None => BidiClass::R,
-                Some(BidiClass::Lri | BidiClass::Rli | BidiClass::Fsi | BidiClass::Pdi) => {
-                    BidiClass::On
-                }
+                Some(BidiClass::Lri | BidiClass::Rli | BidiClass::Fsi | BidiClass::Pdi) => BidiClass::On,
                 Some(other) => other,
             };
         }
@@ -67,9 +65,7 @@ pub(super) fn resolve_sequence(
         let t = wt[ind[p]];
         let before = wt[ind[p - 1]];
         let after = wt[ind[p + 1]];
-        let en_pair = before == BidiClass::En
-            && after == BidiClass::En
-            && matches!(t, BidiClass::Es | BidiClass::Cs);
+        let en_pair = before == BidiClass::En && after == BidiClass::En && matches!(t, BidiClass::Es | BidiClass::Cs);
         if en_pair {
             wt[ind[p]] = BidiClass::En;
         } else if t == BidiClass::Cs && before == BidiClass::An && after == BidiClass::An {
@@ -214,11 +210,7 @@ pub(super) fn resolve_sequence(
         } else {
             Some(sos)
         };
-        let after = if q < m {
-            strong_dir_of(wt[ind[q]])
-        } else {
-            Some(eos)
-        };
+        let after = if q < m { strong_dir_of(wt[ind[q]]) } else { Some(eos) };
         let direction = match (before, after) {
             (Some(a), Some(b)) if a == b => a,
             _ => e,
@@ -244,4 +236,3 @@ pub(super) fn resolve_sequence(
         }
     }
 }
-

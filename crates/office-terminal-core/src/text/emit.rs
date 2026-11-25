@@ -18,8 +18,8 @@ use crate::text::vertical::{self, VertMode};
 use super::body_layout;
 use super::columns;
 use super::paint;
-use super::preflight;
 use super::paragraphs::{self, ParagraphLayout};
+use super::preflight;
 use super::shrink;
 
 /// One authored text segment's resolved styling.
@@ -178,8 +178,8 @@ impl TextMeasure for Measurer {
         // The breaker measures with the face the painter draws (`seg.font` is
         // built from `drawSizePx`, `renderer.ts:1859-1877`), including the
         // run's `rPr@spc` tracking (`measureTextAdvance`, `renderer.ts:1672`).
-        let width = shape::measure(text, &def.family, def.draw_size_emu(), def.bold, def.italic)
-            + def.spacing_advance(text);
+        let width =
+            shape::measure(text, &def.family, def.draw_size_emu(), def.bold, def.italic) + def.spacing_advance(text);
         self.cache
             .borrow_mut()
             .entry(style.0)
@@ -194,8 +194,7 @@ impl TextMeasure for Measurer {
 
     fn wrap_words(&self, text: &str, style: StyleId) -> Option<WrapWords> {
         let def = self.style(style);
-        let shaped =
-            shape::shape_words(text, &def.family, def.draw_size_emu(), def.bold, def.italic)?;
+        let shaped = shape::shape_words(text, &def.family, def.draw_size_emu(), def.bold, def.italic)?;
         Some(WrapWords::from_shaped(shaped, def.letter_spacing_emu))
     }
 }
@@ -304,8 +303,7 @@ pub fn compile_text_body_with_markers(
     let mode = VertMode::of(&text_body.vert);
     if let VertMode::Stacked { rtl } = mode {
         let mut measurer = Measurer::new();
-        let default_style =
-            push_default_style(&mut measurer, text_body, font_scale, default_color);
+        let default_style = push_default_style(&mut measurer, text_body, font_scale, default_color);
         return super::stacked::compile_stacked(
             text_body,
             box_w,
@@ -339,10 +337,7 @@ pub fn compile_text_body_with_markers(
     // LibreOffice-style. DrawingML never sets the flag — a stored
     // `normAutofit@fontScale` (`Some`) already fixed the size, and an
     // `spAutoFit` body grows instead of shrinking.
-    if text_body.shrink_on_overflow
-        && text_body.font_scale.is_none()
-        && text_body.auto_fit != "sp"
-    {
+    if text_body.shrink_on_overflow && text_body.font_scale.is_none() && text_body.auto_fit != "sp" {
         font_scale = shrink::derive_shrink_scale(
             text_body,
             default_color,
@@ -369,13 +364,7 @@ pub fn compile_text_body_with_markers(
     // `spAutoFit`: a shape grows instead of wrapping when every paragraph's
     // natural width fits the box. If one overflows, the ordinary wrap applies.
     let sp_grows = text_body.auto_fit == "sp"
-        && !preflight::natural_width_exceeds_bbox(
-            &paragraphs,
-            layout_w,
-            l_ins,
-            r_ins,
-            &measurer,
-        );
+        && !preflight::natural_width_exceeds_bbox(&paragraphs, layout_w, l_ins, r_ins, &measurer);
     let do_wrap = text_body.wrap != "none" && !sp_grows;
     let broken = body_layout::break_body_lines(
         text_body,
@@ -392,14 +381,7 @@ pub fn compile_text_body_with_markers(
     let mut lines = broken.lines;
     let plan = broken.plan;
     let anchor_h = broken.anchor_h;
-    let mut cur_y = metrics::block_top(
-        &text_body.vertical_anchor,
-        0.0,
-        layout_h,
-        t_ins,
-        b_ins,
-        anchor_h,
-    );
+    let mut cur_y = metrics::block_top(&text_body.vertical_anchor, 0.0, layout_h, t_ins, b_ins, anchor_h);
     let column_top = cur_y;
 
     let mut final_runs: Vec<PositionedGlyphRun> = Vec::new();
@@ -412,37 +394,17 @@ pub fn compile_text_body_with_markers(
             cur_y = column_top;
             previous_column = column;
         }
-        let x_shift = columns::column_x(
-            column,
-            num_col,
-            column_width,
-            column_gap,
-            text_body.rtl_col,
-        );
+        let x_shift = columns::column_x(column, num_col, column_width, column_gap, text_body.rtl_col);
         cur_y += line.top_gap;
         let para = &paragraphs[line.para_index];
-        let indent = if line.first_line {
-            line.first_line_indent
-        } else {
-            0.0
-        };
+        let indent = if line.first_line { line.first_line_indent } else { 0.0 };
         // `renderer.ts:5683-5722`: a line carrying inline tabs resolves them at
         // draw time in the reading frame, then measures the line with those
         // widths (`renderer.ts:5730-5740`) — the anchor below and the RTL pen
         // both use the resulting width.
-        let has_tab = line
-            .items
-            .iter()
-            .any(|item| matches!(item, LineItem::Tab { .. }));
+        let has_tab = line.items.iter().any(|item| matches!(item, LineItem::Tab { .. }));
         if has_tab {
-            paint::resolve_line_tabs(
-                &mut line.items,
-                para,
-                avail_w,
-                indent,
-                para.rtl,
-                &measurer,
-            );
+            paint::resolve_line_tabs(&mut line.items, para, avail_w, indent, para.rtl, &measurer);
             line.width = line.items.iter().map(paint::item_advance).sum();
         }
         // `renderer.ts:5689-5692`: engage UAX#9 only when the base direction is
@@ -516,10 +478,5 @@ pub fn compile_text_body_with_markers(
 /// only when that line carries content (`lineHasContent`,
 /// `renderer.ts:5485-5488`).
 pub(super) fn marker_visible(para: &ParagraphLayout, line: &LineLayout) -> bool {
-    line.first_line
-        && para.marker.is_some()
-        && line
-            .items
-            .iter()
-            .any(|item| !matches!(item, LineItem::Tab { .. }))
+    line.first_line && para.marker.is_some() && line.items.iter().any(|item| !matches!(item, LineItem::Tab { .. }))
 }

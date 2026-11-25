@@ -17,18 +17,12 @@ pub fn export_target_size(slide_width_emu: i64, slide_height_emu: i64, dpi: u32)
 }
 
 /// PNG raster size when the caller pins the pixel width (`--width`).
-pub fn export_target_size_for_width(
-    slide_width_emu: i64,
-    slide_height_emu: i64,
-    width_px: u32,
-) -> (u32, u32) {
+pub fn export_target_size_for_width(slide_width_emu: i64, slide_height_emu: i64, width_px: u32) -> (u32, u32) {
     let width_emu = slide_width_emu.max(0) as f64;
     let height_emu = slide_height_emu.max(0) as f64;
     let target_w = width_px.max(1);
     let target_h = if width_emu > 0.0 {
-        (height_emu * (target_w as f64 / width_emu))
-            .round()
-            .max(1.0) as u32
+        (height_emu * (target_w as f64 / width_emu)).round().max(1.0) as u32
     } else {
         target_w
     };
@@ -113,9 +107,11 @@ pub fn run_export_with_options(
     };
 
     let page_source: Arc<dyn PageSource> = match deck {
-        DeckSource::Pptx(presentation, asset_store) => {
-            Arc::new(PptxPageSource::new(Arc::new(presentation), asset_store, compiler.clone()))
-        }
+        DeckSource::Pptx(presentation, asset_store) => Arc::new(PptxPageSource::new(
+            Arc::new(presentation),
+            asset_store,
+            compiler.clone(),
+        )),
         DeckSource::Pdf(page_source) | DeckSource::Docx(page_source) => page_source,
     };
 
@@ -143,8 +139,7 @@ pub fn run_export_with_options(
     // display list, so its arm compiles once through `compile_page` — which
     // already expands metafiles.
     let tiny_rasterizer: Arc<TinySkiaRasterizer> = Arc::clone(rasterizer);
-    let pipeline =
-        DefaultRenderPipeline::from_page_source(Arc::clone(&page_source), tiny_rasterizer);
+    let pipeline = DefaultRenderPipeline::from_page_source(Arc::clone(&page_source), tiny_rasterizer);
     let mut failed = false;
 
     for idx in slide_indices {
@@ -153,14 +148,8 @@ pub fn run_export_with_options(
         // PNG Export
         if format == ExportFormat::Png || format == ExportFormat::All {
             let (target_w, target_h) = match width {
-                Some(width_px) => export_target_size_for_width(
-                    w_emu,
-                    h_emu,
-                    width_px,
-                ),
-                None => {
-                    export_target_size(w_emu, h_emu, dpi)
-                }
+                Some(width_px) => export_target_size_for_width(w_emu, h_emu, width_px),
+                None => export_target_size(w_emu, h_emu, dpi),
             };
             let target = RenderTargetSpec {
                 width_px: target_w,

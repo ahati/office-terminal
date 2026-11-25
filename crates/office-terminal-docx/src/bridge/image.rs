@@ -5,9 +5,7 @@
 //! become `DrawMetafile` markers so the core playback engine (PRD 13)
 //! expands them into native vector paths — or the standard placeholder.
 
-use office_terminal_core::contracts::{
-    AffineTransform, NormalizedRect, RectF32, VectorCommand, VectorSlide,
-};
+use office_terminal_core::contracts::{AffineTransform, NormalizedRect, RectF32, VectorCommand, VectorSlide};
 use oxml_layout::{MediaId, Rect};
 
 use super::{pt_to_emu, BridgeContext};
@@ -40,12 +38,10 @@ pub(crate) fn map_image(
         // The engine should have registered every positioned image at open;
         // if the store disagrees, the raster/SVG placeholder surfaces it and
         // the warning keeps the loss visible.
-        ctx.warn(
-            office_terminal_core::contracts::WarningEvent::MediaFailed {
-                rel_id: rel_id.clone(),
-                reason: "image bytes not registered by the engine".to_string(),
-            },
-        );
+        ctx.warn(office_terminal_core::contracts::WarningEvent::MediaFailed {
+            rel_id: rel_id.clone(),
+            reason: "image bytes not registered by the engine".to_string(),
+        });
     }
 
     let dest = RectF32::new(
@@ -117,8 +113,7 @@ mod tests {
     fn raster_images_become_draw_image_with_content_addressed_rel_ids() {
         let (element, id) = image_element("image/png");
         let page = letter_page(vec![element]);
-        let engine = FixtureEngine::new(Vec::new())
-            .with_media(id, media_bytes(&png_bytes(), "image/png"));
+        let engine = FixtureEngine::new(Vec::new()).with_media(id, media_bytes(&png_bytes(), "image/png"));
         let (slide, warnings) = compile(&page, &engine);
         assert!(warnings.is_empty());
 
@@ -146,8 +141,7 @@ mod tests {
     fn metafile_images_become_markers_with_picture_local_boxes() {
         let (element, id) = image_element("image/x-emf");
         let page = letter_page(vec![element]);
-        let engine = FixtureEngine::new(Vec::new())
-            .with_media(id, media_bytes(b"\x01\x00\x00\x00", "image/x-emf"));
+        let engine = FixtureEngine::new(Vec::new()).with_media(id, media_bytes(b"\x01\x00\x00\x00", "image/x-emf"));
         let (slide, _warnings) = compile(&page, &engine);
         let VectorCommand::DrawMetafile {
             rel_id,
@@ -175,11 +169,9 @@ mod tests {
         // The command still lands; the raster placeholder paints when the
         // store lookup fails (missing_picture path).
         assert_eq!(slide.commands.len(), 1);
-        assert!(
-            warnings
-                .iter()
-                .any(|w| matches!(w, office_terminal_core::contracts::WarningEvent::MediaFailed { .. }))
-        );
+        assert!(warnings
+            .iter()
+            .any(|w| matches!(w, office_terminal_core::contracts::WarningEvent::MediaFailed { .. })));
     }
 
     #[test]

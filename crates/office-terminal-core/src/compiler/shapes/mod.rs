@@ -19,6 +19,9 @@
 
 pub mod arc;
 pub mod custgeom;
+pub mod preset_data;
+pub mod preset_eval;
+pub mod preset_exec;
 pub mod presets_arrow_callouts;
 pub mod presets_arrows;
 pub mod presets_arrows_curved;
@@ -27,18 +30,13 @@ pub mod presets_callouts;
 pub mod presets_rects;
 pub mod presets_symbols;
 pub mod presets_symbols_extra;
-pub mod preset_data;
-pub mod preset_eval;
-pub mod preset_exec;
 pub mod presets_t1;
 pub mod presets_t2;
 pub mod util;
 
 use crossbeam_channel::Sender;
 
-use crate::contracts::{
-    FidelityClass, FillRule, PathSegment, VectorPaint, VectorPath, WarningEvent,
-};
+use crate::contracts::{FidelityClass, FillRule, PathSegment, VectorPaint, VectorPath, WarningEvent};
 
 pub use self::custgeom::{build_custom_geometry, build_custom_geometry_path};
 pub use self::preset_exec::{build_preset, PathFill, PresetSubpath};
@@ -111,10 +109,7 @@ pub fn build_shape_paths_painted(
         return vec![rect_subpath(w, h)];
     }
 
-    let finite_adj: Vec<Option<f64>> = adj
-        .iter()
-        .map(|value| (*value).filter(|v| v.is_finite()))
-        .collect();
+    let finite_adj: Vec<Option<f64>> = adj.iter().map(|value| (*value).filter(|v| v.is_finite())).collect();
 
     if let Some(subpaths) = build_preset(geometry, w as f64, h as f64, &finite_adj) {
         if !subpaths.is_empty() {
@@ -211,9 +206,7 @@ pub fn apply_path_fill_mode(fill: Option<&VectorPaint>, mode: PathFill) -> Optio
         // An untinted image/pattern brush stays as authored: the reference's
         // overlay is a translucent rect composited over the resolved brush, and
         // the IR has no tinted-brush slot (documented limitation).
-        VectorPaint::Image(_) | VectorPaint::Pattern(_) | VectorPaint::Texture(_) => {
-            Some(paint.clone())
-        }
+        VectorPaint::Image(_) | VectorPaint::Pattern(_) | VectorPaint::Texture(_) => Some(paint.clone()),
     }
 }
 
@@ -261,26 +254,10 @@ fn tint_rgba(color: [u8; 4], mode: PathFill) -> [u8; 4] {
 fn coordinates_are_finite(subpaths: &[PresetSubpath]) -> bool {
     subpaths.iter().all(|subpath| {
         subpath.path.segments.iter().all(|segment| match segment {
-            PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => {
-                x.is_finite() && y.is_finite()
-            }
-            PathSegment::QuadTo { x1, y1, x, y } => {
-                x1.is_finite() && y1.is_finite() && x.is_finite() && y.is_finite()
-            }
-            PathSegment::CubicTo {
-                x1,
-                y1,
-                x2,
-                y2,
-                x,
-                y,
-            } => {
-                x1.is_finite()
-                    && y1.is_finite()
-                    && x2.is_finite()
-                    && y2.is_finite()
-                    && x.is_finite()
-                    && y.is_finite()
+            PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => x.is_finite() && y.is_finite(),
+            PathSegment::QuadTo { x1, y1, x, y } => x1.is_finite() && y1.is_finite() && x.is_finite() && y.is_finite(),
+            PathSegment::CubicTo { x1, y1, x2, y2, x, y } => {
+                x1.is_finite() && y1.is_finite() && x2.is_finite() && y2.is_finite() && x.is_finite() && y.is_finite()
             }
             PathSegment::Close => true,
         })

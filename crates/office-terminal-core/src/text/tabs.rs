@@ -24,9 +24,7 @@ use super::measure::{TabAlign, TabStop};
 /// Width a [`LineItem`] currently occupies.
 fn item_width(item: &LineItem) -> f32 {
     match item {
-        LineItem::Text { width, .. }
-        | LineItem::Tab { width, .. }
-        | LineItem::Object { width, .. } => *width,
+        LineItem::Text { width, .. } | LineItem::Tab { width, .. } | LineItem::Object { width, .. } => *width,
     }
 }
 
@@ -82,14 +80,7 @@ pub fn resolve_tab_widths(
 
 /// Seat one tab on `stop_pos`: align the following cell on the stop, clamp the
 /// cell to `limit`, then never move the pen backwards (`tab.ts:60-72`).
-fn place_tab(
-    items: &mut [LineItem],
-    index: usize,
-    stop_pos: f32,
-    align: TabAlign,
-    limit: f32,
-    pen: &mut f32,
-) {
+fn place_tab(items: &mut [LineItem], index: usize, stop_pos: f32, align: TabAlign, limit: f32, pen: &mut f32) {
     // The following cell: content up to the next tab or the line end.
     let following: f32 = items[index + 1..]
         .iter()
@@ -152,10 +143,7 @@ mod tests {
     }
 
     fn close(actual: f32, expected: f32) {
-        assert!(
-            (actual - expected).abs() < 1e-4,
-            "expected {expected}, got {actual}"
-        );
+        assert!((actual - expected).abs() < 1e-4, "expected {expected}, got {actual}");
     }
 
     /// `tab-layout.test.ts:26-36`: N tab cells, right-aligned on 200 and 400.
@@ -364,14 +352,7 @@ mod tests {
     #[test]
     fn keeps_content_widths_untouched() {
         let mut items = vec![cell(50.0), tab(), cell(40.0)];
-        resolve_tab_widths(
-            &mut items,
-            &[stop(200.0, TabAlign::Right)],
-            0.0,
-            600.0,
-            0.0,
-            0.0,
-        );
+        resolve_tab_widths(&mut items, &[stop(200.0, TabAlign::Right)], 0.0, 600.0, 0.0, 0.0);
         assert_eq!(item_width(&items[0]), 50.0);
         assert_eq!(item_width(&items[2]), 40.0);
         assert_eq!(item_width(&items[1]), 110.0);

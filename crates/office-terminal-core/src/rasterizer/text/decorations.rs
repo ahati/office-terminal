@@ -29,21 +29,16 @@ pub(super) fn paint_upright(
     if width_px <= 0 {
         return;
     }
-    for line in [run.decorations.underline, run.decorations.strike].into_iter().flatten() {
+    for line in [run.decorations.underline, run.decorations.strike]
+        .into_iter()
+        .flatten()
+    {
         let thickness = (line.thickness_emu * scale).max(1.0).round() as i32;
         let top = baseline_y + line.top_emu * scale;
         for offset in band_offsets(&line).into_iter().flatten() {
             let y = (top + offset * scale).round() as i32;
             paint_band(
-                pix_data,
-                pix_w,
-                pix_h,
-                draw_x,
-                y,
-                width_px,
-                thickness,
-                line.style,
-                line.color,
+                pix_data, pix_w, pix_h, draw_x, y, width_px, thickness, line.style, line.color,
             );
         }
     }

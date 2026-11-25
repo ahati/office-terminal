@@ -6,16 +6,9 @@
 
 use crate::contracts::{FillRule, VectorPath};
 
-use super::util::{
-    mirror_points_x, norm_adj, polygon, rotate_points_ccw, rotate_points_cw, sample_arc,
-};
+use super::util::{mirror_points_x, norm_adj, polygon, rotate_points_ccw, rotate_points_cw, sample_arc};
 
-pub fn build_curved_arrow_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_curved_arrow_preset(geometry: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     let path = match geometry {
         "curvedRightArrow" => polygon(&curved_points(w, h, adj), FillRule::NonZero),
         "curvedLeftArrow" => {

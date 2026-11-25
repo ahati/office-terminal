@@ -29,31 +29,55 @@ fn make_beveled_slide(geom_type: &str, rig_name: &str, material: &str) -> Vector
         let k = r * 0.552_284_8;
         segments.push(PathSegment::MoveTo { x: cx, y: cy - r });
         segments.push(PathSegment::CubicTo {
-            x1: cx + k, y1: cy - r,
-            x2: cx + r, y2: cy - k,
-            x: cx + r, y: cy,
+            x1: cx + k,
+            y1: cy - r,
+            x2: cx + r,
+            y2: cy - k,
+            x: cx + r,
+            y: cy,
         });
         segments.push(PathSegment::CubicTo {
-            x1: cx + r, y1: cy + k,
-            x2: cx + k, y2: cy + r,
-            x: cx, y: cy + r,
+            x1: cx + r,
+            y1: cy + k,
+            x2: cx + k,
+            y2: cy + r,
+            x: cx,
+            y: cy + r,
         });
         segments.push(PathSegment::CubicTo {
-            x1: cx - k, y1: cy + r,
-            x2: cx - r, y2: cy + k,
-            x: cx - r, y: cy,
+            x1: cx - k,
+            y1: cy + r,
+            x2: cx - r,
+            y2: cy + k,
+            x: cx - r,
+            y: cy,
         });
         segments.push(PathSegment::CubicTo {
-            x1: cx - r, y1: cy - k,
-            x2: cx - k, y2: cy - r,
-            x: cx, y: cy - r,
+            x1: cx - r,
+            y1: cy - k,
+            x2: cx - k,
+            y2: cy - r,
+            x: cx,
+            y: cy - r,
         });
         segments.push(PathSegment::Close);
     } else {
-        segments.push(PathSegment::MoveTo { x: 200_000.0, y: 200_000.0 });
-        segments.push(PathSegment::LineTo { x: 800_000.0, y: 200_000.0 });
-        segments.push(PathSegment::LineTo { x: 800_000.0, y: 800_000.0 });
-        segments.push(PathSegment::LineTo { x: 200_000.0, y: 800_000.0 });
+        segments.push(PathSegment::MoveTo {
+            x: 200_000.0,
+            y: 200_000.0,
+        });
+        segments.push(PathSegment::LineTo {
+            x: 800_000.0,
+            y: 200_000.0,
+        });
+        segments.push(PathSegment::LineTo {
+            x: 800_000.0,
+            y: 800_000.0,
+        });
+        segments.push(PathSegment::LineTo {
+            x: 200_000.0,
+            y: 800_000.0,
+        });
         segments.push(PathSegment::Close);
     }
     let path = VectorPath::new(segments, FillRule::NonZero);
@@ -101,9 +125,21 @@ fn make_beveled_slide(geom_type: &str, rig_name: &str, material: &str) -> Vector
 #[test]
 fn test_rig_definitions_count_and_resolution() {
     let modern_names = [
-        "threePt", "balanced", "soft", "harsh", "flood", "contrasting",
-        "morning", "sunrise", "sunset", "chilly", "freezing", "flat",
-        "twoPt", "glow", "brightRoom",
+        "threePt",
+        "balanced",
+        "soft",
+        "harsh",
+        "flood",
+        "contrasting",
+        "morning",
+        "sunrise",
+        "sunset",
+        "chilly",
+        "freezing",
+        "flat",
+        "twoPt",
+        "glow",
+        "brightRoom",
     ];
     assert_eq!(modern_names.len(), 15);
     for name in modern_names {
@@ -113,9 +149,18 @@ fn test_rig_definitions_count_and_resolution() {
     }
 
     let legacy_names = [
-        "legacyFlat1", "legacyFlat2", "legacyFlat3", "legacyFlat4",
-        "legacyNormal1", "legacyNormal2", "legacyNormal3", "legacyNormal4",
-        "legacyHarsh1", "legacyHarsh2", "legacyHarsh3", "legacyHarsh4",
+        "legacyFlat1",
+        "legacyFlat2",
+        "legacyFlat3",
+        "legacyFlat4",
+        "legacyNormal1",
+        "legacyNormal2",
+        "legacyNormal3",
+        "legacyNormal4",
+        "legacyHarsh1",
+        "legacyHarsh2",
+        "legacyHarsh3",
+        "legacyHarsh4",
     ];
     assert_eq!(legacy_names.len(), 12);
     for name in legacy_names {

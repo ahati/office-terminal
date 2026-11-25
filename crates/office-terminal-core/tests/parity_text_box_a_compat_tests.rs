@@ -126,9 +126,7 @@ fn compat_off_percentage_spacing_uses_the_natural_box() {
 #[test]
 fn compat_off_unions_mixed_faces_and_anchors_by_the_natural_descent() {
     let mixed: Vec<Para> = (0..2)
-        .map(|_| {
-            Para::of(vec![Line::named(vec![(24.0, "Arial"), (60.0, "Meiryo")])]).space_line(None)
-        })
+        .map(|_| Para::of(vec![Line::named(vec![(24.0, "Arial"), (60.0, "Meiryo")])]).space_line(None))
         .collect();
     expect_within(&Stack::new(mixed).compat_off(true), &[107.0, 270.0]);
 

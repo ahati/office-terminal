@@ -38,16 +38,11 @@ pub(super) fn map_stroke(stroke: &mc::Stroke) -> (MetafilePen, Option<&'static s
     let (color, tag) = match &stroke.paint {
         mc::Paint::Solid(paint_color) => (rgba(*paint_color), None),
         mc::Paint::LinearGradient { stops, .. } => (
-            stops
-                .first()
-                .map(|stop| rgba(stop.color))
-                .unwrap_or([0, 0, 0, 255]),
+            stops.first().map(|stop| rgba(stop.color)).unwrap_or([0, 0, 0, 255]),
             Some("metafile_pen_style"),
         ),
         mc::Paint::Hatch { foreground, .. } => (rgba(*foreground), Some("metafile_hatch")),
-        mc::Paint::Texture { bitmap, .. } => {
-            (bitmap_average(bitmap), Some("metafile_pattern_brush"))
-        }
+        mc::Paint::Texture { bitmap, .. } => (bitmap_average(bitmap), Some("metafile_pattern_brush")),
     };
     // The engine converts dash patterns from pen-width multiples into output
     // units; `VectorStroke::dash_segments` is expressed in width multiples. A
@@ -94,10 +89,7 @@ pub fn map_paint(paint: &mc::Paint) -> (Option<MetafilePaint>, Option<&'static s
                 .iter()
                 .map(|stop| (stop.offset as f32, rgba(stop.color)))
                 .collect();
-            (
-                Some(MetafilePaint::LinearGradient { from, to, stops }),
-                None,
-            )
+            (Some(MetafilePaint::LinearGradient { from, to, stops }), None)
         }
         mc::Paint::Hatch {
             style,
@@ -119,11 +111,9 @@ pub fn map_paint(paint: &mc::Paint) -> (Option<MetafilePaint>, Option<&'static s
             do_not_transform,
         } => {
             if (*wrap_mode == 0 || *wrap_mode == 4) && bitmap.width > 0 && bitmap.height > 0 {
-                if let Some(png) = crate::metafile::mapping::bitmap::encode_raw_png(
-                    bitmap.width,
-                    bitmap.height,
-                    &bitmap.rgba,
-                ) {
+                if let Some(png) =
+                    crate::metafile::mapping::bitmap::encode_raw_png(bitmap.width, bitmap.height, &bitmap.rgba)
+                {
                     let brush_transform = if *do_not_transform {
                         AffineTransform::identity()
                     } else {
@@ -143,18 +133,12 @@ pub fn map_paint(paint: &mc::Paint) -> (Option<MetafilePaint>, Option<&'static s
                 } else {
                     let mut color = bitmap_average(bitmap);
                     color[3] = (f64::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
-                    (
-                        Some(MetafilePaint::Solid(color)),
-                        Some("metafile_pattern_brush"),
-                    )
+                    (Some(MetafilePaint::Solid(color)), Some("metafile_pattern_brush"))
                 }
             } else {
                 let mut color = bitmap_average(bitmap);
                 color[3] = (f64::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
-                (
-                    Some(MetafilePaint::Solid(color)),
-                    Some("metafile_pattern_brush"),
-                )
+                (Some(MetafilePaint::Solid(color)), Some("metafile_pattern_brush"))
             }
         }
     }

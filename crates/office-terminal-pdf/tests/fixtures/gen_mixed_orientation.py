@@ -49,7 +49,7 @@ def content(box, rot, num):
     # giant page number, centered-ish
     ops.append("0.15 0.18 0.25 rg BT /F1 220 Tf 170 220 Td (%d) Tj ET" % num)
     # footer caption
-    ops.append("0.35 0.38 0.45 rg BT /F1 22 Tf 34 44 Td (kitty-pptx mixed-orientation fixture) Tj ET")
+    ops.append("0.35 0.38 0.45 rg BT /F1 22 Tf 34 44 Td (Office Terminal mixed-orientation fixture) Tj ET")
     if rot:
         ops.append("0.72 0.10 0.10 rg BT /F1 26 Tf 34 96 Td (/Rotate %d) Tj ET" % rot)
     return ("\n".join(ops) + "\n").encode("latin-1")

@@ -12,9 +12,7 @@ use ratatui::Terminal;
 fn rendered_lines(base: AppMode) -> Vec<String> {
     let area = Rect::new(0, 0, 100, 40);
     let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
-    terminal
-        .draw(|f| render_help_modal(f, area, base))
-        .unwrap();
+    terminal.draw(|f| render_help_modal(f, area, base)).unwrap();
     let buf = terminal.backend().buffer().clone();
     let mut lines = Vec::new();
     for y in 0..area.height {

@@ -17,9 +17,7 @@
 //! `tests/parity/pending/parity_text_box_b_warp_tests.rs.txt`; the
 //! ledger keeps their rows.
 
-use office_terminal_core::compiler::text_warp::{
-    build_warp_envelope, follow_path_u_scale, warp_glyph_transform,
-};
+use office_terminal_core::compiler::text_warp::{build_warp_envelope, follow_path_u_scale, warp_glyph_transform};
 use office_terminal_core::contracts::WarpEnvelope;
 
 /// The sample-16 WordArt box: 6.2 in × 1.5 in (`:112`).
@@ -27,8 +25,7 @@ const BOX_W: f32 = 620.0;
 const BOX_H: f32 = 150.0;
 
 fn envelope(preset: &str, adj: &[i64]) -> WarpEnvelope {
-    build_warp_envelope(preset, adj, BOX_W, BOX_H)
-        .unwrap_or_else(|| panic!("{preset} builds an envelope"))
+    build_warp_envelope(preset, adj, BOX_W, BOX_H).unwrap_or_else(|| panic!("{preset} builds an envelope"))
 }
 
 fn arc_length(envelope: &WarpEnvelope) -> f32 {
@@ -69,17 +66,11 @@ fn arch_up_centres_the_word_within_its_natural_width_segment() {
     );
     // A centred paragraph starts the ink at `0.5 · (1 − follow)`.
     let start = 0.5 * (1.0 - follow);
-    let (left, right) = (
-        glyph_x(&env, start, 9.0),
-        glyph_x(&env, start + follow, 9.0),
-    );
+    let (left, right) = (glyph_x(&env, start, 9.0), glyph_x(&env, start + follow, 9.0));
     let span = right - left;
     assert!(span < BOX_W * 0.5, "compact arc segment, span {span}");
     let centre = (left + right) / 2.0;
-    assert!(
-        (centre - BOX_W / 2.0).abs() <= 5.0,
-        "centred on the box: {centre}"
-    );
+    assert!((centre - BOX_W / 2.0).abs() <= 5.0, "centred on the box: {centre}");
 }
 
 /// `:135` "places left- and right-aligned text at the corresponding path ends":
@@ -146,9 +137,9 @@ fn a_word_wider_than_the_arch_clamps_to_the_full_path() {
 }
 
 use crossbeam_channel::unbounded;
+use office_terminal_core::compiler::text::compile_text_body;
 use office_terminal_core::compiler::text_warp::warp_envelope_for_line;
 use office_terminal_core::contracts::AffineTransform;
-use office_terminal_core::compiler::text::compile_text_body;
 use serde_json::json;
 
 const PT: f32 = 12_700.0;
@@ -213,11 +204,7 @@ fn warp_runs(body: &pptx_model::TextBody) -> Vec<office_terminal_core::contracts
 fn warp_honours_fixed_line_spacing() {
     let body = warp_body(
         "textArchUp",
-        vec![
-            text_run("A", 40.0),
-            json!({"type": "break"}),
-            text_run("A", 40.0),
-        ],
+        vec![text_run("A", 40.0), json!({"type": "break"}), text_run("A", 40.0)],
         json!({"type": "pts", "val": 18.0}),
         None,
         None,
@@ -236,11 +223,7 @@ fn warp_uses_authored_percentage_line_spacing() {
     for (percent, expected) in [(50, 24.0), (100, 48.0), (150, 72.0), (200, 96.0)] {
         let body = warp_body(
             "textArchUp",
-            vec![
-                text_run("A", 40.0),
-                json!({"type": "break"}),
-                text_run("A", 40.0),
-            ],
+            vec![text_run("A", 40.0), json!({"type": "break"}), text_run("A", 40.0)],
             json!({"type": "pct", "val": percent * 1000}),
             None,
             None,
@@ -263,7 +246,11 @@ fn warp_expands_preceding_lines_outside_the_authored_arch() {
     let envelope = envelope("textArchUp", &[]);
     let expanded = warp_envelope_for_line(&envelope, 48.0);
     assert!(
-        expanded.top.points.iter().any(|(_, y)| *y < envelope.top.points.iter().map(|p| p.1).fold(f32::MAX, f32::min)),
+        expanded
+            .top
+            .points
+            .iter()
+            .any(|(_, y)| *y < envelope.top.points.iter().map(|p| p.1).fold(f32::MAX, f32::min)),
         "outer line moves away from the curve"
     );
     assert_eq!(warp_envelope_for_line(&envelope, 0.0), envelope);
@@ -288,19 +275,18 @@ fn warp_multi_line_arch_anchors_the_last_line() {
         .filter_map(|run| {
             let glyph = run.glyphs.first()?;
             let warp = run.warp.as_ref()?;
-            let transform = warp_glyph_transform(
-                &warp.envelope,
-                glyph.warp_u?,
-                warp.warp_box_h,
-                warp.band_frac,
-            )?;
+            let transform = warp_glyph_transform(&warp.envelope, glyph.warp_u?, warp.warp_box_h, warp.band_frac)?;
             Some(transform.y)
         })
         .collect();
     assert_eq!(warped.len(), 2);
     assert!(warped[0] < warped[1], "first line expands upward");
     assert!(warped[0] / PT < 0.0, "expanded above the box, got {}", warped[0] / PT);
-    assert!(warped[1] / PT < 10.0, "last line stays on the arch, got {}", warped[1] / PT);
+    assert!(
+        warped[1] / PT < 10.0,
+        "last line stays on the arch, got {}",
+        warped[1] / PT
+    );
 }
 
 #[test]
@@ -331,11 +317,7 @@ fn warp_keeps_paragraph_spacing_between_paragraphs() {
 fn circle_anchors_the_final_line_and_expands_radially() {
     let body = warp_body(
         "textCircle",
-        vec![
-            text_run("A", 40.0),
-            json!({"type": "break"}),
-            text_run("A", 40.0),
-        ],
+        vec![text_run("A", 40.0), json!({"type": "break"}), text_run("A", 40.0)],
         json!(null),
         None,
         None,
@@ -346,12 +328,7 @@ fn circle_anchors_the_final_line_and_expands_radially() {
         .filter_map(|run| {
             let glyph = run.glyphs.first()?;
             let warp = run.warp.as_ref()?;
-            let transform = warp_glyph_transform(
-                &warp.envelope,
-                glyph.warp_u?,
-                warp.warp_box_h,
-                warp.band_frac,
-            )?;
+            let transform = warp_glyph_transform(&warp.envelope, glyph.warp_u?, warp.warp_box_h, warp.band_frac)?;
             Some((transform.x, transform.y))
         })
         .collect();
@@ -392,12 +369,7 @@ fn warp_follows_the_path_winding_at_135_and_225_degrees() {
             .filter_map(|run| {
                 let glyph = run.glyphs.first()?;
                 let warp = run.warp.as_ref()?;
-                let transform = warp_glyph_transform(
-                    &warp.envelope,
-                    glyph.warp_u?,
-                    warp.warp_box_h,
-                    warp.band_frac,
-                )?;
+                let transform = warp_glyph_transform(&warp.envelope, glyph.warp_u?, warp.warp_box_h, warp.band_frac)?;
                 Some(transform.y)
             })
             .collect();
@@ -414,11 +386,7 @@ fn warp_follows_the_path_winding_at_135_and_225_degrees() {
 fn counterclockwise_lines_expand_outside_the_lower_arch() {
     let body = warp_body(
         "textArchDown",
-        vec![
-            text_run("A", 40.0),
-            json!({"type": "break"}),
-            text_run("A", 40.0),
-        ],
+        vec![text_run("A", 40.0), json!({"type": "break"}), text_run("A", 40.0)],
         json!(null),
         None,
         None,
@@ -429,12 +397,7 @@ fn counterclockwise_lines_expand_outside_the_lower_arch() {
         .filter_map(|run| {
             let glyph = run.glyphs.first()?;
             let warp = run.warp.as_ref()?;
-            let transform = warp_glyph_transform(
-                &warp.envelope,
-                glyph.warp_u?,
-                warp.warp_box_h,
-                warp.band_frac,
-            )?;
+            let transform = warp_glyph_transform(&warp.envelope, glyph.warp_u?, warp.warp_box_h, warp.band_frac)?;
             Some(transform.y)
         })
         .collect();
@@ -445,15 +408,20 @@ fn counterclockwise_lines_expand_outside_the_lower_arch() {
 
 #[test]
 fn warp_accumulates_mixed_size_line_boxes() {
-    let paragraphs: Vec<serde_json::Value> = [16.0, 32.0, 48.0].iter().map(|size| json!({
-            "alignment": "ctr", "marL": 0, "marR": 0, "indent": 0,
-            "spaceBefore": null, "spaceAfter": null, "spaceLine": null,
-            "lvl": 0, "bullet": { "type": "none" },
-            "defFontSize": null, "defColor": null, "defBold": null,
-            "defItalic": null, "defFontFamily": null, "tabStops": [],
-            "defTabSz": null, "rtl": false, "eaLnBrk": true, "fontAlgn": null,
-            "runs": [text_run("A", *size)]
-        })).collect();
+    let paragraphs: Vec<serde_json::Value> = [16.0, 32.0, 48.0]
+        .iter()
+        .map(|size| {
+            json!({
+                "alignment": "ctr", "marL": 0, "marR": 0, "indent": 0,
+                "spaceBefore": null, "spaceAfter": null, "spaceLine": null,
+                "lvl": 0, "bullet": { "type": "none" },
+                "defFontSize": null, "defColor": null, "defBold": null,
+                "defItalic": null, "defFontFamily": null, "tabStops": [],
+                "defTabSz": null, "rtl": false, "eaLnBrk": true, "fontAlgn": null,
+                "runs": [text_run("A", *size)]
+            })
+        })
+        .collect();
     let value = json!({
         "verticalAnchor": "ctr",
         "paragraphs": paragraphs,
@@ -504,13 +472,7 @@ fn warped_svg_uses_per_glyph_outlines() {
     use office_terminal_core::contracts::{SvgTextMode, VectorSlide};
     use office_terminal_core::svg::SlideSvgSerializer;
 
-    let body = warp_body(
-        "textArchUp",
-        vec![text_run("Arch Up", 40.0)],
-        json!(null),
-        None,
-        None,
-    );
+    let body = warp_body("textArchUp", vec![text_run("Arch Up", 40.0)], json!(null), None, None);
     let (tx, _rx) = unbounded();
     let commands = compile_text_body(
         &body,
@@ -539,13 +501,7 @@ fn warped_svg_uses_per_glyph_outlines() {
 #[test]
 fn warp_does_not_create_wrap_only_fragments() {
     let compound = (0..100).map(|_| "word").collect::<Vec<_>>().join("-");
-    let body = warp_body(
-        "textArchUp",
-        vec![text_run(&compound, 40.0)],
-        json!(null),
-        None,
-        None,
-    );
+    let body = warp_body("textArchUp", vec![text_run(&compound, 40.0)], json!(null), None, None);
     let runs = warp_runs(&body);
     assert_eq!(runs.len(), 1, "one authored segment, no wrap fragments");
     assert_eq!(runs[0].text, compound);

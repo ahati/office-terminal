@@ -1,6 +1,6 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::app::mode::AppMode;
 use crate::app::state::{BlankMode, PresentationState};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Action resulting from an event handling cycle.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,12 +38,8 @@ pub fn handle_key_event(key: KeyEvent, state: &mut PresentationState) -> AppActi
         AppMode::CommentsDrawer => return handle_comments_key(key, state),
         AppMode::WarningDrawer => return handle_warnings_key(key, state),
         AppMode::TocSearchModal => return handle_search_key(key, state),
-        AppMode::FindModal => {
-            return crate::app::find_state::handle_find_key(key, state)
-        }
-        AppMode::LinkPickerModal => {
-            return crate::app::link_state::handle_link_picker_key(key, state)
-        }
+        AppMode::FindModal => return crate::app::find_state::handle_find_key(key, state),
+        AppMode::LinkPickerModal => return crate::app::link_state::handle_link_picker_key(key, state),
         _ => {}
     }
 

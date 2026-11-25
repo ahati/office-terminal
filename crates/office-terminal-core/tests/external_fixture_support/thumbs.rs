@@ -64,8 +64,7 @@ impl ThumbnailCache {
     /// Content-addressed by source metadata so a regenerated reference never
     /// reuses a stale thumbnail.
     fn entry_path(&self, source: &Path) -> Result<PathBuf, String> {
-        let metadata = fs::metadata(source)
-            .map_err(|error| format!("failed to stat {}: {error}", source.display()))?;
+        let metadata = fs::metadata(source).map_err(|error| format!("failed to stat {}: {error}", source.display()))?;
         let mtime = metadata
             .modified()
             .ok()
@@ -102,8 +101,7 @@ fn save_rgb(image: &RgbImage, path: &Path) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    fs::create_dir_all(parent).map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
 
     // Write beside the target so the rename is atomic within one filesystem.
     let temporary = path.with_extension(format!("{}.tmp.png", std::process::id()));
@@ -134,8 +132,7 @@ mod tests {
         let deck = goldens.join("deck");
         fs::create_dir_all(&deck).expect("deck dir");
         let source = deck.join("slide_001.png");
-        image::save_buffer(&source, &[200u8; 16 * 9 * 3], 16, 9, image::ColorType::Rgb8)
-            .expect("write source");
+        image::save_buffer(&source, &[200u8; 16 * 9 * 3], 16, 9, image::ColorType::Rgb8).expect("write source");
 
         let cache = ThumbnailCache::new(&goldens, "commit", 8);
         let first = cache.load(&source).expect("first load");

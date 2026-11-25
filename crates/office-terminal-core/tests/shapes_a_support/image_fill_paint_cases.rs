@@ -12,9 +12,7 @@
 use office_terminal_core::contracts::{AffineTransform, VectorPaint};
 use office_terminal_core::error::RenderError;
 use office_terminal_core::loader::SizeHint;
-use office_terminal_core::rasterizer::{
-    prepare_image_fill, tile_source_extent_emu, MAX_TILE_CELL_PIXELS,
-};
+use office_terminal_core::rasterizer::{prepare_image_fill, tile_source_extent_emu, MAX_TILE_CELL_PIXELS};
 use ooxml_common::blip::BlipEffect;
 use serde_json::{json, Value};
 
@@ -95,8 +93,7 @@ fn per_shape_blip_effects_survive_a_shared_source() {
         assert_eq!(fills.len(), 3, "one blip per shape");
 
         // Authored effect chains, in document order per fill.
-        let mut chains: Vec<Vec<BlipEffect>> =
-            fills.iter().map(|fill| fill.effects.clone()).collect();
+        let mut chains: Vec<Vec<BlipEffect>> = fills.iter().map(|fill| fill.effects.clone()).collect();
         if reversed {
             chains.reverse();
         }
@@ -104,20 +101,13 @@ fn per_shape_blip_effects_survive_a_shared_source() {
         assert_eq!(chains[1], vec![BlipEffect::Grayscale]);
         assert_eq!(
             chains[2],
-            vec![
-                BlipEffect::BiLevel { thresh: 0.5 },
-                BlipEffect::Grayscale
-            ],
+            vec![BlipEffect::BiLevel { thresh: 0.5 }, BlipEffect::Grayscale],
             "ascending order is part of the decode identity"
         );
 
         // One shared decode serves every owner; the per-shape pixel transform
         // happens on paint, so the painted results still differ.
-        let store = RecordingStore::new(vec![(
-            Image::solid(SHARED, 2, 1, [128, 64, 32, 255]),
-            2,
-            1,
-        )]);
+        let store = RecordingStore::new(vec![(Image::solid(SHARED, 2, 1, [128, 64, 32, 255]), 2, 1)]);
         let rendered = rasterize(&slide, &store);
         // Each 914400 EMU box is 96 device px; the boxes sit at x = 0, 1e6 and
         // 2e6 EMU and all start at y = 914400 EMU (device y ≈ 96).
@@ -262,19 +252,13 @@ fn shared_tile_keeps_the_native_grid_regardless_of_consumer_order() {
         let store = RecordingStore::new(vec![(Image::solid(SHARED, 300, 150, [9, 9, 9, 255]), 300, 150)]);
         let _ = rasterize(&slide, &store);
         assert!(
-            store
-                .requests()
-                .iter()
-                .all(|request| request.starts_with("native:")),
+            store.requests().iter().all(|request| request.starts_with("native:")),
             "no resize target may be derived for a shape blip: {:?}",
             store.requests()
         );
         // Both modes keep their authored placement facts.
         let fills = image_fills(&slide.commands);
-        let tiled_fill = fills
-            .iter()
-            .find(|fill| fill.tile.is_some())
-            .expect("tiled consumer");
+        let tiled_fill = fills.iter().find(|fill| fill.tile.is_some()).expect("tiled consumer");
         let stretched_fill = fills
             .iter()
             .find(|fill| fill.tile.is_none())
@@ -412,10 +396,7 @@ fn oversized_repeating_cells_keep_the_bitmap_grid_and_the_authored_period() {
 fn image_fill_counter_rotates_the_brush_for_rot_with_shape_false() {
     for flip_h in [false, true] {
         const IMAGE: &str = "ppt/media/image.png";
-        let mut element = filled_shape(
-            0,
-            image_fill_value(IMAGE, json!({"rotWithShape": false, "alpha": 1.0})),
-        );
+        let mut element = filled_shape(0, image_fill_value(IMAGE, json!({"rotWithShape": false, "alpha": 1.0})));
         element["rotation"] = json!(90.0);
         element["flipH"] = json!(flip_h);
         let slide = compile_slide(vec![element]);
@@ -473,10 +454,7 @@ fn image_fills_serialize_as_pattern_paint_servers() {
     const IMAGE: &str = "ppt/media/svg-fill.png";
     let mut shape_element = filled_shape(
         0,
-        image_fill_value(
-            IMAGE,
-            json!({"fillRect": {"l": 0.1, "t": 0.2, "r": 0.3, "b": 0.1}}),
-        ),
+        image_fill_value(IMAGE, json!({"fillRect": {"l": 0.1, "t": 0.2, "r": 0.3, "b": 0.1}})),
     );
     shape_element["x"] = json!(0);
     shape_element["y"] = json!(0);

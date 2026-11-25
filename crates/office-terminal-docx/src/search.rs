@@ -10,9 +10,7 @@
 use std::sync::Arc;
 
 use office_terminal_core::contracts::{EmuRect, SearchCorpus, TextLine};
-use oxml_layout::{
-    DocumentStructure, GlyphRun, MultilingualGlyphRun, PageFrame, Point, PositionedElement, Transform,
-};
+use oxml_layout::{DocumentStructure, GlyphRun, MultilingualGlyphRun, PageFrame, Point, PositionedElement, Transform};
 
 use crate::limits::DocxLimits;
 use crate::search_order::{reading_order, RunCandidate, TableStructure};
@@ -30,11 +28,7 @@ impl DocxSearchCorpus {
     /// Walk laid-out pages into reading-order lines under the corpus limits.
     /// `structure` is the engine's logical structure tree, which decides
     /// which lines are table content (row-major) rather than body flow.
-    pub fn build(
-        pages: &[Arc<PageFrame>],
-        limits: &DocxLimits,
-        structure: Option<&DocumentStructure>,
-    ) -> Self {
+    pub fn build(pages: &[Arc<PageFrame>], limits: &DocxLimits, structure: Option<&DocumentStructure>) -> Self {
         let tables = TableStructure::index(structure);
         let pages = pages
             .iter()
@@ -77,9 +71,7 @@ fn build_page_lines(
     let mut lines: Vec<TextLine> = Vec::new();
     let mut bytes_on_page = 0usize;
     for group in reading_order(candidates, page_width) {
-        if lines.len() >= limits.max_corpus_lines_per_page
-            || bytes_on_page >= limits.max_corpus_bytes_per_page
-        {
+        if lines.len() >= limits.max_corpus_lines_per_page || bytes_on_page >= limits.max_corpus_bytes_per_page {
             break;
         }
         let mut builder = LineBuilder::new();
@@ -94,11 +86,7 @@ fn build_page_lines(
     lines
 }
 
-fn collect_run_candidates(
-    elements: &[PositionedElement],
-    tables: &TableStructure,
-    candidates: &mut Vec<RunCandidate>,
-) {
+fn collect_run_candidates(elements: &[PositionedElement], tables: &TableStructure, candidates: &mut Vec<RunCandidate>) {
     collect_run_candidates_transformed(elements, Transform::IDENTITY, tables, false, candidates);
 }
 
@@ -121,18 +109,9 @@ fn collect_run_candidates_transformed(
             }
             PositionedElement::Group(group) => {
                 let child_acc = group.transform.then(acc);
-                collect_run_candidates_transformed(
-                    &group.children,
-                    child_acc,
-                    tables,
-                    in_table,
-                    candidates,
-                );
+                collect_run_candidates_transformed(&group.children, child_acc, tables, in_table, candidates);
             }
-            PositionedElement::MarkedContent {
-                structure,
-                children,
-            } => {
+            PositionedElement::MarkedContent { structure, children } => {
                 let in_table = in_table || structure.is_some_and(|id| tables.contains(id));
                 collect_run_candidates_transformed(children, acc, tables, in_table, candidates);
             }
@@ -178,11 +157,7 @@ fn project_glyph_run(run: &GlyphRun, acc: Transform, table: bool) -> Option<RunC
     })
 }
 
-fn project_multilingual(
-    run: &MultilingualGlyphRun,
-    acc: Transform,
-    table: bool,
-) -> Option<RunCandidate> {
+fn project_multilingual(run: &MultilingualGlyphRun, acc: Transform, table: bool) -> Option<RunCandidate> {
     let unscaled_advance: f64 = run.x_advances.iter().sum();
     let p0 = acc.apply(run.origin);
     let p1 = acc.apply(Point {
@@ -260,10 +235,7 @@ impl LineBuilder {
             pt_to_emu(self.x_max - self.x_min).max(pt_to_emu(size * 0.1)),
             pt_to_emu(self.y_max - self.y_min).max(pt_to_emu(size * 0.5)),
         );
-        Some(TextLine {
-            text: self.text,
-            rect,
-        })
+        Some(TextLine { text: self.text, rect })
     }
 }
 
@@ -465,7 +437,15 @@ mod tests {
         let elements = vec![
             PositionedElement::Text(glyph_run("Headings", Point { x: 108.0, y: 50.0 }, Some(item))),
             PositionedElement::Text(glyph_run("1.", Point { x: 90.0, y: 50.0 }, None)),
-            PositionedElement::Text(glyph_run("Lists", Point { x: 108.0, y: 70.0 }, Some(SourceSpan { node: node(8), char_start: 0, char_end: 5 }))),
+            PositionedElement::Text(glyph_run(
+                "Lists",
+                Point { x: 108.0, y: 70.0 },
+                Some(SourceSpan {
+                    node: node(8),
+                    char_start: 0,
+                    char_end: 5,
+                }),
+            )),
             PositionedElement::Text(glyph_run("2.", Point { x: 90.0, y: 70.0 }, None)),
         ];
         assert_eq!(texts(elements), ["1. Headings", "2. Lists"]);
@@ -478,7 +458,11 @@ mod tests {
             PositionedElement::Text(glyph_run(
                 text,
                 Point { x, y },
-                Some(SourceSpan { node: node(node_id), char_start: 0, char_end: text.len() as u32 }),
+                Some(SourceSpan {
+                    node: node(node_id),
+                    char_start: 0,
+                    char_end: text.len() as u32,
+                }),
             ))
         };
         let elements = vec![
@@ -497,10 +481,30 @@ mod tests {
         let structure = oxml_layout::DocumentStructure {
             root: StructureId::new(1).expect("non-zero"),
             nodes: vec![
-                oxml_layout::StructureNode { id: StructureId::new(1).unwrap(), role: oxml_layout::StructureRole::Document, children: vec![StructureId::new(2).unwrap()], alternate_text: None },
-                oxml_layout::StructureNode { id: StructureId::new(2).unwrap(), role: oxml_layout::StructureRole::Table, children: vec![StructureId::new(3).unwrap(), StructureId::new(4).unwrap()], alternate_text: None },
-                oxml_layout::StructureNode { id: StructureId::new(3).unwrap(), role: oxml_layout::StructureRole::TableCell, children: Vec::new(), alternate_text: None },
-                oxml_layout::StructureNode { id: StructureId::new(4).unwrap(), role: oxml_layout::StructureRole::TableCell, children: Vec::new(), alternate_text: None },
+                oxml_layout::StructureNode {
+                    id: StructureId::new(1).unwrap(),
+                    role: oxml_layout::StructureRole::Document,
+                    children: vec![StructureId::new(2).unwrap()],
+                    alternate_text: None,
+                },
+                oxml_layout::StructureNode {
+                    id: StructureId::new(2).unwrap(),
+                    role: oxml_layout::StructureRole::Table,
+                    children: vec![StructureId::new(3).unwrap(), StructureId::new(4).unwrap()],
+                    alternate_text: None,
+                },
+                oxml_layout::StructureNode {
+                    id: StructureId::new(3).unwrap(),
+                    role: oxml_layout::StructureRole::TableCell,
+                    children: Vec::new(),
+                    alternate_text: None,
+                },
+                oxml_layout::StructureNode {
+                    id: StructureId::new(4).unwrap(),
+                    role: oxml_layout::StructureRole::TableCell,
+                    children: Vec::new(),
+                    alternate_text: None,
+                },
             ],
         };
         let tables = TableStructure::index(Some(&structure));
@@ -509,7 +513,11 @@ mod tests {
             children: vec![PositionedElement::Text(glyph_run(
                 text,
                 Point { x, y },
-                Some(SourceSpan { node: node(node_id), char_start: 0, char_end: text.len() as u32 }),
+                Some(SourceSpan {
+                    node: node(node_id),
+                    char_start: 0,
+                    char_end: text.len() as u32,
+                }),
             ))],
         };
         let elements = vec![
@@ -531,7 +539,11 @@ mod tests {
             PositionedElement::Text(glyph_run(
                 text,
                 Point { x, y },
-                Some(SourceSpan { node: node(node_id), char_start: 0, char_end: text.len() as u32 }),
+                Some(SourceSpan {
+                    node: node(node_id),
+                    char_start: 0,
+                    char_end: text.len() as u32,
+                }),
             ))
         };
         let mut wide = glyph_run("wide paragraph spanning the page", Point { x: 72.0, y: 90.0 }, None);
@@ -545,7 +557,13 @@ mod tests {
         ];
         assert_eq!(
             texts(elements),
-            ["left one", "right one", "wide paragraph spanning the page", "left two", "right two"]
+            [
+                "left one",
+                "right one",
+                "wide paragraph spanning the page",
+                "left two",
+                "right two"
+            ]
         );
     }
 }

@@ -1,5 +1,5 @@
 use clap::Parser;
-use office_terminal_cli::cli::{Cli, Commands, ExportFormat, parse_slide_range};
+use office_terminal_cli::cli::{parse_slide_range, Cli, Commands, ExportFormat};
 use office_terminal_cli::config::{parse_svg_text_mode, Config};
 use office_terminal_core::SvgTextMode;
 
@@ -53,8 +53,7 @@ fn test_slide_range_parsing() {
 
 #[test]
 fn test_export_flags_are_optional_for_config_fallbacks() {
-    let args = Cli::try_parse_from(["ot", "export", "test.pptx", "--out", "/tmp/x"])
-        .expect("parsing CLI failed");
+    let args = Cli::try_parse_from(["ot", "export", "test.pptx", "--out", "/tmp/x"]).expect("parsing CLI failed");
     match args.command {
         Some(Commands::Export {
             format,
@@ -88,11 +87,9 @@ fn test_cli_mode_flags() {
     let args_default = Cli::try_parse_from(["ot", "test.pdf"]).expect("parse failed");
     assert_eq!(args_default.mode, office_terminal_cli::cli::DeckModeArg::Auto);
 
-    let args_reader =
-        Cli::try_parse_from(["ot", "test.pdf", "--mode", "reader"]).expect("parse failed");
+    let args_reader = Cli::try_parse_from(["ot", "test.pdf", "--mode", "reader"]).expect("parse failed");
     assert_eq!(args_reader.mode, office_terminal_cli::cli::DeckModeArg::Reader);
 
-    let args_slides =
-        Cli::try_parse_from(["ot", "test.pdf", "--mode", "slides"]).expect("parse failed");
+    let args_slides = Cli::try_parse_from(["ot", "test.pdf", "--mode", "slides"]).expect("parse failed");
     assert_eq!(args_slides.mode, office_terminal_cli::cli::DeckModeArg::Slides);
 }

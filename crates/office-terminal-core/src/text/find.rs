@@ -56,11 +56,7 @@ pub struct FindController {
 impl FindController {
     /// Build the run index from a whole presentation.
     pub fn from_presentation(presentation: &Presentation) -> Self {
-        let slides = presentation
-            .slides
-            .iter()
-            .map(slide_runs)
-            .collect::<Vec<_>>();
+        let slides = presentation.slides.iter().map(slide_runs).collect::<Vec<_>>();
         let hidden = presentation.slides.iter().map(|slide| slide.hidden).collect();
         Self {
             slides,
@@ -255,12 +251,7 @@ fn run_groups(runs: &[FindRun]) -> Vec<Vec<usize>> {
     groups.into_iter().map(|(_, members)| members).collect()
 }
 
-fn slice_match(
-    positions: &[(usize, usize)],
-    start: usize,
-    end: usize,
-    runs: &[FindRun],
-) -> Vec<FindSlice> {
+fn slice_match(positions: &[(usize, usize)], start: usize, end: usize, runs: &[FindRun]) -> Vec<FindSlice> {
     let mut slices: Vec<FindSlice> = Vec::new();
     for &(run_index, char_index) in &positions[start..end] {
         match slices.last_mut() {

@@ -22,11 +22,7 @@ pub fn region_bounds(region: &mc::ClipRegion) -> Option<RectF32> {
             }
             bounds
         }
-        mc::ClipRegion::Combine {
-            operation,
-            left,
-            right,
-        } => match operation {
+        mc::ClipRegion::Combine { operation, left, right } => match operation {
             mc::ClipOperation::Exclude | mc::ClipOperation::Complement => region_bounds(left),
             _ => union_bounds(region_bounds(left), region_bounds(right)),
         },
@@ -58,11 +54,7 @@ pub fn path_bounds(path: &mc::Path) -> Option<RectF32> {
         for segment in &figure.segments {
             match segment {
                 mc::PathSegment::Line(point) => points.push(*point),
-                mc::PathSegment::Cubic {
-                    control1,
-                    control2,
-                    to,
-                } => {
+                mc::PathSegment::Cubic { control1, control2, to } => {
                     points.push(*control1);
                     points.push(*control2);
                     points.push(*to);

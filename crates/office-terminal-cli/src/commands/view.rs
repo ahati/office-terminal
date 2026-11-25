@@ -17,8 +17,9 @@ pub fn run_view(
     compiler: &Arc<DefaultSlideCompiler>,
     rasterizer: &Arc<TinySkiaRasterizer>,
 ) -> ExitCode {
-    let is_tty = (std::io::stdout().is_terminal() || std::env::var("KITTY_PPTX_FORCE_TTY").is_ok())
-        && std::env::var("KITTY_PPTX_FORCE_NOT_TTY").is_err();
+    let force_tty = std::env::var("OT_FORCE_TTY").is_ok() || std::env::var("KITTY_PPTX_FORCE_TTY").is_ok();
+    let force_not_tty = std::env::var("OT_FORCE_NOT_TTY").is_ok() || std::env::var("KITTY_PPTX_FORCE_NOT_TTY").is_ok();
+    let is_tty = (std::io::stdout().is_terminal() || force_tty) && !force_not_tty;
     if !is_tty {
         eprintln!("Graphics command requires a valid TTY");
         return ExitCode::from(3);
@@ -34,9 +35,11 @@ pub fn run_view(
     };
 
     let page_source: Arc<dyn PageSource> = match deck {
-        DeckSource::Pptx(presentation, asset_store) => {
-            Arc::new(PptxPageSource::new(Arc::new(presentation), asset_store, compiler.clone()))
-        }
+        DeckSource::Pptx(presentation, asset_store) => Arc::new(PptxPageSource::new(
+            Arc::new(presentation),
+            asset_store,
+            compiler.clone(),
+        )),
         DeckSource::Pdf(page_source) | DeckSource::Docx(page_source) => page_source,
     };
 
@@ -68,8 +71,7 @@ pub fn run_view(
     // metafile expansion, native raster sources, caching, and warning
     // collection all live behind `pipeline.render`.
     let tiny_rasterizer: Arc<TinySkiaRasterizer> = Arc::clone(rasterizer);
-    let pipeline =
-        DefaultRenderPipeline::from_page_source(Arc::clone(&page_source), tiny_rasterizer);
+    let pipeline = DefaultRenderPipeline::from_page_source(Arc::clone(&page_source), tiny_rasterizer);
 
     for &idx in &slide_indices {
         if all {
@@ -144,10 +146,7 @@ mod tests {
     #[test]
     fn contain_preserves_slide_aspect_ratio() {
         let sixteen_nine = fit_render_target(12_192_000, 6_858_000, FitMode::Contain);
-        assert_eq!(
-            (sixteen_nine.width_px, sixteen_nine.height_px),
-            (1920, 1080)
-        );
+        assert_eq!((sixteen_nine.width_px, sixteen_nine.height_px), (1920, 1080));
 
         let four_three = fit_render_target(9_144_000, 6_858_000, FitMode::Contain);
         assert_eq!((four_three.width_px, four_three.height_px), (1440, 1080));

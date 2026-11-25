@@ -35,9 +35,7 @@ fn presentation(slides: usize) -> Arc<pptx_model::Presentation> {
             index: i,
             slide_number: i + 1,
             part_name: Some(format!("ppt/slides/slide{}.xml", i + 1)),
-            background: Some(pptx_model::Fill::Solid {
-                color: "FFFFFF".into(),
-            }),
+            background: Some(pptx_model::Fill::Solid { color: "FFFFFF".into() }),
             elements: Vec::new(),
             element_sources: Vec::new(),
             notes: None,

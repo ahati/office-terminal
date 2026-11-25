@@ -45,11 +45,7 @@ pub(super) fn break_body_lines(
         let budget = (avail_w - para.mar_l - para.mar_r).max(0.0);
         // `firstLineIndentPxFor(hasBullet, indentPx)` (`renderer.ts:1542-1544`):
         // a marker already owns the gutter, so it contributes no text indent.
-        let first_line_indent = if para.marker.is_some() {
-            0.0
-        } else {
-            para.indent
-        };
+        let first_line_indent = if para.marker.is_some() { 0.0 } else { para.indent };
         let opts = BreakOptions {
             max_width: if do_wrap { budget } else { f32::INFINITY },
             first_line_indent,
@@ -68,13 +64,8 @@ pub(super) fn break_body_lines(
             let is_last = line_index + 1 == line_count;
             let pieces = paragraphs::line_math_pieces(line, para, &mut math_cursor);
             let (nat_ascent, nat_descent) = natural_box::natural_box(measurer, line, para, &pieces);
-            let (ascent, descent) = metrics::spaced_line_box(
-                nat_ascent,
-                nat_descent,
-                para.space_line,
-                12700.0,
-                reduction,
-            );
+            let (ascent, descent) =
+                metrics::spaced_line_box(nat_ascent, nat_descent, para.space_line, 12700.0, reduction);
             let natural = nat_ascent + nat_descent;
             let mut top_gap = 0.0;
             if first_line && (text_body.spc_first_last_para || p_index > 0) {
@@ -121,13 +112,6 @@ pub(super) fn break_body_lines(
             *height += line.top_gap + line.ascent + line.descent + line.after_gap;
         }
     }
-    let anchor_h = column_heights
-        .iter()
-        .copied()
-        .fold(0.0_f32, f32::max);
-    BrokenBody {
-        lines,
-        plan,
-        anchor_h,
-    }
+    let anchor_h = column_heights.iter().copied().fold(0.0_f32, f32::max);
+    BrokenBody { lines, plan, anchor_h }
 }

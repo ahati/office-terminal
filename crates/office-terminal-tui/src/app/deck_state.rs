@@ -8,8 +8,8 @@
 //! Terminal-layout state (columns/rows, last-frame geometry) is deliberately
 //! NOT deck data and stays on the presentation state.
 
-use pptx_model::Slide;
 use office_terminal_core::{SlideLink, TocEntry};
+use pptx_model::Slide;
 
 /// Default slide geometry: a 16:9 widescreen deck in EMUs.
 const DEFAULT_SLIDE_WIDTH_EMU: i64 = 12_192_000;
@@ -78,10 +78,7 @@ impl DeckState {
     /// Replace the slide models and recompute the per-slide derivatives
     /// (media flags, hyperlink lists).
     pub fn set_slides(&mut self, slides: Vec<Slide>) {
-        self.slide_media_flags = slides
-            .iter()
-            .map(crate::app::media::has_slide_media)
-            .collect();
+        self.slide_media_flags = slides.iter().map(crate::app::media::has_slide_media).collect();
         self.slide_links = office_terminal_core::extract_deck_hyperlinks(&slides);
         self.slides = slides;
     }

@@ -1,6 +1,6 @@
 //! Scratch end-to-end probe against real sample files (not committed).
 
-use office_terminal_core::{PageSource, TinySkiaRasterizer, SlideRasterizer};
+use office_terminal_core::{PageSource, SlideRasterizer, TinySkiaRasterizer};
 use office_terminal_docx::DocxPageSource;
 use std::sync::Arc;
 
@@ -61,7 +61,13 @@ fn main() {
                     image::ImageFormat::Png,
                 )
                 .expect("encode");
-                println!("rasterized page {} -> {} ({}x{})", index + 1, out, bitmap.width, bitmap.height);
+                println!(
+                    "rasterized page {} -> {} ({}x{})",
+                    index + 1,
+                    out,
+                    bitmap.width,
+                    bitmap.height
+                );
             }
             Err(error) => eprintln!("RASTER FAILED on page {}: {error}", index + 1),
         }

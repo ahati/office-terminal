@@ -17,11 +17,7 @@ fn test_tui_performance_benchmarks_and_invariants() {
             "benchmark {} should have executed iterations",
             res.name
         );
-        assert!(
-            res.ops_per_sec > 0.0,
-            "benchmark {} ops/sec must be positive",
-            res.name
-        );
+        assert!(res.ops_per_sec > 0.0, "benchmark {} ops/sec must be positive", res.name);
 
         // Sanity checks: Ensure performance regressions do not exceed generous safety bounds
         if res.name.starts_with("clear_letterbox_") {

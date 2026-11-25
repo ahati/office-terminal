@@ -1,6 +1,6 @@
 //! Fuzzy TOC search logical page labels (PDF `/PageLabels`) tests.
 
-use crate::app::search_state::{SearchState, calculate_match_score};
+use crate::app::search_state::{calculate_match_score, SearchState};
 use office_terminal_core::TocEntry;
 
 fn toc_entries() -> Vec<TocEntry> {

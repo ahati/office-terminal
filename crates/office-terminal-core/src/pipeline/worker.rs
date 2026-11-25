@@ -1,20 +1,20 @@
+use crossbeam_channel::{Receiver, Sender};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use crossbeam_channel::{Receiver, Sender};
 
+use super::cache::PipelineCache;
+use super::cancellation::CancellationToken;
+use super::payload::PayloadCache;
+use super::render;
 use crate::compiler::SlideCompiler;
 use crate::contracts::{PageSource, PptxPageSource, RenderTargetSpec, TransmitEncoder, WarningEvent};
 use crate::error::RenderError;
 use crate::loader::AssetStore;
 use crate::rasterizer::SlideRasterizer;
-use super::cache::PipelineCache;
-use super::cancellation::CancellationToken;
-use super::payload::PayloadCache;
-use super::render;
 
 /// Shared, late-bindable slot for the off-thread transmission encoder.
 ///
@@ -125,11 +125,7 @@ impl WorkerPool {
         cache: PipelineCache,
         warnings: Arc<Mutex<Vec<(usize, WarningEvent)>>>,
     ) -> Self {
-        let source = Arc::new(PptxPageSource::new(
-            presentation,
-            Arc::clone(&asset_store),
-            compiler,
-        ));
+        let source = Arc::new(PptxPageSource::new(presentation, Arc::clone(&asset_store), compiler));
         Self::with_source_and_warnings(
             num_workers,
             source,
@@ -189,7 +185,7 @@ impl WorkerPool {
             let thread_ctx = ctx.clone();
 
             let handle = thread::Builder::new()
-                .name("kitty-pptx-prefetch".to_string())
+                .name("office-terminal-prefetch".to_string())
                 .spawn(move || {
                     worker_loop(thread_rx, thread_queue, thread_shutdown, thread_ctx);
                 })
@@ -520,11 +516,7 @@ fn compile_and_rasterize(task: &PrefetchTask, ctx: &WorkerSharedContext, shutdow
                 // Encode failures are skipped: the syncer falls back to
                 // on-thread encoding through the driver.
                 if task.stage {
-                    let encoder = ctx
-                        .transmit
-                        .lock()
-                        .ok()
-                        .and_then(|slot| slot.clone());
+                    let encoder = ctx.transmit.lock().ok().and_then(|slot| slot.clone());
                     if let Some(encoder) = encoder {
                         ctx.payloads.stage(encoder.as_ref(), index, target, &bitmap);
                     }

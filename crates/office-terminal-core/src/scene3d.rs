@@ -17,14 +17,13 @@ pub mod projection;
 
 pub use bevel_inputs::{build_bevel_inputs, BevelInput, PresetMaterial};
 pub use camera::{
-    camera_rotation, compute_depth_offset, compute_scene3d_quad, is_back_facing,
-    is_scene3d_non_identity, scene3d_surface_frame, CameraInput, Rot3d, Scene3dQuad,
+    camera_rotation, compute_depth_offset, compute_scene3d_quad, is_back_facing, is_scene3d_non_identity,
+    scene3d_surface_frame, CameraInput, Rot3d, Scene3dQuad,
 };
 pub use homography::{expand_projected_quad, invert_h, project_quad_point, unit_square_to_quad};
 pub use projection::{
-    authored_alignment_anchor, projected_effect_geometry, projected_surface,
-    transformed_effect_bounds, Alignment, Bounds, EffectTransform, ProjectedEffectGeometry,
-    ProjectedSurface,
+    authored_alignment_anchor, projected_effect_geometry, projected_surface, transformed_effect_bounds, Alignment,
+    Bounds, EffectTransform, ProjectedEffectGeometry, ProjectedSurface,
 };
 
 /// Convert an EMU length to abstract 96-DPI pixels.
@@ -74,36 +73,105 @@ pub fn camera_angles(camera_type: &str) -> CameraAngles {
     // 35.264° = atan(1/sqrt(2)), the classic isometric elevation.
     const ISO: f32 = 35.264;
     match camera_type {
-        "isometricTopUp" => CameraAngles { lat_deg: -ISO, lon_deg: 0.0, ..Default::default() },
-        "isometricTopDown" => CameraAngles { lat_deg: ISO, lon_deg: 0.0, ..Default::default() },
-        "isometricLeftUp" => CameraAngles { lat_deg: -ISO, lon_deg: -45.0, ..Default::default() },
-        "isometricLeftDown" => CameraAngles { lat_deg: ISO, lon_deg: -45.0, ..Default::default() },
-        "isometricRightUp" => CameraAngles { lat_deg: -ISO, lon_deg: 45.0, ..Default::default() },
-        "isometricRightDown" => CameraAngles { lat_deg: ISO, lon_deg: 45.0, ..Default::default() },
-        "isometricOffAxis1Left" | "isometricOffAxis2Left" => {
-            CameraAngles { lat_deg: -ISO, lon_deg: -30.0, ..Default::default() }
-        }
-        "isometricOffAxis1Right" | "isometricOffAxis2Right" => {
-            CameraAngles { lat_deg: -ISO, lon_deg: 30.0, ..Default::default() }
-        }
-        "isometricOffAxis1Top" | "isometricOffAxis2Top" => {
-            CameraAngles { lat_deg: -ISO, lon_deg: 0.0, ..Default::default() }
-        }
-        "perspectiveLeft" | "perspectiveRelaxedLeft" | "legacyPerspectiveLeft" => {
-            CameraAngles { lat_deg: 0.0, lon_deg: -20.0, ..Default::default() }
-        }
-        "perspectiveRight" | "perspectiveRelaxedRight" | "legacyPerspectiveRight" => {
-            CameraAngles { lat_deg: 0.0, lon_deg: 20.0, ..Default::default() }
-        }
-        "perspectiveContrasting" => CameraAngles { default_fov_deg: 60.0, ..Default::default() },
-        "obliqueTopLeft" => CameraAngles { lat_deg: 20.0, lon_deg: -20.0, ..Default::default() },
-        "obliqueTop" => CameraAngles { lat_deg: 20.0, lon_deg: 0.0, ..Default::default() },
-        "obliqueTopRight" => CameraAngles { lat_deg: 20.0, lon_deg: 20.0, ..Default::default() },
-        "obliqueLeft" => CameraAngles { lat_deg: 0.0, lon_deg: -20.0, ..Default::default() },
-        "obliqueRight" => CameraAngles { lat_deg: 0.0, lon_deg: 20.0, ..Default::default() },
-        "obliqueBottomLeft" => CameraAngles { lat_deg: -20.0, lon_deg: -20.0, ..Default::default() },
-        "obliqueBottom" => CameraAngles { lat_deg: -20.0, lon_deg: 0.0, ..Default::default() },
-        "obliqueBottomRight" => CameraAngles { lat_deg: -20.0, lon_deg: 20.0, ..Default::default() },
+        "isometricTopUp" => CameraAngles {
+            lat_deg: -ISO,
+            lon_deg: 0.0,
+            ..Default::default()
+        },
+        "isometricTopDown" => CameraAngles {
+            lat_deg: ISO,
+            lon_deg: 0.0,
+            ..Default::default()
+        },
+        "isometricLeftUp" => CameraAngles {
+            lat_deg: -ISO,
+            lon_deg: -45.0,
+            ..Default::default()
+        },
+        "isometricLeftDown" => CameraAngles {
+            lat_deg: ISO,
+            lon_deg: -45.0,
+            ..Default::default()
+        },
+        "isometricRightUp" => CameraAngles {
+            lat_deg: -ISO,
+            lon_deg: 45.0,
+            ..Default::default()
+        },
+        "isometricRightDown" => CameraAngles {
+            lat_deg: ISO,
+            lon_deg: 45.0,
+            ..Default::default()
+        },
+        "isometricOffAxis1Left" | "isometricOffAxis2Left" => CameraAngles {
+            lat_deg: -ISO,
+            lon_deg: -30.0,
+            ..Default::default()
+        },
+        "isometricOffAxis1Right" | "isometricOffAxis2Right" => CameraAngles {
+            lat_deg: -ISO,
+            lon_deg: 30.0,
+            ..Default::default()
+        },
+        "isometricOffAxis1Top" | "isometricOffAxis2Top" => CameraAngles {
+            lat_deg: -ISO,
+            lon_deg: 0.0,
+            ..Default::default()
+        },
+        "perspectiveLeft" | "perspectiveRelaxedLeft" | "legacyPerspectiveLeft" => CameraAngles {
+            lat_deg: 0.0,
+            lon_deg: -20.0,
+            ..Default::default()
+        },
+        "perspectiveRight" | "perspectiveRelaxedRight" | "legacyPerspectiveRight" => CameraAngles {
+            lat_deg: 0.0,
+            lon_deg: 20.0,
+            ..Default::default()
+        },
+        "perspectiveContrasting" => CameraAngles {
+            default_fov_deg: 60.0,
+            ..Default::default()
+        },
+        "obliqueTopLeft" => CameraAngles {
+            lat_deg: 20.0,
+            lon_deg: -20.0,
+            ..Default::default()
+        },
+        "obliqueTop" => CameraAngles {
+            lat_deg: 20.0,
+            lon_deg: 0.0,
+            ..Default::default()
+        },
+        "obliqueTopRight" => CameraAngles {
+            lat_deg: 20.0,
+            lon_deg: 20.0,
+            ..Default::default()
+        },
+        "obliqueLeft" => CameraAngles {
+            lat_deg: 0.0,
+            lon_deg: -20.0,
+            ..Default::default()
+        },
+        "obliqueRight" => CameraAngles {
+            lat_deg: 0.0,
+            lon_deg: 20.0,
+            ..Default::default()
+        },
+        "obliqueBottomLeft" => CameraAngles {
+            lat_deg: -20.0,
+            lon_deg: -20.0,
+            ..Default::default()
+        },
+        "obliqueBottom" => CameraAngles {
+            lat_deg: -20.0,
+            lon_deg: 0.0,
+            ..Default::default()
+        },
+        "obliqueBottomRight" => CameraAngles {
+            lat_deg: -20.0,
+            lon_deg: 20.0,
+            ..Default::default()
+        },
         _ => CameraAngles::default(),
     }
 }
@@ -111,13 +179,7 @@ pub fn camera_angles(camera_type: &str) -> CameraAngles {
 /// Project a local point `(x, y, 0)` through the camera and return slide-local
 /// coordinates. `d_cam` is `None` for orthographic presets.
 #[allow(dead_code)] // Kept for the legacy `CameraAngles` lookup API.
-fn project_point(
-    x: f32,
-    y: f32,
-    center: (f32, f32),
-    angles: CameraAngles,
-    d_cam: Option<f32>,
-) -> (f32, f32) {
+fn project_point(x: f32, y: f32, center: (f32, f32), angles: CameraAngles, d_cam: Option<f32>) -> (f32, f32) {
     let px = x - center.0;
     let py = y - center.1;
 
@@ -148,12 +210,7 @@ fn project_point(
 /// `(w,0)`, `(0,h)` of the reference [`compute_scene3d_quad`]. Orthographic
 /// presets are reproduced exactly. The rasterizer uses the true homography
 /// instead (`rasterizer::shape_effect::projection`).
-pub fn camera_affine(
-    scene: &VectorScene3d,
-    local_w: f32,
-    local_h: f32,
-    _slide_width_emu: i64,
-) -> AffineTransform {
+pub fn camera_affine(scene: &VectorScene3d, local_w: f32, local_h: f32, _slide_width_emu: i64) -> AffineTransform {
     if local_w <= 0.0 || local_h <= 0.0 {
         return AffineTransform::identity();
     }
@@ -209,23 +266,103 @@ impl Material {
         // coefficients and a Blinn-Phong exponent, so the table keeps those
         // columns representative rather than dropping the material identity.
         match name {
-            "legacyMatte" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.0, shininess: 1.0 },
-            "legacyPlastic" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.6, shininess: 32.0 },
-            "legacyMetal" => Self { ambient: 0.0, diffuse: 0.667, specular: 1.0, shininess: 32.0 },
-            "legacyWireframe" => Self { ambient: 0.0, diffuse: 0.0, specular: 0.0, shininess: 1.0 },
-            "matte" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.0, shininess: 1.0 },
-            "plastic" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.6, shininess: 12.0 },
-            "metal" => Self { ambient: 0.0, diffuse: 1.0, specular: 1.32, shininess: 12.0 },
-            "warmMatte" => Self { ambient: 0.3, diffuse: 1.0, specular: 0.3, shininess: 8.0 },
-            "translucentPowder" => Self { ambient: 0.3, diffuse: 1.0, specular: 0.3, shininess: 10.0 },
-            "powder" => Self { ambient: 0.3, diffuse: 1.0, specular: 0.3, shininess: 10.0 },
-            "dkEdge" => Self { ambient: 0.0, diffuse: 1.0, specular: 1.0, shininess: 35.0 },
-            "softEdge" => Self { ambient: 0.0, diffuse: 1.0, specular: 1.0, shininess: 35.0 },
-            "clear" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.6, shininess: 20.0 },
-            "flat" => Self { ambient: 0.0, diffuse: 0.0, specular: 0.8, shininess: 50.0 },
-            "softmetal" => Self { ambient: 0.0, diffuse: 1.0, specular: 0.5, shininess: 8.0 },
+            "legacyMatte" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 0.0,
+                shininess: 1.0,
+            },
+            "legacyPlastic" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 0.6,
+                shininess: 32.0,
+            },
+            "legacyMetal" => Self {
+                ambient: 0.0,
+                diffuse: 0.667,
+                specular: 1.0,
+                shininess: 32.0,
+            },
+            "legacyWireframe" => Self {
+                ambient: 0.0,
+                diffuse: 0.0,
+                specular: 0.0,
+                shininess: 1.0,
+            },
+            "matte" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 0.0,
+                shininess: 1.0,
+            },
+            "plastic" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 0.6,
+                shininess: 12.0,
+            },
+            "metal" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 1.32,
+                shininess: 12.0,
+            },
+            "warmMatte" => Self {
+                ambient: 0.3,
+                diffuse: 1.0,
+                specular: 0.3,
+                shininess: 8.0,
+            },
+            "translucentPowder" => Self {
+                ambient: 0.3,
+                diffuse: 1.0,
+                specular: 0.3,
+                shininess: 10.0,
+            },
+            "powder" => Self {
+                ambient: 0.3,
+                diffuse: 1.0,
+                specular: 0.3,
+                shininess: 10.0,
+            },
+            "dkEdge" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 1.0,
+                shininess: 35.0,
+            },
+            "softEdge" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 1.0,
+                shininess: 35.0,
+            },
+            "clear" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 0.6,
+                shininess: 20.0,
+            },
+            "flat" => Self {
+                ambient: 0.0,
+                diffuse: 0.0,
+                specular: 0.8,
+                shininess: 50.0,
+            },
+            "softmetal" => Self {
+                ambient: 0.0,
+                diffuse: 1.0,
+                specular: 0.5,
+                shininess: 8.0,
+            },
             // warmMatte is also the safe fallback for unknown presets.
-            _ => Self { ambient: 0.35, diffuse: 0.70, specular: 0.05, shininess: 4.0 },
+            _ => Self {
+                ambient: 0.35,
+                diffuse: 0.70,
+                specular: 0.05,
+                shininess: 4.0,
+            },
         }
     }
 }
@@ -254,9 +391,7 @@ pub fn blinn_phong(normal: [f32; 3], light: [f32; 3], material: Material) -> f32
     let h = normalize3([l[0], l[1], l[2] + 1.0]);
     let spec_base = (n[0] * h[0] + n[1] * h[1] + n[2] * h[2]).max(0.0);
 
-    material.ambient
-        + material.diffuse * diffuse
-        + material.specular * spec_base.powf(material.shininess)
+    material.ambient + material.diffuse * diffuse + material.specular * spec_base.powf(material.shininess)
 }
 
 fn normalize3(v: [f32; 3]) -> [f32; 3] {
@@ -396,7 +531,10 @@ mod tests {
             ..CameraInput::default()
         };
         assert!(!is_scene3d_non_identity(&front, Some(100.0), Some(100.0), 0.0));
-        let zoomed = CameraInput { zoom: 2.0, ..front.clone() };
+        let zoomed = CameraInput {
+            zoom: 2.0,
+            ..front.clone()
+        };
         assert!(is_scene3d_non_identity(&zoomed, Some(100.0), Some(100.0), 0.0));
         // An oblique preset keeps the front plane but shears the rear plane:
         // it only becomes visible once the solid has an extrusion depth.
@@ -419,7 +557,11 @@ mod tests {
         assert!(!is_scene3d_non_identity(&perspective, Some(100.0), Some(100.0), 40.0));
         // Tilting the same lens exposes the rear plane and the front quad.
         let tilted = CameraInput {
-            rot: Some(Rot3d { lat: 0.0, lon: 150.0, rev: 0.0 }),
+            rot: Some(Rot3d {
+                lat: 0.0,
+                lon: 150.0,
+                rev: 0.0,
+            }),
             ..perspective.clone()
         };
         assert!(is_scene3d_non_identity(&tilted, Some(100.0), Some(100.0), 40.0));

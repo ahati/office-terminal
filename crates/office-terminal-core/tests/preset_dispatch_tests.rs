@@ -10,9 +10,7 @@ use crossbeam_channel::unbounded;
 use office_terminal_core::compiler::shapes::preset_data::preset_names;
 use office_terminal_core::compiler::shapes::preset_exec::{PathFill, PresetSubpath};
 use office_terminal_core::compiler::shapes::{apply_path_fill_mode, build_shape_path, build_shape_paths};
-use office_terminal_core::contracts::{
-    FillRule, PathSegment, VectorGradient, VectorPaint, VectorPath, WarningEvent,
-};
+use office_terminal_core::contracts::{FillRule, PathSegment, VectorGradient, VectorPaint, VectorPath, WarningEvent};
 use pptx_model::PathCmd;
 
 /// On-curve points of a path in draw order; control points are ignored.
@@ -144,10 +142,7 @@ fn all_preset_names_resolve_to_a_non_empty_path() {
         assert!(!warned, "{name} must not warn");
         assert!(!subpaths.is_empty(), "{name} produced no subpath");
         for subpath in &subpaths {
-            assert!(
-                !subpath.path.segments.is_empty(),
-                "{name} produced an empty subpath"
-            );
+            assert!(!subpath.path.segments.is_empty(), "{name} produced an empty subpath");
             assert!(
                 matches!(subpath.path.segments[0], PathSegment::MoveTo { .. }),
                 "{name} subpath must start with MoveTo"
@@ -296,22 +291,13 @@ fn fill_modes_tint_solid_paints_like_the_reference() {
     assert_eq!(tint([0x80, 0x80, 0x80], PathFill::Darken), [0x4D, 0x4D, 0x4D, 255]);
     assert_eq!(tint([0xFF, 0xFF, 0xFF], PathFill::Darken), [0x99, 0x99, 0x99, 255]);
     // 808080 darkenLess -> 676767, FFFFFF darkenLess -> CDCDCD.
-    assert_eq!(
-        tint([0x80, 0x80, 0x80], PathFill::DarkenLess),
-        [0x67, 0x67, 0x67, 255]
-    );
-    assert_eq!(
-        tint([0xFF, 0xFF, 0xFF], PathFill::DarkenLess),
-        [0xCD, 0xCD, 0xCD, 255]
-    );
+    assert_eq!(tint([0x80, 0x80, 0x80], PathFill::DarkenLess), [0x67, 0x67, 0x67, 255]);
+    assert_eq!(tint([0xFF, 0xFF, 0xFF], PathFill::DarkenLess), [0xCD, 0xCD, 0xCD, 255]);
     // 000000 lighten -> 666666, 000000 lightenLess -> 323232.
     assert_eq!(tint([0, 0, 0], PathFill::Lighten), [0x66, 0x66, 0x66, 255]);
     assert_eq!(tint([0, 0, 0], PathFill::LightenLess), [0x32, 0x32, 0x32, 255]);
     // Norm is a pass-through, and alpha is never touched.
-    assert_eq!(
-        tint([0x11, 0x22, 0x33], PathFill::Norm),
-        [0x11, 0x22, 0x33, 255]
-    );
+    assert_eq!(tint([0x11, 0x22, 0x33], PathFill::Norm), [0x11, 0x22, 0x33, 255]);
     // A translucent base fill takes the overlay's alpha too: the folded colour
     // is the two-pass composite (white at 102/255 over [1,2,3] at 128/255).
     assert_eq!(
@@ -327,10 +313,7 @@ fn fill_modes_tint_solid_paints_like_the_reference() {
         90.0,
         vec![(0.0, [1, 2, 3, 255]), (1.0, [4, 5, 6, 255])],
     ));
-    assert_eq!(
-        apply_path_fill_mode(Some(&gradient), PathFill::Darken),
-        Some(gradient)
-    );
+    assert_eq!(apply_path_fill_mode(Some(&gradient), PathFill::Darken), Some(gradient));
 }
 
 // ---------------------------------------------------------------------------
@@ -338,13 +321,13 @@ fn fill_modes_tint_solid_paints_like_the_reference() {
 // ---------------------------------------------------------------------------
 
 /// `DrawPath` payloads of a compiled slide, in emission order.
-fn draw_paths(slide: &office_terminal_core::contracts::VectorSlide) -> Vec<&office_terminal_core::contracts::VectorCommand> {
+fn draw_paths(
+    slide: &office_terminal_core::contracts::VectorSlide,
+) -> Vec<&office_terminal_core::contracts::VectorCommand> {
     slide
         .commands
         .iter()
-        .filter(|command| {
-            matches!(command, office_terminal_core::contracts::VectorCommand::DrawPath { .. })
-        })
+        .filter(|command| matches!(command, office_terminal_core::contracts::VectorCommand::DrawPath { .. }))
         .collect()
 }
 
@@ -386,8 +369,7 @@ fn compiler_emits_one_draw_path_per_subpath_with_tinted_fills() {
         "elementSources": [],
         "comments": []
     });
-    let slide: pptx_model::Slide =
-        serde_json::from_value(slide_json).expect("deserialize slide");
+    let slide: pptx_model::Slide = serde_json::from_value(slide_json).expect("deserialize slide");
     let (tx, rx) = unbounded();
     let vector_slide = DefaultSlideCompiler::new()
         .compile(&slide, 9144000, 6858000, &tx)
@@ -401,10 +383,7 @@ fn compiler_emits_one_draw_path_per_subpath_with_tinted_fills() {
         .iter()
         .map(|command| match command {
             VectorCommand::DrawPath {
-                fill,
-                stroke,
-                effects,
-                ..
+                fill, stroke, effects, ..
             } => (fill.clone(), stroke.is_some(), **effects != ShapeEffects::default()),
             _ => unreachable!("filtered to DrawPath"),
         })
@@ -453,9 +432,7 @@ fn donut_rings_wind_oppositely() {
     for segment in &subpaths[0].path.segments {
         match segment {
             PathSegment::MoveTo { x, y } => contours.push(vec![(*x, *y)]),
-            PathSegment::LineTo { x, y }
-            | PathSegment::QuadTo { x, y, .. }
-            | PathSegment::CubicTo { x, y, .. } => {
+            PathSegment::LineTo { x, y } | PathSegment::QuadTo { x, y, .. } | PathSegment::CubicTo { x, y, .. } => {
                 if let Some(last) = contours.last_mut() {
                     last.push((*x, *y));
                 }

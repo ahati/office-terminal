@@ -157,12 +157,8 @@ fn compile(segments: &[&[f32]]) -> Profile {
         if dx == 0.0 {
             continue;
         }
-        let lo = (px.min(x) * RESOLUTION as f32)
-            .ceil()
-            .clamp(0.0, RESOLUTION as f32) as usize;
-        let hi = (px.max(x) * RESOLUTION as f32)
-            .floor()
-            .clamp(0.0, RESOLUTION as f32) as usize;
+        let lo = (px.min(x) * RESOLUTION as f32).ceil().clamp(0.0, RESOLUTION as f32) as usize;
+        let hi = (px.max(x) * RESOLUTION as f32).floor().clamp(0.0, RESOLUTION as f32) as usize;
         for i in lo..=hi {
             let z = py + ((i as f32 / RESOLUTION as f32 - px) * dy) / dx;
             if z > height[i] {

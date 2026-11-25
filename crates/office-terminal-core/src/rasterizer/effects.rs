@@ -1,5 +1,5 @@
-use ooxml_common::blip::BlipEffect;
 use crate::compiler::parse_hex_color;
+use ooxml_common::blip::BlipEffect;
 
 /// Compute BT.709 relative luminance from 8-bit RGB components.
 /// Formula: Y = 0.2126 * R + 0.7152 * G + 0.0722 * B.
@@ -57,15 +57,9 @@ pub fn apply_duotone(pixels: &mut [u8], clr1: &str, clr2: &str) {
 
     for chunk in pixels.chunks_exact_mut(4) {
         let y_norm = (bt709_luma(chunk[0], chunk[1], chunk[2]) / 255.0).clamp(0.0, 1.0);
-        let r_out = (r1 as f32 + y_norm * (r2 as f32 - r1 as f32))
-            .round()
-            .clamp(0.0, 255.0) as u8;
-        let g_out = (g1 as f32 + y_norm * (g2 as f32 - g1 as f32))
-            .round()
-            .clamp(0.0, 255.0) as u8;
-        let b_out = (b1 as f32 + y_norm * (b2 as f32 - b1 as f32))
-            .round()
-            .clamp(0.0, 255.0) as u8;
+        let r_out = (r1 as f32 + y_norm * (r2 as f32 - r1 as f32)).round().clamp(0.0, 255.0) as u8;
+        let g_out = (g1 as f32 + y_norm * (g2 as f32 - g1 as f32)).round().clamp(0.0, 255.0) as u8;
+        let b_out = (b1 as f32 + y_norm * (b2 as f32 - b1 as f32)).round().clamp(0.0, 255.0) as u8;
 
         chunk[0] = r_out;
         chunk[1] = g_out;
@@ -92,21 +86,10 @@ pub fn apply_alpha_mod(pixels: &mut [u8], alpha_factor: f64) {
 /// Apply color change in-place to straight RGBA8 pixels.
 /// Matches pixels whose RGB (and optionally alpha) matches `from`, and maps them to `to` and `to_alpha`.
 #[allow(clippy::chunks_exact_to_as_chunks)]
-pub fn apply_color_change(
-    pixels: &mut [u8],
-    from: &str,
-    from_alpha: f64,
-    to: &str,
-    to_alpha: f64,
-    use_alpha: bool,
-) {
+pub fn apply_color_change(pixels: &mut [u8], from: &str, from_alpha: f64, to: &str, to_alpha: f64, use_alpha: bool) {
     let [f_r, f_g, f_b, _] = parse_hex_color(from);
     let [t_r, t_g, t_b, _] = parse_hex_color(to);
-    let target_alpha = if to_alpha > 1.0 {
-        to_alpha / 100000.0
-    } else {
-        to_alpha
-    };
+    let target_alpha = if to_alpha > 1.0 { to_alpha / 100000.0 } else { to_alpha };
 
     for chunk in pixels.chunks_exact_mut(4) {
         let r = chunk[0];

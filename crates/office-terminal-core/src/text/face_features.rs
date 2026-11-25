@@ -55,9 +55,7 @@ fn normalize_name(name: &str) -> String {
 }
 
 fn parse_catalogue() -> FeatureCatalogue {
-    let raw: RawCatalogue = match serde_json::from_str(include_str!(
-        "../../assets/fonts/office-face-metrics.json"
-    )) {
+    let raw: RawCatalogue = match serde_json::from_str(include_str!("../../assets/fonts/office-face-metrics.json")) {
         Ok(raw) => raw,
         Err(_) => {
             return FeatureCatalogue {
@@ -84,10 +82,7 @@ fn parse_catalogue() -> FeatureCatalogue {
             vrt2_only_glyphs: profile.vrt2_only_glyphs,
         });
     }
-    FeatureCatalogue {
-        profiles,
-        alias_index,
-    }
+    FeatureCatalogue { profiles, alias_index }
 }
 
 fn catalogue() -> &'static FeatureCatalogue {
@@ -132,9 +127,7 @@ fn find_profile(family: &str, bold: bool, italic: bool) -> Option<&'static FaceF
     pick_source(any)
 }
 
-fn pick_source<'a>(
-    profiles: impl Iterator<Item = &'a FaceFeatureProfile>,
-) -> Option<&'a FaceFeatureProfile> {
+fn pick_source<'a>(profiles: impl Iterator<Item = &'a FaceFeatureProfile>) -> Option<&'a FaceFeatureProfile> {
     let list: Vec<&'a FaceFeatureProfile> = profiles.collect();
     if list.is_empty() {
         return None;
@@ -160,10 +153,7 @@ pub fn has_vert_feature(family: &str, bold: bool, italic: bool, ch: char) -> boo
         return cached;
     }
     let covered = if let Some(profile) = find_profile(family, bold, italic) {
-        profile
-            .vert_glyphs
-            .as_ref()
-            .is_some_and(|glyphs| glyphs.contains(ch))
+        profile.vert_glyphs.as_ref().is_some_and(|glyphs| glyphs.contains(ch))
     } else {
         probe_shaping_feature(family, bold, italic, "vert", ch)
     };

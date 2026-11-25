@@ -6,7 +6,7 @@
 
 use crossbeam_channel::unbounded;
 use office_terminal_core::compiler::tables::compile_table_element;
-use office_terminal_core::contracts::{PathSegment, VectorCommand, VectorPath, VectorPaint};
+use office_terminal_core::contracts::{PathSegment, VectorCommand, VectorPaint, VectorPath};
 use pptx_model::TableElement;
 use serde_json::{json, Value};
 

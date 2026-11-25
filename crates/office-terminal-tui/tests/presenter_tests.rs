@@ -1,9 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use office_terminal_display::ImageId;
 use office_terminal_tui::app::state::PresentationState;
-use office_terminal_tui::widget::layout::{
-    compute_slide_rect, ASPECT_16_9, ASPECT_4_3, DEFAULT_CELL_ASPECT_RATIO,
-};
+use office_terminal_tui::widget::layout::{compute_slide_rect, ASPECT_16_9, ASPECT_4_3, DEFAULT_CELL_ASPECT_RATIO};
 use ratatui::layout::Rect;
 
 #[test]

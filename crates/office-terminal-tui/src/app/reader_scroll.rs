@@ -1,8 +1,8 @@
 //! Scrolling calculations and spatial offsets for Reader mode.
 
-use std::sync::atomic::Ordering;
 use crate::app::reader_state::ReaderState;
 use crate::app::reader_types::{ReaderFitMode, ReaderLayout};
+use std::sync::atomic::Ordering;
 
 pub const VERTICAL_GUTTER_ROWS: u16 = 1;
 
@@ -20,12 +20,7 @@ pub struct RowGeometry {
 
 impl ReaderState {
     /// Compute maximum height in pixels among visible pages in the primary row.
-    pub fn current_row_height_px(
-        &self,
-        viewport_w_px: f32,
-        viewport_h_px: f32,
-        cell_w_px: f32,
-    ) -> f32 {
+    pub fn current_row_height_px(&self, viewport_w_px: f32, viewport_h_px: f32, cell_w_px: f32) -> f32 {
         let vis = self.visible_pages();
         if vis.is_empty() {
             return viewport_h_px;
@@ -43,28 +38,15 @@ impl ReaderState {
     }
 
     /// Compute total row stride in pixels, including vertical inter-row gutter spacing.
-    pub fn current_row_stride_px(
-        &self,
-        viewport_w_px: f32,
-        viewport_h_px: f32,
-        cell_w_px: f32,
-        cell_h_px: f32,
-    ) -> f32 {
+    pub fn current_row_stride_px(&self, viewport_w_px: f32, viewport_h_px: f32, cell_w_px: f32, cell_h_px: f32) -> f32 {
         let slot_w = self.slot_width(viewport_w_px, viewport_h_px, cell_w_px);
         self.row_stride_px(viewport_h_px, slot_w, cell_w_px, cell_h_px)
     }
 
     /// Vertical column continuous scroll with anchor advance on row boundary.
     /// Returns `true` if position or anchor moved.
-    pub fn scroll_column(
-        &mut self,
-        delta_px: i64,
-        row_stride_px: f32,
-        base_h_px: f32,
-        geo: RowGeometry,
-    ) -> bool {
-        let (anchor_changed, moved) =
-            self.scroll_column_detailed(delta_px, row_stride_px, base_h_px, geo);
+    pub fn scroll_column(&mut self, delta_px: i64, row_stride_px: f32, base_h_px: f32, geo: RowGeometry) -> bool {
+        let (anchor_changed, moved) = self.scroll_column_detailed(delta_px, row_stride_px, base_h_px, geo);
         anchor_changed || moved
     }
 
@@ -148,13 +130,8 @@ impl ReaderState {
                     }
                     ReaderLayout::Horizontal => self.anchor.saturating_sub(1),
                 };
-                let prev_stride = self.row_stride_for_anchor(
-                    prev,
-                    geo.viewport_h_px,
-                    geo.slot_w_px,
-                    geo.cell_w_px,
-                    geo.cell_h_px,
-                );
+                let prev_stride =
+                    self.row_stride_for_anchor(prev, geo.viewport_h_px, geo.slot_w_px, geo.cell_w_px, geo.cell_h_px);
                 self.anchor = prev;
                 self.scroll_px += prev_stride as i64;
                 self.shift_displayed_scroll_px(prev_stride);

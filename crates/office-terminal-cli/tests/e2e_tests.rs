@@ -2,8 +2,8 @@ use office_terminal_cli::cli::{ExportFormat, FitMode};
 use office_terminal_cli::commands::export::run_export_with_options;
 use office_terminal_cli::commands::{run_dump, run_export, run_info, run_view, source_from_path};
 use office_terminal_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, PresentationLoader,
-    Source, SvgTextMode, TinySkiaRasterizer,
+    DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, PresentationLoader, Source,
+    SvgTextMode, TinySkiaRasterizer,
 };
 use std::io::{Cursor, Write};
 use std::path::PathBuf;
@@ -372,8 +372,8 @@ fn test_run_view_tty_check_and_execution() {
     let compiler = Arc::new(DefaultSlideCompiler::new());
     let rasterizer = Arc::new(TinySkiaRasterizer::new());
 
-    // When stdout is not a TTY (simulated via KITTY_PPTX_FORCE_NOT_TTY), exit code is 3
-    std::env::set_var("KITTY_PPTX_FORCE_NOT_TTY", "1");
+    // When stdout is not a TTY (simulated via OT_FORCE_NOT_TTY), exit code is 3
+    std::env::set_var("OT_FORCE_NOT_TTY", "1");
     let code_no_tty = run_view(
         temp_file.path().to_path_buf(),
         1,
@@ -384,11 +384,11 @@ fn test_run_view_tty_check_and_execution() {
         &rasterizer,
     );
     assert_eq!(code_no_tty, ExitCode::from(3));
-    std::env::remove_var("KITTY_PPTX_FORCE_NOT_TTY");
+    std::env::remove_var("OT_FORCE_NOT_TTY");
 
     // When TTY and Kitty graphics are forced, slide 1 renders successfully.
-    std::env::set_var("KITTY_PPTX_FORCE_TTY", "1");
-    std::env::set_var("KITTY_PPTX_PROTOCOL", "kitty");
+    std::env::set_var("OT_FORCE_TTY", "1");
+    std::env::set_var("OT_PROTOCOL", "kitty");
     let code_ok = run_view(
         temp_file.path().to_path_buf(),
         1,
@@ -424,8 +424,8 @@ fn test_run_view_tty_check_and_execution() {
     );
     assert_eq!(code_all, ExitCode::SUCCESS);
 
-    std::env::remove_var("KITTY_PPTX_PROTOCOL");
-    std::env::remove_var("KITTY_PPTX_FORCE_TTY");
+    std::env::remove_var("OT_PROTOCOL");
+    std::env::remove_var("OT_FORCE_TTY");
 }
 
 #[test]
@@ -437,10 +437,7 @@ fn test_stdin_source_loading() {
     assert_eq!(pres.slides.len(), 2);
     assert!(!pres.slides[0].hidden);
     assert!(pres.slides[1].hidden);
-    assert_eq!(
-        pres.slides[0].notes.as_deref(),
-        Some("Speaker note for slide 1")
-    );
+    assert_eq!(pres.slides[0].notes.as_deref(), Some("Speaker note for slide 1"));
     assert_eq!(pres.slides[0].comments.len(), 1);
     assert_eq!(pres.slides[0].comments[0].text, "Great slide presentation!");
 

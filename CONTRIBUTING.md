@@ -45,7 +45,7 @@ Before submitting code, please be aware of our core design tenets (detailed in [
 
 ### Prerequisites
 
-- **Rust**: Version 1.75 or later with Cargo ([rustup.rs](https://rustup.rs/))
+- **Rust**: Version 1.93 or later with Cargo ([rustup.rs](https://rustup.rs/)). This is the workspace MSRV, set by the DOCX engine (`rdocx-layout` 0.17).
 - **Terminal Emulator**: Kitty, Ghostty, WezTerm, or an Alacritty fork supporting Kitty graphics protocol.
 - **Git**
 
@@ -91,7 +91,15 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 ## Submitting Pull Requests
 
 1. Fork the repository and create your branch from `master`.
-2. Ensure `cargo clippy --workspace --all-targets -- -D warnings` passes cleanly.
-3. Ensure all tests pass (`cargo test --workspace`).
-4. Ensure no new or modified source file exceeds 600 lines.
-5. Submit a pull request with a clear description of the problem solved and test results.
+2. Format first-party crates (do **not** run `cargo fmt --all`; the vendored
+   parser, metafile and DOCX-layout crates are kept pristine):
+   ```bash
+   cargo fmt -p office-terminal-core -p office-terminal-display \
+     -p office-terminal-pdf -p office-terminal-docx \
+     -p office-terminal-tui -p office-terminal-cli
+   ```
+3. Ensure `cargo clippy --workspace --all-targets -- -D warnings` passes cleanly.
+4. Ensure all tests pass (`cargo test --workspace`).
+5. Run the license/source audit: `cargo deny check licenses sources bans`.
+6. Ensure no new or modified source file exceeds 600 lines.
+7. Submit a pull request with a clear description of the problem solved and test results.

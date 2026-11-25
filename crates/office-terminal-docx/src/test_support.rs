@@ -12,8 +12,7 @@ use office_terminal_core::contracts::{VectorSlide, WarningEvent};
 
 use crate::engine::{DocxEngine, MediaBytes, ResolvedFont};
 use oxml_layout::{
-    Color, DocumentMetadata, FontId, GlyphRun, MediaId, OutlineEntry, PageFrame, Point,
-    PositionedElement,
+    Color, DocumentMetadata, FontId, GlyphRun, MediaId, OutlineEntry, PageFrame, Point, PositionedElement,
 };
 
 /// Configurable engine fixture over hand-built page frames.
@@ -139,20 +138,11 @@ pub(crate) fn letter_page(elements: Vec<PositionedElement>) -> PageFrame {
 }
 
 /// Compile one page against a fixture engine, collecting warnings.
-pub(crate) fn compile(
-    page: &PageFrame,
-    engine: &FixtureEngine,
-) -> (VectorSlide, Vec<WarningEvent>) {
+pub(crate) fn compile(page: &PageFrame, engine: &FixtureEngine) -> (VectorSlide, Vec<WarningEvent>) {
     let store = crate::media::DocxAssetStore::from_engine(engine);
     let (tx, rx) = crossbeam_channel::unbounded::<WarningEvent>();
-    let slide = crate::bridge::compile_page(
-        page,
-        engine,
-        &store,
-        &tx,
-        Arc::new(Mutex::new(HashSet::new())),
-    )
-    .expect("bridge compile");
+    let slide = crate::bridge::compile_page(page, engine, &store, &tx, Arc::new(Mutex::new(HashSet::new())))
+        .expect("bridge compile");
     let warnings: Vec<WarningEvent> = rx.try_iter().collect();
     (slide, warnings)
 }
@@ -164,4 +154,3 @@ pub(crate) fn media_bytes(data: &[u8], content_type: &str) -> MediaBytes {
         content_type: content_type.to_string(),
     }
 }
-

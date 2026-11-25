@@ -1,8 +1,8 @@
-use crate::contracts::{
-    FillRule, LineCap, LineJoin, NormalizedRect, PathSegment, PositionedGlyph,
-    PositionedGlyphRun, RectF32, VectorCommand, VectorPath, VectorStroke, EMU_PER_PT,
-};
 use super::transform::compute_shape_transform;
+use crate::contracts::{
+    FillRule, LineCap, LineJoin, NormalizedRect, PathSegment, PositionedGlyph, PositionedGlyphRun, RectF32,
+    VectorCommand, VectorPath, VectorStroke, EMU_PER_PT,
+};
 
 pub fn compile_chart_placeholder(chart_elem: &pptx_model::ChartElement) -> Vec<VectorCommand> {
     let transform = compute_shape_transform(
@@ -92,13 +92,7 @@ pub fn compile_chart_placeholder(chart_elem: &pptx_model::ChartElement) -> Vec<V
         } else {
             [80, 160, 60, 255]
         };
-        runs.push(make_simple_run(
-            &series_line,
-            10.0,
-            series_color,
-            0.08 * w,
-            cur_y,
-        ));
+        runs.push(make_simple_run(&series_line, 10.0, series_color, 0.08 * w, cur_y));
         cur_y += 10.0 * EMU_PER_PT * 1.3;
     }
 
@@ -166,13 +160,7 @@ pub fn compile_media_placeholder(media_elem: &pptx_model::MediaElement) -> Vec<V
     });
 
     let header_text = format!("▶ MEDIA ({})", media_elem.media_kind);
-    let runs = vec![make_simple_run(
-        &header_text,
-        14.0,
-        [80, 80, 80, 255],
-        0.1 * w,
-        0.5 * h,
-    )];
+    let runs = vec![make_simple_run(&header_text, 14.0, [80, 80, 80, 255], 0.1 * w, 0.5 * h)];
     commands.push(VectorCommand::DrawText { runs, transform });
 
     commands

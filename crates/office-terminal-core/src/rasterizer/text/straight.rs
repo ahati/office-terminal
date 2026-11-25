@@ -33,15 +33,11 @@ pub(super) fn render_shaped_run(
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
 ) -> Option<(i32, f32)> {
-    let face_id = with_face_db(|db| {
-        cosmic_family_face_id(db, &run.font_family, run.bold, run.italic)
-    })?;
+    let face_id = with_face_db(|db| cosmic_family_face_id(db, &run.font_family, run.bold, run.italic))?;
 
     // The same hhea pair cosmic's shaper reads per glyph (shape.rs:114): the
     // rustybuzz face over the same database bytes, never a re-shape.
-    let metrics = with_face_db(|db| {
-        db.with_face_data(face_id, face_metrics)?
-    })?;
+    let metrics = with_face_db(|db| db.with_face_data(face_id, face_metrics)?)?;
 
     let pix_w = pixmap.width() as i32;
     let pix_h = pixmap.height() as i32;
@@ -76,20 +72,9 @@ pub(super) fn render_shaped_run(
         let rel_x = (glyph.x - first_gx) * scale;
         // `glyph.y` is the run baseline in the IR (combining-mark y offsets
         // are not carried); the base glyph's in-buffer y is zero.
-        let (cache_key, gx, gy) = CacheKey::new(
-            face_id,
-            glyph.glyph_id,
-            sz_px,
-            (rel_x, 0.0),
-            CacheKeyFlags::empty(),
-        );
+        let (cache_key, gx, gy) = CacheKey::new(face_id, glyph.glyph_id, sz_px, (rel_x, 0.0), CacheKeyFlags::empty());
         swash_cache.with_pixels(font_system, cache_key, text_color, |x, y, color| {
-            let (cr, cg, cb, ca) = (
-                color.r() as u32,
-                color.g() as u32,
-                color.b() as u32,
-                color.a() as u32,
-            );
+            let (cr, cg, cb, ca) = (color.r() as u32, color.g() as u32, color.b() as u32, color.a() as u32);
             if ca == 0 {
                 return;
             }
@@ -139,10 +124,7 @@ fn face_metrics(data: &[u8], index: u32) -> Option<(f32, f32)> {
     if upem <= 0.0 {
         return None;
     }
-    Some((
-        face.ascender() as f32 / upem,
-        -(face.descender() as f32) / upem,
-    ))
+    Some((face.ascender() as f32 / upem, -(face.descender() as f32) / upem))
 }
 
 #[cfg(test)]
@@ -156,25 +138,16 @@ mod tests {
     #[test]
     fn line_y_matches_cosmic_layout() {
         crate::text::fonts::with_font_system(|font_system| {
-            for (family, size) in [
-                ("Carlito", 18.0f32),
-                ("Liberation Sans", 24.0),
-                ("Caladea", 12.5),
-            ] {
-                let face_id = crate::text::fonts::with_face_db(|db| {
-                    cosmic_family_face_id(db, family, false, false)
-                })
-                .unwrap_or_else(|| panic!("{family} must resolve"));
-                let metrics = with_face_db(|db| {
-                    db.with_face_data(face_id, face_metrics)?
-                })
-                .unwrap_or_else(|| panic!("{family} metrics"));
+            for (family, size) in [("Carlito", 18.0f32), ("Liberation Sans", 24.0), ("Caladea", 12.5)] {
+                let face_id = crate::text::fonts::with_face_db(|db| cosmic_family_face_id(db, family, false, false))
+                    .unwrap_or_else(|| panic!("{family} must resolve"));
+                let metrics = with_face_db(|db| db.with_face_data(face_id, face_metrics)?)
+                    .unwrap_or_else(|| panic!("{family} metrics"));
                 let max_ascent = size * metrics.0;
                 let max_descent = size * metrics.1;
                 let replicated = (size * 1.25 - (max_ascent + max_descent)) / 2.0 + max_ascent;
 
-                let mut buffer =
-                    Buffer::new(font_system, Metrics::new(size, size * 1.25));
+                let mut buffer = Buffer::new(font_system, Metrics::new(size, size * 1.25));
                 buffer.set_size(font_system, None, None);
                 buffer.set_text(
                     font_system,
@@ -183,11 +156,7 @@ mod tests {
                     Shaping::Advanced,
                 );
                 buffer.shape_until_scroll(font_system, false);
-                let cosmic_line_y = buffer
-                    .layout_runs()
-                    .next()
-                    .map(|layout| layout.line_y)
-                    .unwrap_or(0.0);
+                let cosmic_line_y = buffer.layout_runs().next().map(|layout| layout.line_y).unwrap_or(0.0);
                 assert!(
                     (replicated - cosmic_line_y).abs() < 1e-3,
                     "{family} @ {size}: replicated {replicated} vs cosmic {cosmic_line_y}"

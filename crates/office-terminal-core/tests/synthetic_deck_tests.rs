@@ -15,8 +15,8 @@ mod deck_support;
 use std::io::{Cursor, Read};
 
 use deck_support::{
-    deck, deck_with_size, package_parts, para, plain_run, run, shape, text_box, text_box_with_id,
-    DEFAULT_BODY_PR, DEFAULT_PPR, SLIDE_HEIGHT, SLIDE_WIDTH,
+    deck, deck_with_size, package_parts, para, plain_run, run, shape, text_box, text_box_with_id, DEFAULT_BODY_PR,
+    DEFAULT_PPR, SLIDE_HEIGHT, SLIDE_WIDTH,
 };
 use office_terminal_core::{DefaultPresentationLoader, PresentationLoader, Source};
 use pptx_model::{SlideElement, TextRun};
@@ -41,10 +41,7 @@ fn text_box_deck() -> Vec<u8> {
 }
 
 fn text_box_deck_shapes() -> String {
-    text_box(
-        &para(&plain_run("Hello parity"), DEFAULT_PPR),
-        DEFAULT_BODY_PR,
-    )
+    text_box(&para(&plain_run("Hello parity"), DEFAULT_PPR), DEFAULT_BODY_PR)
 }
 
 fn read_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
@@ -70,11 +67,7 @@ fn package_has_reference_parts_in_order() {
     assert_eq!(archive.len(), PART_NAMES.len());
     for (index, expected) in PART_NAMES.iter().enumerate() {
         let file = archive.by_index(index).expect("entry");
-        assert_eq!(
-            file.name().expect("UTF-8 entry name"),
-            *expected,
-            "entry {index} name"
-        );
+        assert_eq!(file.name().expect("UTF-8 entry name"), *expected, "entry {index} name");
         assert_eq!(
             file.compression(),
             zip::CompressionMethod::Stored,
@@ -199,8 +192,7 @@ fn builds_are_byte_identical() {
     let first_entries = read_entries(&first);
     let second_entries = read_entries(&second);
     assert_eq!(first_entries.len(), second_entries.len());
-    for ((first_name, first_payload), (second_name, second_payload)) in
-        first_entries.iter().zip(second_entries.iter())
+    for ((first_name, first_payload), (second_name, second_payload)) in first_entries.iter().zip(second_entries.iter())
     {
         assert_eq!(first_name, second_name);
         assert_eq!(first_payload, second_payload, "payload of {first_name}");
@@ -215,9 +207,7 @@ fn builds_are_byte_identical() {
     ));
     let base_entries = read_entries(&first);
     let other_entries = read_entries(&other);
-    for (index, ((name, base), (other_name, changed))) in
-        base_entries.iter().zip(other_entries.iter()).enumerate()
-    {
+    for (index, ((name, base), (other_name, changed))) in base_entries.iter().zip(other_entries.iter()).enumerate() {
         assert_eq!(name, other_name, "entry {index}");
         if name == "ppt/slides/slide1.xml" {
             assert_ne!(base, changed, "slide part reflects the new shapes");
@@ -322,4 +312,3 @@ fn multiple_shapes_keep_document_order() {
         SlideElement::Shape(shape) if shape.text_body.is_none()
     ));
 }
-

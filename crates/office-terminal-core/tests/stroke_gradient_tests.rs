@@ -9,11 +9,10 @@ use office_terminal_core::compiler::style::{
     radial_gradient_frame, radial_gradient_frame_for_path,
 };
 use office_terminal_core::{
-    AffineTransform, AssetError, AssetStore, AssetStoreStats, DecodedImage,
-    DefaultSlideSvgSerializer, FillRule, LineCap, PathSegment, RenderTargetSpec, RgbaSlide,
-    SizeHint, SlideRasterizer, SlideSvgSerializer, SvgTextMode, TinySkiaRasterizer,
-    VectorBackground, VectorCommand,
-    VectorGradient, VectorPaint, VectorPath, VectorSlide, VectorStroke,
+    AffineTransform, AssetError, AssetStore, AssetStoreStats, DecodedImage, DefaultSlideSvgSerializer, FillRule,
+    LineCap, PathSegment, RenderTargetSpec, RgbaSlide, SizeHint, SlideRasterizer, SlideSvgSerializer, SvgTextMode,
+    TinySkiaRasterizer, VectorBackground, VectorCommand, VectorGradient, VectorPaint, VectorPath, VectorSlide,
+    VectorStroke,
 };
 
 struct EmptyAssetStore;
@@ -162,16 +161,13 @@ fn preset_dash_table_matches_the_reference_for_all_eleven_values() {
     for (style, expected) in cases {
         let stroke = stroke_with_style(Some(style));
         let compiled = compile_stroke(&stroke).expect("stroke compiles");
-        assert_eq!(
-            compiled.dash_segments.as_deref(),
-            *expected,
-            "dash style {style}"
-        );
+        assert_eq!(compiled.dash_segments.as_deref(), *expected, "dash style {style}");
     }
 
     let unknown = compile_stroke(&stroke_with_style(Some("notARealStyle")));
     assert_eq!(
-        unknown.expect("stroke compiles").dash_segments, None,
+        unknown.expect("stroke compiles").dash_segments,
+        None,
         "unknown preset must stay solid"
     );
 }
@@ -179,29 +175,20 @@ fn preset_dash_table_matches_the_reference_for_all_eleven_values() {
 #[test]
 fn custom_dash_wins_over_the_preset_and_zero_on_segments_use_a_square_cap() {
     let mut stroke = stroke_with_style(Some("dot"));
-    stroke.custom_dash = vec![pptx_model::StrokeDashSegment {
-        dash: 2.0,
-        space: 1.0,
-    }];
+    stroke.custom_dash = vec![pptx_model::StrokeDashSegment { dash: 2.0, space: 1.0 }];
     let compiled = compile_stroke(&stroke).expect("stroke compiles");
     assert_eq!(compiled.dash_segments.as_deref(), Some(&[2.0, 1.0][..]));
 
     // ref stroke-geometry.ts:20-21 — a zero on-segment promotes butt -> square.
     let mut zero_dash = stroke_with_style(None);
-    zero_dash.custom_dash = vec![pptx_model::StrokeDashSegment {
-        dash: 0.0,
-        space: 2.0,
-    }];
+    zero_dash.custom_dash = vec![pptx_model::StrokeDashSegment { dash: 0.0, space: 2.0 }];
     let compiled = compile_stroke(&zero_dash).expect("stroke compiles");
     assert_eq!(compiled.dash_segments.as_deref(), Some(&[0.0, 2.0][..]));
     assert_eq!(compiled.line_cap, LineCap::Square);
 
     // A zero off-segment must keep the flat cap.
     let mut zero_gap = stroke_with_style(None);
-    zero_gap.custom_dash = vec![pptx_model::StrokeDashSegment {
-        dash: 2.0,
-        space: 0.0,
-    }];
+    zero_gap.custom_dash = vec![pptx_model::StrokeDashSegment { dash: 2.0, space: 0.0 }];
     assert_eq!(
         compile_stroke(&zero_gap).expect("stroke compiles").line_cap,
         LineCap::Butt
@@ -220,10 +207,7 @@ fn drawingml_default_line_cap_is_butt() {
 
     let mut flat = stroke_with_style(None);
     flat.line_cap = Some("flat".to_string());
-    assert_eq!(
-        compile_stroke(&flat).expect("stroke compiles").line_cap,
-        LineCap::Butt
-    );
+    assert_eq!(compile_stroke(&flat).expect("stroke compiles").line_cap, LineCap::Butt);
 }
 
 #[test]
@@ -261,9 +245,7 @@ fn hairline_stroke_floors_at_half_a_pixel() {
 
     // Total ink across the column equals the stroke width in pixels: 0.5 px
     // (a 1.0 px floor would deposit twice as much).
-    let darkness: u32 = (140..=160)
-        .map(|y| 255 - pixel(&rendered, 150, y)[0] as u32)
-        .sum();
+    let darkness: u32 = (140..=160).map(|y| 255 - pixel(&rendered, 150, y)[0] as u32).sum();
     assert!(
         (100..=165).contains(&darkness),
         "expected ~128 ink units for a 0.5 px hairline, got {darkness}"
@@ -333,7 +315,12 @@ fn sharp_miter_join_is_not_clipped_at_the_reference_limit() {
 fn linear_axis_uses_the_projected_box_extent() {
     let horizontal = linear_gradient_axis(0.0, 0.0, 0.0, 300.0, 150.0);
     assert_eq!(horizontal, ((0.0, 75.0), (300.0, 75.0)));
-    assert_close(gradient_axis_length(horizontal) / 2.0, 150.0, 1e-3, "horizontal half-axis");
+    assert_close(
+        gradient_axis_length(horizontal) / 2.0,
+        150.0,
+        1e-3,
+        "horizontal half-axis",
+    );
     assert_close(
         (horizontal.0 .0 + horizontal.1 .0) / 2.0,
         150.0,
@@ -392,8 +379,7 @@ fn radial_frame_is_the_box_centre_and_half_diagonal() {
 
 #[test]
 fn single_stop_gradient_paints_solid_and_empty_gradient_paints_nothing() {
-    let one = compile_fill(&gradient_fill(vec![stop(0.0, "112233")]), 1.0)
-        .expect("single-stop gradient is solid");
+    let one = compile_fill(&gradient_fill(vec![stop(0.0, "112233")]), 1.0).expect("single-stop gradient is solid");
     assert_eq!(one, VectorPaint::Solid([0x11, 0x22, 0x33, 255]));
 
     assert_eq!(compile_fill(&gradient_fill(Vec::new()), 1.0), None);

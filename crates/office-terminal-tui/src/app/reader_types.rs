@@ -1,7 +1,5 @@
 use office_terminal_core::RenderTargetSpec;
-use office_terminal_display::{
-    CellRect, ImageId, PixelRect, READER_IMAGE_ID_BASE, READER_IMAGE_ID_SLOTS,
-};
+use office_terminal_display::{CellRect, ImageId, PixelRect, READER_IMAGE_ID_BASE, READER_IMAGE_ID_SLOTS};
 
 /// Stable terminal image id for reader page `page`.
 ///

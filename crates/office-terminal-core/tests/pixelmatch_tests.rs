@@ -43,8 +43,8 @@ fn approx(actual: f64, expected: f64, eps: f64) {
 /// including the `48/159` alpha checkerboard branch. Used to derive the
 /// threshold boundaries in the tests without hard-coding magic numbers.
 fn ref_delta(p1: [u8; 4], p2: [u8; 4], byte_offset: usize, y_only: bool) -> f64 {
-    // Reference literal `1.618033988749895` (bit-identical to GOLDEN_RATIO).
-    const PHI: f64 = std::f64::consts::GOLDEN_RATIO;
+    // Reference literal `1.618033988749895`.
+    const PHI: f64 = 1.618_033_988_749_895;
     const PHI2: f64 = 2.618_033_988_749_895;
 
     let [r1, g1, b1, a1] = p1.map(f64::from);
@@ -282,11 +282,7 @@ fn alpha_checker_depends_on_byte_offset() {
         let delta = ref_delta([0, 0, 0, 0], [0, 0, 0, 255], i * 4, false).abs();
         expected.push(delta > max_delta);
     }
-    assert_eq!(
-        expected,
-        vec![false, true, true, true],
-        "checker parity sanity"
-    );
+    assert_eq!(expected, vec![false, true, true, true], "checker parity sanity");
     assert_eq!(r.diff_pixels, 3);
     assert_eq!(r.diff_mask, vec![0, 255, 255, 255]);
 }

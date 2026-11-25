@@ -1,5 +1,5 @@
 // ARCHIVE — NOT COMPILED. Residual blocked cases removed from
-// crates/kitty-pptx-core/tests/parity_text_box_b_warp_tests.rs
+// crates/office-terminal-core/tests/parity_text_box_b_warp_tests.rs
 //
 // Wave 4 reinstated per-line envelopes, winding-aware arch anchoring, fixed /
 // percentage line spacing, paragraph spacing, mixed-size line boxes, circle

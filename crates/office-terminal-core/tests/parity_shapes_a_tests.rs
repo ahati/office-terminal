@@ -19,9 +19,7 @@
 //! ledger keeps their rows.
 
 use office_terminal_core::compiler::transform::compute_shape_transform;
-use office_terminal_core::contracts::{
-    AffineTransform, PathSegment, VectorCommand, VectorPaint, VectorStroke,
-};
+use office_terminal_core::contracts::{AffineTransform, PathSegment, VectorCommand, VectorPaint, VectorStroke};
 use office_terminal_core::svg::SlideSvgSerializer;
 use serde_json::json;
 
@@ -155,10 +153,7 @@ fn frame_transform_applies_rotation_and_both_flips() {
 
     // translate(center) … translate(-center) leaves the centre fixed: local
     // centre (20, 5) maps to (x + w/2, y + h/2) = (30, 25).
-    let center = (
-        m.sx * 20.0 + m.kx * 5.0 + m.tx,
-        m.ky * 20.0 + m.sy * 5.0 + m.ty,
-    );
+    let center = (m.sx * 20.0 + m.kx * 5.0 + m.tx, m.ky * 20.0 + m.sy * 5.0 + m.ty);
     assert!((center.0 - 30.0).abs() < 1e-3, "centre x: {center:?}");
     assert!((center.1 - 25.0).abs() < 1e-3, "centre y: {center:?}");
     assert!((m.tx - 25.0).abs() < 1e-3, "tx: {}", m.tx);
@@ -282,4 +277,3 @@ fn custgeom_per_path_fill_and_stroke_flags() {
     assert_eq!(fills.iter().filter(|f| f.is_some()).count(), 2);
     assert_eq!(fills[2], Some(VectorPaint::Solid([31, 61, 92, 255])));
 }
-

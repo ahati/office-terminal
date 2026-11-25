@@ -8,8 +8,8 @@
 //! compiler emits the resolved geometry and every backend stays identical.
 
 use crate::contracts::{
-    AffineTransform, CompoundLine, LineCap, LineJoin, LineEnd, PathSegment, ShapeEffects,
-    VectorCommand, VectorPaint, VectorPath, VectorStroke,
+    AffineTransform, CompoundLine, LineCap, LineEnd, LineJoin, PathSegment, ShapeEffects, VectorCommand, VectorPaint,
+    VectorPath, VectorStroke,
 };
 
 use super::line_end;
@@ -99,22 +99,8 @@ pub fn compile_stroked_paths(
     // §20.1.8.42 compound straight line: the centre line is erased and each
     // rail painted at its own offset (ref renderer.ts:4479-4512).
     if vector_stroke.compound.is_compound() && line_end::straight_run(path).is_some() {
-        let mut out = compound_rail_commands(
-            path,
-            fill,
-            vector_stroke,
-            head_trim,
-            tail_trim,
-            transform,
-            effects,
-        );
-        out.extend(line_end_decorations(
-            path,
-            vector_stroke,
-            head,
-            tail,
-            transform,
-        ));
+        let mut out = compound_rail_commands(path, fill, vector_stroke, head_trim, tail_trim, transform, effects);
+        out.extend(line_end_decorations(path, vector_stroke, head, tail, transform));
         return out;
     }
 
@@ -133,13 +119,7 @@ pub fn compile_stroked_paths(
             effects: Box::new(effects),
         });
     }
-    out.extend(line_end_decorations(
-        path,
-        vector_stroke,
-        head,
-        tail,
-        transform,
-    ));
+    out.extend(line_end_decorations(path, vector_stroke, head, tail, transform));
     out
 }
 
@@ -162,14 +142,10 @@ fn compound_rail_commands(
         return Vec::new();
     };
     let mut out = Vec::new();
-    for (index, (rail_start, rail_end, width)) in line_end::compound_rails(
-        start,
-        end,
-        stroke.width_emu as f32,
-        stroke.compound,
-    )
-    .into_iter()
-    .enumerate()
+    for (index, (rail_start, rail_end, width)) in
+        line_end::compound_rails(start, end, stroke.width_emu as f32, stroke.compound)
+            .into_iter()
+            .enumerate()
     {
         let rail = VectorPath::new(
             vec![
@@ -238,12 +214,7 @@ fn line_end_decorations(
                 .as_deref()
                 .cloned()
                 .unwrap_or(VectorPaint::Solid(stroke.color));
-            out.push(VectorCommand::draw_line_end(
-                placed,
-                Some(paint),
-                None,
-                transform,
-            ));
+            out.push(VectorCommand::draw_line_end(placed, Some(paint), None, transform));
         } else {
             let arm = VectorStroke {
                 color: stroke.color,
@@ -257,12 +228,7 @@ fn line_end_decorations(
                 tail_end: None,
                 compound: CompoundLine::Sng,
             };
-            out.push(VectorCommand::draw_line_end(
-                placed,
-                None,
-                Some(arm),
-                transform,
-            ));
+            out.push(VectorCommand::draw_line_end(placed, None, Some(arm), transform));
         }
     }
     out

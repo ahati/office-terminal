@@ -8,24 +8,17 @@ use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 use office_terminal_core::{
-    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec,
-    RgbaSlide,
+    DisplayError, InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
 };
-use office_terminal_display::{
-    DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver,
-};
+use office_terminal_display::{DriverCaps, ImageId, Placement, PlacementMode, TerminalGraphicsDriver};
 
 pub use interactive::{
-    bench_scroll_reader_vertical, bench_scroll_sorter_grid, bench_zoom_ladder_step,
-    bench_zoom_pan_reposition,
+    bench_scroll_reader_vertical, bench_scroll_sorter_grid, bench_zoom_ladder_step, bench_zoom_pan_reposition,
 };
-pub use render::{
-    bench_clear_letterbox, bench_compute_zoomed_slide_fit, bench_render_normal,
-    bench_render_presenter,
-};
+pub use render::{bench_clear_letterbox, bench_compute_zoomed_slide_fit, bench_render_normal, bench_render_presenter};
 pub use transitions::{
-    bench_graphics_syncer_reposition, bench_graphics_syncer_steady_state,
-    bench_page_transition_jump, bench_page_transition_next, bench_page_transition_presenter,
+    bench_graphics_syncer_reposition, bench_graphics_syncer_steady_state, bench_page_transition_jump,
+    bench_page_transition_next, bench_page_transition_presenter,
 };
 
 /// Metrics collected across benchmark iterations.
@@ -206,10 +199,7 @@ pub fn format_benchmark_results(results: &[BenchmarkResult]) -> String {
         out,
         "| Benchmark | Iterations | Min | Median (p50) | Mean | p95 | Max | Throughput |"
     );
-    let _ = writeln!(
-        out,
-        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
-    );
+    let _ = writeln!(out, "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |");
     for r in results {
         let _ = writeln!(
             out,

@@ -1,8 +1,8 @@
-use std::io;
-use std::process::ExitCode;
+use crate::cli::Cli;
 use clap::CommandFactory;
 use clap_complete::{generate, Shell};
-use crate::cli::Cli;
+use std::io;
+use std::process::ExitCode;
 
 /// Generates shell completion script for the requested shell and writes to stdout.
 pub fn run_completions(shell: Shell) -> ExitCode {

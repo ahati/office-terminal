@@ -135,9 +135,7 @@ fn compile_sizes(body: &TextBody, box_h: i64) -> (Vec<f32>, Vec<WarningEvent>) {
     let sizes: Vec<f32> = commands
         .iter()
         .flat_map(|cmd| match cmd {
-            VectorCommand::DrawText { runs, .. } => {
-                runs.iter().map(|r| r.font_size_pt).collect::<Vec<_>>()
-            }
+            VectorCommand::DrawText { runs, .. } => runs.iter().map(|r| r.font_size_pt).collect::<Vec<_>>(),
             _ => Vec::new(),
         })
         .collect();
@@ -191,15 +189,13 @@ fn unsatisfiable_body_clamps_to_the_floor_and_warns() {
         "the floor clamps the scale to a tenth, got {sizes:?}"
     );
     assert!(
-        warnings
-            .iter()
-            .any(|w| matches!(
-                w,
-                WarningEvent::FidelityDegraded {
-                    feature: "shrink_on_overflow_floor",
-                    ..
-                }
-            )),
+        warnings.iter().any(|w| matches!(
+            w,
+            WarningEvent::FidelityDegraded {
+                feature: "shrink_on_overflow_floor",
+                ..
+            }
+        )),
         "an unsatisfiable fit must warn, got {warnings:?}"
     );
 }

@@ -30,16 +30,12 @@ impl RgbImage {
             .iter()
             .flat_map(|pixel| {
                 let alpha = f64::from(pixel[3]) / 255.0;
-                pixel[..3].iter().map(move |channel| {
-                    (f64::from(*channel) * alpha + 255.0 * (1.0 - alpha)).round() as u8
-                })
+                pixel[..3]
+                    .iter()
+                    .map(move |channel| (f64::from(*channel) * alpha + 255.0 * (1.0 - alpha)).round() as u8)
             })
             .collect();
-        Self {
-            width,
-            height,
-            pixels,
-        }
+        Self { width, height, pixels }
     }
 
     fn ink_fraction(&self) -> f64 {
@@ -80,9 +76,7 @@ pub fn compare_slide(actual: &RgbaSlide, reference: RgbImage) -> DiffMetrics {
 
 /// Height that preserves `source_height / source_width` at `width` px.
 pub(crate) fn scaled_height(width: u32, source_width: u32, source_height: u32) -> u32 {
-    ((f64::from(width) * f64::from(source_height) / f64::from(source_width.max(1))).round()
-        as u32)
-        .max(1)
+    ((f64::from(width) * f64::from(source_height) / f64::from(source_width.max(1))).round() as u32).max(1)
 }
 
 fn fit_width(image: RgbImage, width: u32, height: u32) -> RgbImage {
@@ -97,11 +91,7 @@ pub fn load_reference(path: &Path) -> Result<RgbImage, String> {
     let image = image::open(path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?
         .to_rgba8();
-    Ok(RgbImage::from_raw_rgba(
-        image.width(),
-        image.height(),
-        image.as_raw(),
-    ))
+    Ok(RgbImage::from_raw_rgba(image.width(), image.height(), image.as_raw()))
 }
 
 /// Box-average `input` into `width` x `height`, so CowG files and dense
@@ -118,9 +108,7 @@ pub(crate) fn resize_box(input: &RgbImage, width: u32, height: u32) -> RgbImage 
             .min(input.height);
         for x in 0..width {
             let x0 = (x as f64 * scale_x).floor() as u32;
-            let x1 = (((x + 1) as f64 * scale_x).floor() as u32)
-                .max(x0 + 1)
-                .min(input.width);
+            let x1 = (((x + 1) as f64 * scale_x).floor() as u32).max(x0 + 1).min(input.width);
             let mut sums = [0u64; 3];
             let mut count = 0u64;
             for source_y in y0..y1 {
@@ -138,11 +126,7 @@ pub(crate) fn resize_box(input: &RgbImage, width: u32, height: u32) -> RgbImage 
             }
         }
     }
-    RgbImage {
-        width,
-        height,
-        pixels,
-    }
+    RgbImage { width, height, pixels }
 }
 
 fn compare(actual: &RgbImage, reference: &RgbImage, tolerance: f64) -> DiffMetrics {
@@ -161,10 +145,8 @@ fn compare(actual: &RgbImage, reference: &RgbImage, tolerance: f64) -> DiffMetri
             for y in cell_y * CELL..((cell_y + 1) * CELL).min(actual.height) {
                 for x in cell_x * CELL..((cell_x + 1) * CELL).min(actual.width) {
                     let offset = ((y * actual.width + x) * 3) as usize;
-                    for (channel, (actual_sum, reference_sum)) in actual_sum
-                        .iter_mut()
-                        .zip(reference_sum.iter_mut())
-                        .enumerate()
+                    for (channel, (actual_sum, reference_sum)) in
+                        actual_sum.iter_mut().zip(reference_sum.iter_mut()).enumerate()
                     {
                         *actual_sum += u64::from(actual.pixels[offset + channel]);
                         *reference_sum += u64::from(reference.pixels[offset + channel]);

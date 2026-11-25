@@ -30,9 +30,7 @@ use std::collections::BTreeMap;
 use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::{HyperlinkTarget, RectF32, SlideLink, SlideLinkIndex};
 use office_terminal_core::extract_slide_hyperlinks;
-use pptx_model::{
-    Bullet, Paragraph, ShapeElement, Slide, SlideElement, TextBody, TextRun, TextRunData,
-};
+use pptx_model::{Bullet, Paragraph, ShapeElement, Slide, SlideElement, TextBody, TextRun, TextRunData};
 
 // ── model builders ─────────────────────────────────────────────────────────
 
@@ -214,9 +212,7 @@ fn runs_position_inside_the_shape_frame_by_their_own_advance() {
         run("abc", 18.0, Some("https://example.com/first")),
         run("de", 18.0, Some("https://example.com/second")),
     ])]);
-    let slide = slide_with(vec![SlideElement::Shape(text_shape(
-        0, 0, 1_000_000, 500_000, body,
-    ))]);
+    let slide = slide_with(vec![SlideElement::Shape(text_shape(0, 0, 1_000_000, 500_000, body))]);
 
     let links = links_of(&slide);
     assert_eq!(links.len(), 2, "one link per hyperlinked run");
@@ -246,11 +242,7 @@ fn runs_position_inside_the_shape_frame_by_their_own_advance() {
 #[test]
 fn run_boxes_are_clamped_to_the_shape_frame() {
     // Frame narrower than the run: the box is clipped at the right edge.
-    let body = text_body(vec![paragraph(vec![run(
-        "abc",
-        18.0,
-        Some("https://example.com/"),
-    )])]);
+    let body = text_body(vec![paragraph(vec![run("abc", 18.0, Some("https://example.com/"))])]);
     let narrow = slide_with(vec![SlideElement::Shape(text_shape(
         0,
         0,
@@ -264,9 +256,7 @@ fn run_boxes_are_clamped_to_the_shape_frame() {
     assert_eq!(link.bounds_emu.h, SIZE_EMU_18PT * 1.2);
 
     // Frame narrower than the left inset: nothing survives, the frame is kept.
-    let tiny = slide_with(vec![SlideElement::Shape(text_shape(
-        0, 0, 50_000, 500_000, body,
-    ))]);
+    let tiny = slide_with(vec![SlideElement::Shape(text_shape(0, 0, 50_000, 500_000, body))]);
     let link = &links_of(&tiny)[0];
     assert_eq!(link.bounds_emu, RectF32::new(0.0, 0.0, 50_000.0, 500_000.0));
 }
@@ -280,9 +270,7 @@ fn only_the_hyperlinked_run_carries_a_target() {
         run("link", 18.0, Some("https://example.com/")),
         run("plain", 18.0, None),
     ])]);
-    let slide = slide_with(vec![SlideElement::Shape(text_shape(
-        0, 0, 1_000_000, 500_000, body,
-    ))]);
+    let slide = slide_with(vec![SlideElement::Shape(text_shape(0, 0, 1_000_000, 500_000, body))]);
 
     let links = links_of(&slide);
     assert_eq!(links.len(), 1, "the plain run adds no link");
@@ -317,16 +305,11 @@ fn topmost_link_wins_at_an_overlapping_point() {
     assert_eq!(index.len(), 2);
     assert_eq!(
         index.hit_test(20.0, 20.0).map(|link| link.target.clone()),
-        Some(HyperlinkTarget::ExternalUri(
-            "https://example.com/front".to_string()
-        )),
+        Some(HyperlinkTarget::ExternalUri("https://example.com/front".to_string())),
         "the later (topmost) link wins"
     );
     // The same point still resolves to both when the caller wants the stack.
-    assert_eq!(
-        index.links_in_rect(RectF32::new(0.0, 0.0, 1.0, 1.0)).len(),
-        2
-    );
+    assert_eq!(index.links_in_rect(RectF32::new(0.0, 0.0, 1.0, 1.0)).len(), 2);
     // Outside every box nothing is hit.
     assert!(index.hit_test(500.0, 500.0).is_none());
 }
@@ -335,7 +318,14 @@ fn topmost_link_wins_at_an_overlapping_point() {
 
 #[allow(clippy::too_many_arguments)]
 fn sel_shape(
-    x: i64, y: i64, w: i64, h: i64, rot: f64, geom: &str, id: &str, body: Option<serde_json::Value>,
+    x: i64,
+    y: i64,
+    w: i64,
+    h: i64,
+    rot: f64,
+    geom: &str,
+    id: &str,
+    body: Option<serde_json::Value>,
 ) -> SlideElement {
     serde_json::from_value(serde_json::json!({
         "type": "shape", "x": x, "y": y, "width": w, "height": h, "rotation": rot, "flipH": false, "flipV": false,
@@ -346,11 +336,27 @@ fn sel_shape(
 
 fn sel_slide(elements: Vec<SlideElement>) -> Slide {
     Slide {
-        theme: None, index: 0, slide_number: 1, part_name: Some("ppt/slides/slide1.xml".into()), background: None,
-        element_sources: elements.iter().enumerate().map(|(i, _)| pptx_model::SlideElementSource {
-            origin: if i == 0 { pptx_model::SlideElementOrigin::Master } else { pptx_model::SlideElementOrigin::Slide },
-        }).collect(),
-        elements, notes: None, comments: Vec::new(), hidden: false, parse_error: None,
+        theme: None,
+        index: 0,
+        slide_number: 1,
+        part_name: Some("ppt/slides/slide1.xml".into()),
+        background: None,
+        element_sources: elements
+            .iter()
+            .enumerate()
+            .map(|(i, _)| pptx_model::SlideElementSource {
+                origin: if i == 0 {
+                    pptx_model::SlideElementOrigin::Master
+                } else {
+                    pptx_model::SlideElementOrigin::Slide
+                },
+            })
+            .collect(),
+        elements,
+        notes: None,
+        comments: Vec::new(),
+        hidden: false,
+        parse_error: None,
     }
 }
 
@@ -387,7 +393,14 @@ fn topmost_element_context_reports_identity_and_origin() {
         sel_shape(0, 0, 100, 50, 0.0, "rect", "1", None),
         sel_shape(0, 0, 100, 50, 0.0, "roundRect", "2", None),
     ]);
-    let ctx = hit_test_slide_context(0, &slide, SlidePoint { x: 20.0, y: 20.0 }, ElementContextOptions::default()).unwrap().unwrap();
+    let ctx = hit_test_slide_context(
+        0,
+        &slide,
+        SlidePoint { x: 20.0, y: 20.0 },
+        ElementContextOptions::default(),
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(ctx.element_index, 1);
     assert_eq!(ctx.origin, "slide");
     assert_eq!(ctx.shape_id.as_deref(), Some("2"));
@@ -406,12 +419,43 @@ fn rotation_inversion_and_line_tolerance() {
 
 #[test]
 fn bounded_element_text_never_splits_unicode() {
-    use office_terminal_core::selection::{hit_test_slide_context, limit_element_context, ElementContextOptions, SlidePoint};
-    let slide = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "1", Some(sel_body("\u{1F600}x")))]);
+    use office_terminal_core::selection::{
+        hit_test_slide_context, limit_element_context, ElementContextOptions, SlidePoint,
+    };
+    let slide = sel_slide(vec![sel_shape(
+        0,
+        0,
+        100,
+        50,
+        0.0,
+        "rect",
+        "1",
+        Some(sel_body("\u{1F600}x")),
+    )]);
     let point = SlidePoint { x: 10.0, y: 10.0 };
-    let empty = hit_test_slide_context(0, &slide, point, ElementContextOptions { tolerance: 0.0, max_text_characters: Some(1) }).unwrap().unwrap();
+    let empty = hit_test_slide_context(
+        0,
+        &slide,
+        point,
+        ElementContextOptions {
+            tolerance: 0.0,
+            max_text_characters: Some(1),
+        },
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(empty.text.as_deref(), Some(""));
-    let emoji = hit_test_slide_context(0, &slide, point, ElementContextOptions { tolerance: 0.0, max_text_characters: Some(2) }).unwrap().unwrap();
+    let emoji = hit_test_slide_context(
+        0,
+        &slide,
+        point,
+        ElementContextOptions {
+            tolerance: 0.0,
+            max_text_characters: Some(2),
+        },
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(emoji.text.as_deref(), Some("\u{1F600}"));
     let limited = limit_element_context(emoji, 1).unwrap();
     assert_eq!(limited.text.as_deref(), Some(""));
@@ -423,10 +467,23 @@ fn chart_labels_stream_into_bounded_context_text() {
     use ooxml_common::chart::ChartSeries;
     use pptx_model::{ChartElement, ChartModel};
     let chart = ChartElement {
-        id: Some("7".into()), x: 0, y: 0, width: 100, height: 50, rotation: 0.0, flip_h: false, flip_v: false,
+        id: Some("7".into()),
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 50,
+        rotation: 0.0,
+        flip_h: false,
+        flip_v: false,
         chart: ChartModel {
-            chart_type: "bar".into(), title: Some("Rev".into()), categories: vec!["Q1".into()],
-            series: vec![ChartSeries { name: "FY".into(), values: vec![Some(10.0)], ..Default::default() }],
+            chart_type: "bar".into(),
+            title: Some("Rev".into()),
+            categories: vec!["Q1".into()],
+            series: vec![ChartSeries {
+                name: "FY".into(),
+                values: vec![Some(10.0)],
+                ..Default::default()
+            }],
             ..Default::default()
         },
     };
@@ -438,9 +495,36 @@ fn chart_labels_stream_into_bounded_context_text() {
 fn find_maps_matches_and_highlights_to_slides() {
     use office_terminal_core::text::find::FindController;
     use pptx_model::Presentation;
-    let s0 = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "1", Some(sel_body_runs(&["Hel", "lo"])))]);
-    let s1 = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "2", Some(sel_body("hello")))]);
-    let pres = Presentation { slide_width: 1000, slide_height: 1000, slides: vec![s0, s1], default_text_color: None, major_font: None, minor_font: None, hlink_color: None, fol_hlink_color: None };
+    let s0 = sel_slide(vec![sel_shape(
+        0,
+        0,
+        100,
+        50,
+        0.0,
+        "rect",
+        "1",
+        Some(sel_body_runs(&["Hel", "lo"])),
+    )]);
+    let s1 = sel_slide(vec![sel_shape(
+        0,
+        0,
+        100,
+        50,
+        0.0,
+        "rect",
+        "2",
+        Some(sel_body("hello")),
+    )]);
+    let pres = Presentation {
+        slide_width: 1000,
+        slide_height: 1000,
+        slides: vec![s0, s1],
+        default_text_color: None,
+        major_font: None,
+        minor_font: None,
+        hlink_color: None,
+        fol_hlink_color: None,
+    };
     let mut find = FindController::from_presentation(&pres);
     let matches = find.find("hello", false);
     assert_eq!(matches.len(), 2);
@@ -458,13 +542,46 @@ fn find_maps_matches_and_highlights_to_slides() {
 fn find_rejects_matches_crossing_table_cells() {
     use office_terminal_core::text::find::{FindController, FindRun};
     use pptx_model::Presentation;
-    let s0 = sel_slide(vec![sel_shape(0, 0, 100, 50, 0.0, "rect", "1", Some(sel_body("Hello")))]);
-    let pres = Presentation { slide_width: 1000, slide_height: 1000, slides: vec![s0], default_text_color: None, major_font: None, minor_font: None, hlink_color: None, fol_hlink_color: None };
+    let s0 = sel_slide(vec![sel_shape(
+        0,
+        0,
+        100,
+        50,
+        0.0,
+        "rect",
+        "1",
+        Some(sel_body("Hello")),
+    )]);
+    let pres = Presentation {
+        slide_width: 1000,
+        slide_height: 1000,
+        slides: vec![s0],
+        default_text_color: None,
+        major_font: None,
+        minor_font: None,
+        hlink_color: None,
+        fol_hlink_color: None,
+    };
     let mut find = FindController::from_presentation(&pres);
-    find.set_slide_runs(0, vec![
-        FindRun { text: "foo".into(), element_index: 0, origin: "slide", shape_id: Some("1".into()), table_cell: Some((0, 0)) },
-        FindRun { text: "bar".into(), element_index: 0, origin: "slide", shape_id: Some("1".into()), table_cell: Some((0, 1)) },
-    ]);
+    find.set_slide_runs(
+        0,
+        vec![
+            FindRun {
+                text: "foo".into(),
+                element_index: 0,
+                origin: "slide",
+                shape_id: Some("1".into()),
+                table_cell: Some((0, 0)),
+            },
+            FindRun {
+                text: "bar".into(),
+                element_index: 0,
+                origin: "slide",
+                shape_id: Some("1".into()),
+                table_cell: Some((0, 1)),
+            },
+        ],
+    );
     assert!(find.find("foobar", false).is_empty());
     assert_eq!(find.find("foo", false).len(), 1);
 }

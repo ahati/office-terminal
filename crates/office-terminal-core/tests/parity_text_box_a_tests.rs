@@ -19,9 +19,8 @@ mod support;
 
 use office_terminal_core::text::metrics::FaceMetrics;
 use support::{
-    body, close, close_tol, compile, line, line_pts, para, text, units, Para, Stack, ARIAL,
-    BASKERVILLE, CALIBRI, COURIER, GABRIOLA, GEORGIA, MEIRYO, MS_GOTHIC, MS_PGOTHIC, STENCIL,
-    SYNTHETIC, TIMES,
+    body, close, close_tol, compile, line, line_pts, para, text, units, Para, Stack, ARIAL, BASKERVILLE, CALIBRI,
+    COURIER, GABRIOLA, GEORGIA, MEIRYO, MS_GOTHIC, MS_PGOTHIC, STENCIL, SYNTHETIC, TIMES,
 };
 
 /// `it('splits each face by its usWin (or USE_TYPO_METRICS typo) ascent share')`
@@ -107,8 +106,13 @@ impl Line2 {
 fn spaced_lines_redivide_and_round_spc_pts_to_whole_points() {
     let pts = |val: f32| Some((false, val));
     let two = |size: f32, face: FaceMetrics, space| {
-        Stack::new(Para::many(2, size, face).into_iter().map(|p| p.space_line(space)).collect())
-            .units()
+        Stack::new(
+            Para::many(2, size, face)
+                .into_iter()
+                .map(|p| p.space_line(space))
+                .collect(),
+        )
+        .units()
     };
     assert_eq!(two(100.0, ARIAL, pts(114.0)), [127, 285]);
     assert_eq!(two(100.0, ARIAL, pts(126.0)), [131, 306]);
@@ -229,7 +233,7 @@ fn bottom_anchor_uses_the_last_natural_descent() {
             .collect(),
     )
     .in_box(0.0, 420.0, 3.6, 3.6)
-        .anchor("b");
+    .anchor("b");
     let rel: Vec<f32> = q.baselines().iter().map(|y| (y - 3.6) / support::UNIT).collect();
     close_tol(rel[0], 292.23, 0.52, "Q-Arial-b-p150 first");
     close_tol(rel[1], 542.21, 0.52, "Q-Arial-b-p150 second");

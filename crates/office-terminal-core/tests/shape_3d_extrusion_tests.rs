@@ -84,9 +84,7 @@ fn nonzero_extrusion_produces_visible_side_walls_when_tilted() {
         width_px: 100,
         height_px: 100,
     };
-    let rendered = rasterizer
-        .rasterize(&slide, &target, &NoAssets)
-        .expect("rasterize");
+    let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     let px = |x: usize, y: usize| {
         let base = (y * 100 + x) * 4;
@@ -150,9 +148,7 @@ fn face_on_camera_hides_extrusion_behind_front_body() {
         width_px: 100,
         height_px: 100,
     };
-    let rendered = rasterizer
-        .rasterize(&slide, &target, &NoAssets)
-        .expect("rasterize");
+    let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     let px = |x: usize, y: usize| {
         let base = (y * 100 + x) * 4;
@@ -221,9 +217,7 @@ fn bottom_bevel_shaded_when_camera_views_rear() {
         width_px: 100,
         height_px: 100,
     };
-    let rendered = rasterizer
-        .rasterize(&slide, &target, &NoAssets)
-        .expect("rasterize");
+    let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     let px = |x: usize, y: usize| {
         let base = (y * 100 + x) * 4;
@@ -241,11 +235,7 @@ fn bottom_bevel_shaded_when_camera_views_rear() {
 
     // Bevel shading modifies pixel colors near the border
     let edge = px(22, 22);
-    assert_ne!(
-        edge,
-        [255, 255, 255, 255],
-        "rear bevel edge should be rendered"
-    );
+    assert_ne!(edge, [255, 255, 255, 255], "rear bevel edge should be rendered");
 }
 
 #[test]
@@ -285,9 +275,7 @@ fn legacy_wireframe_depth_renders_front_and_rear_rims_no_fill() {
         width_px: 100,
         height_px: 100,
     };
-    let rendered = rasterizer
-        .rasterize(&slide, &target, &NoAssets)
-        .expect("rasterize");
+    let rendered = rasterizer.rasterize(&slide, &target, &NoAssets).expect("rasterize");
 
     let px = |x: usize, y: usize| {
         let base = (y * 100 + x) * 4;

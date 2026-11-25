@@ -20,14 +20,7 @@ const POINTS: f32 = 20.0;
 
 /// One paragraph body; `tab_list` is the raw `a:tabLst` JSON (`[]` for none)
 /// and `def_tab` the `a:pPr@defTabSz` JSON (`null` for absent).
-fn body(
-    vert: &str,
-    alignment: &str,
-    wrap: &str,
-    text: &str,
-    tab_list: &str,
-    def_tab: &str,
-) -> pptx_model::TextBody {
+fn body(vert: &str, alignment: &str, wrap: &str, text: &str, tab_list: &str, def_tab: &str) -> pptx_model::TextBody {
     let json = format!(
         r#"{{
             "verticalAnchor": "t",
@@ -109,14 +102,7 @@ fn math_body(display: bool) -> pptx_model::TextBody {
 
 fn compile(text_body: &pptx_model::TextBody, box_w: i64, box_h: i64) -> Vec<VectorCommand> {
     let (tx, _rx) = unbounded();
-    compile_text_body(
-        text_body,
-        box_w,
-        box_h,
-        &AffineTransform::identity(),
-        None,
-        &tx,
-    )
+    compile_text_body(text_body, box_w, box_h, &AffineTransform::identity(), None, &tx)
 }
 
 fn draw_text(commands: &[VectorCommand]) -> (&[PositionedGlyphRun], AffineTransform) {
@@ -304,11 +290,7 @@ fn vert_rotates_the_frame_about_the_box_centre() {
     let (_, transform) = draw_text(&commands);
     close(transform.ky, -1.0, "vert270 ky");
     close(transform.kx, 1.0, "vert270 kx");
-    close(
-        transform.transform_point(0.0, 0.0).1,
-        box_h,
-        "vert270 origin",
-    );
+    close(transform.transform_point(0.0, 0.0).1, box_h, "vert270 origin");
 }
 
 /// ref renderer.ts:5021-5028: `wordArtVert` stacks one grapheme per column,
@@ -369,9 +351,7 @@ const EMU_PER_PT: f32 = 12_700.0;
 /// (thousandths of a point; positive = superscript). The run is authored with
 /// an underline and a strike so the shrunk path can be checked to keep both.
 fn baseline_body(text: &str, size_pt: f32, baseline: Option<i32>) -> pptx_model::TextBody {
-    let baseline_field = baseline.map_or_else(String::new, |value| {
-        format!(r#", "baseline": {value}"#)
-    });
+    let baseline_field = baseline.map_or_else(String::new, |value| format!(r#", "baseline": {value}"#));
     let json = format!(
         r#"{{
             "verticalAnchor": "t",
@@ -434,19 +414,11 @@ fn glyph_y(run: &PositionedGlyphRun) -> f32 {
 fn positive_baseline_superscripts_at_65_percent() {
     let plain_commands = compile(&baseline_body("x", POINTS, None), 4_000_000, 1_000_000);
     let plain = only_run(&plain_commands);
-    let sup_commands = compile(
-        &baseline_body("x", POINTS, Some(30_000)),
-        4_000_000,
-        1_000_000,
-    );
+    let sup_commands = compile(&baseline_body("x", POINTS, Some(30_000)), 4_000_000, 1_000_000);
     let sup = only_run(&sup_commands);
 
     close(sup.font_size_pt, 13.0, "superscript draw size");
-    close(
-        glyph_y(sup),
-        glyph_y(plain) - 6.0 * EMU_PER_PT,
-        "superscript lift",
-    );
+    close(glyph_y(sup), glyph_y(plain) - 6.0 * EMU_PER_PT, "superscript lift");
     // Authored face, weight, colour and decorations survive the shrink.
     assert_eq!(sup.font_family, plain.font_family);
     assert_eq!((sup.bold, sup.italic), (plain.bold, plain.italic));
@@ -474,19 +446,11 @@ fn positive_baseline_superscripts_at_65_percent() {
 fn negative_baseline_subscripts_below_the_baseline() {
     let plain_commands = compile(&baseline_body("x", 12.5, None), 4_000_000, 1_000_000);
     let plain = only_run(&plain_commands);
-    let sub_commands = compile(
-        &baseline_body("x", 12.5, Some(-25_000)),
-        4_000_000,
-        1_000_000,
-    );
+    let sub_commands = compile(&baseline_body("x", 12.5, Some(-25_000)), 4_000_000, 1_000_000);
     let sub = only_run(&sub_commands);
 
     close(sub.font_size_pt, 8.125, "subscript draw size");
-    close(
-        glyph_y(sub),
-        glyph_y(plain) + 3.125 * EMU_PER_PT,
-        "subscript drop",
-    );
+    close(glyph_y(sub), glyph_y(plain) + 3.125 * EMU_PER_PT, "subscript drop");
     assert!(
         run_advance(sub) < run_advance(plain),
         "the shrunk run must advance less: {} vs {}",
@@ -518,19 +482,11 @@ fn zero_and_absent_baseline_render_identically() {
 fn baseline_run_keeps_the_authored_line_box() {
     let plain_commands = compile(&baseline_body("x", POINTS, None), 4_000_000, 1_000_000);
     let plain = only_run(&plain_commands);
-    let sup_commands = compile(
-        &baseline_body("x", POINTS, Some(30_000)),
-        4_000_000,
-        1_000_000,
-    );
+    let sup_commands = compile(&baseline_body("x", POINTS, Some(30_000)), 4_000_000, 1_000_000);
     let sup = only_run(&sup_commands);
     // Top-anchored single line: the line's baseline sits at the box ascent, so
     // removing the shift must land exactly on the plain 20 pt baseline.
-    close(
-        glyph_y(sup) + 6.0 * EMU_PER_PT,
-        glyph_y(plain),
-        "line box height",
-    );
+    close(glyph_y(sup) + 6.0 * EMU_PER_PT, glyph_y(plain), "line box height");
 
     // The line box follows the authored size, not the 13 pt draw size.
     let thirteen_commands = compile(&baseline_body("x", 13.0, None), 4_000_000, 1_000_000);
@@ -555,11 +511,7 @@ fn decorations_carry_face_geometry_and_the_drawing_size() {
     assert!(strike.thickness_emu > 0.0);
     assert!(strike.top_emu < 0.0, "strike sits above the baseline");
 
-    let sup_commands = compile(
-        &baseline_body("x", POINTS, Some(30_000)),
-        4_000_000,
-        1_000_000,
-    );
+    let sup_commands = compile(&baseline_body("x", POINTS, Some(30_000)), 4_000_000, 1_000_000);
     let sup = only_run(&sup_commands);
     let sup_underline = sup.decorations.underline.expect("superscript underline");
     close(

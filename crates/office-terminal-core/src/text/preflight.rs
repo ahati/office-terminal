@@ -25,11 +25,7 @@ pub(super) fn natural_width_exceeds_bbox(
 ) -> bool {
     let avail = (box_w - l_ins - r_ins).max(0.0);
     for para in paragraphs {
-        let first_indent = if para.marker.is_some() {
-            0.0
-        } else {
-            para.indent
-        };
+        let first_indent = if para.marker.is_some() { 0.0 } else { para.indent };
         let mut width = para.mar_l + first_indent + para.mar_r;
         for item in &para.items {
             match item {

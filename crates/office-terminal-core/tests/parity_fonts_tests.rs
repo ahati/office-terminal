@@ -23,8 +23,8 @@ use office_terminal_core::contracts::{PositionedGlyphRun, VectorCommand, VectorS
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::text::emit::compile_text_body;
 use office_terminal_core::{
-    AssetError, DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer,
-    PresentationLoader, SlideCompiler, SlideSvgSerializer, Source, SvgTextMode,
+    AssetError, DefaultPresentationLoader, DefaultSlideCompiler, DefaultSlideSvgSerializer, PresentationLoader,
+    SlideCompiler, SlideSvgSerializer, Source, SvgTextMode,
 };
 
 /// The reference probes' default body metrics.
@@ -44,12 +44,7 @@ fn json_str(value: Option<&str>) -> String {
     }
 }
 
-fn body(
-    def_family: Option<&str>,
-    run_family: Option<&str>,
-    bold: bool,
-    text: &str,
-) -> pptx_model::TextBody {
+fn body(def_family: Option<&str>, run_family: Option<&str>, bold: bool, text: &str) -> pptx_model::TextBody {
     let json = format!(
         concat!(
             r#"{{"verticalAnchor": "t", "defaultFontSize": {POINTS},"#,
@@ -102,12 +97,7 @@ fn runs(commands: &[VectorCommand]) -> Vec<PositionedGlyphRun> {
 
 /// Compile one run and return its (family, bold) pair — the single observable
 /// the reference encodes into its CSS `font` string.
-fn compiled_face(
-    def_family: Option<&str>,
-    run_family: Option<&str>,
-    bold: bool,
-    text: &str,
-) -> (String, bool) {
+fn compiled_face(def_family: Option<&str>, run_family: Option<&str>, bold: bool, text: &str) -> (String, bool) {
     let commands = compile(&body(def_family, run_family, bold, text));
     let runs = runs(&commands);
     let run = runs.first().expect("one painted run");
@@ -397,25 +387,22 @@ fn embedded_deck(slots: &[EmbeddedSlot]) -> Vec<u8> {
     }
     list.push_str("</p:embeddedFontLst>");
 
-    let mut parts: Vec<(String, Vec<u8>)> =
-        deck_support::package_parts("", SLIDE_WIDTH, SLIDE_HEIGHT)
-            .into_iter()
-            .map(|(name, body)| (name, body.into_bytes()))
-            .collect();
+    let mut parts: Vec<(String, Vec<u8>)> = deck_support::package_parts("", SLIDE_WIDTH, SLIDE_HEIGHT)
+        .into_iter()
+        .map(|(name, body)| (name, body.into_bytes()))
+        .collect();
     for (name, body) in &mut parts {
         let patch: Option<String> = match name.as_str() {
             "[Content_Types].xml" => Some(String::from_utf8_lossy(body).replace(
                 "</Types>",
                 r#"<Default Extension="fntdata" ContentType="application/x-font-ttf"/></Types>"#,
             )),
-            "ppt/presentation.xml" => Some(
-                String::from_utf8_lossy(body)
-                    .replace("</p:presentation>", &format!("{list}</p:presentation>")),
-            ),
-            "ppt/_rels/presentation.xml.rels" => Some(
-                String::from_utf8_lossy(body)
-                    .replace("</Relationships>", &format!("{rels}</Relationships>")),
-            ),
+            "ppt/presentation.xml" => {
+                Some(String::from_utf8_lossy(body).replace("</p:presentation>", &format!("{list}</p:presentation>")))
+            }
+            "ppt/_rels/presentation.xml.rels" => {
+                Some(String::from_utf8_lossy(body).replace("</Relationships>", &format!("{rels}</Relationships>")))
+            }
             _ => None,
         };
         if let Some(text) = patch {
@@ -429,8 +416,7 @@ fn embedded_deck(slots: &[EmbeddedSlot]) -> Vec<u8> {
 /// `embeddedFonts` of the open package, as `(fontName, style, partPath,
 /// contentType)` tuples in projection order.
 fn bootstrap_embedded_fonts(bytes: Vec<u8>) -> Vec<(String, String, String, String)> {
-    let mut archive =
-        pptx_parser::PptxArchive::new(bytes, None, None, None).expect("package opens");
+    let mut archive = pptx_parser::PptxArchive::new(bytes, None, None, None).expect("package opens");
     let bootstrap = archive.presentation_bootstrap().expect("bootstrap projects");
     let json: serde_json::Value = serde_json::from_slice(&bootstrap).expect("bootstrap JSON");
     json["embeddedFonts"]
@@ -490,8 +476,7 @@ fn maps_all_four_embedded_font_slots() {
         .iter()
         .all(|(_, _, _, content_type)| content_type == "application/x-font-ttf"));
     // All four slots name one family: the reference asserts `Set(family).size == 1`.
-    let families: std::collections::BTreeSet<&String> =
-        refs.iter().map(|(family, _, _, _)| family).collect();
+    let families: std::collections::BTreeSet<&String> = refs.iter().map(|(family, _, _, _)| family).collect();
     assert_eq!(families.len(), 1);
 }
 
@@ -516,8 +501,7 @@ fn keeps_raw_font_bytes_and_skips_an_unreadable_part() {
         vec![("Good", "ppt/fonts/good.fntdata")]
     );
     // The retained bytes are the part's own bytes, never a text transcoding.
-    let extracted = pptx_parser::extract_font(&deck, "ppt/fonts/good.fntdata", None, None)
-        .expect("readable font part");
+    let extracted = pptx_parser::extract_font(&deck, "ppt/fonts/good.fntdata", None, None).expect("readable font part");
     assert_eq!(extracted, RAW);
 }
 

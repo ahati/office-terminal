@@ -1,6 +1,5 @@
 use crossterm::event::{
-    KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
-    MouseEventKind,
+    KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use pptx_model::Slide;
 use ratatui::backend::TestBackend;
@@ -40,13 +39,7 @@ fn click(column: u16, row: u16) -> MouseEvent {
     }
 }
 
-fn make_slide(
-    index: usize,
-    part: &str,
-    hyperlink: Option<&str>,
-    action: Option<&str>,
-    full_bleed: bool,
-) -> Slide {
+fn make_slide(index: usize, part: &str, hyperlink: Option<&str>, action: Option<&str>, full_bleed: bool) -> Slide {
     let mut shape = serde_json::json!({
         "type": "shape",
         "x": 0,
@@ -117,10 +110,7 @@ fn quick_key_activates_external_link_and_closes_modal() {
     let mut state = state_with_external_link();
     handle_key_event(key(KeyCode::Char('o')), &mut state);
     let action = handle_key_event(key(KeyCode::Char('1')), &mut state);
-    assert_eq!(
-        action,
-        AppAction::OpenExternal("https://www.rust-lang.org".to_string())
-    );
+    assert_eq!(action, AppAction::OpenExternal("https://www.rust-lang.org".to_string()));
     assert_eq!(state.mode(), AppMode::Fullscreen);
 }
 
@@ -160,7 +150,10 @@ fn enter_activates_selected_action_and_end_show_quits() {
         make_slide(2, "ppt/slides/slide3.xml", None, None, false),
     ]);
     handle_key_event(key(KeyCode::Char('o')), &mut state);
-    assert_eq!(handle_key_event(key(KeyCode::Enter), &mut state), AppAction::SlideChanged);
+    assert_eq!(
+        handle_key_event(key(KeyCode::Enter), &mut state),
+        AppAction::SlideChanged
+    );
     assert_eq!(state.current_slide(), 1);
 
     let mut end_state = PresentationState::new(3, vec![]);
@@ -201,10 +194,7 @@ fn mouse_click_hits_link_and_miss_advances_slide() {
 
     // The link is full-bleed: the center of the drawn slide rect must hit it.
     let action = handle_mouse_event(click(40, 11), &mut state);
-    assert_eq!(
-        action,
-        AppAction::OpenExternal("https://www.rust-lang.org".to_string())
-    );
+    assert_eq!(action, AppAction::OpenExternal("https://www.rust-lang.org".to_string()));
     assert_eq!(state.current_slide(), 0);
 
     // Clicks outside the drawn slide rect (the status row) fall through to

@@ -1,9 +1,9 @@
 //! Typed errors for the DOCX input engine (PRD 15 §8, issue #40 §7.14).
 
 use office_terminal_core::ParseError;
-use ooxml_common::resource::ResourceViolation;
 #[cfg(feature = "rdocx-backend")]
 use ooxml_common::resource::ResourceUsage;
+use ooxml_common::resource::ResourceViolation;
 
 /// Errors produced while opening, paginating or bridging a DOCX document.
 #[derive(Debug, thiserror::Error)]
@@ -33,9 +33,7 @@ impl From<DocxError> for ParseError {
             DocxError::Encrypted => ParseError::PasswordProtected,
             DocxError::ResourceLimit(violation) => ParseError::ResourceLimit(violation),
             DocxError::Package(message) => ParseError::ArchiveError(message),
-            DocxError::Layout(message) => {
-                ParseError::ArchiveError(format!("document layout failed: {message}"))
-            }
+            DocxError::Layout(message) => ParseError::ArchiveError(format!("document layout failed: {message}")),
             DocxError::LayoutEnginePanic(message) => ParseError::ArchiveError(message),
         }
     }

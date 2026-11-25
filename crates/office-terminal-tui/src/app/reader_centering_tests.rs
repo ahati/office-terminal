@@ -56,10 +56,7 @@ fn test_reader_rows_centered_when_narrow() {
 
     let p = &b.reader;
     assert_eq!(p.len(), 2);
-    assert_eq!(
-        p[0].cell_rect.col, 11,
-        "(160 - 138) / 2 = 11 cols of left margin"
-    );
+    assert_eq!(p[0].cell_rect.col, 11, "(160 - 138) / 2 = 11 cols of left margin");
     assert_eq!(p[1].cell_rect.col, 81);
     assert_eq!(
         WIDTH.saturating_sub(p[1].cell_rect.col + p[1].cell_rect.cols),
@@ -87,10 +84,7 @@ fn test_reader_rows_centered_when_narrow() {
     let b_small = draw_reader(&mut state);
 
     let p_small = &b_small.reader;
-    assert_eq!(
-        p_small[0].cell_rect.cols, 34,
-        "68-col page shrinks to 34 cols"
-    );
+    assert_eq!(p_small[0].cell_rect.cols, 34, "68-col page shrinks to 34 cols");
     assert_eq!(p_small[0].cell_rect.col, 63, "(160 - 34) / 2 = 63 cols");
 
     // Zoomed past the viewport: the flush-left pan origin returns, with a
@@ -100,10 +94,7 @@ fn test_reader_rows_centered_when_narrow() {
     let b_zoom = draw_reader(&mut state);
 
     let p_zoom = &b_zoom.reader;
-    assert_eq!(
-        p_zoom[0].cell_rect.col, 0,
-        "Overflowing rows keep the pan origin"
-    );
+    assert_eq!(p_zoom[0].cell_rect.col, 0, "Overflowing rows keep the pan origin");
     assert_eq!(p_zoom[0].cell_rect.cols, WIDTH);
     assert!(p_zoom[0].max_scroll_x > 0);
     assert!(
@@ -117,10 +108,7 @@ fn test_horizontal_mode_sliding_issue_29() {
     let mut state = reader_fixture(10);
     state.set_layout_dimensions(WIDTH, HEIGHT);
     state.reader_state_mut().unwrap().toggle_horizontal();
-    assert_eq!(
-        state.reader_state().unwrap().layout,
-        ReaderLayout::Horizontal
-    );
+    assert_eq!(state.reader_state().unwrap().layout, ReaderLayout::Horizontal);
 
     // Initial draw: the first page rests centered ((1600 - 680) / 2 = 460 px
     // = 46 cols) and the stream still tiles to the right edge.
@@ -144,10 +132,7 @@ fn test_horizontal_mode_sliding_issue_29() {
         p_scrolled[0].cell_rect.col < p_init[0].cell_rect.col,
         "Page slides left as the rest inset unwinds"
     );
-    assert_eq!(
-        p_scrolled[0].pixel_src.x, 0,
-        "No left crop while the inset is active"
-    );
+    assert_eq!(p_scrolled[0].pixel_src.x, 0, "No left crop while the inset is active");
 
     // Keep sliding right until the inset is spent: the stream goes
     // flush-left and the crop window opens.
@@ -181,10 +166,7 @@ fn test_horizontal_mode_sliding_issue_29() {
         handle_key_event(make_key(KeyCode::Left), &mut state);
         while state.reader_state().unwrap().advance_display() {}
     }
-    assert!(
-        returned_to_rest,
-        "Left arrows walk the stream back to the start"
-    );
+    assert!(returned_to_rest, "Left arrows walk the stream back to the start");
     let b_rest = draw_reader(&mut state);
     assert_eq!(
         b_rest.reader[0].cell_rect.col, 46,
@@ -202,33 +184,21 @@ fn test_horizontal_rest_centering() {
     // Start rest: page 0 centered (460 px = 46 cols), stream tiling right.
     let b_start = draw_reader(&mut state);
     assert_eq!(b_start.reader[0].page, 0);
-    assert_eq!(
-        b_start.reader[0].cell_rect.col, 46,
-        "First page rests centered"
-    );
+    assert_eq!(b_start.reader[0].cell_rect.col, 46, "First page rests centered");
     assert_eq!(b_start.reader[0].pixel_src.x, 0);
-    assert!(
-        b_start.reader.len() >= 2,
-        "Stream still fills the viewport rightward"
-    );
+    assert!(b_start.reader.len() >= 2, "Stream still fills the viewport rightward");
 
     // G lands at the end clamp: the final page rests centered too.
     handle_key_event(make_key(KeyCode::Char('G')), &mut state);
     {
         let reader = state.reader_state().unwrap();
         assert_eq!(reader.anchor, 9);
-        assert_eq!(
-            reader.scroll_px, 679,
-            "End jump lands at the clamp (680 - 1)"
-        );
+        assert_eq!(reader.scroll_px, 679, "End jump lands at the clamp (680 - 1)");
     }
     let b_end = draw_reader(&mut state);
     assert_eq!(b_end.reader.len(), 1, "Nothing follows the last page");
     assert_eq!(b_end.reader[0].page, 9);
-    assert_eq!(
-        b_end.reader[0].cell_rect.col, 46,
-        "Last page rests centered"
-    );
+    assert_eq!(b_end.reader[0].cell_rect.col, 46, "Last page rests centered");
     assert_eq!(b_end.reader[0].pixel_src.x, 0);
 
     // Sliding left from the end winds the inset down: the page moves left
@@ -239,10 +209,7 @@ fn test_horizontal_rest_centering() {
         b_off.reader[0].cell_rect.col < 46,
         "End inset winds down as the stream slides left"
     );
-    assert_eq!(
-        b_off.reader[0].pixel_src.x, 0,
-        "No crop while the end inset is active"
-    );
+    assert_eq!(b_off.reader[0].pixel_src.x, 0, "No crop while the end inset is active");
 }
 
 #[test]

@@ -66,16 +66,14 @@ pub static RIG_BALANCED: RigDefinition = RigDefinition {
     lights: LIGHTS_BALANCED,
 };
 
-static LIGHTS_SOFT: &[LightDef] = &[
-    LightDef {
-        rgb: [0.8, 0.8, 0.8],
-        direction: [-0.6897, 0.2484, -0.6802],
-        scale: 0.5,
-        offset: 0.5,
-        specular: true,
-        diffuse: true,
-    },
-];
+static LIGHTS_SOFT: &[LightDef] = &[LightDef {
+    rgb: [0.8, 0.8, 0.8],
+    direction: [-0.6897, 0.2484, -0.6802],
+    scale: 0.5,
+    offset: 0.5,
+    specular: true,
+    diffuse: true,
+}];
 pub static RIG_SOFT: RigDefinition = RigDefinition {
     ambient: 0.3,
     lights: LIGHTS_SOFT,

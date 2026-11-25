@@ -2,14 +2,13 @@ use hayro_interpret::font::GlyphRun;
 use hayro_interpret::kurbo::{BezPath, PathEl, Rect};
 use hayro_interpret::util::TransformExt;
 use hayro_interpret::{
-    interpret_page, BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, Image,
-    ImageDrawProps, InterpreterCache, InterpreterSettings, SoftMask,
+    interpret_page, BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, Image, ImageDrawProps, InterpreterCache,
+    InterpreterSettings, SoftMask,
 };
 use hayro_syntax::page::Page;
 use office_terminal_core::{
-    AffineTransform, CompoundLine, FillRule, LineCap, LineJoin, PathSegment, ShapeEffects,
-    SlideLink, VectorBackground, VectorCommand, VectorPaint, VectorPath, VectorSlide,
-    VectorStroke, EMU_PER_PT,
+    AffineTransform, CompoundLine, FillRule, LineCap, LineJoin, PathSegment, ShapeEffects, SlideLink, VectorBackground,
+    VectorCommand, VectorPaint, VectorPath, VectorSlide, VectorStroke, EMU_PER_PT,
 };
 
 use crate::error::PdfError;
@@ -149,13 +148,7 @@ impl<'a> Device<'a> for VectorCommandRecorder {
         self.commands.push(VectorCommand::PushClip(vpath));
     }
 
-    fn push_transparency_group(
-        &mut self,
-        _opacity: f32,
-        _mask: Option<SoftMask<'a>>,
-        _blend_mode: BlendMode,
-    ) {
-    }
+    fn push_transparency_group(&mut self, _opacity: f32, _mask: Option<SoftMask<'a>>, _blend_mode: BlendMode) {}
 
     fn pop_clip(&mut self) {
         self.commands.push(VectorCommand::PopClip);
@@ -165,20 +158,11 @@ impl<'a> Device<'a> for VectorCommandRecorder {
 
     fn draw_image(&mut self, _image: Image<'a, '_>, _props: ImageDrawProps<'a>) {}
 
-    fn draw_glyph_run(
-        &mut self,
-        _glyph_run: &GlyphRun<'_, 'a>,
-        _props: DrawProps<'a>,
-        _draw_mode: &DrawMode,
-    ) {
-    }
+    fn draw_glyph_run(&mut self, _glyph_run: &GlyphRun<'_, 'a>, _props: DrawProps<'a>, _draw_mode: &DrawMode) {}
 }
 
 /// Compiles a PDF page to a pure vector display list (Phase V).
-pub fn compile_page_vector(
-    page: &Page<'_>,
-    links: Vec<SlideLink>,
-) -> Result<VectorSlide, PdfError> {
+pub fn compile_page_vector(page: &Page<'_>, links: Vec<SlideLink>) -> Result<VectorSlide, PdfError> {
     let (w_pt, h_pt) = page.render_dimensions();
     let width_emu = (w_pt * EMU_PER_PT).round() as i64;
     let height_emu = (h_pt * EMU_PER_PT).round() as i64;

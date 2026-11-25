@@ -3,9 +3,7 @@
 use crossbeam_channel::unbounded;
 use office_terminal_core::contracts::VectorCommand;
 use office_terminal_core::{DefaultSlideCompiler, SlideCompiler};
-use pptx_model::{
-    MediaElement, Presentation, Slide, SlideElement, SlideElementSource,
-};
+use pptx_model::{MediaElement, Presentation, Slide, SlideElement, SlideElementSource};
 
 fn media(poster: &str) -> MediaElement {
     MediaElement {
@@ -72,9 +70,7 @@ fn deck(element: SlideElement) -> Presentation {
 fn media_poster_emits_a_draw_image_before_the_placeholder_chrome() {
     let slide = compile(&deck(SlideElement::Media(media("ppt/media/poster1.png"))));
     let image = slide.commands.iter().find_map(|command| match command {
-        VectorCommand::DrawImage {
-            rel_id, dest_rect, ..
-        } => Some((rel_id, dest_rect)),
+        VectorCommand::DrawImage { rel_id, dest_rect, .. } => Some((rel_id, dest_rect)),
         _ => None,
     });
     let (rel_id, dest_rect) = image.expect("poster DrawImage");

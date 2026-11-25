@@ -1,22 +1,21 @@
-pub mod geometry;
-pub mod paint;
-mod text;
-pub mod vector_slide;
-pub mod pipeline;
-pub mod shape_effects;
-pub mod hyperlink;
 pub mod deck;
+pub mod geometry;
+pub mod hyperlink;
+pub mod paint;
+pub mod pipeline;
 pub mod pptx_source;
+pub mod shape_effects;
+mod text;
 pub mod transmit;
+pub mod vector_slide;
 
-pub use geometry::*;
-pub use paint::*;
-pub use text::*;
-pub use vector_slide::*;
-pub use pipeline::*;
-pub use shape_effects::*;
-pub use hyperlink::*;
 pub use deck::*;
+pub use geometry::*;
+pub use hyperlink::*;
+pub use paint::*;
+pub use pipeline::*;
 pub use pptx_source::*;
+pub use shape_effects::*;
+pub use text::*;
 pub use transmit::*;
-
+pub use vector_slide::*;

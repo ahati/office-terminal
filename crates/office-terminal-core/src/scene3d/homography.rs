@@ -57,9 +57,8 @@ pub fn apply_h(h: &Homography, u: f64, v: f64) -> Point {
 /// The raster warp needs the inverse map to sample the source face for every
 /// destination pixel; `None` when the matrix is singular or non-finite.
 pub fn invert_h(h: &Homography) -> Option<Homography> {
-    let det = h[0] * (h[4] * h[8] - h[5] * h[7])
-        - h[1] * (h[3] * h[8] - h[5] * h[6])
-        + h[2] * (h[3] * h[7] - h[4] * h[6]);
+    let det =
+        h[0] * (h[4] * h[8] - h[5] * h[7]) - h[1] * (h[3] * h[8] - h[5] * h[6]) + h[2] * (h[3] * h[7] - h[4] * h[6]);
     if !det.is_finite() || det.abs() < 1e-18 {
         return None;
     }
@@ -83,18 +82,9 @@ pub fn invert_h(h: &Homography) -> Option<Homography> {
 /// Used to grow a shape's offscreen / effect bounds by an edge margin without
 /// re-deriving the camera from the padded raster size. `None` when the quad is
 /// degenerate or an extrapolated corner crosses the projection horizon.
-pub fn expand_projected_quad(
-    corners: [Point; 4],
-    fx: f64,
-    fy: f64,
-) -> Option<[Point; 4]> {
+pub fn expand_projected_quad(corners: [Point; 4], fx: f64, fy: f64) -> Option<[Point; 4]> {
     let h = unit_square_to_quad(corners)?;
-    let uv = [
-        (-fx, -fy),
-        (1.0 + fx, -fy),
-        (1.0 + fx, 1.0 + fy),
-        (-fx, 1.0 + fy),
-    ];
+    let uv = [(-fx, -fy), (1.0 + fx, -fy), (1.0 + fx, 1.0 + fy), (-fx, 1.0 + fy)];
     let mut out = [(0.0, 0.0); 4];
     for (slot, (u, v)) in out.iter_mut().zip(uv) {
         let w = h[6] * u + h[7] * v + h[8];
@@ -174,7 +164,10 @@ mod tests {
         for (u, v) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.3, 0.7)] {
             let (x, y) = apply_h(&h, u, v);
             let (ru, rv) = apply_h(&inv, x, y);
-            assert!((ru - u).abs() < 1e-9 && (rv - v).abs() < 1e-9, "({u},{v}) -> ({ru},{rv})");
+            assert!(
+                (ru - u).abs() < 1e-9 && (rv - v).abs() < 1e-9,
+                "({u},{v}) -> ({ru},{rv})"
+            );
         }
         // A singular matrix has no inverse.
         let singular = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];

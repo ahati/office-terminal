@@ -81,19 +81,11 @@ pub fn rig_direction_angle(dir: &str) -> f32 {
 }
 
 /// Rotate an authored rig into world/view space based on direction preset and optional rotation.
-pub fn rig_vector(
-    rig_name: &str,
-    dir_name: &str,
-    rot: Option<&crate::contracts::VectorRot3d>,
-) -> PreparedRig {
+pub fn rig_vector(rig_name: &str, dir_name: &str, rot: Option<&crate::contracts::VectorRot3d>) -> PreparedRig {
     let rig = lookup_rig_definition(rig_name);
     let deg_to_rad = std::f32::consts::PI / 180.0;
     let (lat_rad, lon_rad, rev_rad) = if let Some(r) = rot {
-        (
-            r.lat_deg * deg_to_rad,
-            r.lon_deg * deg_to_rad,
-            r.rev_deg * deg_to_rad,
-        )
+        (r.lat_deg * deg_to_rad, r.lon_deg * deg_to_rad, r.rev_deg * deg_to_rad)
     } else {
         (0.0, 0.0, rig_direction_angle(dir_name) * deg_to_rad)
     };
@@ -136,10 +128,7 @@ pub fn rig_vector(
         });
     }
 
-    let (first_x, first_y, first_z) = lights
-        .first()
-        .map(|lt| (lt.x, lt.y, lt.z))
-        .unwrap_or((0.0, 0.0, 1.0));
+    let (first_x, first_y, first_z) = lights.first().map(|lt| (lt.x, lt.y, lt.z)).unwrap_or((0.0, 0.0, 1.0));
 
     PreparedRig {
         x: first_x,
@@ -160,13 +149,7 @@ pub struct PreparedLighting {
 }
 
 /// Compute 6 lighting terms: diffuse RGB (`terms[0..3]`) and specular RGB (`terms[3..6]`).
-pub fn compute_light_terms(
-    nx: f32,
-    ny: f32,
-    nz: f32,
-    lights: &[PreparedLight],
-    mat: &MaterialDef,
-) -> [f32; 6] {
+pub fn compute_light_terms(nx: f32, ny: f32, nz: f32, lights: &[PreparedLight], mat: &MaterialDef) -> [f32; 6] {
     let mut diff_r = 0.0f32;
     let mut diff_g = 0.0f32;
     let mut diff_b = 0.0f32;

@@ -45,9 +45,7 @@ struct WarpPath {
 static PRESETS: OnceLock<HashMap<String, WarpPreset>> = OnceLock::new();
 
 fn presets() -> &'static HashMap<String, WarpPreset> {
-    PRESETS.get_or_init(|| {
-        serde_json::from_str(include_str!("text_warp_presets.json")).unwrap_or_default()
-    })
+    PRESETS.get_or_init(|| serde_json::from_str(include_str!("text_warp_presets.json")).unwrap_or_default())
 }
 
 impl WarpEnvelope {
@@ -205,23 +203,13 @@ fn cumulative(points: &[(f32, f32)]) -> Vec<f32> {
 }
 
 fn flatten_path(path: &WarpPath, evaluator: &Evaluator, w: f32, h: f32) -> Vec<(f32, f32)> {
-    let sx = path
-        .w
-        .filter(|value| *value > 0.0)
-        .map_or(1.0, |value| w / value);
-    let sy = path
-        .h
-        .filter(|value| *value > 0.0)
-        .map_or(1.0, |value| h / value);
+    let sx = path.w.filter(|value| *value > 0.0).map_or(1.0, |value| w / value);
+    let sy = path.h.filter(|value| *value > 0.0).map_or(1.0, |value| h / value);
     let mut points = Vec::new();
     let mut pen = (0.0f32, 0.0f32);
 
     for cmd in &path.cmds {
-        let arg = |index: usize| {
-            cmd.get(index)
-                .map(|token| evaluator.resolve(token))
-                .unwrap_or(0.0)
-        };
+        let arg = |index: usize| cmd.get(index).map(|token| evaluator.resolve(token)).unwrap_or(0.0);
         match cmd.first().map(String::as_str).unwrap_or("") {
             "m" | "l" => {
                 pen = (arg(1) * sx, arg(2) * sy);
@@ -235,14 +223,8 @@ fn flatten_path(path: &WarpPath, evaluator: &Evaluator, w: f32, h: f32) -> Vec<(
                     let t = step as f32 / FLATTEN_STEPS as f32;
                     let mt = 1.0 - t;
                     points.push((
-                        mt * mt * mt * pen.0
-                            + 3.0 * mt * mt * t * c1.0
-                            + 3.0 * mt * t * t * c2.0
-                            + t * t * t * end.0,
-                        mt * mt * mt * pen.1
-                            + 3.0 * mt * mt * t * c1.1
-                            + 3.0 * mt * t * t * c2.1
-                            + t * t * t * end.1,
+                        mt * mt * mt * pen.0 + 3.0 * mt * mt * t * c1.0 + 3.0 * mt * t * t * c2.0 + t * t * t * end.0,
+                        mt * mt * mt * pen.1 + 3.0 * mt * mt * t * c1.1 + 3.0 * mt * t * t * c2.1 + t * t * t * end.1,
                     ));
                 }
                 pen = end;
@@ -270,8 +252,7 @@ fn flatten_path(path: &WarpPath, evaluator: &Evaluator, w: f32, h: f32) -> Vec<(
                 if wr.abs() < f32::EPSILON || hr.abs() < f32::EPSILON {
                     continue;
                 }
-                let visual_to_param =
-                    |angle: f32| (wr_local * angle.sin()).atan2(hr_local * angle.cos());
+                let visual_to_param = |angle: f32| (wr_local * angle.sin()).atan2(hr_local * angle.cos());
                 let start = visual_to_param(start_visual);
                 let two_pi = std::f32::consts::PI * 2.0;
                 let full = (sweep_visual / two_pi).trunc();
@@ -285,17 +266,12 @@ fn flatten_path(path: &WarpPath, evaluator: &Evaluator, w: f32, h: f32) -> Vec<(
                 let sweep = delta + full * two_pi;
                 let cx = pen.0 - wr * start.cos();
                 let cy = pen.1 - hr * start.sin();
-                let steps = ((sweep.abs() / two_pi) * 96.0)
-                    .ceil()
-                    .max(FLATTEN_STEPS as f32) as usize;
+                let steps = ((sweep.abs() / two_pi) * 96.0).ceil().max(FLATTEN_STEPS as f32) as usize;
                 for step in 1..=steps {
                     let angle = start + sweep * step as f32 / steps as f32;
                     points.push((cx + wr * angle.cos(), cy + hr * angle.sin()));
                 }
-                pen = (
-                    cx + wr * (start + sweep).cos(),
-                    cy + hr * (start + sweep).sin(),
-                );
+                pen = (cx + wr * (start + sweep).cos(), cy + hr * (start + sweep).sin());
             }
             "c" => {}
             _ => {}
@@ -379,12 +355,7 @@ fn sample(polyline: &WarpPolyline, u: f32) -> (f32, f32, f32, f32) {
     let dx = b.0 - a.0;
     let dy = b.1 - a.1;
     let norm = dx.hypot(dy).max(f32::EPSILON);
-    (
-        a.0 + dx * fraction,
-        a.1 + dy * fraction,
-        dx / norm,
-        dy / norm,
-    )
+    (a.0 + dx * fraction, a.1 + dy * fraction, dx / norm, dy / norm)
 }
 
 /// Exact paired-edge envelope map `P(u, v) = (1 − v)·T(u) + v·B(u)`.
@@ -407,10 +378,7 @@ pub fn warp_point(envelope: &WarpEnvelope, u: f32, v: f32) -> Option<(f32, f32)>
     }
     let (top_x, top_y, _, _) = sample(&envelope.top, u);
     let (bottom_x, bottom_y, _, _) = sample(&envelope.bottom, u);
-    Some((
-        top_x + (bottom_x - top_x) * v,
-        top_y + (bottom_y - top_y) * v,
-    ))
+    Some((top_x + (bottom_x - top_x) * v, top_y + (bottom_y - top_y) * v))
 }
 
 /// Map a flat glyph baseline into the envelope's local jacobian.

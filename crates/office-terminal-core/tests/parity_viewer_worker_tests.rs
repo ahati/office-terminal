@@ -35,15 +35,15 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
 use office_terminal_core::contracts::{
-    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide,
-    VectorSlide, WarningEvent,
+    InvalidateCause, PipelineEntry, PrefetchPlan, RenderPipeline, RenderTargetSpec, RgbaSlide, VectorSlide,
+    WarningEvent,
 };
 use office_terminal_core::loader::{AssetStore, AssetStoreStats, DecodedImage, SizeHint};
 use office_terminal_core::pipeline::{PrefetchTask, WorkerPool};
 use office_terminal_core::rasterizer::SlideRasterizer;
 use office_terminal_core::{
-    AssetError, CancellationToken, DefaultRenderPipeline, DefaultSlideCompiler, RenderError,
-    SlideCompiler, TinySkiaRasterizer,
+    AssetError, CancellationToken, DefaultRenderPipeline, DefaultSlideCompiler, RenderError, SlideCompiler,
+    TinySkiaRasterizer,
 };
 
 const TARGET: RenderTargetSpec = RenderTargetSpec {
@@ -116,10 +116,7 @@ impl GatedCompiler {
     }
 
     fn started(&self) -> Vec<usize> {
-        self.started
-            .lock()
-            .map(|taken| taken.clone())
-            .unwrap_or_default()
+        self.started.lock().map(|taken| taken.clone()).unwrap_or_default()
     }
 }
 
@@ -147,11 +144,7 @@ impl SlideCompiler for GatedCompiler {
     }
 }
 
-fn pipeline_with(
-    count: usize,
-    compiler: Arc<GatedCompiler>,
-    workers: usize,
-) -> DefaultRenderPipeline {
+fn pipeline_with(count: usize, compiler: Arc<GatedCompiler>, workers: usize) -> DefaultRenderPipeline {
     DefaultRenderPipeline::with_worker_count(
         deck_of(count),
         Arc::new(NoAssets),
@@ -212,16 +205,10 @@ fn prefetch_window_holds_only_the_planned_slides() {
     pipeline.prefetch(&plan(4, 1, 1), &TARGET);
     assert!(wait_until(|| pipeline.workers().in_flight_count() >= 2));
     for index in [3usize, 4, 5] {
-        assert!(
-            pipeline.workers().is_in_flight(index),
-            "slide {index} in flight"
-        );
+        assert!(pipeline.workers().is_in_flight(index), "slide {index} in flight");
     }
     for index in [0usize, 2, 6, 7] {
-        assert!(
-            !pipeline.workers().is_in_flight(index),
-            "slide {index} untouched"
-        );
+        assert!(!pipeline.workers().is_in_flight(index), "slide {index} untouched");
     }
 
     compiler.release();
@@ -252,10 +239,9 @@ fn a_background_failure_is_reported_alongside_a_ready_opening_slide() {
         "the failing slide is reported"
     );
     match pipeline.entry(2) {
-        PipelineEntry::Failed { error } => assert_eq!(
-            error,
-            RenderError::CompilationFailed("slide 2 is poisoned".to_string())
-        ),
+        PipelineEntry::Failed { error } => {
+            assert_eq!(error, RenderError::CompilationFailed("slide 2 is poisoned".to_string()))
+        }
         other => panic!("expected Failed for slide 2, got {}", entry_name(&other)),
     }
     assert!(pipeline.cache().contains_raster(0, &TARGET));
@@ -279,10 +265,7 @@ fn a_new_target_supersedes_the_prefetched_rasters() {
         height_px: 180,
     };
     pipeline.invalidate(InvalidateCause::TargetChanged);
-    assert!(
-        !pipeline.cache().contains_raster(0, &TARGET),
-        "stale frame dropped"
-    );
+    assert!(!pipeline.cache().contains_raster(0, &TARGET), "stale frame dropped");
     assert!(pipeline.cache().has_vector(0), "vector tier survives");
     assert_eq!(pipeline.workers().in_flight_count(), 0);
 
@@ -292,10 +275,7 @@ fn a_new_target_supersedes_the_prefetched_rasters() {
         PipelineEntry::Ready { bitmap, .. } => {
             assert_eq!((bitmap.width, bitmap.height), (320, 180));
         }
-        other => panic!(
-            "expected Ready at the new target, got {}",
-            entry_name(&other)
-        ),
+        other => panic!("expected Ready at the new target, got {}", entry_name(&other)),
     }
 }
 
@@ -319,9 +299,7 @@ fn quiet_pool(count: usize) -> WorkerPool {
 #[test]
 fn cancel_except_cancels_tokens_and_purges_the_queue() {
     let pool = quiet_pool(6);
-    let tokens: Vec<CancellationToken> = (0..6)
-        .map(|index| pool.schedule(index, 10, TARGET, false))
-        .collect();
+    let tokens: Vec<CancellationToken> = (0..6).map(|index| pool.schedule(index, 10, TARGET, false)).collect();
     assert_eq!(pool.queue_len(), 6);
     assert_eq!(pool.in_flight_count(), 6);
 
@@ -344,9 +322,7 @@ fn cancel_except_cancels_tokens_and_purges_the_queue() {
 #[test]
 fn cancel_all_drains_queue_and_in_flight() {
     let pool = quiet_pool(4);
-    let tokens: Vec<CancellationToken> = (0..4)
-        .map(|index| pool.schedule(index, 10, TARGET, false))
-        .collect();
+    let tokens: Vec<CancellationToken> = (0..4).map(|index| pool.schedule(index, 10, TARGET, false)).collect();
     pool.cancel_all();
 
     assert_eq!(pool.queue_len(), 0);
@@ -370,11 +346,7 @@ fn prefetch_does_not_reschedule_a_slide_already_in_flight() {
     // Same window again while the first render is still blocked at the gate.
     pipeline.prefetch(&plan(1, 0, 0), &TARGET);
     assert_eq!(pipeline.workers().in_flight_count(), 1);
-    assert_eq!(
-        pipeline.workers().queue_len(),
-        0,
-        "no duplicate task queued"
-    );
+    assert_eq!(pipeline.workers().queue_len(), 0, "no duplicate task queued");
     assert_eq!(compiler.started(), vec![1], "exactly one compile started");
 
     compiler.release();
@@ -394,10 +366,7 @@ fn prefetch_task_priority_orders_the_queue() {
     };
     assert!(task(20, 0) > task(10, 5));
     assert_eq!(task(20, 0).cmp(&task(20, 9)), std::cmp::Ordering::Equal);
-    assert!(
-        task(20, 0) != task(20, 1),
-        "equality includes the slide index"
-    );
+    assert!(task(20, 0) != task(20, 1), "equality includes the slide index");
 }
 
 /// The pool shutdown is idempotent and leaves no work behind — the analogue of
@@ -462,13 +431,8 @@ fn a_panicking_worker_fails_the_slide_and_keeps_the_pool_alive() {
     });
     let compiler_dyn: Arc<dyn SlideCompiler> = compiler.clone();
     let rasterizer_dyn: Arc<dyn SlideRasterizer> = rasterizer;
-    let pipeline = DefaultRenderPipeline::with_worker_count(
-        deck_of(8),
-        Arc::new(NoAssets),
-        compiler_dyn,
-        rasterizer_dyn,
-        1,
-    );
+    let pipeline =
+        DefaultRenderPipeline::with_worker_count(deck_of(8), Arc::new(NoAssets), compiler_dyn, rasterizer_dyn, 1);
 
     pipeline.prefetch(&plan(4, 0, 0), &TARGET);
     assert!(wait_until(|| !compiler.started().is_empty()));

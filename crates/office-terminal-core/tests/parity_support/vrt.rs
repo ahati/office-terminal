@@ -1,19 +1,22 @@
-//! Visual-regression driver for committed fidelity decks.
+//! Visual-regression driver for the committed synthetic deck.
 //!
-//! Port of the fidelity half of
-//! `/tmp/oooxml/packages/pptx/tests/visual/visual.spec.ts` (`1f5c6e1d`,
-//! `PPTX_FILES` at `:33-35`, fidelity loop at `:89-217`): load the committed
-//! `.pptx` through the production seam (`DefaultPresentationLoader` →
-//! `DefaultSlideCompiler::compile_in_deck` → `TinySkiaRasterizer`), rasterize
-//! every slide at the deck's fixed width, then pad both render and reference to
-//! `max(w) × max(h)` on white and pixelmatch with
-//! `{ threshold: 0.20, includeAA: true }` (`:159-177`).
+//! The harness follows the shape of the upstream reference viewer's
+//! `visual.spec.ts` driver: load the committed `.pptx` through the production
+//! seam (`DefaultPresentationLoader` → `DefaultSlideCompiler::compile_in_deck`
+//! → `TinySkiaRasterizer`), rasterize every slide at the deck's fixed width,
+//! then pad both render and reference to `max(w) × max(h)` on white and
+//! pixelmatch with `{ threshold: 0.20, includeAA: true }`.
 //!
-//! A slide fails when `diff_pct > 20` (`:193-197`), has no recorded score, or
-//! drops more than 0.5 pt below its recorded score (`:199-215`). Mode switches
-//! mirror `:49-56`: `UPDATE_REFS=1` adopts the current render as the reference
-//! (and stops before comparing), `UPDATE_SCORES=1` re-records scores against
-//! the untouched PNGs.
+//! The reference PNGs are **locked outputs of this renderer**, not an
+//! independent fidelity oracle: `synthetic-1.pptx` is generated with generic
+//! shapes/text and contains no third-party media. The test is therefore a
+//! change detector against an approved rendering, while the ratchet protects
+//! against silent visual regressions.
+//!
+//! A slide fails when `diff_pct > 20`, has no recorded score, or drops more
+//! than 0.5 pt below its recorded score. `UPDATE_REFS=1` adopts the current
+//! render as the reference (and stops before comparing); `UPDATE_SCORES=1`
+//! re-records scores against the untouched PNGs.
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -23,8 +26,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crossbeam_channel::unbounded;
 use office_terminal_core::{
-    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec,
-    RgbaSlide, SlideCompiler, SlideRasterizer, Source, TinySkiaRasterizer,
+    DefaultPresentationLoader, DefaultSlideCompiler, PresentationLoader, RenderTargetSpec, RgbaSlide, SlideCompiler,
+    SlideRasterizer, Source, TinySkiaRasterizer,
 };
 
 use super::pixelmatch::{compare_rgba, pad_to_white, DiffOptions};
@@ -37,7 +40,7 @@ pub const PIXEL_THRESHOLD: f64 = 0.20;
 /// ref `visual.spec.ts:42` (`FAIL_ABOVE_PCT = 20`).
 pub const FAIL_ABOVE_DIFF_PCT: f64 = 20.0;
 
-/// One committed fidelity deck. ref `visual.spec.ts:33-35`
+/// One committed synthetic regression deck. ref `visual.spec.ts:33-35`
 /// (`{ name, slideCount }`).
 #[derive(Clone, Copy, Debug)]
 pub struct DeckSpec {
@@ -50,7 +53,7 @@ pub struct DeckSpec {
 }
 
 impl DeckSpec {
-    /// The committed `.pptx` under `tests/fixtures/parity/`.
+    /// The committed synthetic `.pptx` under `tests/fixtures/parity/`.
     pub fn fixture(&self) -> PathBuf {
         fixtures_dir().join(format!("{}.pptx", self.name))
     }
@@ -76,10 +79,10 @@ impl DeckSpec {
     }
 }
 
-/// Fidelity corpora; keep each declared `slide_count` exact.
+/// Regression corpora; keep each declared `slide_count` exact.
 pub const DECKS: &[DeckSpec] = &[DeckSpec {
-    name: "sample-1",
-    slide_count: 9,
+    name: "synthetic-1",
+    slide_count: 3,
     width_px: 1280,
 }];
 
@@ -206,8 +209,7 @@ fn try_render_deck(path: &Path, width: u32) -> Result<RenderedDeck, String> {
             presentation.slide_height
         ));
     }
-    let height = (width as f64 * presentation.slide_height as f64
-        / presentation.slide_width as f64)
+    let height = (width as f64 * presentation.slide_height as f64 / presentation.slide_width as f64)
         .round()
         .max(1.0) as u32;
     let target = RenderTargetSpec {
@@ -237,11 +239,7 @@ fn try_render_deck(path: &Path, width: u32) -> Result<RenderedDeck, String> {
         slides.push(rendered);
     }
 
-    Ok(RenderedDeck {
-        width,
-        height,
-        slides,
-    })
+    Ok(RenderedDeck { width, height, slides })
 }
 
 /// Outcome of one slide comparison.
@@ -307,10 +305,10 @@ impl DeckReport {
 
 /// Renders, compares and (in the update modes) writes every slide of `spec`.
 ///
-/// `UPDATE_REFS` replaces the reference and returns before comparing
-/// (`visual.spec.ts:130-136`). Otherwise every rendered slide is compared;
-/// missing references or unreadable score files are hard errors (broken
-/// corpus, not a fidelity regression).
+/// `UPDATE_REFS` replaces the synthetic reference and returns before
+/// comparing. Otherwise every rendered slide is compared; missing references
+/// or unreadable score files are hard errors (broken corpus, not a visual
+/// regression).
 pub fn run_deck(spec: &DeckSpec) -> DeckReport {
     let mode = mode();
     let deck = render_deck_cached(&spec.fixture(), spec.width_px);
@@ -431,15 +429,20 @@ pub fn format_table(report: &DeckReport) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "{}: {}x{}, {} slide(s) rendered (declared {}), mode={}\n",
-        report.name, report.width, report.height, report.rendered_slides,
-        report.declared_slides, report.mode.label()
+        report.name,
+        report.width,
+        report.height,
+        report.rendered_slides,
+        report.declared_slides,
+        report.mode.label()
     ));
     out.push_str(&format!(
         "{:>5}  {:>11}  {:>11}  {:>17}  {:>7}  {:>7}  {:>7}  {:>7}  {}\n",
         "slide", "render", "reference", "diff px", "diff%", "match%", "prior", "mae", "status"
     ));
     for slide in &report.slides {
-        let reference = slide.reference_size
+        let reference = slide
+            .reference_size
             .map_or_else(|| "missing".to_string(), |(w, h)| format!("{w}x{h}"));
         let prior = slide.prior.map_or_else(|| "-".to_string(), |p| format!("{p:.2}"));
         let status = if slide.reference_written {
@@ -453,9 +456,14 @@ pub fn format_table(report: &DeckReport) -> String {
         };
         out.push_str(&format!(
             "{:>5}  {:>11}  {:>11}  {:>17}  {:>7.2}  {:>7.2}  {:>7}  {:>7.4}  {status}\n",
-            slide.slide, format!("{}x{}", slide.actual_width, slide.actual_height),
-            reference, format!("{}/{}", slide.diff_pixels, slide.total_pixels),
-            slide.diff_pct, slide.match_pct, prior, slide.mean_abs_diff,
+            slide.slide,
+            format!("{}x{}", slide.actual_width, slide.actual_height),
+            reference,
+            format!("{}/{}", slide.diff_pixels, slide.total_pixels),
+            slide.diff_pct,
+            slide.match_pct,
+            prior,
+            slide.mean_abs_diff,
         ));
     }
     out
@@ -479,17 +487,10 @@ fn read_reference(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
 /// ref `visual.spec.ts:130-136`.
 fn write_reference(path: &Path, rendered: &RgbaSlide) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("cannot create reference dir {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| format!("cannot create reference dir {}: {e}", parent.display()))?;
     }
-    let buffer =
-        image::RgbaImage::from_raw(rendered.width, rendered.height, rendered.pixels.to_vec())
-            .ok_or_else(|| {
-                format!(
-                    "slide buffer is not {}x{} RGBA",
-                    rendered.width, rendered.height
-                )
-            })?;
+    let buffer = image::RgbaImage::from_raw(rendered.width, rendered.height, rendered.pixels.to_vec())
+        .ok_or_else(|| format!("slide buffer is not {}x{} RGBA", rendered.width, rendered.height))?;
     buffer
         .save(path)
         .map_err(|e| format!("cannot write fidelity reference {}: {e}", path.display()))

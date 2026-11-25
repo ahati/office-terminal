@@ -76,10 +76,7 @@ impl DocxPageSource {
 
     /// Engine diagnostics, surfaced once through the per-page warning channel.
     fn emit_engine_diagnostics(&self, warnings: &Sender<WarningEvent>) {
-        let mut emitted = self
-            .emitted
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut emitted = self.emitted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !emitted.insert("diagnostics") {
             return;
         }
@@ -120,11 +117,7 @@ impl PageSource for DocxPageSource {
             .unwrap_or((0, 0))
     }
 
-    fn compile_page(
-        &self,
-        index: usize,
-        warnings: &Sender<WarningEvent>,
-    ) -> Result<VectorSlide, RenderError> {
+    fn compile_page(&self, index: usize, warnings: &Sender<WarningEvent>) -> Result<VectorSlide, RenderError> {
         if index >= self.len() {
             return Err(RenderError::CompilationFailed(format!(
                 "DOCX page {} out of bounds (total: {})",
@@ -138,9 +131,9 @@ impl PageSource for DocxPageSource {
         let media = Arc::clone(&self.media);
         let emitted = Arc::clone(&self.emitted);
         let slide = self.ir_cache.get_or_compile(index, || {
-            let page: Arc<PageFrame> = engine.page(index).ok_or_else(|| {
-                RenderError::CompilationFailed(format!("DOCX page {index} missing"))
-            })?;
+            let page: Arc<PageFrame> = engine
+                .page(index)
+                .ok_or_else(|| RenderError::CompilationFailed(format!("DOCX page {index} missing")))?;
             let mut slide = bridge::compile_page(&page, engine.as_ref(), media.as_ref(), warnings, emitted)?;
             // Metafile markers expand where the asset store is available,
             // exactly like the PPTX adapter (PRD 13 §3.1).
@@ -194,8 +187,9 @@ impl PageSource for DocxPageSource {
 
     fn search_corpus(&self) -> Arc<dyn SearchCorpus> {
         let corpus = self.corpus.get_or_init(|| {
-            let pages: Vec<Arc<PageFrame>> =
-                (0..self.engine.page_count()).filter_map(|i| self.engine.page(i)).collect();
+            let pages: Vec<Arc<PageFrame>> = (0..self.engine.page_count())
+                .filter_map(|i| self.engine.page(i))
+                .collect();
             Arc::new(DocxSearchCorpus::build(&pages, &self.limits, self.engine.structure()))
         });
         Arc::clone(corpus) as Arc<dyn SearchCorpus>
@@ -244,8 +238,7 @@ mod tests {
     use oxml_layout::PositionedElement;
 
     fn engine_with(diagnostics: Vec<String>, pages: Vec<Arc<PageFrame>>) -> Arc<FixtureEngine> {
-        let engine = FixtureEngine::new(Vec::new())
-            .with_font(0, "Carlito");
+        let engine = FixtureEngine::new(Vec::new()).with_font(0, "Carlito");
         // Rebuild with real pages: FixtureEngine::new takes owned frames.
         let mut engine = engine;
         engine.pages = pages;
@@ -299,10 +292,7 @@ mod tests {
 
     #[test]
     fn sequential_pages_have_no_labels() {
-        let source = DocxPageSource::from_engine(engine_with(
-            Vec::new(),
-            vec![text_page(1, "a"), text_page(2, "b")],
-        ));
+        let source = DocxPageSource::from_engine(engine_with(Vec::new(), vec![text_page(1, "a"), text_page(2, "b")]));
         assert!(source.page_labels().is_none());
     }
 
@@ -334,7 +324,10 @@ mod tests {
     #[test]
     fn soft_deadline_diagnostics_are_resource_events_not_fidelity_losses() {
         let engine = engine_with(
-            vec![format!("{} 31.0s (soft deadline 30s)", crate::engine::LAYOUT_DEADLINE_PREFIX)],
+            vec![format!(
+                "{} 31.0s (soft deadline 30s)",
+                crate::engine::LAYOUT_DEADLINE_PREFIX
+            )],
             vec![text_page(1, "a")],
         );
         let source = DocxPageSource::from_engine(engine);
@@ -343,7 +336,9 @@ mod tests {
         let events: Vec<_> = rx.try_iter().collect();
         assert!(matches!(
             events.as_slice(),
-            [WarningEvent::ResourceLimitHit { limit: "docx-layout-deadline" }]
+            [WarningEvent::ResourceLimitHit {
+                limit: "docx-layout-deadline"
+            }]
         ));
     }
 

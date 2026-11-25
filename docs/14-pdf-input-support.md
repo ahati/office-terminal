@@ -51,7 +51,7 @@ The seam below `VectorSlide` is clean (rasterizer, SVG serializer, metafile, con
 | `hayro-interpret` | `=0.9.x` | PDF interpreter emitting into an abstract `Device` (paths, clips, transparency groups, glyph runs, images); `InterpreterSettings::font_resolver` | Apache-2.0 OR MIT |
 | `hayro` | `=0.9.x` | Bitmap renderer (`render`, `render_into` with arbitrary affine), `RenderCache`, `RenderSettings`, `PixmapSettings` | Apache-2.0 OR MIT |
 
-Default features `embed-fonts` + `embed-cmaps` (standard-14 substitutes + CJK CMaps) — matching how the PPTX path already bundles Carlito/Caladea rather than depending on system fonts. `hayro` is `#![forbid(unsafe_code)]`, satisfying [AGENTS.md](../AGENTS.md) §D. MSRV 1.92 ≤ workspace toolchain 1.99.
+Default features `embed-fonts` + `embed-cmaps` (standard-14 substitutes + CJK CMaps) — matching how the PPTX path already bundles Carlito/Caladea rather than depending on system fonts. `hayro` is `#![forbid(unsafe_code)]`, satisfying [AGENTS.md](../AGENTS.md) §D. hayro MSRV 1.92 ≤ workspace MSRV 1.93.
 
 **Consumption model:** pinned with `=` in `[workspace.dependencies]`, from crates.io (not vendored — no local patches expected). If a patch becomes necessary, follow the metafile policy ([PRD 13](./13-metafile-pictures-and-vector-playback.md) §2.2): in-tree copy under `crates/`, diff in `crates/patches/`, entry in `crates/VENDORED.md`, removed once released upstream.
 
@@ -249,7 +249,7 @@ Speaker notes: absent by definition; presenter console shows "— no notes (PDF)
 | `export --format png` | unchanged pipeline |
 | `dump --format text/markdown/json` | Phase T extraction; JSON includes per-page boxes |
 | `info deck.pdf` | page count, version, per-page sizes, encrypted flag, title/author metadata |
-| stdin (`-`) | magic sniff makes `cat doc.pdf | kitty-pptx -` work without flags |
+| stdin (`-`) | magic sniff makes `cat doc.pdf | ot -` work without flags |
 
 ### 7.1 Mode selection (`--mode auto`, default)
 

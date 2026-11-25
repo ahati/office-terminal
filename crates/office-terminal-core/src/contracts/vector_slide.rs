@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use super::geometry::{AffineTransform, NormalizedRect, RectF32, VectorPath};
-use super::paint::{VectorGradient, VectorPaint, VectorStroke};
-use super::text::PositionedGlyphRun;
-use super::shape_effects::ShapeEffects;
 use super::hyperlink::SlideLink;
+use super::paint::{VectorGradient, VectorPaint, VectorStroke};
+use super::shape_effects::ShapeEffects;
+use super::text::PositionedGlyphRun;
 pub use ooxml_common::blip::BlipEffect;
 
 /// Resolution-independent 2D vector display list for a PowerPoint slide.

@@ -67,16 +67,8 @@ impl MetafileResolver {
         // The key is derived only from the inputs (content + crop +
         // destination), so a repeat picture can be served before the bounds
         // probe — a cache hit must not replay the metafile (PRD 13 §9.2).
-        let key = (
-            rel_id.to_string(),
-            content_hash(&bytes, src_rect, dest_rect),
-        );
-        if let Some(hit) = self
-            .entries
-            .lock()
-            .ok()
-            .and_then(|entries| entries.get(&key).cloned())
-        {
+        let key = (rel_id.to_string(), content_hash(&bytes, src_rect, dest_rect));
+        if let Some(hit) = self.entries.lock().ok().and_then(|entries| entries.get(&key).cloned()) {
             return Ok(hit);
         }
 

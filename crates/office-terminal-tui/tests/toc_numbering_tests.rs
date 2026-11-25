@@ -25,11 +25,7 @@ fn make_key(code: KeyCode) -> KeyEvent {
 /// Flatten a rendered terminal buffer into one string per row.
 fn buffer_lines(buf: &ratatui::buffer::Buffer) -> Vec<String> {
     (0..buf.area.height)
-        .map(|y| {
-            (0..buf.area.width)
-                .map(|x| buf[(x, y)].symbol())
-                .collect::<String>()
-        })
+        .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect::<String>())
         .collect()
 }
 
@@ -138,10 +134,7 @@ fn test_flat_toc_rows_keep_leading_page_prefix() {
         .expect("draw TOC modal");
 
     let lines = buffer_lines(terminal.backend().buffer());
-    let row = lines
-        .iter()
-        .find(|line| line.contains("Intro"))
-        .expect("row");
+    let row = lines.iter().find(|line| line.contains("Intro")).expect("row");
     assert!(row.contains("[  1] Intro"), "row: {row:?}");
     assert!(!row.trim_end().ends_with("[1]"), "row: {row:?}");
 }

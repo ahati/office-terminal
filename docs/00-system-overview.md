@@ -2,11 +2,11 @@
 
 ## 1. Product Vision
 
-`kitty-pptx` is a fast, standalone Rust CLI and TUI presentation viewer that renders PowerPoint (`.pptx`) decks with high visual fidelity directly inside modern terminal emulators using the **Kitty Graphics Protocol** and compatible standards.
+**Office Terminal** is a fast, standalone Rust CLI and TUI presentation viewer that renders PowerPoint (`.pptx`) decks with high visual fidelity directly inside modern terminal emulators using the **Kitty Graphics Protocol** and compatible standards.
 
-By pairing the pure-Rust parsing engine from [`yukiyokotani/office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer) with a **resolution-independent vector display list (`VectorSlide`)**, a headless 2D vector rasterizer (`tiny-skia`), advanced text shaping (`cosmic-text`), and terminal UI primitives (`ratatui`), `kitty-pptx` turns the terminal into a first-class presentation environment for developers, remote SSH presenters, and command-line power users while enabling clean vector SVG and high-resolution PNG batch export.
+By pairing the pure-Rust parsing engine from [`yukiyokotani/office-open-xml-viewer`](https://github.com/yukiyokotani/office-open-xml-viewer) with a **resolution-independent vector display list (`VectorSlide`)**, a headless 2D vector rasterizer (`tiny-skia`), advanced text shaping (`cosmic-text`), and terminal UI primitives (`ratatui`), **Office Terminal** turns the terminal into a first-class presentation environment for developers, remote SSH presenters, and command-line power users while enabling clean vector SVG and high-resolution PNG batch export.
 
-**Fidelity Posture**: `kitty-pptx` is a *viewer with an honest contract* — what renders fully, what renders approximately, what renders as a labeled placeholder, and what is omitted is explicitly classified, testable, and visible to the user ([PRD 02d](./02d-element-renderers-and-fidelity-policy.md)).
+**Fidelity Posture**: **Office Terminal** is a *viewer with an honest contract* — what renders fully, what renders approximately, what renders as a labeled placeholder, and what is omitted is explicitly classified, testable, and visible to the user ([PRD 02d](./02d-element-renderers-and-fidelity-policy.md)).
 
 ---
 
@@ -14,7 +14,7 @@ By pairing the pure-Rust parsing engine from [`yukiyokotani/office-open-xml-view
 
 1. **The Terminal-Centric Developer / Engineer**:
    - Inspects presentations received in chat or downloaded from email without launching heavyweight GUI office suites.
-   - Runs `kitty-pptx deck.pptx` or previews inline: `kitty-pptx view deck.pptx -n 3`.
+   - Runs `ot deck.pptx` or previews inline: `ot view deck.pptx -n 3`.
 2. **The Conference / Meetup Presenter**:
    - Presents directly from a lightweight terminal emulator (Kitty, Ghostty, WezTerm).
    - Utilizes the Presenter Console: speaker notes, elapsed timer, next-slide thumbnail, seamless keyboard navigation.

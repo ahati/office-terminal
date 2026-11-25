@@ -52,11 +52,7 @@ pub fn tile_box(frame: &GradientFrame, shape: GradientBox) -> GradientBox {
 /// angle already applied to the frame ([`GradientFrame::counter_rotation_deg`]).
 /// A zero rotation is the identity.
 /// ref core/src/shape/fill-frame.ts:4-17
-pub fn counter_rotate(
-    point: (f32, f32),
-    rotation_deg: f32,
-    centre: (f32, f32),
-) -> (f32, f32) {
+pub fn counter_rotate(point: (f32, f32), rotation_deg: f32, centre: (f32, f32)) -> (f32, f32) {
     if rotation_deg == 0.0 {
         return point;
     }
@@ -64,10 +60,7 @@ pub fn counter_rotate(
     let (sin, cos) = angle.sin_cos();
     let x = point.0 - centre.0;
     let y = point.1 - centre.1;
-    (
-        centre.0 + cos * x - sin * y,
-        centre.1 + sin * x + cos * y,
-    )
+    (centre.0 + cos * x - sin * y, centre.1 + sin * x + cos * y)
 }
 
 /// Endpoints of a `a:lin` gradient axis in local coordinates.
@@ -120,10 +113,7 @@ pub fn radial_frame(grad: &VectorGradient, shape: GradientBox) -> ((f32, f32), f
         (rx * rx + ry * ry).sqrt()
     };
     let rotation = frame.counter_rotation_deg();
-    (
-        counter_rotate((cx, cy), rotation, shape.centre()),
-        radius,
-    )
+    (counter_rotate((cx, cy), rotation, shape.centre()), radius)
 }
 
 /// The box a gradient paint is framed on: the path's local bounds.
@@ -146,9 +136,6 @@ pub fn linear_axis_for_path(
 }
 
 /// [`radial_frame`] framed on a path's local bounds.
-pub fn radial_frame_for_path(
-    grad: &VectorGradient,
-    path: &crate::contracts::VectorPath,
-) -> Option<((f32, f32), f32)> {
+pub fn radial_frame_for_path(grad: &VectorGradient, path: &crate::contracts::VectorPath) -> Option<((f32, f32), f32)> {
     Some(radial_frame(grad, path_box(path)?))
 }

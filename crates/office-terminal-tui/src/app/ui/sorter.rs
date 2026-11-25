@@ -17,12 +17,7 @@ pub fn sorter_card_height(grid_rows: u16) -> u16 {
 }
 
 /// Render the interactive thumbnail slide sorter grid.
-pub fn render_sorter(
-    state: &PresentationState,
-    f: &mut Frame,
-    area: Rect,
-    bindings: &mut FrameBindings,
-) {
+pub fn render_sorter(state: &PresentationState, f: &mut Frame, area: Rect, bindings: &mut FrameBindings) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -65,8 +60,7 @@ pub fn render_sorter(
     // 2. Multi-column Grid
     let total = state.total_slides();
     if total == 0 {
-        let empty_msg = Paragraph::new("No slides loaded in presentation")
-            .style(Style::default().fg(Color::DarkGray));
+        let empty_msg = Paragraph::new("No slides loaded in presentation").style(Style::default().fg(Color::DarkGray));
         f.render_widget(empty_msg, grid_area);
         return;
     }
@@ -77,8 +71,7 @@ pub fn render_sorter(
     // Never plan more cards than the terminal image quota and image-id pool can keep resident; the
     // graphics syncer would otherwise leave the overflow blank. Capacity is computed against the
     // same aspect-derived sorter target the graphics syncer renders at.
-    let thumb_target =
-        crate::app::graphics_thumbnails::thumbnail_target_for_aspect(state.aspect_ratio());
+    let thumb_target = crate::app::graphics_thumbnails::thumbnail_target_for_aspect(state.aspect_ratio());
     let max_cards = crate::app::graphics_thumbnails::max_sorter_cards_for_target(&thumb_target);
     let capacity_rows = (max_cards / cols).max(1) as u16;
     let rows_visible = (grid_area.height / card_height).max(1).min(capacity_rows);
@@ -88,8 +81,7 @@ pub fn render_sorter(
     let scroll_row = state.sorter_scroll_row_with_hysteresis(cursor_row, rows_visible as usize);
 
     let start_idx = scroll_row * cols;
-    let num_rows_to_render =
-        rows_visible.min(total.saturating_sub(start_idx).div_ceil(cols) as u16);
+    let num_rows_to_render = rows_visible.min(total.saturating_sub(start_idx).div_ceil(cols) as u16);
 
     let mut row_constraints = Vec::with_capacity(num_rows_to_render as usize + 1);
     for _ in 0..num_rows_to_render {
@@ -126,25 +118,19 @@ pub fn render_sorter(
             let (border_type, border_style, title_text) = if is_cursor && is_active {
                 (
                     BorderType::Double,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     format!(" ▶ Slide {} (Active){} ◀ ", idx + 1, media_tag),
                 )
             } else if is_cursor {
                 (
                     BorderType::Thick,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     format!(" ▶ Slide {}{} ◀ ", idx + 1, media_tag),
                 )
             } else if is_active {
                 (
                     BorderType::Double,
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     format!(" Slide {} (Active){} ", idx + 1, media_tag),
                 )
             } else {
@@ -178,9 +164,7 @@ pub fn render_sorter(
     let footer_line = if let Some(toast) = state.toast() {
         Line::from(vec![Span::styled(
             format!(" 📢 Notification: {} ", toast),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )])
     } else {
         let total_rows = total.div_ceil(cols);

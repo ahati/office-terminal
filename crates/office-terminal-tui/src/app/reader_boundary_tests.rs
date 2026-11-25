@@ -22,8 +22,8 @@ use ratatui::Terminal;
 use crate::app::bindings::FrameBindings;
 use crate::app::reader_state::ReaderState;
 use crate::app::reader_types::reader_viewport_metrics;
-use crate::app::ui::reader::render_reader;
 use crate::app::state::PresentationState;
+use crate::app::ui::reader::render_reader;
 
 /// Letter pages, spread layout (2 columns at this width).
 const WIDTH: u16 = 120;
@@ -102,10 +102,7 @@ fn a_lagging_wrap_renders_the_pre_wrap_geometry() {
         pre_geom.iter().all(|&(page, _, _)| (2..4).contains(&page)),
         "the pre-wrap frame shows the old row: {pre_geom:?}"
     );
-    assert_eq!(
-        pre_geom, post_geom,
-        "a lagging anchor flip must not move any pane"
-    );
+    assert_eq!(pre_geom, post_geom, "a lagging anchor flip must not move any pane");
 }
 
 #[test]
@@ -191,8 +188,8 @@ fn published_state(sizes: &[(f32, f32)]) -> PresentationState {
 /// stride re-bases can flicker.
 fn mixed_height_sizes() -> Vec<(f32, f32)> {
     let p = (612.0, 792.0); // portrait: 880 px tall at this size
-    // A page wider than the viewport's aspect (1200/880 ~ 1.36) so the
-    // one-column slot contains it to 600 px — a genuinely short row.
+                            // A page wider than the viewport's aspect (1200/880 ~ 1.36) so the
+                            // one-column slot contains it to 600 px — a genuinely short row.
     let w = (1200.0, 600.0);
     let mut sizes = vec![p; 30];
     sizes[10] = w;

@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use crossbeam_channel::Sender;
+use std::sync::Arc;
 
 use crate::compiler::SlideCompiler;
 use crate::contracts::deck::{EmuRect, PageSource, SearchCorpus, TextLine, TocEntry};
@@ -102,11 +102,7 @@ impl PageSource for PptxPageSource {
         (self.presentation.slide_width, self.presentation.slide_height)
     }
 
-    fn compile_page(
-        &self,
-        index: usize,
-        warnings: &Sender<WarningEvent>,
-    ) -> Result<VectorSlide, RenderError> {
+    fn compile_page(&self, index: usize, warnings: &Sender<WarningEvent>) -> Result<VectorSlide, RenderError> {
         if index >= self.presentation.slides.len() {
             return Err(RenderError::CompilationFailed(format!(
                 "slide index {} out of bounds (total slides: {})",

@@ -83,11 +83,7 @@ impl DefaultAssetStore {
         }
     }
 
-    pub fn with_cache_budget(
-        bytes: Arc<[u8]>,
-        temp_file: Option<tempfile::NamedTempFile>,
-        max_bytes: usize,
-    ) -> Self {
+    pub fn with_cache_budget(bytes: Arc<[u8]>, temp_file: Option<tempfile::NamedTempFile>, max_bytes: usize) -> Self {
         Self {
             archive_bytes: bytes,
             _spooled_temp_file: temp_file,
@@ -99,8 +95,7 @@ impl DefaultAssetStore {
 
     fn read_zip_entry(&self, rel_id: &str) -> Result<Vec<u8>, AssetError> {
         let cursor = Cursor::new(&self.archive_bytes[..]);
-        let mut zip =
-            zip::ZipArchive::new(cursor).map_err(|e| AssetError::DecodeFailed(e.to_string()))?;
+        let mut zip = zip::ZipArchive::new(cursor).map_err(|e| AssetError::DecodeFailed(e.to_string()))?;
 
         // Normalize paths: strip leading slashes or resolve common prefixes
         let clean_path = rel_id.trim_start_matches('/');
@@ -137,10 +132,7 @@ impl AssetStore for DefaultAssetStore {
 
         // Check cache
         {
-            let mut cache = self
-                .cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut clock = self
                 .access_clock
                 .lock()
@@ -156,10 +148,7 @@ impl AssetStore for DefaultAssetStore {
         let data = self.read_zip_entry(rel_id)?;
 
         // Try decoding as SVG if name ends with .svg or starts with SVG header
-        let decoded = if rel_id.ends_with(".svg")
-            || data.starts_with(b"<?xml")
-            || data.starts_with(b"<svg")
-        {
+        let decoded = if rel_id.ends_with(".svg") || data.starts_with(b"<?xml") || data.starts_with(b"<svg") {
             decode_svg(&data, &hint)?
         } else {
             decode_raster(&data, &hint)?
@@ -167,10 +156,7 @@ impl AssetStore for DefaultAssetStore {
 
         // Insert into LRU cache
         {
-            let mut cache = self
-                .cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut clock = self
                 .access_clock
                 .lock()
@@ -214,10 +200,7 @@ impl AssetStore for DefaultAssetStore {
     }
 
     fn stats(&self) -> AssetStoreStats {
-        let cache = self
-            .cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let cached_entries = cache.len();
         let cached_bytes = cache.values().map(|e| e.image.pixels.len()).sum();
         AssetStoreStats {
@@ -268,10 +251,7 @@ pub fn decode_svg(data: &[u8], hint: &SizeHint) -> Result<DecodedImage, AssetErr
     // vector picture is rasterized at display resolution instead of its
     // viewBox size (typically 96-256 px) and then upscaled.
     let (mut width, mut height) = match hint {
-        SizeHint::AtMost { width, height } => (
-            (*width).clamp(1, SVG_MAX_SIDE),
-            (*height).clamp(1, SVG_MAX_SIDE),
-        ),
+        SizeHint::AtMost { width, height } => ((*width).clamp(1, SVG_MAX_SIDE), (*height).clamp(1, SVG_MAX_SIDE)),
         SizeHint::Native => {
             let intrinsic = size.to_int_size();
             (intrinsic.width().max(1), intrinsic.height().max(1))

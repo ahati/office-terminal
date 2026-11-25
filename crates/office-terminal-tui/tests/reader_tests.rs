@@ -1,6 +1,5 @@
 use crossterm::event::{
-    KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
-    MouseEventKind,
+    KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use office_terminal_tui::app::bindings::FrameBindings;
 use office_terminal_tui::app::events::{handle_key_event, AppAction};
@@ -32,7 +31,9 @@ fn reader_state(pages: usize) -> PresentationState {
 /// Draws one reader frame at `w`×`h` and publishes the bindings like the run loop.
 fn draw_reader(state: &mut PresentationState, terminal: &mut Terminal<TestBackend>, w: u16, h: u16) {
     let mut bindings = FrameBindings::default();
-    terminal.draw(|f| render_reader(state, f, Rect::new(0, 0, w, h), &mut bindings)).unwrap();
+    terminal
+        .draw(|f| render_reader(state, f, Rect::new(0, 0, w, h), &mut bindings))
+        .unwrap();
     state.publish_frame_bindings(bindings);
 }
 
@@ -386,10 +387,11 @@ fn test_continuous_v_scroll_row_1_matches_row_0_horizontal_alignment() {
     let cell_h_px = metrics.height_px.max(8.0) as f32;
     let viewport_w_px = 160.0 * cell_w_px;
     let viewport_h_px = 44.0 * cell_h_px;
-    let row_stride = state
-        .reader_state()
-        .unwrap()
-        .current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+    let row_stride =
+        state
+            .reader_state()
+            .unwrap()
+            .current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
     state.reader_state_mut().unwrap().scroll_px = (row_stride * 0.75).round() as i64;
     // Intentional smoothing change: converge the displayed value toward the
     // target before asserting geometry at the requested offset.
@@ -445,10 +447,11 @@ fn test_reproduce_zoomed_v_scroll_blank_screen_in_gutter() {
         .reader_state()
         .unwrap()
         .current_row_height_px(viewport_w_px, viewport_h_px, cell_w_px);
-    let row_stride = state
-        .reader_state()
-        .unwrap()
-        .current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
+    let row_stride =
+        state
+            .reader_state()
+            .unwrap()
+            .current_row_stride_px(viewport_w_px, viewport_h_px, cell_w_px, cell_h_px);
 
     // Set scroll_px to just past Row 0 height, but still within row_stride (inside vertical gutter)
     let gutter_scroll = (base_h as i64 + 1).min(row_stride as i64 - 1);
@@ -515,18 +518,29 @@ fn test_reproduce_horizontal_arrow_right_page_shift() {
 
 #[test]
 fn test_reader_mouse_wheel_scroll_direction() {
-    let wheel = |kind| MouseEvent { kind, column: 0, row: 0, modifiers: KeyModifiers::NONE };
+    let wheel = |kind| MouseEvent {
+        kind,
+        column: 0,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    };
     let mut state = reader_state(10);
 
     // Wheel-down scrolls forward through the same path as j.
     let action = handle_reader_mouse(wheel(MouseEventKind::ScrollDown), &mut state);
     assert_eq!(action, AppAction::Redraw);
-    assert!(state.reader_state().unwrap().scroll_px > 0, "wheel-down grows the scroll target");
+    assert!(
+        state.reader_state().unwrap().scroll_px > 0,
+        "wheel-down grows the scroll target"
+    );
 
     // Wheel-up scrolls back to the origin.
     let action = handle_reader_mouse(wheel(MouseEventKind::ScrollUp), &mut state);
     assert_eq!(action, AppAction::Redraw);
-    assert!(state.reader_state().unwrap().scroll_px == 0, "wheel-up returns the target to the origin");
+    assert!(
+        state.reader_state().unwrap().scroll_px == 0,
+        "wheel-up returns the target to the origin"
+    );
 
     // Non-wheel kinds are ignored.
     assert_eq!(

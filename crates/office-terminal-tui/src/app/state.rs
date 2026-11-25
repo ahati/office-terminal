@@ -1,6 +1,5 @@
 use office_terminal_display::{
-    CellRect, ImageId, CURRENT_IMAGE_ID_BASE, CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE,
-    PREVIEW_IMAGE_ID_SLOTS,
+    CellRect, ImageId, CURRENT_IMAGE_ID_BASE, CURRENT_IMAGE_ID_SLOTS, PREVIEW_IMAGE_ID_BASE, PREVIEW_IMAGE_ID_SLOTS,
 };
 use pptx_model::{PptxComment, Slide};
 use std::sync::{Arc, Mutex};
@@ -8,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use crate::app::deck_state::DeckState;
 use crate::app::find_state::FindState;
 use crate::app::link_state::LinkPickerState;
-use crate::app::mode_stack::{BaseView, ModeStack};
 pub use crate::app::mode::{AppMode, BlankMode, PresenterMode};
+use crate::app::mode_stack::{BaseView, ModeStack};
 use crate::app::nav_state::NavState;
 use crate::app::search_state::SearchState;
 use crate::app::session_state::SessionState;
@@ -304,10 +303,7 @@ impl PresentationState {
 
     /// Speaker notes for current slide.
     pub fn current_notes(&self) -> Option<&str> {
-        self.deck
-            .notes()
-            .get(self.current_slide)
-            .and_then(|opt| opt.as_deref())
+        self.deck.notes().get(self.current_slide).and_then(|opt| opt.as_deref())
     }
 
     pub fn notes_slice(&self) -> &[Option<String>] {
@@ -381,17 +377,13 @@ impl PresentationState {
     }
 
     pub fn set_slides(&mut self, slides: Vec<Slide>) {
-        self.nav.set_hidden(
-            slides.iter().map(|slide| slide.hidden).collect(),
-            self.total_slides,
-        );
+        self.nav
+            .set_hidden(slides.iter().map(|slide| slide.hidden).collect(), self.total_slides);
         self.deck.set_slides(slides);
         // Initial-slide selection: in `skip` mode a hidden opening slide lands
         // on the first shown one. ref viewer.ts:512-522 (`_initialSlide`)
         if self.total_slides > 0 {
-            self.current_slide = self
-                .nav
-                .resolve(self.current_slide.min(self.total_slides - 1));
+            self.current_slide = self.nav.resolve(self.current_slide.min(self.total_slides - 1));
         }
         self.sync_search_entries();
     }
@@ -407,9 +399,7 @@ impl PresentationState {
             let labels = self.deck.page_labels().to_vec();
             self.search.sync_from_toc(self.deck.toc(), self.total_slides, &labels);
         } else {
-            let hidden: Vec<bool> = (0..self.total_slides)
-                .map(|index| self.nav.is_hidden(index))
-                .collect();
+            let hidden: Vec<bool> = (0..self.total_slides).map(|index| self.nav.is_hidden(index)).collect();
             self.search.sync_entries_filtered(
                 self.deck.slides(),
                 self.deck.notes(),

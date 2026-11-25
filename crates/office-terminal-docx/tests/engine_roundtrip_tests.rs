@@ -6,12 +6,9 @@ mod common;
 
 use std::sync::Arc;
 
-use office_terminal_core::contracts::{
-    PageSource, RenderTargetSpec, SvgTextMode, VectorCommand,
-};
+use office_terminal_core::contracts::{PageSource, RenderTargetSpec, SvgTextMode, VectorCommand};
 use office_terminal_core::{
-    DefaultSlideSvgSerializer, EmptyAssetStore, SlideRasterizer, SlideSvgSerializer,
-    TinySkiaRasterizer,
+    DefaultSlideSvgSerializer, EmptyAssetStore, SlideRasterizer, SlideSvgSerializer, TinySkiaRasterizer,
 };
 use office_terminal_docx::{DocxError, DocxLimits, DocxPageSource};
 
@@ -75,11 +72,7 @@ fn heading_outlines_reach_the_toc() {
 fn search_corpus_extracts_reading_order_text() {
     let source = open(common::simple_docx());
     let corpus = source.search_corpus();
-    let all_text: String = corpus
-        .page_text(0)
-        .iter()
-        .flat_map(|line| line.text.chars())
-        .collect();
+    let all_text: String = corpus.page_text(0).iter().flat_map(|line| line.text.chars()).collect();
     assert!(all_text.contains("First body paragraph"));
     assert!(all_text.contains("Integration Heading One"));
 }
@@ -103,10 +96,7 @@ fn compiled_pages_carry_exact_face_text_runs() {
         // The exact-face handle is the whole point of the bridge: glyph IDs
         // must paint from the engine's own face bytes, never a re-resolved
         // family (PRD 15 §5.5).
-        assert!(
-            run.face.is_some(),
-            "engine runs must carry a registered face handle"
-        );
+        assert!(run.face.is_some(), "engine runs must carry a registered face handle");
         assert!(!run.single_face);
     }
 }
@@ -137,9 +127,9 @@ fn pages_rasterize_with_real_ink() {
 fn svg_export_supports_selectable_and_vector_glyph_modes() {
     let source = open(common::simple_docx());
     let serializer = DefaultSlideSvgSerializer::new();
-    let store = source.asset_store().unwrap_or_else(|| {
-        Arc::new(EmptyAssetStore) as Arc<dyn office_terminal_core::AssetStore>
-    });
+    let store = source
+        .asset_store()
+        .unwrap_or_else(|| Arc::new(EmptyAssetStore) as Arc<dyn office_terminal_core::AssetStore>);
     let (tx, _rx) = crossbeam_channel::unbounded();
     let slide = source.compile_page(0, &tx).expect("compile");
 
@@ -174,11 +164,13 @@ fn hyperlinks_resolve_external_and_bookmark_targets_across_pages() {
 
     let external = links
         .iter()
-        .find(|link| matches!(
-            link.target,
-            office_terminal_core::contracts::HyperlinkTarget::ExternalUri(ref url)
-                if url == "https://example.com/more"
-        ))
+        .find(|link| {
+            matches!(
+                link.target,
+                office_terminal_core::contracts::HyperlinkTarget::ExternalUri(ref url)
+                    if url == "https://example.com/more"
+            )
+        })
         .expect("external hyperlink survives the sanitizer");
     assert!(external.bounds_emu.w > 0.0);
 
@@ -212,11 +204,9 @@ fn garbage_packages_error_without_panicking() {
 
 #[test]
 fn packages_without_a_main_part_error_clearly() {
-    let error = DocxPageSource::open(Arc::from(
-        common::main_part_missing_docx().into_boxed_slice(),
-    ))
-    .err()
-    .expect("missing main part is rejected");
+    let error = DocxPageSource::open(Arc::from(common::main_part_missing_docx().into_boxed_slice()))
+        .err()
+        .expect("missing main part is rejected");
     let message = error.to_string();
     assert!(
         message.to_lowercase().contains("main") || message.to_lowercase().contains("document"),
@@ -326,9 +316,7 @@ fn inline_png_pictures_become_draw_image_served_by_the_asset_store() {
         .commands
         .iter()
         .find_map(|command| match command {
-            VectorCommand::DrawImage {
-                rel_id, dest_rect, ..
-            } => {
+            VectorCommand::DrawImage { rel_id, dest_rect, .. } => {
                 assert!(dest_rect.w > 0.0 && dest_rect.h > 0.0, "placed box");
                 Some(rel_id.clone())
             }

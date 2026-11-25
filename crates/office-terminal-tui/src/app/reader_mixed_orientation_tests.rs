@@ -73,8 +73,7 @@ fn test_flip_continuity_across_orientation_change() {
     // Scroll deep into row [0,1] so the next row peeks in from below.
     let stride = {
         let reader = state.reader_state().unwrap();
-        let (_, viewport_h_px, cell_w_px, cell_h_px) =
-            crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
+        let (_, viewport_h_px, cell_w_px, cell_h_px) = crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
         reader.row_stride_px(
             viewport_h_px,
             reader.slot_width(WIDTH as f32 * cell_w_px, viewport_h_px, cell_w_px),
@@ -99,8 +98,7 @@ fn test_flip_continuity_across_orientation_change() {
     // smoothed display converge onto the new anchor.
     state.reader_state_mut().unwrap().scroll_px = stride as i64;
     let geo = {
-        let (_, viewport_h_px, cell_w_px, cell_h_px) =
-            crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
+        let (_, viewport_h_px, cell_w_px, cell_h_px) = crate::app::reader_types::reader_viewport_metrics(WIDTH, HEIGHT);
         crate::app::reader_scroll::RowGeometry {
             viewport_h_px,
             slot_w_px: state
@@ -198,11 +196,7 @@ fn test_rows_align_on_one_stable_grid() {
     for anchor in [0usize, 2, 4, 6, 8, 10] {
         state.reader_state_mut().unwrap().anchor = anchor;
         let b = draw_reader(&mut state);
-        let cols: Vec<(usize, u16)> = b
-            .reader
-            .iter()
-            .map(|p| (p.page, p.cell_rect.col))
-            .collect();
+        let cols: Vec<(usize, u16)> = b.reader.iter().map(|p| (p.page, p.cell_rect.col)).collect();
         if let Some(prev) = prev_cols.replace(cols.clone()) {
             let left_cols: Vec<u16> = cols.iter().map(|c| c.1).collect();
             let prev_left: Vec<u16> = prev.iter().map(|c| c.1).collect();
@@ -234,20 +228,13 @@ fn test_scroll_together_through_the_orientation_change() {
         if let Some(p) = prev.replace(cur.clone()) {
             let shared: Vec<(usize, (u16, u16))> = p
                 .iter()
-                .filter_map(|(page, _col, _row)| {
-                    cur.iter()
-                        .find(|c| c.0 == *page)
-                        .map(|c| (*page, (c.1, c.2)))
-                })
+                .filter_map(|(page, _col, _row)| cur.iter().find(|c| c.0 == *page).map(|c| (*page, (c.1, c.2))))
                 .collect();
             // Every page still on screen must have moved at most one row
             // up (a j step is 1/8 of the stride) and kept its column.
             for (page, (col, row)) in shared {
                 let (_, prev_col, prev_row) = p.iter().find(|c| c.0 == page).unwrap();
-                assert_eq!(
-                    col, *prev_col,
-                    "page {page} must not shuffle sideways while scrolling"
-                );
+                assert_eq!(col, *prev_col, "page {page} must not shuffle sideways while scrolling");
                 assert!(
                     row <= *prev_row,
                     "page {page} must only glide upward (row {prev_row} -> {row})"

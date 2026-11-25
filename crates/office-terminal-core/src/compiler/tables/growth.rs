@@ -11,10 +11,7 @@ use crate::contracts::{AffineTransform, VectorCommand, WarningEvent};
 /// ECMA-376 §21.1.3.18 / [MS-OE376] §2.1.1347: `a:tr@h` is a MINIMUM row
 /// height; PowerPoint grows a row to fit its tallest laid-out cell text.
 /// ref renderer.ts:7645-7723
-pub(super) fn grown_row_heights(
-    tbl: &pptx_model::TableElement,
-    warning_sink: &Sender<WarningEvent>,
-) -> Vec<f32> {
+pub(super) fn grown_row_heights(tbl: &pptx_model::TableElement, warning_sink: &Sender<WarningEvent>) -> Vec<f32> {
     let mut row_h: Vec<f32> = tbl.rows.iter().map(|r| r.height as f32).collect();
     let authored_total: i64 = tbl.rows.iter().map(|r| r.height).sum();
     // Slack between the authored frame and the sum of the positive `a:tr@h`
@@ -23,8 +20,7 @@ pub(super) fn grown_row_heights(
     // font stack wraps differently. ref renderer.ts:7654-7658
     let growth_signal = tbl.height > authored_total;
     let cols: Vec<f32> = tbl.cols.iter().map(|w| *w as f32).collect();
-    let width_of =
-        |ci: usize, span: usize| -> f32 { (0..span).filter_map(|s| cols.get(ci + s)).sum() };
+    let width_of = |ci: usize, span: usize| -> f32 { (0..span).filter_map(|s| cols.get(ci + s)).sum() };
 
     // Pass 1: single-row cells set their own row's minimum.
     for (ri, row) in tbl.rows.iter().enumerate() {
@@ -41,11 +37,7 @@ pub(super) fn grown_row_heights(
             let Some(slot) = row_h.get_mut(ri) else {
                 continue;
             };
-            let needed = measure_cell_text(
-                &body,
-                width_of(ci, cell.grid_span.max(1) as usize),
-                warning_sink,
-            );
+            let needed = measure_cell_text(&body, width_of(ci, cell.grid_span.max(1) as usize), warning_sink);
             if needed > *slot {
                 *slot = needed;
             }
@@ -72,11 +64,7 @@ pub(super) fn grown_row_heights(
             if !has_auto_row && !growth_signal {
                 continue;
             }
-            let needed = measure_cell_text(
-                &body,
-                width_of(ci, cell.grid_span.max(1) as usize),
-                warning_sink,
-            );
+            let needed = measure_cell_text(&body, width_of(ci, cell.grid_span.max(1) as usize), warning_sink);
             let covered = (ri..(ri + span).min(row_h.len())).collect::<Vec<_>>();
             let have: f32 = covered.iter().map(|r| row_h[*r]).sum();
             if needed > have {
@@ -111,14 +99,7 @@ pub(super) fn measure_cell_text(
     let baseline_at = |anchor: &str| -> Option<f32> {
         let mut probe = body.clone();
         probe.vertical_anchor = anchor.to_string();
-        first_baseline(&compile_text_body(
-            &probe,
-            box_w,
-            0,
-            &transform,
-            None,
-            warning_sink,
-        ))
+        first_baseline(&compile_text_body(&probe, box_w, 0, &transform, None, warning_sink))
     };
     match (baseline_at("t"), baseline_at("ctr")) {
         (Some(top), Some(ctr)) => (insets + 2.0 * (top - ctr)).max(0.0),
@@ -145,9 +126,7 @@ pub(super) fn first_baseline(commands: &[VectorCommand]) -> Option<f32> {
 /// a first paragraph's `spcBef` and a last paragraph's `spcAft` still move
 /// glyphs. Applied to BOTH measurement and paint.
 /// ref renderer.ts:7591-7602
-pub(super) fn table_cell_body(
-    cell: &pptx_model::TableCell,
-) -> Option<Cow<'_, pptx_model::TextBody>> {
+pub(super) fn table_cell_body(cell: &pptx_model::TableCell) -> Option<Cow<'_, pptx_model::TextBody>> {
     let body = cell.text_body.as_ref()?;
     if body.spc_first_last_para {
         let mut owned = body.clone();

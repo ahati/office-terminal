@@ -14,11 +14,10 @@ use fontdb::{Family, Query, Stretch, Style, Weight};
 use rustybuzz::ttf_parser::{Face, GlyphId, OutlineBuilder};
 
 use super::path::format_transform_attr;
-use crate::contracts::{
-    AffineTransform, DecorationLine, DecorationStyle, PositionedGlyphRun, RunWarp, SvgTextMode,
-    EMU_PER_PT,
-};
 use crate::compiler::text_warp::{warp_glyph_transform, warp_point};
+use crate::contracts::{
+    AffineTransform, DecorationLine, DecorationStyle, PositionedGlyphRun, RunWarp, SvgTextMode, EMU_PER_PT,
+};
 // The glyph runs were shaped by the crate's ONE shared per-thread font runtime
 // (`crate::text::fonts`), so the outline painter resolves faces through the
 // same shared raw database instead of scanning the system again.
@@ -154,11 +153,7 @@ impl OutlineBuilder for SvgWarpGlyphBuilder<'_> {
     }
 }
 
-pub fn serialize_svg_text(
-    runs: &[PositionedGlyphRun],
-    transform: &AffineTransform,
-    text_mode: SvgTextMode,
-) -> String {
+pub fn serialize_svg_text(runs: &[PositionedGlyphRun], transform: &AffineTransform, text_mode: SvgTextMode) -> String {
     let mut out = String::new();
     let transform_attr = format_transform_attr(transform);
 
@@ -235,10 +230,7 @@ fn format_text_length_attr(run: &PositionedGlyphRun) -> String {
     if (measured - natural).abs() <= tolerance {
         return String::new();
     }
-    format!(
-        r#" textLength="{:.1}" lengthAdjust="spacingAndGlyphs""#,
-        measured
-    )
+    format!(r#" textLength="{:.1}" lengthAdjust="spacingAndGlyphs""#, measured)
 }
 
 /// `fill`, face and decoration attributes shared by both text modes.
@@ -336,12 +328,7 @@ fn run_bounds(run: &PositionedGlyphRun) -> (f32, f32, f32, f32) {
     let font_size_emu = (run.font_size_pt * EMU_PER_PT).max(1.0);
     let ascent_emu = font_size_emu * 0.85;
     let descent_emu = font_size_emu * 0.35;
-    (
-        x,
-        baseline_y - ascent_emu,
-        x + width.max(1.0),
-        baseline_y + descent_emu,
-    )
+    (x, baseline_y - ascent_emu, x + width.max(1.0), baseline_y + descent_emu)
 }
 
 fn emit_reflected_group(
@@ -360,15 +347,7 @@ fn emit_reflected_group(
     let mask_id = format!("refl-text-mask-{index}");
     let grad_id = format!("refl-text-grad-{index}");
     let mut defs = String::new();
-    super::filters::emit_reflection_defs(
-        index,
-        &mask_id,
-        &grad_id,
-        refl,
-        &mirror,
-        region,
-        &mut defs,
-    );
+    super::filters::emit_reflection_defs(index, &mask_id, &grad_id, refl, &mirror, region, &mut defs);
     out.push_str("  <defs>\n");
     out.push_str(&defs);
     out.push_str("  </defs>\n");
@@ -387,11 +366,7 @@ fn emit_reflected_group(
     out.push_str("  </g></g>\n");
 }
 
-fn serialize_selectable_text(
-    runs: &[PositionedGlyphRun],
-    transform_attr: &str,
-    out: &mut String,
-) {
+fn serialize_selectable_text(runs: &[PositionedGlyphRun], transform_attr: &str, out: &mut String) {
     for run in runs {
         if run.text.is_empty() {
             continue;
@@ -430,11 +405,7 @@ fn serialize_selectable_text(
     }
 }
 
-fn serialize_vector_glyphs(
-    runs: &[PositionedGlyphRun],
-    transform_attr: &str,
-    out: &mut String,
-) -> bool {
+fn serialize_vector_glyphs(runs: &[PositionedGlyphRun], transform_attr: &str, out: &mut String) -> bool {
     let mut any_rendered = false;
 
     with_face_db(|db| {
@@ -446,9 +417,7 @@ fn serialize_vector_glyphs(
             // Exact-face outlines first (PRD 15 §5.5): glyph IDs from a
             // document engine are only valid for its registered face bytes.
             // An unresolvable handle falls through to family outlining.
-            if run.face.is_some()
-                && super::document_text::serialize_document_glyphs(run, transform_attr, out)
-            {
+            if run.face.is_some() && super::document_text::serialize_document_glyphs(run, transform_attr, out) {
                 any_rendered = true;
                 continue;
             }

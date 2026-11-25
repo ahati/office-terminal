@@ -28,16 +28,16 @@ use crossbeam_channel::unbounded;
 use office_terminal_core::compiler::dim::{apply_dim_overlay, DimOptions};
 use office_terminal_core::compiler::style::parse_hex_color;
 use office_terminal_core::compiler::text::compile_text_body;
-use office_terminal_core::compiler::transform::compute_shape_transform;
 use office_terminal_core::compiler::text_warp::build_warp_envelope;
+use office_terminal_core::compiler::transform::compute_shape_transform;
 use office_terminal_core::compiler::{DefaultSlideCompiler, SlideCompiler};
 use office_terminal_core::contracts::{
-    AffineTransform, FillRule, PathSegment, PositionedGlyphRun, VectorBackground, VectorCommand,
-    VectorPath, VectorPaint, VectorSlide,
+    AffineTransform, FillRule, PathSegment, PositionedGlyphRun, VectorBackground, VectorCommand, VectorPaint,
+    VectorPath, VectorSlide,
 };
 use pptx_model::{
-    Bullet, Fill, Paragraph, ShapeElement, Slide, SlideElement, SlideElementOrigin,
-    SlideElementSource, SlideTheme, TextBody, TextRun, TextRunData, TextWarp,
+    Bullet, Fill, Paragraph, ShapeElement, Slide, SlideElement, SlideElementOrigin, SlideElementSource, SlideTheme,
+    TextBody, TextRun, TextRunData, TextWarp,
 };
 
 const SLIDE_W: i64 = 9_144_000;
@@ -191,9 +191,7 @@ fn fallback_shape(text: &str) -> ShapeElement {
 }
 
 fn solid(hex: &str) -> Fill {
-    Fill::Solid {
-        color: hex.to_string(),
-    }
+    Fill::Solid { color: hex.to_string() }
 }
 
 fn slide_with(background: Option<Fill>, elements: Vec<ShapeElement>) -> Slide {
@@ -361,23 +359,13 @@ fn wordart_empty_manual_lines_do_not_build_per_line_envelopes() {
     };
     // Body exactly as the reference builds it: `run('A')` + 100 breaks.
     let body = warped_body(100, &["A"]);
-    let commands = compile_text_body(
-        &body,
-        620 * 12_700,
-        150 * 12_700,
-        &transform,
-        None,
-        &tx,
-    );
+    let commands = compile_text_body(&body, 620 * 12_700, 150 * 12_700, &transform, None, &tx);
 
     let (envelopes, when_needed) = envelope_allocations(&commands);
     // At most the reference's two builds (base + expanded); here: exactly one.
     assert!(envelopes <= 2, "envelope allocations = {envelopes}");
     assert_eq!(envelopes, 1, "one envelope shared by every painted line");
-    assert!(
-        when_needed <= 2,
-        "per-line envelope wrappers = {when_needed}"
-    );
+    assert!(when_needed <= 2, "per-line envelope wrappers = {when_needed}");
 
     // The 100 empty manual lines paint nothing: one glyph run in total.
     let texts: Vec<String> = commands
@@ -391,8 +379,8 @@ fn wordart_empty_manual_lines_do_not_build_per_line_envelopes() {
     assert_eq!(commands.len(), 1);
 
     // Sanity: the preset really produces a single-edge envelope (620 px wide).
-    let envelope = build_warp_envelope("textArchUp", &[], 620.0 * 12_700.0, 150.0 * 12_700.0)
-        .expect("textArchUp envelope");
+    let envelope =
+        build_warp_envelope("textArchUp", &[], 620.0 * 12_700.0, 150.0 * 12_700.0).expect("textArchUp envelope");
     assert!(envelope.single_edge);
 }
 
@@ -483,10 +471,7 @@ fn smartart_fallback_keeps_the_theme_default_on_a_light_background() {
     let slide = compile(&slide_with(Some(solid(LIGHT_BG)), vec![shape]));
 
     assert_eq!(colour_of(&slide, "Task one"), [0x38, 0x38, 0x38, 255]);
-    assert_eq!(
-        background(&slide),
-        Some(VectorBackground::Solid([255, 255, 255, 255]))
-    );
+    assert_eq!(background(&slide), Some(VectorBackground::Solid([255, 255, 255, 255])));
 }
 
 #[test]

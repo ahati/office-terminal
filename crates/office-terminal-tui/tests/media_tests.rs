@@ -1,11 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use pptx_model::{MediaElement, ShapeElement, Slide, SlideElement};
 use office_terminal_tui::app::events::{handle_key_event, AppAction};
 use office_terminal_tui::app::media::{
-    find_slide_media, has_slide_media, is_executable_in_path, try_play_current_slide_media,
-    try_play_with_player,
+    find_slide_media, has_slide_media, is_executable_in_path, try_play_current_slide_media, try_play_with_player,
 };
 use office_terminal_tui::app::state::PresentationState;
+use pptx_model::{MediaElement, ShapeElement, Slide, SlideElement};
 
 fn make_key(code: KeyCode) -> KeyEvent {
     KeyEvent {

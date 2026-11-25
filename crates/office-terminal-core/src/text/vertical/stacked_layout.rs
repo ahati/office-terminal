@@ -88,9 +88,7 @@ pub fn place_stacked(
     let mut current: Vec<usize> = Vec::new();
     let mut used = 0.0f32;
     for (index, glyph) in glyphs.iter().enumerate() {
-        if !current.is_empty()
-            && (glyph.break_before || (rect.h > 0.0 && used + glyph.advance > rect.h + 0.01))
-        {
+        if !current.is_empty() && (glyph.break_before || (rect.h > 0.0 && used + glyph.advance > rect.h + 0.01)) {
             columns.push(std::mem::take(&mut current));
             used = 0.0;
         }

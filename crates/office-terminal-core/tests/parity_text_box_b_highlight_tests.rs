@@ -187,11 +187,7 @@ fn highlight_splits_adjacent_runs_that_differ() {
     assert_eq!(boxes[0].color, [255, 255, 0, 255], "seg[0] yellow");
     assert_eq!(boxes[1].color, [0, 255, 0, 255], "seg[1] green");
     // AAA is one glyph wider than nothing: the boxes abut, never overlap.
-    close(
-        boxes[0].rect.right(),
-        boxes[1].rect.x,
-        "the two markers abut",
-    );
+    close(boxes[0].rect.right(), boxes[1].rect.x, "the two markers abut");
 }
 
 /// `:94` "coalesces adjacent runs that share the same highlight": one segment
@@ -216,10 +212,7 @@ fn highlight_coalesces_runs_that_agree() {
 #[test]
 fn highlight_splits_a_highlighted_run_from_its_neighbour() {
     let commands = compile(
-        &body(vec![para(vec![
-            highlighted_run("AAA", "FFFF00"),
-            text_run("BBB"),
-        ])]),
+        &body(vec![para(vec![highlighted_run("AAA", "FFFF00"), text_run("BBB")])]),
         10_000.0,
         400.0,
     );
@@ -231,11 +224,7 @@ fn highlight_splits_a_highlighted_run_from_its_neighbour() {
     // The box spans AAA's glyph advance only — it must not reach into BBB.
     let aaa = &runs[0];
     close(boxes[0].rect.x, aaa.glyphs[0].x, "box left = AAA's origin");
-    let aaa_right = aaa
-        .glyphs
-        .iter()
-        .map(|glyph| glyph.advance)
-        .sum::<f32>();
+    let aaa_right = aaa.glyphs.iter().map(|glyph| glyph.advance).sum::<f32>();
     close(boxes[0].rect.w, aaa_right, "box width = AAA's advance");
 }
 
@@ -348,23 +337,11 @@ fn display_equation_starts_and_ends_its_own_visual_line() {
         200.0,
         400.0,
     ));
-    let before = runs
-        .iter()
-        .find(|run| run.text == "before")
-        .expect("before run");
-    let equation = runs
-        .iter()
-        .find(|run| run.text == "x")
-        .expect("equation run");
-    let after = runs
-        .iter()
-        .find(|run| run.text == "after")
-        .expect("after run");
+    let before = runs.iter().find(|run| run.text == "before").expect("before run");
+    let equation = runs.iter().find(|run| run.text == "x").expect("equation run");
+    let after = runs.iter().find(|run| run.text == "after").expect("after run");
     let line_box = 1.2 * 20.0 * PT;
-    assert!(
-        run_y(equation) > run_y(before),
-        "the equation starts a new visual line"
-    );
+    assert!(run_y(equation) > run_y(before), "the equation starts a new visual line");
     assert!(
         run_y(after) > run_y(equation),
         "the text after the equation starts a new visual line"
@@ -375,7 +352,6 @@ fn display_equation_starts_and_ends_its_own_visual_line() {
         "two 1.2 em line boxes between the text lines",
     );
 }
-
 
 #[path = "text_box_b_support/line_end_trim_cases.rs"]
 mod line_end_trim_cases;

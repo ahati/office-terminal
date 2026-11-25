@@ -89,11 +89,7 @@ pub fn layout_array(
     let m = ctx.metrics(style);
     let cells: Vec<Vec<MathBox>> = rows
         .iter()
-        .map(|row| {
-            row.iter()
-                .map(|cell| layout_nodes(cell, style, ctx, depth))
-                .collect()
-        })
+        .map(|row| row.iter().map(|cell| layout_nodes(cell, style, ctx, depth)).collect())
         .collect();
     let ncols = cells.iter().map(Vec::len).max().unwrap_or(0);
     if ncols == 0 || cells.is_empty() {
@@ -177,13 +173,7 @@ fn accent_mark(chr: &str) -> AccentMark {
 }
 
 /// `m:acc` — accent mark centred over the base box (PRD 09 §2.8).
-pub fn layout_accent(
-    chr: &str,
-    base: &[MathNode],
-    style: MathStyle,
-    ctx: &mut LayoutCtx,
-    depth: usize,
-) -> MathBox {
+pub fn layout_accent(chr: &str, base: &[MathNode], style: MathStyle, ctx: &mut LayoutCtx, depth: usize) -> MathBox {
     let m = ctx.metrics(style);
     let base_box = layout_nodes(base, style, ctx, depth);
     let mark = accent_mark(chr);
@@ -203,13 +193,7 @@ pub fn layout_accent(
             let width = base_w.max(m.em * 0.4);
             let pad = ((width - base_w) * 0.5).max(0.0);
             let path = paths::arrow_path(width, top, m.em * 0.07);
-            let path_box = MathBox::paths(
-                vec![path],
-                width,
-                (-top).max(0.0),
-                base_box.depth,
-                m.rule_thickness,
-            );
+            let path_box = MathBox::paths(vec![path], width, (-top).max(0.0), base_box.depth, m.rule_thickness);
             MathBox::vbox(vec![(pad, 0.0, base_box), (0.0, 0.0, path_box)])
         }
         AccentMark::Glyph(ch) => {
@@ -223,13 +207,7 @@ pub fn layout_accent(
 }
 
 /// `m:bar` — overline / underline rule.
-pub fn layout_bar(
-    pos: &str,
-    base: &[MathNode],
-    style: MathStyle,
-    ctx: &mut LayoutCtx,
-    depth: usize,
-) -> MathBox {
+pub fn layout_bar(pos: &str, base: &[MathNode], style: MathStyle, ctx: &mut LayoutCtx, depth: usize) -> MathBox {
     let m = ctx.metrics(style);
     let base_box = layout_nodes(base, style, ctx, depth);
     let t = m.rule_thickness;
@@ -388,13 +366,7 @@ mod tests {
     #[test]
     fn border_box_emits_four_edges_by_default() {
         with_ctx(|ctx| {
-            let b = layout_border_box(
-                &[run("x")],
-                BorderEdges::default(),
-                MathStyle::text(),
-                ctx,
-                0,
-            );
+            let b = layout_border_box(&[run("x")], BorderEdges::default(), MathStyle::text(), ctx, 0);
             match &b.kind {
                 MathBoxKind::VBox(items) => match &items[0].child.kind {
                     MathBoxKind::Paths { paths, .. } => assert_eq!(paths.len(), 4),

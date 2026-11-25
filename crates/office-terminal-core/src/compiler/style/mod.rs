@@ -3,9 +3,8 @@ pub mod line_end;
 pub mod stroke;
 
 use crate::contracts::{
-    CompoundLine, GradientFrame, LineCap, LineJoin, LineEnd, LineEndKind, LineEndSize,
-    NormalizedRect, PathSegment, VectorGradient, VectorImageFill, VectorPaint, VectorPath,
-    VectorStroke, VectorTile, DEFAULT_MITER_LIMIT,
+    CompoundLine, GradientFrame, LineCap, LineEnd, LineEndKind, LineEndSize, LineJoin, NormalizedRect, PathSegment,
+    VectorGradient, VectorImageFill, VectorPaint, VectorPath, VectorStroke, VectorTile, DEFAULT_MITER_LIMIT,
 };
 /// Synchronous-canvas ceiling kept in parity with the reference parser
 /// (`MAX_DRAWINGML_CUSTOM_DASH_STOPS`).
@@ -252,10 +251,7 @@ fn compile_image_fill(
 /// (`x = l`, `y = t`, `w = 1-l-r`, `h = 1-t-b`). A non-finite edge drops the
 /// frame (`ref paint.ts:2467-2477` treats it as absent).
 pub fn normalized_rect(rect: &ooxml_common::fill::FillRect) -> Option<NormalizedRect> {
-    if ![rect.l, rect.t, rect.r, rect.b]
-        .iter()
-        .all(|v| v.is_finite())
-    {
+    if ![rect.l, rect.t, rect.r, rect.b].iter().all(|v| v.is_finite()) {
         return None;
     }
     Some(NormalizedRect {
@@ -372,19 +368,10 @@ fn compile_compound(cmpd: Option<&str>) -> CompoundLine {
 fn compile_dash_segments(stroke: &pptx_model::Stroke) -> Option<Vec<f32>> {
     if !stroke.custom_dash.is_empty() {
         let mut segments = Vec::new();
-        for seg in stroke
-            .custom_dash
-            .iter()
-            .take(MAX_DRAWINGML_CUSTOM_DASH_STOPS)
-        {
+        for seg in stroke.custom_dash.iter().take(MAX_DRAWINGML_CUSTOM_DASH_STOPS) {
             let dash = seg.dash as f32;
             let space = seg.space as f32;
-            if !dash.is_finite()
-                || !space.is_finite()
-                || dash < 0.0
-                || space < 0.0
-                || (dash == 0.0 && space == 0.0)
-            {
+            if !dash.is_finite() || !space.is_finite() || dash < 0.0 || space < 0.0 || (dash == 0.0 && space == 0.0) {
                 continue;
             }
             segments.push(dash);
@@ -445,7 +432,6 @@ fn has_zero_on_segment(dash: Option<&[f32]>) -> bool {
     })
 }
 
-
 /// Local-space bounds of a path (control points included, matching the
 /// rasterizer's conservative bounds). Used as the shape box for gradient
 /// framing: the IR does not carry the authored shape rect, and a preset path
@@ -459,10 +445,18 @@ pub fn path_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
 
     for seg in &path.segments {
         let mut add = |x: f32, y: f32| {
-            if x < min_x { min_x = x; }
-            if x > max_x { max_x = x; }
-            if y < min_y { min_y = y; }
-            if y > max_y { max_y = y; }
+            if x < min_x {
+                min_x = x;
+            }
+            if x > max_x {
+                max_x = x;
+            }
+            if y < min_y {
+                min_y = y;
+            }
+            if y > max_y {
+                max_y = y;
+            }
         };
         match seg {
             PathSegment::MoveTo { x, y } | PathSegment::LineTo { x, y } => {
@@ -493,30 +487,18 @@ pub fn path_bounds(path: &VectorPath) -> Option<(f32, f32, f32, f32)> {
 /// The reference centres the axis on the box and uses half the sum of the
 /// axis-aligned projections of the box edges: `(|cos|·w + |sin|·h) / 2`.
 /// ref packages/core/src/shape/paint.ts:290-300
-pub fn linear_gradient_axis(
-    angle_deg: f32,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-) -> ((f32, f32), (f32, f32)) {
+pub fn linear_gradient_axis(angle_deg: f32, x: f32, y: f32, w: f32, h: f32) -> ((f32, f32), (f32, f32)) {
     let rad = angle_deg.to_radians();
     let dx = rad.cos();
     let dy = rad.sin();
     let half = (dx.abs() * w + dy.abs() * h) / 2.0;
     let cx = x + w / 2.0;
     let cy = y + h / 2.0;
-    (
-        (cx - dx * half, cy - dy * half),
-        (cx + dx * half, cy + dy * half),
-    )
+    ((cx - dx * half, cy - dy * half), (cx + dx * half, cy + dy * half))
 }
 
 /// [`linear_gradient_axis`] framed on a path's local bounds.
-pub fn linear_gradient_axis_for_path(
-    angle_deg: f32,
-    path: &VectorPath,
-) -> Option<((f32, f32), (f32, f32))> {
+pub fn linear_gradient_axis_for_path(angle_deg: f32, path: &VectorPath) -> Option<((f32, f32), (f32, f32))> {
     let (min_x, min_y, max_x, max_y) = path_bounds(path)?;
     Some(linear_gradient_axis(
         angle_deg,
@@ -546,10 +528,5 @@ pub fn radial_gradient_frame(x: f32, y: f32, w: f32, h: f32) -> ((f32, f32), f32
 /// [`radial_gradient_frame`] framed on a path's local bounds.
 pub fn radial_gradient_frame_for_path(path: &VectorPath) -> Option<((f32, f32), f32)> {
     let (min_x, min_y, max_x, max_y) = path_bounds(path)?;
-    Some(radial_gradient_frame(
-        min_x,
-        min_y,
-        max_x - min_x,
-        max_y - min_y,
-    ))
+    Some(radial_gradient_frame(min_x, min_y, max_x - min_x, max_y - min_y))
 }

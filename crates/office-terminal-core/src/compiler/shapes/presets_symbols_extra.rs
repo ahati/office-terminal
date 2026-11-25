@@ -9,12 +9,7 @@ use crate::contracts::{FillRule, VectorPath};
 
 use super::util::{norm_adj, push_ellipse, push_polygon, push_round_rect, sample_arc};
 
-pub fn build_symbol_extra_preset(
-    geometry: &str,
-    w: f32,
-    h: f32,
-    adj: &[Option<f64>],
-) -> Option<VectorPath> {
+pub fn build_symbol_extra_preset(geometry: &str, w: f32, h: f32, adj: &[Option<f64>]) -> Option<VectorPath> {
     match geometry {
         "sun" => Some(sun_path(w, h)),
         "moon" => Some(moon_path(w, h)),
@@ -48,15 +43,9 @@ fn sun_path(w: f32, h: f32) -> VectorPath {
         push_polygon(
             &mut segs,
             &[
-                (
-                    cx + base * (a - spread).cos(),
-                    cy + base * (a - spread).sin(),
-                ),
+                (cx + base * (a - spread).cos(), cy + base * (a - spread).sin()),
                 (cx + apex * a.cos(), cy + apex * a.sin()),
-                (
-                    cx + base * (a + spread).cos(),
-                    cy + base * (a + spread).sin(),
-                ),
+                (cx + base * (a + spread).cos(), cy + base * (a + spread).sin()),
             ],
         );
     }
@@ -69,15 +58,7 @@ fn moon_path(w: f32, h: f32) -> VectorPath {
     let rx = w / 2.0;
     let ry = h / 2.0;
     let mut points = sample_arc(cx, cy, rx, ry, -70.0, 140.0, 24);
-    points.extend(sample_arc(
-        w * 0.42,
-        cy,
-        rx * 0.8,
-        ry * 0.85,
-        70.0,
-        -140.0,
-        24,
-    ));
+    points.extend(sample_arc(w * 0.42, cy, rx * 0.8, ry * 0.85, 70.0, -140.0, 24));
     super::util::polygon(&points, FillRule::NonZero)
 }
 
@@ -96,15 +77,7 @@ fn smiley_path(w: f32, h: f32) -> VectorPath {
     push_ellipse(&mut segs, cx - 0.2 * w, h * 0.32, eye_r, eye_r, true);
     push_ellipse(&mut segs, cx + 0.2 * w, h * 0.32, eye_r, eye_r, true);
     let mut mouth = sample_arc(cx, mouth_cy, mouth_outer, mouth_outer, 30.0, 120.0, 16);
-    mouth.extend(sample_arc(
-        cx,
-        mouth_cy,
-        mouth_inner,
-        mouth_inner,
-        150.0,
-        -120.0,
-        16,
-    ));
+    mouth.extend(sample_arc(cx, mouth_cy, mouth_inner, mouth_inner, 150.0, -120.0, 16));
     push_polygon(&mut segs, &mouth);
     VectorPath::new(segs, FillRule::EvenOdd)
 }
@@ -236,11 +209,7 @@ fn ellipse_ribbon_path(w: f32, h: f32, adj: &[Option<f64>], invert: bool) -> Vec
     let end_y = h * 0.35 + 0.5 * thickness;
     push_polygon(
         &mut segs,
-        &[
-            (0.0, h * 0.35),
-            (0.08 * w, end_y),
-            (0.0, h * 0.35 + thickness),
-        ],
+        &[(0.0, h * 0.35), (0.08 * w, end_y), (0.0, h * 0.35 + thickness)],
     );
     push_polygon(
         &mut segs,

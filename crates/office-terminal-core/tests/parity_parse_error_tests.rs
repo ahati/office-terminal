@@ -65,9 +65,7 @@ fn texts(slide: &VectorSlide) -> Vec<String> {
         .commands
         .iter()
         .flat_map(|command| match command {
-            VectorCommand::DrawText { runs, .. } => {
-                runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>()
-            }
+            VectorCommand::DrawText { runs, .. } => runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>(),
             _ => Vec::new(),
         })
         .collect()
