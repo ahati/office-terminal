@@ -27,8 +27,22 @@
 
 ![Slide Sorter View](./media/slide-sorter.png)
 
-Screenshots are documentation captures of a public-domain/fair-use demo deck;
-see [`media/README.md`](./media/README.md) for provenance.
+### PDF Reader Mode
+*Two-page spread for PDF documents with page labels, continuous scrolling, and full-text search (`/`).*
+
+![PDF Reader Mode](./media/pdf-reader.png)
+
+### Word Document Reader
+*Two-page spread for `.docx` documents with headings, tables, headers/footers, and reading-order search.*
+
+![Word Document Reader](./media/docx-reader.png)
+
+### Reader Help & Keymaps
+*Context-aware help modal over the PDF reader, with reader-specific keybindings.*
+
+![Reader Help](./media/reader-help.png)
+
+See [`media/README.md`](./media/README.md) for screenshot provenance.
 
 ---
 

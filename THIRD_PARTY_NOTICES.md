@@ -113,7 +113,18 @@ not a substitute for the dependency notice bundle.
 
 ## 5. README screenshots
 
-The screenshots under `media/` are documentation captures of a demo deck. The
-project author states that the slide content is public domain or used under
-fair use; third-party images are credited in-slide (for example
-`scikit-learn.org`). See [`media/README.md`](./media/README.md).
+- `presentation-view.png`, `presenter-view.png`, `slide-sorter.png`: documentation
+  captures of *Intro to Neural Networks* (CERN Indico):
+  <https://indico.cern.ch/event/1477462/contributions/6515096/attachments/3090571/5473644/Intro%20to%20Neural%20Networks.pptx.pdf>.
+  The project author states that the slide content is public domain or used
+  under fair use for documentation; all rights remain with the original
+  authors. Third-party images are credited in-slide (for example
+  `scikit-learn.org`).
+- `pdf-reader.png` and `reader-help.png`: pages from *The Cathedral and the
+  Bazaar* by Eric S. Raymond, version 3.0, copyright © 2000 Eric S. Raymond,
+  distributed under the Open Publication License 2.0. The PDF itself is not
+  committed.
+- `docx-reader.png`: a synthetic Word document generated for the README; no
+  third-party text or media.
+
+See [`media/README.md`](./media/README.md) for details and capture notes.

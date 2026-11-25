@@ -29,10 +29,7 @@ const READER_HELP: &[HelpSection] = &[
         title: "Reading:",
         rows: &[
             ("j / k, Down / Up", "continuous column scroll"),
-            (
-                "PgDn / PgUp, n / p",
-                "next / previous row (Space, Enter, Backspace too)",
-            ),
+            ("PgDn / PgUp, n / p", "next / previous row (Space/Enter/BS)"),
             ("Right / Left", "slide zoomed row / advance row at fit"),
             ("d / u", "half-page scroll"),
         ],
